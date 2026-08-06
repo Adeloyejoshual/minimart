@@ -13,13 +13,17 @@ const router         = express.Router();
 const JWT_SECRET     = process.env.JWT_SECRET     || "supersecretkey";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 
-// ── Rate limiter ──────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// RATE LIMITER
+// In-memory — replace with redis-based limiter in production
+// ─────────────────────────────────────────────────────────────
 const _attempts = new Map();
 
 const authLimiter = (req, res, next) => {
   const ip  =
     req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
-    req.socket.remoteAddress ?? "unknown";
+    req.socket.remoteAddress ??
+    "unknown";
   const now = Date.now();
   const key = `auth:${ip}`;
   let   rec = _attempts.get(key);
@@ -43,21 +47,38 @@ const authLimiter = (req, res, next) => {
   next();
 };
 
+// ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+
+// Generic success response for sensitive endpoints
+// Prevents email enumeration attacks
+const genericSuccess = (res, message) =>
+  res.json({ success: true, message });
+
 // ════════════════════════════════════════════════════════════
 // POST /api/auth/register
+// Creates a new seller account in market.users
+// Sends a 6-digit OTP to verify email
 // ════════════════════════════════════════════════════════════
 router.post("/register", authLimiter, async (req, res) => {
   const { name, email, phone, password } = req.body;
 
-  // ── Validation ────────────────────────────────────────────
+  // ── Validation ───────────────────────────────────────────
   if (!name?.trim())
-    return res.status(400).json({ success: false, message: "Name is required" });
+    return res.status(400).json({
+      success: false, message: "Name is required",
+    });
 
   if (!email?.trim())
-    return res.status(400).json({ success: false, message: "Email is required" });
+    return res.status(400).json({
+      success: false, message: "Email is required",
+    });
 
   if (!password)
-    return res.status(400).json({ success: false, message: "Password is required" });
+    return res.status(400).json({
+      success: false, message: "Password is required",
+    });
 
   if (password.length < 8)
     return res.status(400).json({
@@ -68,8 +89,7 @@ router.post("/register", authLimiter, async (req, res) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email.trim()))
     return res.status(400).json({
-      success: false,
-      message: "Enter a valid email address",
+      success: false, message: "Enter a valid email address",
     });
 
   const client = await pool.connect();
@@ -77,14 +97,49 @@ router.post("/register", authLimiter, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Check duplicate ───────────────────────────────────
+    // ── Check duplicate ──────────────────────────────────
     const { rows: existing } = await client.query(
-      `SELECT id FROM market.users WHERE email = $1`,
+      `SELECT id, is_verified FROM market.users WHERE email = $1`,
       [email.toLowerCase().trim()]
     );
 
     if (existing.length) {
       await client.query("ROLLBACK");
+
+      // If account exists but not verified → resend OTP
+      // so user can continue without registering again
+      if (!existing[0].is_verified) {
+        const otp        = generateOTP();
+        const hashedCode = hashCode(otp);
+        const expires    = new Date(Date.now() + 60 * 60_000);
+
+        await pool.query(
+          `UPDATE market.users
+           SET verify_code = $1, verify_expires = $2
+           WHERE id = $3`,
+          [hashedCode, expires, existing[0].id]
+        );
+
+        try {
+          await sendVerificationCode({
+            to:   email.toLowerCase().trim(),
+            name: name.trim(),
+            code: otp,
+          });
+        } catch (mailErr) {
+          console.error("[register] ⚠️ Resend email failed:", mailErr.message);
+        }
+
+        return res.status(409).json({
+          success: false,
+          code:    "EMAIL_TAKEN_UNVERIFIED",
+          message:
+            "An unverified account with this email already exists. " +
+            "We've resent your verification code — please check your email.",
+          email: email.toLowerCase().trim(),
+        });
+      }
+
       return res.status(409).json({
         success: false,
         code:    "EMAIL_TAKEN",
@@ -92,14 +147,15 @@ router.post("/register", authLimiter, async (req, res) => {
       });
     }
 
+    // ── Hash password ────────────────────────────────────
     const password_hash = await bcrypt.hash(password, 12);
 
-    // ── Generate OTP ──────────────────────────────────────
+    // ── Generate verification OTP ────────────────────────
     const otp        = generateOTP();
     const hashedCode = hashCode(otp);
     const expires    = new Date(Date.now() + 60 * 60_000); // 1 hour
 
-    // ── INSERT ────────────────────────────────────────────
+    // ── Insert user ──────────────────────────────────────
     const { rows: [user] } = await client.query(
       `INSERT INTO market.users
          (name, email, password_hash, phone_number, status,
@@ -118,7 +174,7 @@ router.post("/register", authLimiter, async (req, res) => {
 
     await client.query("COMMIT");
 
-    // ── Send OTP email ────────────────────────────────────
+    // ── Send OTP email ───────────────────────────────────
     try {
       await sendVerificationCode({
         to:   user.email,
@@ -127,15 +183,16 @@ router.post("/register", authLimiter, async (req, res) => {
       });
     } catch (mailErr) {
       console.error("[register] ⚠️ Email failed:", mailErr.message);
+      // Don't fail registration if email fails
     }
 
-    console.log("[register] ✅ market.users created:", user.id);
+    console.log("[register] ✅ created:", user.id);
 
     return res.status(201).json({
       success: true,
-      message: "Account created! Please check your email for the verification code.",
-      // Return email so frontend can prefill the verify screen
-      email:   user.email,
+      message:
+        "Account created! Please check your email for the verification code.",
+      email: user.email,
     });
 
   } catch (err) {
@@ -166,33 +223,29 @@ router.post("/register", authLimiter, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // POST /api/auth/verify-email
 // Body: { email, code }
+// Verifies the 6-digit OTP sent on registration
 // ════════════════════════════════════════════════════════════
 router.post("/verify-email", async (req, res) => {
   const { email, code } = req.body;
 
-  if (!email?.trim()) {
+  if (!email?.trim())
     return res.status(400).json({
-      success: false,
-      message: "Email is required",
+      success: false, message: "Email is required",
     });
-  }
 
-  if (!code?.trim()) {
+  if (!code?.trim())
     return res.status(400).json({
-      success: false,
-      message: "Verification code is required",
+      success: false, message: "Verification code is required",
     });
-  }
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, is_verified, verify_code, verify_expires
+      `SELECT id, is_verified, verify_code, verify_expires, name
        FROM market.users
        WHERE email = $1`,
       [email.toLowerCase().trim()]
     );
 
-    // ── Not found ─────────────────────────────────────────
     if (!rows.length) {
       return res.status(404).json({
         success: false,
@@ -202,7 +255,7 @@ router.post("/verify-email", async (req, res) => {
 
     const user = rows[0];
 
-    // ── Already verified ──────────────────────────────────
+    // ── Already verified ─────────────────────────────────
     if (user.is_verified) {
       return res.json({
         success: true,
@@ -210,7 +263,7 @@ router.post("/verify-email", async (req, res) => {
       });
     }
 
-    // ── Expired ───────────────────────────────────────────
+    // ── Expired ──────────────────────────────────────────
     if (new Date() > new Date(user.verify_expires)) {
       return res.status(400).json({
         success: false,
@@ -219,17 +272,16 @@ router.post("/verify-email", async (req, res) => {
       });
     }
 
-    // ── Wrong code ────────────────────────────────────────
-    const hashedInput = hashCode(code.trim());
-    if (hashedInput !== user.verify_code) {
+    // ── Wrong code ───────────────────────────────────────
+    if (hashCode(code.trim()) !== user.verify_code) {
       return res.status(400).json({
         success: false,
         code:    "INVALID_CODE",
-        message: "Invalid verification code",
+        message: "Invalid verification code. Please check and try again.",
       });
     }
 
-    // ── Mark verified ─────────────────────────────────────
+    // ── Mark verified ────────────────────────────────────
     await pool.query(
       `UPDATE market.users
        SET is_verified    = TRUE,
@@ -258,22 +310,14 @@ router.post("/verify-email", async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // POST /api/auth/resend-verification
 // Body: { email }
+// Resends the email OTP for unverified accounts
 // ════════════════════════════════════════════════════════════
 router.post("/resend-verification", authLimiter, async (req, res) => {
   const { email } = req.body;
 
-  if (!email?.trim()) {
+  if (!email?.trim())
     return res.status(400).json({
-      success: false,
-      message: "Email is required",
-    });
-  }
-
-  // Generic response to prevent email enumeration
-  const genericResponse = () =>
-    res.json({
-      success: true,
-      message: "If an unverified account exists, a new code has been sent.",
+      success: false, message: "Email is required",
     });
 
   try {
@@ -284,27 +328,28 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
       [email.toLowerCase().trim()]
     );
 
-    // ── No user or already verified → generic response ────
+    // Generic response — don't reveal if email exists
     if (!rows.length || rows[0].is_verified) {
-      return genericResponse();
+      return genericSuccess(
+        res,
+        "If an unverified account exists, a new code has been sent."
+      );
     }
 
     const user = rows[0];
 
-    // ── Generate new OTP ──────────────────────────────────
+    // ── Generate new OTP ─────────────────────────────────
     const otp        = generateOTP();
     const hashedCode = hashCode(otp);
     const expires    = new Date(Date.now() + 60 * 60_000); // 1 hour
 
     await pool.query(
       `UPDATE market.users
-       SET verify_code    = $1,
-           verify_expires = $2
+       SET verify_code = $1, verify_expires = $2
        WHERE id = $3`,
       [hashedCode, expires, user.id]
     );
 
-    // ── Send OTP email ────────────────────────────────────
     try {
       await sendVerificationCode({
         to:   user.email,
@@ -317,7 +362,10 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
 
     console.log("[resend-verification] ✅ sent to:", user.id);
 
-    return genericResponse();
+    return genericSuccess(
+      res,
+      "If an unverified account exists, a new code has been sent."
+    );
 
   } catch (err) {
     console.error("[resend-verification] ❌", err.message);
@@ -329,195 +377,18 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-// POST /api/auth/forgot-password
-// Body: { email }
-// ════════════════════════════════════════════════════════════
-router.post("/forgot-password", authLimiter, async (req, res) => {
-  const { email } = req.body;
-
-  if (!email?.trim()) {
-    return res.status(400).json({
-      success: false,
-      message: "Email is required",
-    });
-  }
-
-  const genericResponse = () =>
-    res.json({
-      success: true,
-      message: "If an account exists, a reset code has been sent to your email.",
-    });
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name, email, status
-       FROM market.users
-       WHERE email = $1`,
-      [email.toLowerCase().trim()]
-    );
-
-    if (!rows.length) return genericResponse();
-
-    const user = rows[0];
-
-    // ── Suspended ─────────────────────────────────────────
-    if (user.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        message: "Your account has been suspended.",
-      });
-    }
-
-    // ── Generate reset OTP ────────────────────────────────
-    const otp        = generateOTP();
-    const hashedCode = hashCode(otp);
-    const expires    = new Date(Date.now() + 15 * 60_000); // 15 minutes
-
-    await pool.query(
-      `UPDATE market.users
-       SET reset_code    = $1,
-           reset_expires = $2
-       WHERE id = $3`,
-      [hashedCode, expires, user.id]
-    );
-
-    // ── Send OTP email ────────────────────────────────────
-    try {
-      await sendPasswordResetCode({
-        to:   user.email,
-        name: user.name,
-        code: otp,
-      });
-    } catch (mailErr) {
-      console.error("[forgot-password] ⚠️ Email failed:", mailErr.message);
-    }
-
-    console.log("[forgot-password] ✅ sent to:", user.id);
-
-    return genericResponse();
-
-  } catch (err) {
-    console.error("[forgot-password] ❌", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to send reset code.",
-    });
-  }
-});
-
-// ════════════════════════════════════════════════════════════
-// POST /api/auth/reset-password
-// Body: { email, code, newPassword }
-// ════════════════════════════════════════════════════════════
-router.post("/reset-password", authLimiter, async (req, res) => {
-  const { email, code, newPassword } = req.body;
-
-  if (!email?.trim()) {
-    return res.status(400).json({
-      success: false,
-      message: "Email is required",
-    });
-  }
-
-  if (!code?.trim()) {
-    return res.status(400).json({
-      success: false,
-      message: "Reset code is required",
-    });
-  }
-
-  if (!newPassword || newPassword.length < 8) {
-    return res.status(400).json({
-      success: false,
-      message: "Password must be at least 8 characters",
-    });
-  }
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, reset_code, reset_expires
-       FROM market.users
-       WHERE email = $1`,
-      [email.toLowerCase().trim()]
-    );
-
-    // ── Not found ─────────────────────────────────────────
-    if (!rows.length) {
-      return res.status(404).json({
-        success: false,
-        message: "No account found with this email",
-      });
-    }
-
-    const user = rows[0];
-
-    // ── No reset code requested ───────────────────────────
-    if (!user.reset_code) {
-      return res.status(400).json({
-        success: false,
-        message: "No password reset was requested. Please use forgot password.",
-      });
-    }
-
-    // ── Expired ───────────────────────────────────────────
-    if (new Date() > new Date(user.reset_expires)) {
-      return res.status(400).json({
-        success: false,
-        code:    "CODE_EXPIRED",
-        message: "Reset code has expired. Please request a new one.",
-      });
-    }
-
-    // ── Wrong code ────────────────────────────────────────
-    const hashedInput = hashCode(code.trim());
-    if (hashedInput !== user.reset_code) {
-      return res.status(400).json({
-        success: false,
-        code:    "INVALID_CODE",
-        message: "Invalid reset code",
-      });
-    }
-
-    // ── Hash new password & clear reset code ──────────────
-    const password_hash = await bcrypt.hash(newPassword, 12);
-
-    await pool.query(
-      `UPDATE market.users
-       SET password_hash = $1,
-           reset_code    = NULL,
-           reset_expires = NULL
-       WHERE id = $2`,
-      [password_hash, user.id]
-    );
-
-    console.log("[reset-password] ✅ password updated:", user.id);
-
-    return res.json({
-      success: true,
-      message: "Password reset successfully! You can now log in.",
-    });
-
-  } catch (err) {
-    console.error("[reset-password] ❌", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Password reset failed. Please try again.",
-    });
-  }
-});
-
-// ════════════════════════════════════════════════════════════
 // POST /api/auth/login
+// Body: { email, password }
+// Checks market.users ONLY — seller accounts
 // ════════════════════════════════════════════════════════════
 router.post("/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email?.trim() || !password) {
+  if (!email?.trim() || !password)
     return res.status(400).json({
       success: false,
       message: "Email and password are required",
     });
-  }
 
   try {
     const { rows } = await pool.query(
@@ -527,16 +398,18 @@ router.post("/login", authLimiter, async (req, res) => {
       [email.toLowerCase().trim()]
     );
 
+    // ── Not found ────────────────────────────────────────
     if (!rows.length) {
       return res.status(401).json({
         success: false,
-        message: "No seller account found with this email. Please create one.",
+        message:
+          "No seller account found with this email. Please create one.",
       });
     }
 
     const user = rows[0];
 
-    // ── Suspended ─────────────────────────────────────────
+    // ── Suspended ────────────────────────────────────────
     if (user.status !== "active") {
       return res.status(403).json({
         success: false,
@@ -545,17 +418,7 @@ router.post("/login", authLimiter, async (req, res) => {
       });
     }
 
-    // ── Email not verified ────────────────────────────────
-    if (!user.is_verified) {
-      return res.status(403).json({
-        success: false,
-        code:    "EMAIL_NOT_VERIFIED",
-        message: "Please verify your email before logging in.",
-        email:   user.email, // so frontend can navigate to verify screen
-      });
-    }
-
-    // ── Wrong password ────────────────────────────────────
+    // ── Wrong password ───────────────────────────────────
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({
@@ -564,6 +427,18 @@ router.post("/login", authLimiter, async (req, res) => {
       });
     }
 
+    // ── Email not verified ───────────────────────────────
+    // Return 403 with email so frontend can navigate to OTP screen
+    if (!user.is_verified) {
+      return res.status(403).json({
+        success: false,
+        code:    "EMAIL_NOT_VERIFIED",
+        message: "Please verify your email before logging in.",
+        email:   user.email,
+      });
+    }
+
+    // ── Issue token ──────────────────────────────────────
     const token = jwt.sign(
       { id: user.id, email: user.email },
       JWT_SECRET,
@@ -593,15 +468,273 @@ router.post("/login", authLimiter, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
+// POST /api/auth/forgot-password
+// Body: { email }
+// Sends a 6-digit reset OTP — 15-minute expiry
+// ════════════════════════════════════════════════════════════
+router.post("/forgot-password", authLimiter, async (req, res) => {
+  const { email } = req.body;
+
+  if (!email?.trim())
+    return res.status(400).json({
+      success: false, message: "Email is required",
+    });
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email.trim()))
+    return res.status(400).json({
+      success: false, message: "Enter a valid email address",
+    });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, status
+       FROM market.users
+       WHERE email = $1`,
+      [email.toLowerCase().trim()]
+    );
+
+    // ── Suspended account ────────────────────────────────
+    if (rows.length && rows[0].status !== "active") {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been suspended. Contact support.",
+      });
+    }
+
+    // ── User not found → still return generic ────────────
+    if (rows.length) {
+      const user = rows[0];
+
+      const otp        = generateOTP();
+      const hashedCode = hashCode(otp);
+      const expires    = new Date(Date.now() + 15 * 60_000); // 15 minutes
+
+      await pool.query(
+        `UPDATE market.users
+         SET reset_code = $1, reset_expires = $2
+         WHERE id = $3`,
+        [hashedCode, expires, user.id]
+      );
+
+      try {
+        await sendPasswordResetCode({
+          to:   user.email,
+          name: user.name,
+          code: otp,
+        });
+      } catch (mailErr) {
+        console.error("[forgot-password] ⚠️ Email failed:", mailErr.message);
+      }
+
+      console.log("[forgot-password] ✅ sent to:", user.id);
+    }
+
+    // Always return generic — never reveal if email exists
+    return genericSuccess(
+      res,
+      "If an account exists with this email, a reset code has been sent."
+    );
+
+  } catch (err) {
+    console.error("[forgot-password] ❌", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send reset code.",
+    });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// POST /api/auth/verify-reset-code
+// Body: { email, code }
+// Step 1 of reset — validates OTP WITHOUT changing password
+// ════════════════════════════════════════════════════════════
+router.post("/verify-reset-code", authLimiter, async (req, res) => {
+  const { email, code } = req.body;
+
+  if (!email?.trim())
+    return res.status(400).json({
+      success: false, message: "Email is required",
+    });
+
+  if (!code?.trim())
+    return res.status(400).json({
+      success: false, message: "Reset code is required",
+    });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, reset_code, reset_expires
+       FROM market.users
+       WHERE email = $1`,
+      [email.toLowerCase().trim()]
+    );
+
+    // ── Not found ────────────────────────────────────────
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email",
+      });
+    }
+
+    const user = rows[0];
+
+    // ── No reset requested ───────────────────────────────
+    if (!user.reset_code) {
+      return res.status(400).json({
+        success: false,
+        code:    "NO_RESET_REQUESTED",
+        message: "No password reset was requested. Please use forgot password.",
+      });
+    }
+
+    // ── Expired ──────────────────────────────────────────
+    if (new Date() > new Date(user.reset_expires)) {
+      return res.status(400).json({
+        success: false,
+        code:    "CODE_EXPIRED",
+        message: "Reset code has expired. Please request a new one.",
+      });
+    }
+
+    // ── Wrong code ───────────────────────────────────────
+    if (hashCode(code.trim()) !== user.reset_code) {
+      return res.status(400).json({
+        success: false,
+        code:    "INVALID_CODE",
+        message: "Invalid reset code. Please check and try again.",
+      });
+    }
+
+    // ── Code valid ───────────────────────────────────────
+    // Don't clear the code yet — needed for the next step
+    console.log("[verify-reset-code] ✅ code verified:", user.id);
+
+    return res.json({
+      success: true,
+      message: "Reset code verified. You can now set a new password.",
+    });
+
+  } catch (err) {
+    console.error("[verify-reset-code] ❌", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Verification failed. Please try again.",
+    });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// POST /api/auth/reset-password
+// Body: { email, code, newPassword }
+// Step 2 of reset — verifies code again + sets new password
+// Double-checks the code so the endpoint can't be hit directly
+// ════════════════════════════════════════════════════════════
+router.post("/reset-password", authLimiter, async (req, res) => {
+  const { email, code, newPassword } = req.body;
+
+  if (!email?.trim())
+    return res.status(400).json({
+      success: false, message: "Email is required",
+    });
+
+  if (!code?.trim())
+    return res.status(400).json({
+      success: false, message: "Reset code is required",
+    });
+
+  if (!newPassword || newPassword.length < 8)
+    return res.status(400).json({
+      success: false,
+      message: "Password must be at least 8 characters",
+    });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, reset_code, reset_expires
+       FROM market.users
+       WHERE email = $1`,
+      [email.toLowerCase().trim()]
+    );
+
+    // ── Not found ────────────────────────────────────────
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email",
+      });
+    }
+
+    const user = rows[0];
+
+    // ── No reset requested ───────────────────────────────
+    if (!user.reset_code) {
+      return res.status(400).json({
+        success: false,
+        code:    "NO_RESET_REQUESTED",
+        message: "No password reset was requested.",
+      });
+    }
+
+    // ── Expired ──────────────────────────────────────────
+    if (new Date() > new Date(user.reset_expires)) {
+      return res.status(400).json({
+        success: false,
+        code:    "CODE_EXPIRED",
+        message: "Reset code has expired. Please request a new one.",
+      });
+    }
+
+    // ── Wrong code ───────────────────────────────────────
+    // Re-verify — prevents direct hits to this endpoint
+    if (hashCode(code.trim()) !== user.reset_code) {
+      return res.status(400).json({
+        success: false,
+        code:    "INVALID_CODE",
+        message: "Invalid reset code.",
+      });
+    }
+
+    // ── Hash new password & clear reset code ─────────────
+    const password_hash = await bcrypt.hash(newPassword, 12);
+
+    await pool.query(
+      `UPDATE market.users
+       SET password_hash = $1,
+           reset_code    = NULL,
+           reset_expires = NULL
+       WHERE id = $2`,
+      [password_hash, user.id]
+    );
+
+    console.log("[reset-password] ✅ password updated:", user.id);
+
+    return res.json({
+      success: true,
+      message: "Password reset successfully! You can now log in.",
+    });
+
+  } catch (err) {
+    console.error("[reset-password] ❌", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Password reset failed. Please try again.",
+    });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
 // GET /api/auth/me
+// Returns the current seller from market.users
 // ════════════════════════════════════════════════════════════
 router.get("/me", async (req, res) => {
   try {
     const header = req.headers.authorization;
     if (!header?.startsWith("Bearer ")) {
       return res.status(401).json({
-        success: false,
-        message: "No token provided",
+        success: false, message: "No token provided",
       });
     }
 
@@ -609,7 +742,8 @@ router.get("/me", async (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
 
     const { rows } = await pool.query(
-      `SELECT id, name, email, phone_number, status, is_verified, created_at
+      `SELECT id, name, email, phone_number,
+              status, is_verified, created_at
        FROM market.users
        WHERE id = $1`,
       [decoded.id]
@@ -635,8 +769,7 @@ router.get("/me", async (req, res) => {
       });
     }
     return res.status(500).json({
-      success: false,
-      message: "Server error",
+      success: false, message: "Server error",
     });
   }
 });
