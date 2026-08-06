@@ -5,14 +5,14 @@ import { useSellerFlow, STEPS } from "../hooks/useSellerFlow";
 import RegisterStep       from "../components/seller/RegisterStep";
 import OtpStep            from "../components/seller/OtpStep";
 import ForgotPasswordStep from "../components/seller/ForgotPasswordStep";
+import ResetCodeStep      from "../components/seller/ResetCodeStep";
 import ResetPasswordStep  from "../components/seller/ResetPasswordStep";
 import StoreSetup         from "../components/seller/StoreSetup";
 import VerificationStep   from "../components/seller/VerificationStep";
 import "../style/Seller.css";
 
 // ─────────────────────────────────────────────────────────────
-// Progress bar only shows for the main onboarding flow
-// Forgot / Reset password steps are outside the main flow
+// Main onboarding progress steps
 // ─────────────────────────────────────────────────────────────
 const PROGRESS_STEPS = [
   { key: STEPS.REGISTER,     label: "Register",     icon: "👤" },
@@ -23,15 +23,36 @@ const PROGRESS_STEPS = [
   { key: STEPS.APPROVED,     label: "Approved",     icon: "✅" },
 ];
 
-// Steps that are outside the main flow — no progress bar
-const OUTSIDE_FLOW = [
+// ─────────────────────────────────────────────────────────────
+// Steps outside the main flow — no progress bar or step badge
+// ─────────────────────────────────────────────────────────────
+const OUTSIDE_FLOW = new Set([
   STEPS.FORGOT_PASSWORD,
-  STEPS.RESET_PASSWORD,
-];
+  STEPS.RESET_CODE,
+  STEPS.RESET_NEW_PASSWORD,
+]);
 
 // ─────────────────────────────────────────────────────────────
-// PROGRESS BAR
+// Header label for each password-flow step
 // ─────────────────────────────────────────────────────────────
+const PASSWORD_FLOW_META = {
+  [STEPS.FORGOT_PASSWORD]: {
+    title:    "Forgot Password",
+    subtitle: "Enter your email to receive a 6-digit reset code",
+  },
+  [STEPS.RESET_CODE]: {
+    title:    "Enter Reset Code",
+    subtitle: "Check your email for the 6-digit code we sent you",
+  },
+  [STEPS.RESET_NEW_PASSWORD]: {
+    title:    "Set New Password",
+    subtitle: "Your code is verified — create a strong new password",
+  },
+};
+
+// ═════════════════════════════════════════════════════════════
+// PROGRESS BAR
+// ═════════════════════════════════════════════════════════════
 const ProgressBar = ({ currentStep }) => (
   <div className="seller-progress">
     {PROGRESS_STEPS.map((s, idx) => {
@@ -67,9 +88,9 @@ const ProgressBar = ({ currentStep }) => (
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 // MOUNT LOADER
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 const MountLoader = () => (
   <div style={st.loaderWrap}>
     <div style={st.spinner} />
@@ -77,9 +98,9 @@ const MountLoader = () => (
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 // GMAIL / MARKETPLACE USER SCREEN
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 const GmailUserScreen = ({ onSignOut }) => (
   <div className="seller-wrapper">
     <div
@@ -133,9 +154,9 @@ const GmailUserScreen = ({ onSignOut }) => (
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 // REVIEW SCREEN
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 const ReviewScreen = ({ vendor }) => {
   const status = vendor?.status ?? "pending";
 
@@ -219,29 +240,66 @@ const ReviewScreen = ({ vendor }) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────
-// FORGOT / RESET HEADER
-// Shown instead of the main "Become a Seller" header
-// when user is in the password reset flow
-// ─────────────────────────────────────────────────────────────
-const PasswordFlowHeader = ({ step }) => (
-  <div style={st.header}>
-    <h1 style={st.title}>
-      {step === STEPS.FORGOT_PASSWORD
-        ? "Forgot Password"
-        : "Reset Password"}
-    </h1>
-    <p style={st.subtitle}>
-      {step === STEPS.FORGOT_PASSWORD
-        ? "Enter your email to receive a reset code"
-        : "Enter your reset code and new password"}
-    </p>
-  </div>
-);
+// ═════════════════════════════════════════════════════════════
+// PASSWORD FLOW HEADER
+// Replaces the main "Become a Seller" header for reset steps
+// ═════════════════════════════════════════════════════════════
+const PasswordFlowHeader = ({ step }) => {
+  const meta = PASSWORD_FLOW_META[step] ?? {
+    title:    "Password Reset",
+    subtitle: "",
+  };
 
-// ─────────────────────────────────────────────────────────────
+  // Mini step indicator for the 3-step reset flow
+  const resetSteps = [
+    { key: STEPS.FORGOT_PASSWORD,  label: "Email",    icon: "📧" },
+    { key: STEPS.RESET_CODE,       label: "Code",     icon: "🔢" },
+    { key: STEPS.RESET_NEW_PASSWORD, label: "Password", icon: "🔑" },
+  ];
+
+  return (
+    <div style={st.header}>
+      <h1 style={st.title}>{meta.title}</h1>
+      <p style={st.subtitle}>{meta.subtitle}</p>
+
+      {/* Mini step pills for reset flow */}
+      <div style={st.resetStepRow}>
+        {resetSteps.map((rs, idx) => {
+          const isCurrent   = step === rs.key;
+          const isDone      = step > rs.key;
+          return (
+            <React.Fragment key={rs.key}>
+              <div style={{
+                ...st.resetStepPill,
+                background: isDone
+                  ? "#10b981"
+                  : isCurrent
+                    ? "#6366f1"
+                    : "#e5e7eb",
+                color: isDone || isCurrent ? "white" : "#9ca3af",
+              }}>
+                {isDone ? "✓" : rs.icon}
+                <span style={st.resetStepLabel}>
+                  {rs.label}
+                </span>
+              </div>
+              {idx < resetSteps.length - 1 && (
+                <div style={{
+                  ...st.resetStepLine,
+                  background: step > rs.key ? "#10b981" : "#e5e7eb",
+                }} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════
 // MAIN
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 const BecomeSeller = () => {
   const flow = useSellerFlow();
 
@@ -264,22 +322,22 @@ const BecomeSeller = () => {
 
   // ── 3. Marketplace / Gmail user ────────────────────────────
   if (flow.isGmailUser) {
-    return (
-      <GmailUserScreen onSignOut={flow.signOut} />
-    );
+    return <GmailUserScreen onSignOut={flow.signOut} />;
   }
 
   // ── 4. Normal seller flow ──────────────────────────────────
-  const isOutsideFlow   = OUTSIDE_FLOW.includes(flow.step);
-  const showProgressBar = !isOutsideFlow;
+  const isOutsideFlow = OUTSIDE_FLOW.has(flow.step);
 
-  // Step badge counts — only count main flow steps
-  const mainFlowStep    = Math.min(flow.step, PROGRESS_STEPS.length - 1);
+  // Cap to main flow step count for the badge
+  const mainFlowStep = Math.min(
+    flow.step,
+    PROGRESS_STEPS.length - 1
+  );
 
   return (
     <div className="seller-wrapper">
 
-      {/* ── Header ─────────────────────────────────────── */}
+      {/* ── Header ───────────────────────────────────────── */}
       {isOutsideFlow ? (
         <PasswordFlowHeader step={flow.step} />
       ) : (
@@ -294,26 +352,24 @@ const BecomeSeller = () => {
         </div>
       )}
 
-      {/* ── Progress bar (main flow only) ──────────────── */}
-      {showProgressBar && (
+      {/* ── Progress bar (main flow only) ────────────────── */}
+      {!isOutsideFlow && (
         <ProgressBar currentStep={flow.step} />
       )}
 
-      {/* ── Global server error banner ─────────────────── */}
+      {/* ── Global banners ───────────────────────────────── */}
       {flow.serverErr && (
         <div style={st.errBanner}>
           ⚠️ {flow.serverErr}
         </div>
       )}
-
-      {/* ── Global success banner ──────────────────────── */}
-      {flow.serverMsg && (
+      {flow.serverMsg && !flow.serverErr && (
         <div style={st.okBanner}>
           ✅ {flow.serverMsg}
         </div>
       )}
 
-      {/* ── Step renders ───────────────────────────────── */}
+      {/* ── Step renders ─────────────────────────────────── */}
 
       {flow.step === STEPS.REGISTER && (
         <RegisterStep flow={flow} />
@@ -327,7 +383,11 @@ const BecomeSeller = () => {
         <ForgotPasswordStep flow={flow} />
       )}
 
-      {flow.step === STEPS.RESET_PASSWORD && (
+      {flow.step === STEPS.RESET_CODE && (
+        <ResetCodeStep flow={flow} />
+      )}
+
+      {flow.step === STEPS.RESET_NEW_PASSWORD && (
         <ResetPasswordStep flow={flow} />
       )}
 
@@ -379,6 +439,36 @@ const st = {
     fontWeight:   600,
     fontSize:     "0.85rem",
   },
+
+  // ── Password reset mini-stepper ─────────────────────────
+  resetStepRow: {
+    display:        "flex",
+    alignItems:     "center",
+    justifyContent: "center",
+    marginTop:      "1.25rem",
+    gap:            0,
+  },
+  resetStepPill: {
+    display:        "inline-flex",
+    alignItems:     "center",
+    gap:            "0.35rem",
+    padding:        "0.35rem 0.875rem",
+    borderRadius:   "100px",
+    fontSize:       "0.8rem",
+    fontWeight:     700,
+    transition:     "all 0.3s ease",
+  },
+  resetStepLabel: {
+    fontSize: "0.78rem",
+  },
+  resetStepLine: {
+    height:     "2px",
+    width:      "2rem",
+    transition: "background 0.3s ease",
+    flexShrink: 0,
+  },
+
+  // ── Loader ───────────────────────────────────────────────
   loaderWrap: {
     minHeight:      "100vh",
     display:        "flex",
@@ -401,6 +491,8 @@ const st = {
     fontWeight: 500,
     margin:     0,
   },
+
+  // ── Review screen ────────────────────────────────────────
   reviewTitle: {
     fontSize:   "1.75rem",
     fontWeight: 800,
@@ -437,6 +529,8 @@ const st = {
     textDecoration: "none",
     fontWeight:     500,
   },
+
+  // ── Banners ──────────────────────────────────────────────
   errBanner: {
     background:   "#fef2f2",
     border:       "1px solid #fecaca",
