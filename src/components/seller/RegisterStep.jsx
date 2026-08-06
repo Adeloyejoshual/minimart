@@ -1,24 +1,27 @@
 // components/seller/RegisterStep.jsx
-import React, { useState, useCallback } from "react";
-import { STEPS, SELLER_TOKEN_KEY } from "../../hooks/useSellerFlow";
+// ─────────────────────────────────────────────────────────────
+// Handles two modes:
+//   "register" → RegisterForm
+//   "signin"   → SignInForm
+//
+// Both delegate all API calls to useSellerFlow via the `flow`
+// prop. No API calls are made directly from this component.
+// ─────────────────────────────────────────────────────────────
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import { STEPS } from "../../hooks/useSellerFlow";
 
 // ─────────────────────────────────────────────────────────────
-// Seller auth uses /api/seller-auth — separate from marketplace
-// ─────────────────────────────────────────────────────────────
-const AUTH_API = "/api/seller-auth";
-
-// ─────────────────────────────────────────────────────────────
-// PASSWORD STRENGTH
+// PASSWORD STRENGTH METER
 // ─────────────────────────────────────────────────────────────
 const getPasswordStrength = (password) => {
   if (!password) return { score: 0, label: "", color: "" };
 
   let score = 0;
-  if (password.length >= 8)          score++;
-  if (password.length >= 12)         score++;
-  if (/[A-Z]/.test(password))        score++;
-  if (/[0-9]/.test(password))        score++;
-  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (password.length >= 8)           score++;
+  if (password.length >= 12)          score++;
+  if (/[A-Z]/.test(password))         score++;
+  if (/[0-9]/.test(password))         score++;
+  if (/[^A-Za-z0-9]/.test(password))  score++;
 
   const levels = [
     { score: 0, label: "",            color: ""        },
@@ -33,19 +36,35 @@ const getPasswordStrength = (password) => {
 
 // ─────────────────────────────────────────────────────────────
 // ROOT — toggles between register and sign-in
+// Clears flow messages when the user switches modes so stale
+// errors from a previous login attempt don't bleed through.
 // ─────────────────────────────────────────────────────────────
 const RegisterStep = ({ flow }) => {
-  const [mode, setMode] = useState("register");
+  const [mode, setMode] = useState(
+    // If a success message arrived from a password reset,
+    // drop straight into sign-in so the user sees it immediately
+    flow.serverMsg ? "signin" : "register"
+  );
+
+  const switchToSignIn = useCallback(() => {
+    // Don't clear messages — a reset success msg needs to survive
+    setMode("signin");
+  }, []);
+
+  const switchToRegister = useCallback(() => {
+    flow.clearMessages();
+    setMode("register");
+  }, [flow]);
 
   return mode === "register" ? (
     <RegisterForm
       flow={flow}
-      onSwitchToSignIn={() => setMode("signin")}
+      onSwitchToSignIn={switchToSignIn}
     />
   ) : (
     <SignInForm
       flow={flow}
-      onSwitchToRegister={() => setMode("register")}
+      onSwitchToRegister={switchToRegister}
     />
   );
 };
@@ -83,12 +102,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
       <div style={s.form}>
 
         {/* Full Name */}
-        <Field
-          label="Full Name"
-          icon="👤"
-          required
-          error={errors.name}
-        >
+        <Field label="Full Name" icon="👤" required error={errors.name}>
           <input
             name="name"
             type="text"
@@ -102,12 +116,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
         </Field>
 
         {/* Email */}
-        <Field
-          label="Email Address"
-          icon="📧"
-          required
-          error={errors.email}
-        >
+        <Field label="Email Address" icon="📧" required error={errors.email}>
           <input
             name="email"
             type="email"
@@ -139,12 +148,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
         </Field>
 
         {/* Password */}
-        <Field
-          label="Password"
-          icon="🔒"
-          required
-          error={errors.password}
-        >
+        <Field label="Password" icon="🔒" required error={errors.password}>
           <div style={s.passwordWrap}>
             <input
               name="password"
@@ -158,7 +162,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
             />
             <EyeBtn
               show={showPassword}
-              toggle={() => setShowPassword(!showPassword)}
+              toggle={() => setShowPassword((v) => !v)}
             />
           </div>
           {registerData.password && (
@@ -184,14 +188,12 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
               onChange={handleRegisterChange}
               placeholder="Repeat your password"
               autoComplete="new-password"
-              className={`seller-input ${
-                errors.confirm_password ? "error" : ""
-              }`}
+              className={`seller-input ${errors.confirm_password ? "error" : ""}`}
               style={{ paddingRight: "3rem" }}
             />
             <EyeBtn
               show={showConfirm}
-              toggle={() => setShowConfirm(!showConfirm)}
+              toggle={() => setShowConfirm((v) => !v)}
             />
           </div>
           {registerData.confirm_password && (
@@ -202,11 +204,10 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           )}
         </Field>
 
-        {/* Server messages */}
+        {/* Server feedback */}
         {serverErr && <ServerAlert msg={serverErr} isError />}
         {serverMsg && !serverErr && <ServerAlert msg={serverMsg} />}
 
-        {/* Submit */}
         <button
           onClick={submitRegister}
           disabled={loading}
@@ -217,14 +218,9 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
             : "Create Account & Continue →"}
         </button>
 
-        {/* Switch to sign in */}
         <p style={s.switchText}>
           Already have a seller account?{" "}
-          <button
-            type="button"
-            style={s.switchBtn}
-            onClick={onSwitchToSignIn}
-          >
+          <button type="button" style={s.switchBtn} onClick={onSwitchToSignIn}>
             Sign in instead
           </button>
         </p>
@@ -236,8 +232,14 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
 
 // ══════════════════════════════════════════════════════════════
 // SIGN IN FORM
-// Uses flow.submitLogin which calls /api/seller-auth/login
-// Never touches /api/auth (marketplace)
+//
+// Key fixes vs original:
+// 1. Local `errors` state is separate from flow.errors (correct)
+// 2. validate() is a plain function inside the callback, not a
+//    stale closure — avoids the missing-dep bug
+// 3. clearMessages() is called on mount ONLY if there is no
+//    incoming success message (e.g. post-reset redirect)
+// 4. pendingEmail is used to pre-fill email after password reset
 // ══════════════════════════════════════════════════════════════
 const SignInForm = ({ flow, onSwitchToRegister }) => {
   const {
@@ -246,39 +248,55 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
     serverErr,
     setStep,
     submitLogin,
+    clearMessages,
+    pendingEmail,   // pre-fill after password reset
   } = flow;
 
-  const [formData,     setFormData]     = useState({ email: "", password: "" });
-  const [errors,       setErrors]       = useState({});
+  const [formData, setFormData] = useState({
+    email:    pendingEmail ?? "",
+    password: "",
+  });
+  const [localErrors,  setLocalErrors]  = useState({});
   const [showPassword, setShowPassword] = useState(false);
+
+  // If pendingEmail changes (e.g. after reset), pre-fill email
+  useEffect(() => {
+    if (pendingEmail) {
+      setFormData((prev) => ({ ...prev, email: pendingEmail }));
+    }
+  }, [pendingEmail]);
 
   const handleChange = useCallback((e) => {
     const { name, value } = e.target;
-    setFormData((p) => ({ ...p, [name]: value }));
-    setErrors((p)   => ({ ...p, [name]: ""    }));
-  }, []);
+    setFormData((prev)    => ({ ...prev, [name]: value }));
+    setLocalErrors((prev) => ({ ...prev, [name]: "" }));
+    // Only clear the flow-level serverErr when the user starts
+    // typing — leave serverMsg alone (it may be the reset success)
+    if (name === "password" || name === "email") {
+      flow.setServerErr("");
+    }
+  }, [flow]);
 
-  const validate = () => {
+  const handleSignIn = useCallback(() => {
+    // ── Inline validation ────────────────────────────────
     const errs    = {};
     const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!formData.email.trim())
       errs.email = "Email is required";
-    else if (!emailRx.test(formData.email))
+    else if (!emailRx.test(formData.email.trim()))
       errs.email = "Enter a valid email address";
 
     if (!formData.password)
       errs.password = "Password is required";
 
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
-  };
+    setLocalErrors(errs);
+    if (Object.keys(errs).length > 0) return;
 
-  const handleSignIn = useCallback(() => {
-    if (!validate()) return;
-    // Delegates entirely to useSellerFlow.submitLogin
-    // which calls POST /api/seller-auth/login → market.users
+    // Delegates to hook — no API calls here
     submitLogin(formData.email, formData.password);
+    // ↑ email trimmed + lowercased inside submitLogin
+    // ↑ password passed raw — never trimmed
   }, [formData, submitLogin]);
 
   const handleKeyDown = (e) => {
@@ -302,7 +320,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           label="Email Address"
           icon="📧"
           required
-          error={errors.email}
+          error={localErrors.email}
         >
           <input
             name="email"
@@ -313,7 +331,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
             placeholder="you@example.com"
             autoComplete="email"
             autoFocus
-            className={`seller-input ${errors.email ? "error" : ""}`}
+            className={`seller-input ${localErrors.email ? "error" : ""}`}
           />
         </Field>
 
@@ -322,7 +340,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           label="Password"
           icon="🔒"
           required
-          error={errors.password}
+          error={localErrors.password}
         >
           <div style={s.passwordWrap}>
             <input
@@ -333,7 +351,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
               onKeyDown={handleKeyDown}
               placeholder="Your seller account password"
               autoComplete="current-password"
-              className={`seller-input ${errors.password ? "error" : ""}`}
+              className={`seller-input ${localErrors.password ? "error" : ""}`}
               style={{ paddingRight: "3rem" }}
             />
             <EyeBtn
@@ -354,13 +372,11 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </button>
         </div>
 
-        {/* Server messages — from flow state (managed by submitLogin) */}
-        {serverErr && <ServerAlert msg={serverErr} isError />}
+        {/* Flow-level server feedback */}
+        {/* serverMsg shown first — e.g. "Password reset successfully!" */}
         {serverMsg && !serverErr && <ServerAlert msg={serverMsg} />}
+        {serverErr && <ServerAlert msg={serverErr} isError />}
 
-        {/* Local field errors only shown above — no duplicate here */}
-
-        {/* Submit */}
         <button
           onClick={handleSignIn}
           disabled={loading}
@@ -371,7 +387,6 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
             : "Sign In & Continue →"}
         </button>
 
-        {/* Switch to register */}
         <p style={s.switchText}>
           Don't have a seller account?{" "}
           <button
@@ -383,12 +398,10 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </button>
         </p>
 
-        {/* Info note */}
         <div style={s.noteBox}>
           <p style={s.noteText}>
-            🔒 <strong>Seller accounts are separate</strong> from
-            your marketplace account. Use your seller email and
-            password here.
+            🔒 <strong>Seller accounts are separate</strong> from your
+            marketplace account. Use your seller email and password here.
           </p>
         </div>
 
@@ -431,13 +444,12 @@ const PasswordRules = ({ password }) => (
 const StrengthMeter = ({ strength }) => (
   <div style={s.strengthWrap}>
     <div style={s.strengthBar}>
-      {[1,2,3,4,5].map((i) => (
+      {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
           style={{
             ...s.strengthSegment,
-            background: i <= strength.score
-              ? strength.color : "#e5e7eb",
+            background: i <= strength.score ? strength.color : "#e5e7eb",
           }}
         />
       ))}
@@ -468,9 +480,7 @@ const Field = ({ label, icon, required, error, hint, children }) => (
     </label>
     {children}
     {hint && !error && (
-      <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>
-        {hint}
-      </span>
+      <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>{hint}</span>
     )}
     {error && (
       <span className="field-error">⚠️ {error}</span>
@@ -493,7 +503,11 @@ const EyeBtn = ({ show, toggle }) => (
 const ServerAlert = ({ msg, isError }) => {
   if (!msg) return null;
   return (
-    <div className={`seller-alert ${isError ? "error" : "success"}`}>
+    <div
+      className={`seller-alert ${isError ? "error" : "success"}`}
+      role="alert"
+      aria-live="polite"
+    >
       {isError ? "⚠️" : "✅"} {msg}
     </div>
   );
@@ -523,7 +537,7 @@ const s = {
     paddingBottom: "1.5rem",
     borderBottom:  "1px solid #f3f4f6",
   },
-  headerIcon: { fontSize: "3rem", marginBottom: "0.75rem" },
+  headerIcon:  { fontSize: "3rem", marginBottom: "0.75rem" },
   cardTitle: {
     fontSize:   "1.5rem",
     fontWeight: 800,
@@ -559,7 +573,7 @@ const s = {
     gap:        "0.75rem",
     marginTop:  "0.5rem",
   },
-  strengthBar: { display: "flex", gap: "3px", flex: 1 },
+  strengthBar:    { display: "flex", gap: "3px", flex: 1 },
   strengthSegment: {
     height:       "4px",
     flex:         1,
