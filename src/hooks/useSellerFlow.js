@@ -3,6 +3,11 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import axios from "axios";
 
 // ─────────────────────────────────────────────────────────────
+// API BASE — seller auth uses separate prefix from marketplace
+// ─────────────────────────────────────────────────────────────
+const AUTH_API = "/api/seller-auth";
+
+// ─────────────────────────────────────────────────────────────
 // STEPS
 // ─────────────────────────────────────────────────────────────
 export const STEPS = {
@@ -352,6 +357,7 @@ export const useSellerFlow = () => {
 
   // ─────────────────────────────────────────────────────────
   // API: REGISTER
+  // POST /api/seller-auth/register
   // ─────────────────────────────────────────────────────────
   const submitRegister = async () => {
     if (!validateRegister()) return;
@@ -360,7 +366,7 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      const { data } = await axios.post("/api/auth/register", {
+      const { data } = await axios.post(`${AUTH_API}/register`, {
         name:     registerData.name.trim(),
         email:    registerData.email.trim().toLowerCase(),
         phone:    registerData.phone.trim(),
@@ -374,6 +380,22 @@ export const useSellerFlow = () => {
       setStep(STEPS.OTP_VERIFY);
 
     } catch (err) {
+      const code = err.response?.data?.code;
+
+      // Unverified account already exists — resend OTP
+      if (code === "EMAIL_TAKEN_UNVERIFIED") {
+        setPendingEmail(
+          err.response?.data?.email ??
+          registerData.email.trim().toLowerCase()
+        );
+        setServerMsg(
+          err.response?.data?.message ??
+          "We've resent your verification code."
+        );
+        setStep(STEPS.OTP_VERIFY);
+        return;
+      }
+
       setServerErr(
         err.response?.data?.message ?? "Registration failed. Try again."
       );
@@ -384,6 +406,7 @@ export const useSellerFlow = () => {
 
   // ─────────────────────────────────────────────────────────
   // API: VERIFY EMAIL OTP
+  // POST /api/seller-auth/verify-email
   // ─────────────────────────────────────────────────────────
   const submitOtp = async (code) => {
     if (!code?.trim()) {
@@ -400,7 +423,7 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      await axios.post("/api/auth/verify-email", {
+      await axios.post(`${AUTH_API}/verify-email`, {
         email: pendingEmail,
         code:  code.trim(),
       });
@@ -409,7 +432,7 @@ export const useSellerFlow = () => {
       if (registerData.password) {
         try {
           const { data: loginData } = await axios.post(
-            "/api/auth/login",
+            `${AUTH_API}/login`,
             { email: pendingEmail, password: registerData.password }
           );
           if (loginData.token) saveToken(loginData.token);
@@ -435,6 +458,7 @@ export const useSellerFlow = () => {
 
   // ─────────────────────────────────────────────────────────
   // API: RESEND EMAIL OTP
+  // POST /api/seller-auth/resend-verification
   // ─────────────────────────────────────────────────────────
   const resendOtp = async () => {
     if (!pendingEmail) return;
@@ -443,7 +467,9 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      await axios.post("/api/auth/resend-verification", { email: pendingEmail });
+      await axios.post(`${AUTH_API}/resend-verification`, {
+        email: pendingEmail,
+      });
       setServerMsg("A new verification code has been sent to your email.");
     } catch (err) {
       setServerErr(err.response?.data?.message ?? "Failed to resend code.");
@@ -453,7 +479,8 @@ export const useSellerFlow = () => {
   };
 
   // ─────────────────────────────────────────────────────────
-  // API: FORGOT PASSWORD (sends reset OTP)
+  // API: FORGOT PASSWORD
+  // POST /api/seller-auth/forgot-password
   // ─────────────────────────────────────────────────────────
   const submitForgotPassword = async (email) => {
     if (!email?.trim()) {
@@ -471,7 +498,7 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      await axios.post("/api/auth/forgot-password", {
+      await axios.post(`${AUTH_API}/forgot-password`, {
         email: email.trim().toLowerCase(),
       });
 
@@ -495,6 +522,7 @@ export const useSellerFlow = () => {
 
   // ─────────────────────────────────────────────────────────
   // API: VERIFY RESET CODE (step 1 — OTP only)
+  // POST /api/seller-auth/verify-reset-code
   // ─────────────────────────────────────────────────────────
   const submitResetCode = async (code) => {
     if (!code?.trim()) {
@@ -511,7 +539,7 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      await axios.post("/api/auth/verify-reset-code", {
+      await axios.post(`${AUTH_API}/verify-reset-code`, {
         email: pendingEmail,
         code:  code.trim(),
       });
@@ -536,6 +564,7 @@ export const useSellerFlow = () => {
 
   // ─────────────────────────────────────────────────────────
   // API: SET NEW PASSWORD (step 2 — password only)
+  // POST /api/seller-auth/reset-password
   // ─────────────────────────────────────────────────────────
   const submitNewPassword = async (newPassword, confirmPassword) => {
     if (!newPassword) {
@@ -564,7 +593,7 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      await axios.post("/api/auth/reset-password", {
+      await axios.post(`${AUTH_API}/reset-password`, {
         email:       pendingEmail,
         code:        verifiedResetCode,
         newPassword,
@@ -597,6 +626,7 @@ export const useSellerFlow = () => {
 
   // ─────────────────────────────────────────────────────────
   // API: RESEND RESET CODE
+  // POST /api/seller-auth/forgot-password (same endpoint)
   // ─────────────────────────────────────────────────────────
   const resendResetCode = async () => {
     if (!pendingEmail) return;
@@ -605,7 +635,9 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      await axios.post("/api/auth/forgot-password", { email: pendingEmail });
+      await axios.post(`${AUTH_API}/forgot-password`, {
+        email: pendingEmail,
+      });
       setServerMsg("A new reset code has been sent to your email.");
     } catch {
       setServerMsg("A new reset code has been sent to your email.");
@@ -616,6 +648,7 @@ export const useSellerFlow = () => {
 
   // ─────────────────────────────────────────────────────────
   // API: SETUP STORE
+  // POST /api/seller-onboarding/setup-store
   // ─────────────────────────────────────────────────────────
   const submitStore = async () => {
     if (!validateStore()) return;
@@ -673,6 +706,7 @@ export const useSellerFlow = () => {
 
   // ─────────────────────────────────────────────────────────
   // API: SUBMIT VERIFICATION
+  // POST /api/seller-onboarding/verify
   // ─────────────────────────────────────────────────────────
   const submitVerification = async () => {
     if (!validateVerification()) return;
