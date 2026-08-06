@@ -7,6 +7,7 @@ export default function ResetPasswordStep({ flow }) {
     loading,
     serverMsg,
     serverErr,
+    pendingEmail,
     submitNewPassword,
     setStep,
   } = flow;
@@ -20,44 +21,55 @@ export default function ResetPasswordStep({ flow }) {
   const pwMatch    = newPassword && confirmPw && newPassword === confirmPw;
   const pwMismatch = confirmPw && newPassword !== confirmPw;
 
-  const canSubmit  =
-    newPassword.length >= 8 &&
-    /[A-Z]/.test(newPassword) &&
-    /\d/.test(newPassword) &&
-    pwMatch &&
+  const canSubmit =
+    newPassword.length >= 8    &&
+    /[A-Z]/.test(newPassword)  &&
+    /\d/.test(newPassword)     &&
+    !!pwMatch                  &&
     !loading;
 
   const handleSubmit = () => {
+    if (!canSubmit) return;
     submitNewPassword(newPassword, confirmPw);
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter" && canSubmit) handleSubmit();
+    if (e.key === "Enter") handleSubmit();
   };
+
+  const maskedEmail = maskEmail(pendingEmail ?? "");
 
   return (
     <div className="seller-card">
 
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────── */}
       <div style={s.header}>
         <div style={s.icon}>🔑</div>
         <h2 style={s.title}>Set New Password</h2>
         <p style={s.subtitle}>
-          Your reset code has been verified. Now create a strong new password.
+          Your reset code has been verified. Now create a
+          strong new password for your seller account.
         </p>
       </div>
 
-      {/* Verified badge */}
+      {/* ── Verified badge ──────────────────────────────── */}
       <div style={s.verifiedBadge}>
         <span style={{ fontSize: "1.25rem" }}>✅</span>
-        <p style={s.verifiedText}>
-          Reset code verified successfully
-        </p>
+        <div>
+          <p style={s.verifiedTitle}>
+            Reset code verified
+          </p>
+          {maskedEmail && (
+            <p style={s.verifiedEmail}>
+              Account: {maskedEmail}
+            </p>
+          )}
+        </div>
       </div>
 
       <div style={s.form}>
 
-        {/* New password */}
+        {/* ── New password ─────────────────────────────── */}
         <div className="seller-field">
           <label className="seller-label">
             🔒 New Password
@@ -81,11 +93,12 @@ export default function ResetPasswordStep({ flow }) {
             />
           </div>
 
+          {/* Strength meter */}
           {newPassword && (
             <>
               <div style={s.strengthWrap}>
                 <div style={s.strengthBar}>
-                  {[1,2,3,4,5].map((i) => (
+                  {[1, 2, 3, 4, 5].map((i) => (
                     <div
                       key={i}
                       style={{
@@ -111,7 +124,7 @@ export default function ResetPasswordStep({ flow }) {
           )}
         </div>
 
-        {/* Confirm password */}
+        {/* ── Confirm password ─────────────────────────── */}
         <div className="seller-field">
           <label className="seller-label">
             🔒 Confirm Password
@@ -133,6 +146,8 @@ export default function ResetPasswordStep({ flow }) {
               toggle={() => setShowConfirm((v) => !v)}
             />
           </div>
+
+          {/* Match indicator */}
           {confirmPw && (
             <span style={{
               fontSize:   "0.8rem",
@@ -146,15 +161,19 @@ export default function ResetPasswordStep({ flow }) {
           )}
         </div>
 
-        {/* Messages */}
+        {/* ── Messages ─────────────────────────────────── */}
         {serverErr && (
-          <div className="seller-alert error">⚠️ {serverErr}</div>
+          <div className="seller-alert error">
+            ⚠️ {serverErr}
+          </div>
         )}
         {serverMsg && !serverErr && (
-          <div className="seller-alert success">✅ {serverMsg}</div>
+          <div className="seller-alert success">
+            ✅ {serverMsg}
+          </div>
         )}
 
-        {/* Submit */}
+        {/* ── Submit ───────────────────────────────────── */}
         <button
           onClick={handleSubmit}
           disabled={!canSubmit}
@@ -166,7 +185,7 @@ export default function ResetPasswordStep({ flow }) {
             : "Reset Password →"}
         </button>
 
-        {/* Hint */}
+        {/* ── Inline hint ──────────────────────────────── */}
         {!canSubmit && !loading && newPassword && (
           <p style={s.hint}>
             {newPassword.length < 8
@@ -183,14 +202,24 @@ export default function ResetPasswordStep({ flow }) {
 
       </div>
 
-      {/* Back */}
-      <div style={{ textAlign: "center", marginTop: "1rem" }}>
+      {/* ── Navigation ───────────────────────────────────── */}
+      <div style={s.navRow}>
+        {/* Go back to re-enter the code */}
         <button
           type="button"
           style={s.backBtn}
-          onClick={() => setStep(STEPS.REGISTER)}
+          onClick={() => setStep(STEPS.RESET_CODE)}
         >
-          ← Back to Sign In
+          ← Re-enter code
+        </button>
+
+        {/* Start the whole reset over */}
+        <button
+          type="button"
+          style={s.restartBtn}
+          onClick={() => setStep(STEPS.FORGOT_PASSWORD)}
+        >
+          Start over
         </button>
       </div>
 
@@ -199,11 +228,13 @@ export default function ResetPasswordStep({ flow }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// PASSWORD RULES
+// ─────────────────────────────────────────────────────────────
 const RULES = [
-  { test: (p) => p.length >= 8,          label: "At least 8 characters" },
-  { test: (p) => /[A-Z]/.test(p),        label: "One uppercase letter"  },
-  { test: (p) => /[0-9]/.test(p),        label: "One number"            },
-  { test: (p) => /[^A-Za-z0-9]/.test(p), label: "One special character" },
+  { test: (p) => p.length >= 8,           label: "At least 8 characters" },
+  { test: (p) => /[A-Z]/.test(p),         label: "One uppercase letter"  },
+  { test: (p) => /[0-9]/.test(p),         label: "One number"            },
+  { test: (p) => /[^A-Za-z0-9]/.test(p),  label: "One special character" },
 ];
 
 const PasswordRules = ({ password }) => (
@@ -227,14 +258,25 @@ const PasswordRules = ({ password }) => (
   </div>
 );
 
+// ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+function maskEmail(email = "") {
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return email;
+  const visible = local.slice(0, 2);
+  const stars   = "*".repeat(Math.max(local.length - 2, 2));
+  return `${visible}${stars}@${domain}`;
+}
+
 function getStrength(password) {
   if (!password) return { score: 0, label: "", color: "" };
   let score = 0;
-  if (password.length >= 8)          score++;
-  if (password.length >= 12)         score++;
-  if (/[A-Z]/.test(password))        score++;
-  if (/[0-9]/.test(password))        score++;
-  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (password.length >= 8)           score++;
+  if (password.length >= 12)          score++;
+  if (/[A-Z]/.test(password))         score++;
+  if (/[0-9]/.test(password))         score++;
+  if (/[^A-Za-z0-9]/.test(password))  score++;
   const levels = [
     { score: 0, label: "",            color: ""        },
     { score: 1, label: "Weak",        color: "#ef4444" },
@@ -246,13 +288,16 @@ function getStrength(password) {
   return levels[Math.min(score, 5)];
 }
 
+// ─────────────────────────────────────────────────────────────
+// SUB-COMPONENTS
+// ─────────────────────────────────────────────────────────────
 const EyeBtn = ({ show, toggle }) => (
   <button
     type="button"
     style={s.eyeBtn}
     onClick={toggle}
     tabIndex={-1}
-    aria-label={show ? "Hide" : "Show"}
+    aria-label={show ? "Hide password" : "Show password"}
   >
     {show ? "🙈" : "👁️"}
   </button>
@@ -261,53 +306,160 @@ const EyeBtn = ({ show, toggle }) => (
 function Spinner() {
   return (
     <span style={{
-      width: "18px", height: "18px",
-      border: "3px solid rgba(255,255,255,0.3)",
-      borderTop: "3px solid white",
-      borderRadius: "50%",
-      display: "inline-block",
-      animation: "spin 0.7s linear infinite",
-      marginRight: "0.4rem",
+      width:         "18px",
+      height:        "18px",
+      border:        "3px solid rgba(255,255,255,0.3)",
+      borderTop:     "3px solid white",
+      borderRadius:  "50%",
+      display:       "inline-block",
+      animation:     "spin 0.7s linear infinite",
+      marginRight:   "0.4rem",
       verticalAlign: "middle",
     }} />
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────
 const s = {
-  header: { textAlign: "center", marginBottom: "1.5rem" },
-  icon:   { fontSize: "3.5rem", marginBottom: "0.75rem" },
-  title:  { fontSize: "1.5rem", fontWeight: 800, color: "#1f2937", margin: "0 0 0.5rem" },
-  subtitle: { color: "#6b7280", fontSize: "0.95rem", lineHeight: 1.6, margin: 0 },
+  header: {
+    textAlign:    "center",
+    marginBottom: "1.5rem",
+  },
+  icon: {
+    fontSize:     "3.5rem",
+    marginBottom: "0.75rem",
+  },
+  title: {
+    fontSize:   "1.5rem",
+    fontWeight: 800,
+    color:      "#1f2937",
+    margin:     "0 0 0.5rem",
+  },
+  subtitle: {
+    color:      "#6b7280",
+    fontSize:   "0.95rem",
+    lineHeight: 1.6,
+    margin:     0,
+  },
+
+  // ── Verified badge ─────────────────────────────────────
   verifiedBadge: {
     display:      "flex",
     alignItems:   "center",
-    gap:          "0.75rem",
+    gap:          "0.875rem",
     background:   "#ecfdf5",
     border:       "1px solid #a7f3d0",
     borderRadius: "12px",
     padding:      "0.875rem 1.25rem",
     marginBottom: "1.5rem",
   },
-  verifiedText: {
+  verifiedTitle: {
     color:      "#065f46",
-    fontWeight: 600,
+    fontWeight: 700,
     fontSize:   "0.875rem",
     margin:     0,
   },
-  form: { display: "flex", flexDirection: "column", gap: "1.25rem" },
+  verifiedEmail: {
+    color:     "#047857",
+    fontSize:  "0.8rem",
+    margin:    "0.15rem 0 0",
+    fontWeight:500,
+  },
+
+  // ── Form ───────────────────────────────────────────────
+  form: {
+    display:       "flex",
+    flexDirection: "column",
+    gap:           "1.25rem",
+  },
   pwWrap: { position: "relative" },
   eyeBtn: {
-    position: "absolute", right: "0.875rem", top: "50%",
-    transform: "translateY(-50%)", background: "none",
-    border: "none", cursor: "pointer", fontSize: "1.1rem",
-    padding: "0.25rem", lineHeight: 1,
+    position:   "absolute",
+    right:      "0.875rem",
+    top:        "50%",
+    transform:  "translateY(-50%)",
+    background: "none",
+    border:     "none",
+    cursor:     "pointer",
+    fontSize:   "1.1rem",
+    padding:    "0.25rem",
+    lineHeight: 1,
   },
-  strengthWrap: { display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" },
-  strengthBar:  { display: "flex", gap: "3px", flex: 1 },
-  strengthSeg:  { height: "4px", flex: 1, borderRadius: "100px", transition: "background 0.3s" },
-  strengthLabel:{ fontSize: "0.8rem", fontWeight: 700, whiteSpace: "nowrap" },
-  rulesWrap:    { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.35rem", marginTop: "0.5rem", padding: "0.75rem", background: "#f8fafc", borderRadius: "10px" },
-  ruleRow:      { display: "flex", alignItems: "center", gap: "0.4rem" },
-  hint:         { textAlign: "center", color: "#f59e0b", fontSize: "0.85rem", margin: "0.5rem 0 0", fontWeight: 500 },
-  backBtn:      { background: "none", border: "none", color: "#9ca3af", fontSize: "0.875rem", cursor: "pointer", fontFamily: "inherit", textDecoration: "underline", padding: "0.5rem" },
+
+  // ── Strength meter ─────────────────────────────────────
+  strengthWrap: {
+    display:    "flex",
+    alignItems: "center",
+    gap:        "0.75rem",
+    marginTop:  "0.5rem",
+  },
+  strengthBar: { display: "flex", gap: "3px", flex: 1 },
+  strengthSeg: {
+    height:       "4px",
+    flex:         1,
+    borderRadius: "100px",
+    transition:   "background 0.3s ease",
+  },
+  strengthLabel: {
+    fontSize:  "0.8rem",
+    fontWeight:700,
+    whiteSpace:"nowrap",
+  },
+
+  // ── Password rules ─────────────────────────────────────
+  rulesWrap: {
+    display:             "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap:                 "0.35rem",
+    marginTop:           "0.5rem",
+    padding:             "0.75rem",
+    background:          "#f8fafc",
+    borderRadius:        "10px",
+  },
+  ruleRow: {
+    display:    "flex",
+    alignItems: "center",
+    gap:        "0.4rem",
+  },
+
+  // ── Hint ───────────────────────────────────────────────
+  hint: {
+    textAlign:  "center",
+    color:      "#f59e0b",
+    fontSize:   "0.85rem",
+    margin:     "0.5rem 0 0",
+    fontWeight: 500,
+  },
+
+  // ── Navigation ─────────────────────────────────────────
+  navRow: {
+    display:        "flex",
+    alignItems:     "center",
+    justifyContent: "space-between",
+    marginTop:      "1.25rem",
+    paddingTop:     "1rem",
+    borderTop:      "1px solid #f3f4f6",
+  },
+  backBtn: {
+    background:     "none",
+    border:         "none",
+    color:          "#6b7280",
+    fontSize:       "0.875rem",
+    cursor:         "pointer",
+    fontFamily:     "inherit",
+    textDecoration: "underline",
+    padding:        "0.4rem 0",
+  },
+  restartBtn: {
+    background:     "none",
+    border:         "none",
+    color:          "#9ca3af",
+    fontSize:       "0.8rem",
+    cursor:         "pointer",
+    fontFamily:     "inherit",
+    textDecoration: "underline",
+    padding:        "0.4rem 0",
+  },
 };
