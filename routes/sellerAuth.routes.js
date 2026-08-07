@@ -1,4 +1,27 @@
 // routes/sellerAuth.routes.js
+// ─────────────────────────────────────────────────────────────
+// Seller authentication — operates on market.users ONLY.
+// Never reads or writes public.users or password_reset_otps.
+//
+// Routes:
+//   GET  /health                → email + schema config check
+//   GET  /debug/:email          → DB state for one account   (dev)
+//   POST /debug/test-login      → live bcrypt breakdown      (dev)
+//   POST /register
+//   POST /verify-email
+//   POST /resend-verification
+//   POST /login
+//   POST /forgot-password
+//   POST /verify-reset-code
+//   POST /reset-password
+//   GET  /me
+//
+// KEY FIX: ensureOtpColumns() runs once at startup and creates
+// verify_code / verify_expires / reset_code / reset_expires if
+// they are missing. Your DB showed has_verify_code = false with
+// verify_expires = null, which means the OTP was never persisted
+// — almost always because those columns do not exist.
+// ─────────────────────────────────────────────────────────────
 import express  from "express";
 import bcrypt   from "bcrypt";
 import jwt      from "jsonwebtoken";
@@ -9,13 +32,13 @@ import {
   sendPasswordResetCode,
 } from "../services/notificationService.js";
 
-const router         = express.Router();
-const JWT_SECRET     = process.env.JWT_SECRET     || "supersecretkey";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+const router = express.Router();
 
 // ─────────────────────────────────────────────────────────────
-// CONSTANTS
+// CONFIG
 // ─────────────────────────────────────────────────────────────
+const JWT_SECRET        = process.env.JWT_SECRET     || "supersecretkey";
+const JWT_EXPIRES_IN    = process.env.JWT_EXPIRES_IN || "7d";
 const BCRYPT_ROUNDS     = 12;
 const OTP_TTL_MS        = 60 * 60_000;   // 1 hour
 const RESET_TTL_MS      = 15 * 60_000;   // 15 minutes
@@ -23,6 +46,104 @@ const RATE_WINDOW_MS    = 15 * 60_000;
 const RATE_MAX_ATTEMPTS = 10;
 const EMAIL_RX          = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const IS_DEV            = process.env.NODE_ENV !== "production";
+
+// Log prefix helper for consistent, greppable logs
+const L = (scope) => `[seller-auth][${scope}]`;
+
+// ─────────────────────────────────────────────────────────────
+// SCHEMA SELF-HEAL
+// Runs once when this module is imported. Adds the OTP columns
+// if they do not already exist. This is the direct fix for
+// has_verify_code = false / verify_expires = null.
+// ─────────────────────────────────────────────────────────────
+const REQUIRED_OTP_COLUMNS = [
+  "verify_code",
+  "verify_expires",
+  "reset_code",
+  "reset_expires",
+];
+
+let schemaReady = false;
+let schemaError = null;
+let schemaReport = null;
+
+async function ensureOtpColumns() {
+  try {
+    // 1. Which of the required columns already exist?
+    const { rows: existing } = await pool.query(
+      `SELECT column_name, data_type
+       FROM information_schema.columns
+       WHERE table_schema = 'market'
+         AND table_name   = 'users'
+         AND column_name  = ANY($1::text[])`,
+      [REQUIRED_OTP_COLUMNS]
+    );
+
+    const found   = existing.map((r) => r.column_name);
+    const missing = REQUIRED_OTP_COLUMNS.filter((c) => !found.includes(c));
+
+    console.log(`${L("schema")} OTP columns present:`, found);
+
+    if (missing.length) {
+      console.warn(`${L("schema")} ⚠️  MISSING columns:`, missing);
+      console.warn(`${L("schema")} Creating them now…`);
+
+      // 2. Create whatever is missing. IF NOT EXISTS makes this idempotent.
+      await pool.query(`
+        ALTER TABLE market.users
+          ADD COLUMN IF NOT EXISTS verify_code    TEXT,
+          ADD COLUMN IF NOT EXISTS verify_expires TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS reset_code     TEXT,
+          ADD COLUMN IF NOT EXISTS reset_expires  TIMESTAMPTZ
+      `);
+
+      console.log(`${L("schema")} ✅ Columns created:`, missing);
+    }
+
+    // 3. Re-read to confirm
+    const { rows: after } = await pool.query(
+      `SELECT column_name, data_type
+       FROM information_schema.columns
+       WHERE table_schema = 'market'
+         AND table_name   = 'users'
+         AND column_name  = ANY($1::text[])
+       ORDER BY column_name`,
+      [REQUIRED_OTP_COLUMNS]
+    );
+
+    schemaReport = {
+      required: REQUIRED_OTP_COLUMNS,
+      present:  after.map((r) => ({ name: r.column_name, type: r.data_type })),
+      missing:  REQUIRED_OTP_COLUMNS.filter(
+        (c) => !after.some((r) => r.column_name === c)
+      ),
+      healed:   missing,
+    };
+
+    schemaReady = schemaReport.missing.length === 0;
+
+    if (schemaReady) {
+      console.log(`${L("schema")} ✅ All OTP columns ready`);
+    } else {
+      console.error(`${L("schema")} ❌ Still missing:`, schemaReport.missing);
+    }
+
+  } catch (err) {
+    schemaError = err.message;
+    console.error(`${L("schema")} ❌ ensureOtpColumns failed:`, err.message);
+    console.error(`${L("schema")} Run this SQL manually:`);
+    console.error(`
+      ALTER TABLE market.users
+        ADD COLUMN IF NOT EXISTS verify_code    TEXT,
+        ADD COLUMN IF NOT EXISTS verify_expires TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS reset_code     TEXT,
+        ADD COLUMN IF NOT EXISTS reset_expires  TIMESTAMPTZ;
+    `);
+  }
+}
+
+// Kick off immediately on import
+ensureOtpColumns();
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -35,8 +156,61 @@ const fail = (res, status, message, extra = {}) =>
 const genericOk = (res, message) =>
   res.json({ success: true, message });
 
+/** Mask an email for safe logging: ad***@gmail.com */
+const maskEmail = (e) => {
+  if (!e?.includes("@")) return "***";
+  const [u, d] = e.split("@");
+  return `${u.slice(0, 2)}${"*".repeat(Math.max(u.length - 2, 1))}@${d}`;
+};
+
+/**
+ * Persist an OTP to market.users and confirm the write succeeded.
+ * Returns { ok, hasCode, expires } so callers can log the truth
+ * instead of assuming the UPDATE worked.
+ */
+async function persistOtp({ userId, column, hashedCode, expires }) {
+  const codeCol    = column === "verify" ? "verify_code"    : "reset_code";
+  const expiresCol = column === "verify" ? "verify_expires" : "reset_expires";
+
+  const { rows } = await pool.query(
+    `UPDATE market.users
+     SET ${codeCol} = $1, ${expiresCol} = $2
+     WHERE id = $3
+     RETURNING id,
+               ${codeCol}    IS NOT NULL AS has_code,
+               ${expiresCol} AS expires_at`,
+    [hashedCode, expires, userId]
+  );
+
+  const row = rows[0];
+  return {
+    ok:      Boolean(row?.has_code),
+    hasCode: Boolean(row?.has_code),
+    expires: row?.expires_at ?? null,
+  };
+}
+
+/**
+ * Wrap an email send so a mail failure never breaks the request,
+ * but is always visible in logs and in the returned payload.
+ */
+async function trySendMail(label, fn, args) {
+  try {
+    const result = await fn(args);
+    if (result) {
+      console.log(`${L(label)} ✅ email queued, id:`, result?.id ?? "(no id)");
+      return { sent: true, id: result?.id ?? null, error: null };
+    }
+    console.warn(`${L(label)} ⚠️  email returned null — check RESEND_API_KEY`);
+    return { sent: false, id: null, error: "mail_returned_null" };
+  } catch (err) {
+    console.error(`${L(label)} ❌ email threw:`, err.message);
+    return { sent: false, id: null, error: err.message };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
-// RATE LIMITER
+// RATE LIMITER — in-memory, per IP
 // ─────────────────────────────────────────────────────────────
 const _attempts = new Map();
 
@@ -60,10 +234,12 @@ const authLimiter = (req, res, next) => {
   _attempts.set(key, rec);
 
   if (rec.count > RATE_MAX_ATTEMPTS) {
+    const retryAfter = Math.ceil((RATE_WINDOW_MS - (now - rec.time)) / 1000);
+    console.warn(`${L("rate-limit")} 429 for ip=${ip} count=${rec.count}`);
     return res.status(429).json({
-      success:     false,
-      message:     "Too many attempts. Please wait 15 minutes and try again.",
-      retryAfter:  Math.ceil((RATE_WINDOW_MS - (now - rec.time)) / 1000),
+      success:    false,
+      message:    "Too many attempts. Please wait 15 minutes and try again.",
+      retryAfter,
     });
   }
 
@@ -73,35 +249,94 @@ const authLimiter = (req, res, next) => {
 const clearRateLimit = (req) =>
   _attempts.delete(`seller-auth:${getIp(req)}`);
 
-// ─────────────────────────────────────────────────────────────
-// DEBUG — GET /api/seller-auth/debug/:email
-// Returns DB state for a seller account without exposing hash.
-// Development only — blocked in production.
-// ─────────────────────────────────────────────────────────────
-router.get("/debug/:email", async (req, res) => {
-  if (!IS_DEV)
-    return res.status(404).json({ message: "Not found" });
+// ═════════════════════════════════════════════════════════════
+// GET /api/seller-auth/health
+// Public config check — safe in production, exposes no secrets.
+// Use this FIRST to confirm email + schema are wired correctly.
+// ═════════════════════════════════════════════════════════════
+router.get("/health", async (req, res) => {
+  const report = {
+    ok:   true,
+    time: new Date().toISOString(),
 
-  const email_ = req.params.email?.trim().toLowerCase();
+    // ── Email config ─────────────────────────────────────
+    email: {
+      resend_api_key_set: Boolean(process.env.RESEND_API_KEY),
+      resend_key_prefix:  process.env.RESEND_API_KEY
+        ? process.env.RESEND_API_KEY.slice(0, 5) + "…"
+        : null,
+      from_address:  process.env.EMAIL_FROM    ?? "(default) Loemart <no-reply@loemart.com>",
+      support_email: process.env.EMAIL_SUPPORT ?? "(default) support@loemart.com",
+      brand:         process.env.EMAIL_BRAND   ?? "(default) Loemart",
+      app_url:       process.env.APP_URL       ?? "(default) https://loemart.com",
+    },
+
+    // ── Auth config ──────────────────────────────────────
+    auth: {
+      jwt_secret_set:     Boolean(process.env.JWT_SECRET),
+      jwt_using_fallback: !process.env.JWT_SECRET,
+      jwt_expires_in:     JWT_EXPIRES_IN,
+      bcrypt_rounds:      BCRYPT_ROUNDS,
+      node_env:           process.env.NODE_ENV ?? "(not set)",
+    },
+
+    // ── Schema ───────────────────────────────────────────
+    schema: {
+      ready:  schemaReady,
+      error:  schemaError,
+      detail: schemaReport,
+    },
+
+    // ── DB connectivity ──────────────────────────────────
+    database: null,
+  };
+
+  // Live DB ping
+  try {
+    const { rows } = await pool.query(`SELECT NOW() AS now`);
+    report.database = { connected: true, server_time: rows[0].now };
+  } catch (err) {
+    report.database = { connected: false, error: err.message };
+    report.ok = false;
+  }
+
+  // Flag the most common misconfigurations
+  const warnings = [];
+  if (!process.env.RESEND_API_KEY)
+    warnings.push("RESEND_API_KEY is not set — no emails will ever send");
+  if (!process.env.JWT_SECRET)
+    warnings.push("JWT_SECRET is not set — using insecure fallback");
+  if (!schemaReady)
+    warnings.push("OTP columns missing on market.users — OTPs cannot be stored");
+
+  report.warnings = warnings;
+  report.ok = report.ok && warnings.length === 0;
+
+  return res.json(report);
+});
+
+// ═════════════════════════════════════════════════════════════
+// GET /api/seller-auth/debug/:email          (development only)
+// Full DB state for one account. Never returns the hash itself.
+// ═════════════════════════════════════════════════════════════
+router.get("/debug/:email", async (req, res) => {
+  if (!IS_DEV) return res.status(404).json({ message: "Not found" });
+
+  const email_ = cleanEmail(req.params.email);
 
   try {
     const { rows } = await pool.query(
       `SELECT
-         id,
-         name,
-         email,
-         status,
-         is_verified,
-         LEFT(password_hash, 7)        AS hash_prefix,
-         LENGTH(password_hash)         AS hash_length,
-         reset_code    IS NOT NULL     AS has_reset_code,
-         reset_expires,
-         reset_expires > NOW()         AS reset_code_still_valid,
-         verify_code   IS NOT NULL     AS has_verify_code,
+         id, name, email, status, is_verified,
+         LEFT(password_hash, 7)     AS hash_prefix,
+         LENGTH(password_hash)      AS hash_length,
+         verify_code   IS NOT NULL  AS has_verify_code,
          verify_expires,
-         verify_expires > NOW()        AS verify_code_still_valid,
-         created_at,
-         updated_at
+         verify_expires > NOW()     AS verify_code_still_valid,
+         reset_code    IS NOT NULL  AS has_reset_code,
+         reset_expires,
+         reset_expires > NOW()      AS reset_code_still_valid,
+         created_at
        FROM market.users
        WHERE email = $1`,
       [email_]
@@ -117,56 +352,57 @@ router.get("/debug/:email", async (req, res) => {
 
     const u = rows[0];
     return res.json({
-      found: true,
-      email: u.email,
-      id:    u.id,
-      name:  u.name,
+      found:       true,
+      id:          u.id,
+      name:        u.name,
+      email:       u.email,
       status:      u.status,
       is_verified: u.is_verified,
+
       password: {
-        hash_prefix:  u.hash_prefix,
-        hash_length:  u.hash_length,
-        looks_valid:
-          u.hash_prefix?.startsWith("$2") && u.hash_length === 60,
+        hash_prefix: u.hash_prefix,
+        hash_length: u.hash_length,
+        looks_valid: u.hash_prefix?.startsWith("$2") && u.hash_length === 60,
       },
-      reset: {
-        has_reset_code:         u.has_reset_code,
-        reset_expires:          u.reset_expires,
-        reset_code_still_valid: u.reset_code_still_valid,
-      },
+
       verify: {
         has_verify_code:         u.has_verify_code,
         verify_expires:          u.verify_expires,
         verify_code_still_valid: u.verify_code_still_valid,
       },
-      timestamps: {
-        created_at: u.created_at,
-        updated_at: u.updated_at,
+
+      reset: {
+        has_reset_code:         u.has_reset_code,
+        reset_expires:          u.reset_expires,
+        reset_code_still_valid: u.reset_code_still_valid,
       },
+
+      timestamps: { created_at: u.created_at },
+      schema:     schemaReport,
     });
 
   } catch (err) {
     return res.status(500).json({
       error:   true,
       message: err.message,
-      hint:    "Check that market.users has an updated_at column",
+      hint:    "If this mentions a missing column, restart the server " +
+               "so ensureOtpColumns() can run.",
+      schema:  schemaReport,
     });
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// DEBUG — POST /api/seller-auth/debug/test-login
-// Runs the exact login logic and returns a per-step breakdown.
-// Development only — blocked in production.
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// POST /api/seller-auth/debug/test-login     (development only)
+// Runs the exact login checks and returns a per-step breakdown.
+// ═════════════════════════════════════════════════════════════
 router.post("/debug/test-login", async (req, res) => {
-  if (!IS_DEV)
-    return res.status(404).json({ message: "Not found" });
+  if (!IS_DEV) return res.status(404).json({ message: "Not found" });
 
   const { email, password } = req.body;
   const email_ = cleanEmail(email);
 
-  const result = {
+  const out = {
     step_1_input: {
       email_received:              email,
       email_after_clean:           email_,
@@ -190,84 +426,99 @@ router.post("/debug/test-login", async (req, res) => {
     );
 
     if (!rows.length) {
-      result.step_2_db_lookup = { found: false };
-      result.conclusion = "FAIL — no account found with this email in market.users";
-      return res.json(result);
+      out.step_2_db_lookup = { found: false };
+      out.conclusion = "FAIL — no account with this email in market.users";
+      return res.json(out);
     }
 
-    const user = rows[0];
-    result.step_2_db_lookup = {
-      found:        true,
-      id:           user.id,
-      email_in_db:  user.email,
-      status:       user.status,
-      is_verified:  user.is_verified,
-      hash_prefix:  user.password_hash?.substring(0, 7),
-      hash_length:  user.password_hash?.length,
+    const u = rows[0];
+    out.step_2_db_lookup = {
+      found:       true,
+      id:          u.id,
+      email_in_db: u.email,
+      status:      u.status,
+      is_verified: u.is_verified,
+      hash_prefix: u.password_hash?.slice(0, 7),
+      hash_length: u.password_hash?.length,
     };
 
-    // Step 3 — status
-    if (user.status !== "active") {
-      result.step_3_status_check = { passed: false, status: user.status };
-      result.conclusion = `FAIL — account status is "${user.status}", not "active"`;
-      return res.json(result);
+    if (u.status !== "active") {
+      out.step_3_status_check = { passed: false, status: u.status };
+      out.conclusion = `FAIL — status is "${u.status}", expected "active"`;
+      return res.json(out);
     }
-    result.step_3_status_check = { passed: true };
+    out.step_3_status_check = { passed: true };
 
-    // Step 4 — verified
-    if (!user.is_verified) {
-      result.step_4_verified_check = { passed: false };
-      result.conclusion = "FAIL — email not verified (is_verified = false)";
-      return res.json(result);
+    if (!u.is_verified) {
+      out.step_4_verified_check = { passed: false };
+      out.conclusion =
+        "FAIL — is_verified = false. Complete the email OTP step first.";
+      return res.json(out);
     }
-    result.step_4_verified_check = { passed: true };
+    out.step_4_verified_check = { passed: true };
 
-    // Step 5 — bcrypt
-    const match        = await bcrypt.compare(password,         user.password_hash);
-    const trimmedMatch = await bcrypt.compare(password?.trim(), user.password_hash);
+    const match        = await bcrypt.compare(password,          u.password_hash);
+    const trimmedMatch = await bcrypt.compare(password?.trim(),  u.password_hash);
 
-    result.step_5_bcrypt = {
-      password_length:  password?.length,
-      hash_prefix:      user.password_hash?.substring(0, 7),
-      hash_length:      user.password_hash?.length,
+    out.step_5_bcrypt = {
+      password_length: password?.length,
+      hash_prefix:     u.password_hash?.slice(0, 7),
+      hash_length:     u.password_hash?.length,
       match,
-      trimmed_match:    trimmedMatch,
+      trimmed_match:   trimmedMatch,
       hint: match
-        ? "✅ Passwords match — login should succeed"
+        ? "✅ Match — login should succeed"
         : trimmedMatch
-        ? "⚠️ Only matches when trimmed — a space was added during reset or on the client"
-        : "❌ Does not match raw or trimmed — wrong password or hash was overwritten",
+        ? "⚠️ Matches only when trimmed — whitespace added somewhere"
+        : "❌ No match raw or trimmed — wrong password or hash overwritten",
     };
 
-    result.conclusion = match
+    out.conclusion = match
       ? "✅ PASS — login would succeed"
       : "FAIL — bcrypt.compare returned false";
 
-    return res.json(result);
+    return res.json(out);
 
   } catch (err) {
-    result.conclusion = `ERROR — ${err.message}`;
-    return res.status(500).json(result);
+    out.conclusion = `ERROR — ${err.message}`;
+    return res.status(500).json(out);
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// POST /register
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// POST /api/seller-auth/register
+// ═════════════════════════════════════════════════════════════
 router.post("/register", authLimiter, async (req, res) => {
   const { name, email, phone, password } = req.body;
   const email_ = cleanEmail(email);
 
-  if (!name?.trim())       return fail(res, 400, "Name is required");
-  if (!email_)             return fail(res, 400, "Email is required");
+  console.log(`${L("register")} ── start ── ${maskEmail(email_)}`);
+
+  // ── Validation ──────────────────────────────────────────
+  if (!name?.trim())          return fail(res, 400, "Name is required");
+  if (!email_)                return fail(res, 400, "Email is required");
   if (!EMAIL_RX.test(email_)) return fail(res, 400, "Enter a valid email address");
-  if (!password)           return fail(res, 400, "Password is required");
-  if (password.length < 8) return fail(res, 400, "Password must be at least 8 characters");
+  if (!password)              return fail(res, 400, "Password is required");
+  if (password.length < 8)
+    return fail(res, 400, "Password must be at least 8 characters");
+
+  // Guard: if the schema is broken, fail loudly rather than
+  // silently creating an account that can never be verified.
+  if (!schemaReady) {
+    console.error(`${L("register")} ❌ schema not ready:`, schemaReport?.missing);
+    return fail(
+      res, 503,
+      "Service is initialising. Please try again in a moment.",
+      IS_DEV ? { code: "SCHEMA_NOT_READY", schema: schemaReport } : {}
+    );
+  }
 
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
+    // ── Existing account? ────────────────────────────────
     const { rows: existing } = await client.query(
       `SELECT id, is_verified FROM market.users WHERE email = $1`,
       [email_]
@@ -277,29 +528,38 @@ router.post("/register", authLimiter, async (req, res) => {
       const user = existing[0];
       await client.query("ROLLBACK");
 
+      console.log(
+        `${L("register")} existing account id=${user.id} ` +
+        `verified=${user.is_verified}`
+      );
+
+      // Unverified → issue a fresh OTP instead of rejecting
       if (!user.is_verified) {
         const otp        = generateOTP();
         const hashedCode = hashCode(otp);
         const expires    = new Date(Date.now() + OTP_TTL_MS);
 
-        await pool.query(
-          `UPDATE market.users
-           SET verify_code = $1, verify_expires = $2
-           WHERE id = $3`,
-          [hashedCode, expires, user.id]
-        );
+        const write = await persistOtp({
+          userId: user.id, column: "verify", hashedCode, expires,
+        });
+        console.log(`${L("register")} OTP write (resend):`, write);
 
-        try {
-          await sendVerificationCode({ to: email_, name: name.trim(), code: otp });
-        } catch (e) {
-          console.error("[register] resend email failed:", e.message);
+        if (!write.ok) {
+          console.error(`${L("register")} ❌ OTP failed to persist`);
+          return fail(res, 500, "Could not generate verification code. Try again.");
         }
+
+        const mail = await trySendMail("register/resend", sendVerificationCode, {
+          to: email_, name: name.trim(), code: otp,
+        });
 
         return res.status(409).json({
           success: false,
           code:    "EMAIL_TAKEN_UNVERIFIED",
-          message: "An unverified account already exists. We've resent your verification code.",
+          message: "An unverified account already exists. " +
+                   "We've resent your verification code — check your inbox.",
           email:   email_,
+          ...(IS_DEV ? { _debug: { otp_persisted: write.ok, mail } } : {}),
         });
       }
 
@@ -310,50 +570,96 @@ router.post("/register", authLimiter, async (req, res) => {
       });
     }
 
-    // password is NOT trimmed — login also never trims
+    // ── Hash password (never trimmed) ────────────────────
     const password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    const otp           = generateOTP();
-    const hashedCode    = hashCode(otp);
-    const expires       = new Date(Date.now() + OTP_TTL_MS);
 
+    // ── Generate OTP ─────────────────────────────────────
+    const otp        = generateOTP();
+    const hashedCode = hashCode(otp);
+    const expires    = new Date(Date.now() + OTP_TTL_MS);
+
+    // ── Insert, and RETURN the OTP columns so we can prove
+    //    they were actually written, not just assumed ─────
     const { rows: [user] } = await client.query(
       `INSERT INTO market.users
          (name, email, password_hash, phone_number, status,
           is_verified, verify_code, verify_expires)
        VALUES ($1,$2,$3,$4,'active',FALSE,$5,$6)
-       RETURNING id, name, email, created_at`,
-      [name.trim(), email_, password_hash, phone?.trim() ?? null, hashedCode, expires]
+       RETURNING id, name, email, created_at,
+                 verify_code IS NOT NULL AS has_verify_code,
+                 verify_expires`,
+      [
+        name.trim(),
+        email_,
+        password_hash,
+        phone?.trim() ?? null,
+        hashedCode,
+        expires,
+      ]
     );
 
-    await client.query("COMMIT");
+    console.log(`${L("register")} insert result:`, {
+      id:              user.id,
+      has_verify_code: user.has_verify_code,
+      verify_expires:  user.verify_expires,
+    });
 
-    try {
-      await sendVerificationCode({ to: user.email, name: user.name, code: otp });
-    } catch (e) {
-      console.error("[register] email failed:", e.message);
+    if (!user.has_verify_code) {
+      // The insert "worked" but the OTP did not land — abort
+      await client.query("ROLLBACK");
+      console.error(`${L("register")} ❌ verify_code null after INSERT`);
+      return fail(
+        res, 500,
+        "Could not generate verification code. Please try again.",
+        IS_DEV ? { code: "OTP_NOT_PERSISTED", schema: schemaReport } : {}
+      );
     }
 
-    console.log("[seller-auth][register] ✅", user.id);
+    await client.query("COMMIT");
+    console.log(`${L("register")} ✅ committed user ${user.id}`);
+
+    // ── Send the email ───────────────────────────────────
+    const mail = await trySendMail("register", sendVerificationCode, {
+      to: user.email, name: user.name, code: otp,
+    });
+
     return res.status(201).json({
       success: true,
       message: "Account created! Check your email for the 6-digit verification code.",
       email:   user.email,
+      ...(IS_DEV ? { _debug: { otp_persisted: true, mail } } : {}),
     });
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[seller-auth][register] ❌", err.message, err.code);
+    console.error(`${L("register")} ❌`, {
+      message: err.message, code: err.code, detail: err.detail,
+    });
+
     if (err.code === "23505")
       return fail(res, 409, "A seller account with this email already exists.");
+
+    // 42703 = undefined_column — the classic missing-OTP-column error
+    if (err.code === "42703") {
+      console.error(`${L("register")} ❌ undefined column — re-running schema heal`);
+      ensureOtpColumns();
+      return fail(
+        res, 500,
+        "Server is updating its database. Please try again in a moment.",
+        IS_DEV ? { code: "UNDEFINED_COLUMN", detail: err.message } : {}
+      );
+    }
+
     return fail(res, 500, "Registration failed. Please try again.");
+
   } finally {
     client.release();
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// POST /verify-email
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// POST /api/seller-auth/verify-email
+// ═════════════════════════════════════════════════════════════
 router.post("/verify-email", async (req, res) => {
   const { email, code } = req.body;
   const email_ = cleanEmail(email);
@@ -374,13 +680,30 @@ router.post("/verify-email", async (req, res) => {
     const user = rows[0];
 
     if (user.is_verified)
-      return res.json({ success: true, message: "Email already verified. You can sign in." });
+      return res.json({
+        success: true,
+        message: "Email already verified. You can sign in.",
+      });
+
+    // No code stored at all — user must request one
+    if (!user.verify_code || !user.verify_expires) {
+      console.warn(`${L("verify-email")} no stored code for ${maskEmail(email_)}`);
+      return fail(
+        res, 400,
+        "No verification code found. Please tap Resend to get a new code.",
+        { code: "NO_CODE_ISSUED" }
+      );
+    }
 
     if (new Date() > new Date(user.verify_expires))
-      return fail(res, 400, "Verification code has expired. Please request a new one.", { code: "CODE_EXPIRED" });
+      return fail(res, 400,
+        "Verification code has expired. Please request a new one.",
+        { code: "CODE_EXPIRED" });
 
     if (hashCode(code.trim()) !== user.verify_code)
-      return fail(res, 400, "Invalid verification code. Please check and try again.", { code: "INVALID_CODE" });
+      return fail(res, 400,
+        "Invalid verification code. Please check and try again.",
+        { code: "INVALID_CODE" });
 
     await pool.query(
       `UPDATE market.users
@@ -389,22 +712,33 @@ router.post("/verify-email", async (req, res) => {
       [user.id]
     );
 
-    console.log("[seller-auth][verify-email] ✅", user.id);
-    return res.json({ success: true, message: "Email verified successfully! You can now sign in." });
+    console.log(`${L("verify-email")} ✅ verified ${user.id}`);
+
+    return res.json({
+      success: true,
+      message: "Email verified successfully! You can now sign in.",
+    });
 
   } catch (err) {
-    console.error("[seller-auth][verify-email] ❌", err.message);
+    console.error(`${L("verify-email")} ❌`, err.message);
     return fail(res, 500, "Verification failed. Please try again.");
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// POST /resend-verification
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// POST /api/seller-auth/resend-verification
+// ═════════════════════════════════════════════════════════════
 router.post("/resend-verification", authLimiter, async (req, res) => {
   const email_ = cleanEmail(req.body.email);
 
   if (!email_) return fail(res, 400, "Email is required");
+
+  console.log(`${L("resend")} ── start ── ${maskEmail(email_)}`);
+
+  if (!schemaReady) {
+    console.error(`${L("resend")} ❌ schema not ready`);
+    return fail(res, 503, "Service is initialising. Please try again shortly.");
+  }
 
   try {
     const { rows } = await pool.query(
@@ -412,42 +746,56 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
       [email_]
     );
 
-    if (!rows.length || rows[0].is_verified)
-      return genericOk(res, "If an unverified account exists, a new code has been sent.");
+    // Generic response — never reveal whether the email exists
+    if (!rows.length || rows[0].is_verified) {
+      console.log(
+        `${L("resend")} no-op (missing or already verified) ${maskEmail(email_)}`
+      );
+      return genericOk(
+        res,
+        "If an unverified account exists, a new code has been sent."
+      );
+    }
 
     const user       = rows[0];
     const otp        = generateOTP();
     const hashedCode = hashCode(otp);
     const expires    = new Date(Date.now() + OTP_TTL_MS);
 
-    await pool.query(
-      `UPDATE market.users SET verify_code = $1, verify_expires = $2 WHERE id = $3`,
-      [hashedCode, expires, user.id]
-    );
+    const write = await persistOtp({
+      userId: user.id, column: "verify", hashedCode, expires,
+    });
+    console.log(`${L("resend")} OTP write:`, write);
 
-    try {
-      await sendVerificationCode({ to: email_, name: user.name, code: otp });
-    } catch (e) {
-      console.error("[resend-verification] email failed:", e.message);
+    if (!write.ok) {
+      console.error(`${L("resend")} ❌ OTP failed to persist for ${user.id}`);
+      return fail(res, 500, "Could not generate a new code. Please try again.");
     }
 
-    console.log("[seller-auth][resend-verification] ✅", user.id);
-    return genericOk(res, "If an unverified account exists, a new code has been sent.");
+    const mail = await trySendMail("resend", sendVerificationCode, {
+      to: email_, name: user.name, code: otp,
+    });
+
+    return res.json({
+      success: true,
+      message: "If an unverified account exists, a new code has been sent.",
+      ...(IS_DEV ? { _debug: { otp_persisted: write.ok, mail } } : {}),
+    });
 
   } catch (err) {
-    console.error("[seller-auth][resend-verification] ❌", err.message);
+    console.error(`${L("resend")} ❌`, err.message);
     return fail(res, 500, "Failed to resend verification code.");
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// POST /login
+// ═════════════════════════════════════════════════════════════
+// POST /api/seller-auth/login
 //
-// Check order: suspended → unverified → wrong password → token
-// is_verified is checked BEFORE bcrypt.compare so a just-reset
-// user never sees "incorrect password" due to ordering.
-// password is never trimmed — must match hash exactly.
-// ─────────────────────────────────────────────────────────────
+// Check order: suspended → unverified → password → token.
+// is_verified is checked BEFORE bcrypt so a freshly-reset user
+// never sees a misleading "incorrect password".
+// The password is NEVER trimmed — it must match the hash exactly.
+// ═════════════════════════════════════════════════════════════
 router.post("/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
   const email_ = cleanEmail(email);
@@ -462,37 +810,49 @@ router.post("/login", authLimiter, async (req, res) => {
       [email_]
     );
 
-    if (!rows.length)
-      return fail(res, 401, "No seller account found with this email. Please create one to continue.");
+    if (!rows.length) {
+      console.log(`${L("login")} no account ${maskEmail(email_)}`);
+      return fail(
+        res, 401,
+        "No seller account found with this email. Please create one to continue."
+      );
+    }
 
     const user = rows[0];
 
     // 1. Suspended
-    if (user.status !== "active")
-      return fail(res, 403, "Your seller account has been suspended.", { code: "ACCOUNT_SUSPENDED" });
+    if (user.status !== "active") {
+      console.log(`${L("login")} blocked — status=${user.status} id=${user.id}`);
+      return fail(res, 403, "Your seller account has been suspended.", {
+        code: "ACCOUNT_SUSPENDED",
+      });
+    }
 
-    // 2. Not verified — BEFORE bcrypt so this error is never masked
-    if (!user.is_verified)
+    // 2. Not verified — checked BEFORE bcrypt
+    if (!user.is_verified) {
+      console.log(`${L("login")} blocked — unverified id=${user.id}`);
       return fail(res, 403, "Please verify your email before signing in.", {
         code:  "EMAIL_NOT_VERIFIED",
         email: user.email,
       });
+    }
 
-    // 3. Wrong password
-    // password = raw req.body value, never trimmed
-    // password_hash = bcrypt of raw value from register/reset
+    // 3. Password — raw value, no trimming
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid)
+    if (!valid) {
+      console.log(`${L("login")} bad password id=${user.id}`);
       return fail(res, 401, "Incorrect email or password.");
+    }
 
-    // 4. Issue token
+    // 4. Token
     const token = jwt.sign(
       { id: user.id, email: user.email },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
     );
 
-    console.log("[seller-auth][login] ✅", user.id);
+    console.log(`${L("login")} ✅ ${user.id}`);
+
     return res.json({
       success: true,
       message: "Login successful",
@@ -501,19 +861,26 @@ router.post("/login", authLimiter, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[seller-auth][login] ❌", err.message);
+    console.error(`${L("login")} ❌`, err.message);
     return fail(res, 500, "Sign in failed. Please try again.");
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// POST /forgot-password
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// POST /api/seller-auth/forgot-password
+// ═════════════════════════════════════════════════════════════
 router.post("/forgot-password", authLimiter, async (req, res) => {
   const email_ = cleanEmail(req.body.email);
 
-  if (!email_)              return fail(res, 400, "Email is required");
+  if (!email_)                return fail(res, 400, "Email is required");
   if (!EMAIL_RX.test(email_)) return fail(res, 400, "Enter a valid email address");
+
+  console.log(`${L("forgot-password")} ── start ── ${maskEmail(email_)}`);
+
+  if (!schemaReady) {
+    console.error(`${L("forgot-password")} ❌ schema not ready`);
+    return fail(res, 503, "Service is initialising. Please try again shortly.");
+  }
 
   try {
     const { rows } = await pool.query(
@@ -521,8 +888,11 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       [email_]
     );
 
+    // Suspended is the one case worth surfacing
     if (rows.length && rows[0].status !== "active")
       return fail(res, 403, "Your account has been suspended. Contact support.");
+
+    let debug = null;
 
     if (rows.length) {
       const user       = rows[0];
@@ -530,32 +900,42 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       const hashedCode = hashCode(otp);
       const expires    = new Date(Date.now() + RESET_TTL_MS);
 
-      await pool.query(
-        `UPDATE market.users SET reset_code = $1, reset_expires = $2 WHERE id = $3`,
-        [hashedCode, expires, user.id]
-      );
+      const write = await persistOtp({
+        userId: user.id, column: "reset", hashedCode, expires,
+      });
+      console.log(`${L("forgot-password")} OTP write:`, write);
 
-      try {
-        await sendPasswordResetCode({ to: email_, name: user.name, code: otp });
-        console.log("[seller-auth][forgot-password] ✅", user.id);
-      } catch (e) {
-        console.error("[seller-auth][forgot-password] email failed:", e.message);
+      if (!write.ok) {
+        console.error(`${L("forgot-password")} ❌ reset code failed to persist`);
+        return fail(res, 500, "Could not generate reset code. Please try again.");
       }
+
+      const mail = await trySendMail("forgot-password", sendPasswordResetCode, {
+        to: email_, name: user.name, code: otp,
+      });
+
+      debug = { otp_persisted: write.ok, mail };
+
     } else {
-      console.log("[seller-auth][forgot-password] no account:", email_);
+      console.log(`${L("forgot-password")} no account ${maskEmail(email_)}`);
     }
 
-    return genericOk(res, "If a seller account exists with this email, a reset code has been sent.");
+    return res.json({
+      success: true,
+      message: "If a seller account exists with this email, a reset code has been sent.",
+      ...(IS_DEV && debug ? { _debug: debug } : {}),
+    });
 
   } catch (err) {
-    console.error("[seller-auth][forgot-password] ❌", err.message);
+    console.error(`${L("forgot-password")} ❌`, err.message);
     return fail(res, 500, "Failed to send reset code. Please try again.");
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// POST /verify-reset-code
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// POST /api/seller-auth/verify-reset-code   (step 1 of 2)
+// Validates the OTP without changing the password.
+// ═════════════════════════════════════════════════════════════
 router.post("/verify-reset-code", authLimiter, async (req, res) => {
   const { email, code } = req.body;
   const email_ = cleanEmail(email);
@@ -565,55 +945,68 @@ router.post("/verify-reset-code", authLimiter, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, reset_code, reset_expires FROM market.users WHERE email = $1`,
+      `SELECT id, reset_code, reset_expires
+       FROM market.users WHERE email = $1`,
       [email_]
     );
 
     if (!rows.length)
-      return fail(res, 400, "Invalid or expired reset code.", { code: "INVALID_CODE" });
+      return fail(res, 400, "Invalid or expired reset code.", {
+        code: "INVALID_CODE",
+      });
 
     const user = rows[0];
 
     if (!user.reset_code || !user.reset_expires)
-      return fail(res, 400, "No password reset was requested. Please use Forgot Password first.", {
-        code: "NO_RESET_REQUESTED",
-      });
+      return fail(res, 400,
+        "No password reset was requested. Please use Forgot Password first.",
+        { code: "NO_RESET_REQUESTED" });
 
     if (new Date() > new Date(user.reset_expires))
-      return fail(res, 400, "Reset code has expired. Please request a new one.", { code: "CODE_EXPIRED" });
+      return fail(res, 400,
+        "Reset code has expired. Please request a new one.",
+        { code: "CODE_EXPIRED" });
 
     if (hashCode(code.trim()) !== user.reset_code)
-      return fail(res, 400, "Invalid reset code. Please check and try again.", { code: "INVALID_CODE" });
+      return fail(res, 400,
+        "Invalid reset code. Please check and try again.",
+        { code: "INVALID_CODE" });
 
-    // Do NOT clear yet — step 2 re-verifies it
-    console.log("[seller-auth][verify-reset-code] ✅", user.id);
-    return res.json({ success: true, message: "Reset code verified. Please set your new password." });
+    // Deliberately do NOT clear the code — step 2 re-verifies it
+    console.log(`${L("verify-reset-code")} ✅ ${user.id}`);
+
+    return res.json({
+      success: true,
+      message: "Reset code verified. Please set your new password.",
+    });
 
   } catch (err) {
-    console.error("[seller-auth][verify-reset-code] ❌", err.message);
+    console.error(`${L("verify-reset-code")} ❌`, err.message);
     return fail(res, 500, "Verification failed. Please try again.");
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// POST /reset-password
+// ═════════════════════════════════════════════════════════════
+// POST /api/seller-auth/reset-password      (step 2 of 2)
 //
-// newPassword is hashed WITHOUT trimming.
-// Login also never trims — bcrypt.compare(raw, hash) matches.
-// Rate limit cleared on success so user can sign in immediately.
-// ─────────────────────────────────────────────────────────────
+// newPassword is hashed WITHOUT trimming — login never trims
+// either, so bcrypt.compare(raw, hash) matches afterwards.
+// Rate limit is cleared on success so the user can sign in
+// immediately without hitting a 429.
+// ═════════════════════════════════════════════════════════════
 router.post("/reset-password", authLimiter, async (req, res) => {
   const { email, code, newPassword } = req.body;
   const email_ = cleanEmail(email);
 
-  if (!email_)                      return fail(res, 400, "Email is required");
-  if (!code?.trim())                return fail(res, 400, "Reset code is required");
+  if (!email_)       return fail(res, 400, "Email is required");
+  if (!code?.trim()) return fail(res, 400, "Reset code is required");
   if (!newPassword || newPassword.length < 8)
     return fail(res, 400, "Password must be at least 8 characters");
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, reset_code, reset_expires FROM market.users WHERE email = $1`,
+      `SELECT id, reset_code, reset_expires
+       FROM market.users WHERE email = $1`,
       [email_]
     );
 
@@ -623,41 +1016,52 @@ router.post("/reset-password", authLimiter, async (req, res) => {
     const user = rows[0];
 
     if (!user.reset_code || !user.reset_expires)
-      return fail(res, 400, "No password reset was requested.", { code: "NO_RESET_REQUESTED" });
+      return fail(res, 400, "No password reset was requested.", {
+        code: "NO_RESET_REQUESTED",
+      });
 
     if (new Date() > new Date(user.reset_expires))
-      return fail(res, 400, "Reset code has expired. Please request a new one.", { code: "CODE_EXPIRED" });
+      return fail(res, 400,
+        "Reset code has expired. Please request a new one.",
+        { code: "CODE_EXPIRED" });
 
     if (hashCode(code.trim()) !== user.reset_code)
       return fail(res, 400, "Invalid reset code.", { code: "INVALID_CODE" });
 
-    // Hash raw — never trim password
+    // Hash the raw value — no trimming anywhere in the pipeline
     const password_hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
-    await pool.query(
+    const { rows: [updated] } = await pool.query(
       `UPDATE market.users
        SET password_hash = $1, reset_code = NULL, reset_expires = NULL
-       WHERE id = $2`,
+       WHERE id = $2
+       RETURNING id, LENGTH(password_hash) AS hash_length`,
       [password_hash, user.id]
     );
 
-    // Clear rate limit — user must be able to sign in immediately
+    console.log(`${L("reset-password")} ✅ ${updated.id} ` +
+                `hash_length=${updated.hash_length}`);
+
+    // Let the user sign in right away
     clearRateLimit(req);
 
-    console.log("[seller-auth][reset-password] ✅", user.id);
-    return res.json({ success: true, message: "Password reset successfully! You can now sign in." });
+    return res.json({
+      success: true,
+      message: "Password reset successfully! You can now sign in.",
+    });
 
   } catch (err) {
-    console.error("[seller-auth][reset-password] ❌", err.message);
+    console.error(`${L("reset-password")} ❌`, err.message);
     return fail(res, 500, "Password reset failed. Please try again.");
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// GET /me
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// GET /api/seller-auth/me
+// ═════════════════════════════════════════════════════════════
 router.get("/me", async (req, res) => {
   const header = req.headers.authorization;
+
   if (!header?.startsWith("Bearer "))
     return fail(res, 401, "No token provided");
 
@@ -672,12 +1076,14 @@ router.get("/me", async (req, res) => {
     );
 
     if (!rows.length) return fail(res, 404, "Seller account not found");
+
     return res.json({ success: true, user: rows[0] });
 
   } catch (err) {
     if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError")
       return fail(res, 401, "Invalid or expired token");
-    console.error("[seller-auth][/me] ❌", err.message);
+
+    console.error(`${L("me")} ❌`, err.message);
     return fail(res, 500, "Server error");
   }
 });
