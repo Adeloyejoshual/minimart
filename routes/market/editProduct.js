@@ -1,23 +1,45 @@
 /**
  * PATCH /api/products/:id
  * Update own listing — resets to pending for re-review.
+ *
+ * Flow:
+ *  1. Validate inputs              (before any I/O)
+ *  2. Ownership check              (before any I/O)
+ *  3. Compress + upload new images (parallel, before DB transaction)
+ *  4. DB transaction               (update product → images → children)
+ *  5. Delete old R2 images         (after successful commit)
+ *  6. On any failure               (rollback DB + delete new R2 uploads)
  */
 
-import express from "express";
+import express          from "express";
 import { authenticate } from "../../middleware/auth.js";
-import { upload, uploadToCloudinary, destroyFromCloudinary } from "../../middleware/upload.js";
 import {
-  pool, MAX_IMAGES,
-  safeStr, parseJSON,
+  upload,
+  processAndUploadImages,
+  deleteFromR2,
+} from "../../middleware/upload.js";
+import {
+  pool,
+  MAX_IMAGES,
+  safeStr,
+  parseJSON,
   assertOwner,
-  replaceVariants, replaceList, replaceSpecs,
-  uploadFiles, deleteOldImages,
-  ok, fail,
+  replaceVariants,
+  replaceList,
+  replaceSpecs,
+  deleteProductImagesFromR2,
+  ok,
+  fail,
 } from "./helpers.js";
 
 const router = express.Router();
 
-/* ── Slug Generator ── */
+/* ══════════════════════════════════════════════════════════════
+   SLUG GENERATOR
+   Pure JS — works with CockroachDB
+   Format : "product-name-{first-8-chars-of-uuid}"
+   Example: "iphone-13-pro-max-80bff8ac"
+══════════════════════════════════════════════════════════════ */
 function generateSlug(name, id) {
   const base = String(name)
     .toLowerCase()
@@ -26,124 +48,301 @@ function generateSlug(name, id) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 60);
+
   return `${base}-${String(id).slice(0, 8)}`;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   ALLOWED VALUES
+══════════════════════════════════════════════════════════════ */
+const ALLOWED_CONDITIONS = new Set(["new", "used", "refurbished"]);
+
+/* ══════════════════════════════════════════════════════════════
+   PATCH /:id
+══════════════════════════════════════════════════════════════ */
 router.patch(
   "/:id",
   authenticate,
   upload.array("images", MAX_IMAGES),
   async (req, res) => {
+    const productId = req.params.id;
+
+    /* ────────────────────────────────────────────────────────
+       STEP 1 — Validate inputs before any I/O
+    ──────────────────────────────────────────────────────── */
+    if (req.files?.length > MAX_IMAGES)
+      return fail(res, 400, `You can upload a maximum of ${MAX_IMAGES} images`);
+
+    const {
+      name,
+      description,
+      short_description,
+      category,
+      basePrice,
+      originalPrice,
+      brand,
+      tags,
+      condition,
+      variants,
+      keyFeatures,
+      specifications,
+      whatsInBox,
+      weight_kg,
+      dimensions,
+      delivery_options,
+      return_policy,
+      warranty,
+    } = req.body;
+
+    /* ── At least one field must be provided ── */
+    const hasFields = [
+      name, description, short_description,
+      category, basePrice, originalPrice,
+      brand, tags, condition,
+      variants, keyFeatures, specifications,
+      whatsInBox, weight_kg, dimensions,
+      delivery_options, return_policy, warranty,
+    ].some((v) => v !== undefined);
+
+    const hasImages = req.files?.length > 0;
+
+    if (!hasFields && !hasImages)
+      return fail(res, 422, "Nothing to update");
+
+    /* ── Field validation ── */
+    const cleanName     = name      ? safeStr(name, 200)     : undefined;
+    const cleanCategory = category  ? safeStr(category, 100) : undefined;
+    const cleanBrand    = brand     ? safeStr(brand, 100)    : undefined;
+
+    if (name !== undefined && !cleanName)
+      return fail(res, 422, "Product name cannot be empty");
+
+    if (category !== undefined && !cleanCategory)
+      return fail(res, 422, "Category cannot be empty");
+
+    let price = undefined;
+    if (basePrice !== undefined) {
+      price = parseInt(basePrice, 10);
+      if (isNaN(price) || price <= 0)
+        return fail(res, 422, "A valid base price is required");
+    }
+
+    let parsedOriginalPrice = undefined;
+    if (originalPrice !== undefined) {
+      parsedOriginalPrice = originalPrice === "" || originalPrice === null
+        ? null
+        : parseInt(originalPrice, 10);
+
+      if (parsedOriginalPrice !== null && isNaN(parsedOriginalPrice))
+        return fail(res, 422, "Original price must be a valid number");
+
+      if (
+        parsedOriginalPrice !== null &&
+        price !== undefined &&
+        parsedOriginalPrice < price
+      ) return fail(res, 422, "Original price must be greater than or equal to base price");
+    }
+
+    let parsedWeight = undefined;
+    if (weight_kg !== undefined) {
+      parsedWeight = weight_kg === "" ? null : parseFloat(weight_kg);
+      if (parsedWeight !== null && isNaN(parsedWeight))
+        return fail(res, 422, "Weight must be a valid number");
+    }
+
+    const cleanCondition = condition
+      ? ALLOWED_CONDITIONS.has(condition) ? condition : "new"
+      : undefined;
+
+    const parsedTags     = tags             ? parseJSON(tags,             [])   : undefined;
+    const parsedDims     = dimensions       ? parseJSON(dimensions,       null) : undefined;
+    const parsedDelivery = delivery_options ? parseJSON(delivery_options, null) : undefined;
+    const parsedVariants = variants         ? parseJSON(variants,         [])   : undefined;
+    const parsedFeatures = keyFeatures      ? parseJSON(keyFeatures,      [])   : undefined;
+    const parsedBox      = whatsInBox       ? parseJSON(whatsInBox,       [])   : undefined;
+    const parsedSpecs    = specifications   ? parseJSON(specifications,   [])   : undefined;
+
+    /* ────────────────────────────────────────────────────────
+       STEP 2 — Ownership check (lightweight, no transaction)
+    ──────────────────────────────────────────────────────── */
+    {
+      const quickClient = await pool.connect();
+      try {
+        const guard = await assertOwner(quickClient, productId, req.user.id);
+        if (guard.error) return fail(res, guard.error, guard.message);
+      } finally {
+        quickClient.release();
+      }
+    }
+
+    /* ────────────────────────────────────────────────────────
+       STEP 3 — Compress + upload NEW images in parallel
+       Done before DB transaction so URLs are ready.
+       Old images are only deleted AFTER successful commit.
+    ──────────────────────────────────────────────────────── */
+    let newUploads = []; // { key, public_url }[]
+
+    if (hasImages) {
+      try {
+        newUploads = await processAndUploadImages(req.files);
+      } catch (uploadErr) {
+        await Promise.allSettled(newUploads.map((f) => deleteFromR2(f.key)));
+        console.error("Image upload error:", uploadErr);
+        return fail(res, 502, "Image upload failed. Please try again.");
+      }
+    }
+
+    /* ────────────────────────────────────────────────────────
+       STEP 4 — DB transaction
+    ──────────────────────────────────────────────────────── */
+
+    /* Track old image keys so we can delete from R2 after commit */
+    let oldImageKeys = [];
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      const guard = await assertOwner(client, req.params.id, req.user.id);
-      if (guard.error) return fail(res, guard.error, guard.message);
-
-      const productId = req.params.id;
-      const {
-        name, description, short_description,
-        category, basePrice, originalPrice,
-        brand, tags,
-        variants, keyFeatures, specifications, whatsInBox,
-        weight_kg, dimensions, delivery_options,
-        return_policy, warranty,
-      } = req.body;
-
-      /* ── Calculate slug update if name is provided ── */
-      let slugUpdate = undefined;
-      const cleanName = safeStr(name, 200);
-      if (cleanName) {
-        slugUpdate = generateSlug(cleanName, productId);
+      /* 4a. Re-check ownership inside transaction (prevent race) */
+      const guard = await assertOwner(client, productId, req.user.id);
+      if (guard.error) {
+        await client.query("ROLLBACK");
+        await Promise.allSettled(newUploads.map((f) => deleteFromR2(f.key)));
+        return fail(res, guard.error, guard.message);
       }
 
-      const price = basePrice ? parseInt(basePrice, 10) : undefined;
-      if (price !== undefined && (isNaN(price) || price <= 0))
-        return fail(res, 422, "Invalid base price");
+      /* 4b. Generate new slug if name changed */
+      const newSlug = cleanName
+        ? generateSlug(cleanName, productId)
+        : undefined;
 
-      const parsedDims     = dimensions      ? parseJSON(dimensions, null)      : undefined;
-      const parsedDelivery = delivery_options ? parseJSON(delivery_options, null) : undefined;
-
-      /* ── Update core row ── */
+      /* 4c. Update core product row */
       await client.query(
         `UPDATE market.products SET
            name              = COALESCE($2,  name),
            description       = COALESCE($3,  description),
            short_description = COALESCE($4,  short_description),
            category          = COALESCE($5,  category),
-           price             = COALESCE($6,  price),
-           original_price    = $7,
-           brand             = COALESCE($8,  brand),
-           tags              = COALESCE($9,  tags),
-           weight_kg         = COALESCE($10, weight_kg),
-           dimensions        = COALESCE($11, dimensions),
-           delivery_options  = COALESCE($12, delivery_options),
-           return_policy     = COALESCE($13, return_policy),
-           warranty          = COALESCE($14, warranty),
-           slug              = COALESCE($15, slug),
+           condition         = COALESCE($6,  condition),
+           price             = COALESCE($7,  price),
+           original_price    = COALESCE($8,  original_price),
+           brand             = COALESCE($9,  brand),
+           tags              = COALESCE($10, tags),
+           weight_kg         = COALESCE($11, weight_kg),
+           dimensions        = COALESCE($12, dimensions),
+           delivery_options  = COALESCE($13, delivery_options),
+           return_policy     = COALESCE($14, return_policy),
+           warranty          = COALESCE($15, warranty),
+           slug              = COALESCE($16, slug),
            status            = 'pending',
            is_active         = false,
+           is_paused         = false,
            reviewed_by       = NULL,
            reviewed_at       = NULL,
            rejection_reason  = NULL,
-           updated_at        = now()
+           updated_at        = NOW()
          WHERE id = $1`,
         [
           productId,
-          cleanName || null,
-          safeStr(description, 2000)      || null,
-          safeStr(short_description, 300) || null,
-          category                        || null,
-          price                           || null,
-          originalPrice ? parseInt(originalPrice, 10) : null,
-          safeStr(brand, 100)             || null,
-          tags ? parseJSON(tags, [])      : null,
-          weight_kg      ? parseFloat(weight_kg)            : null,
+          cleanName                                           ?? null,
+          safeStr(description,       2000)                   ?? null,
+          safeStr(short_description,  300)                   ?? null,
+          cleanCategory                                       ?? null,
+          cleanCondition                                      ?? null,
+          price                                               ?? null,
+          parsedOriginalPrice                                 ?? null,
+          cleanBrand                                          ?? null,
+          parsedTags?.length ? parsedTags                    : null,
+          parsedWeight                                        ?? null,
           parsedDims     ? JSON.stringify(parsedDims)        : null,
           parsedDelivery ? JSON.stringify(parsedDelivery)    : null,
-          safeStr(return_policy, 1000)    || null,
-          safeStr(warranty, 500)          || null,
-          slugUpdate                      || null,
+          safeStr(return_policy, 1000)                       ?? null,
+          safeStr(warranty,       500)                       ?? null,
+          newSlug                                             ?? null,
         ]
       );
 
-      /* ── Replace images if new files ── */
-      if (req.files?.length) {
-        await deleteOldImages(client, productId, destroyFromCloudinary);
+      /* 4d. Replace images if new files were uploaded */
+      if (hasImages) {
+        /* Grab old storage keys before deleting rows */
+        const { rows: oldImages } = await client.query(
+          `SELECT storage_key
+           FROM market.product_images
+           WHERE product_id = $1`,
+          [productId]
+        );
+        oldImageKeys = oldImages
+          .map((r) => r.storage_key)
+          .filter(Boolean);
+
+        /* Delete old image rows */
         await client.query(
           "DELETE FROM market.product_images WHERE product_id = $1",
           [productId]
         );
-        const uploaded = await uploadFiles(req.files, uploadToCloudinary);
-        for (let i = 0; i < uploaded.length; i++) {
+
+        /* Insert new image rows */
+        for (let i = 0; i < newUploads.length; i++) {
           await client.query(
             `INSERT INTO market.product_images
-               (product_id, image_url, is_primary, sort_order)
-             VALUES ($1,$2,$3,$4)`,
-            [productId, uploaded[i].secure_url, i === 0, i]
+               (product_id, image_url, storage_key, is_primary, sort_order)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              productId,
+              newUploads[i].public_url,
+              newUploads[i].key,
+              i === 0,
+              i,
+            ]
           );
         }
       }
 
-      /* ── Optional child replacements ── */
-      if (variants       !== undefined) await replaceVariants(client, productId, variants);
-      if (keyFeatures    !== undefined) await replaceList(client, "product_features",  "feature", productId, parseJSON(keyFeatures));
-      if (whatsInBox     !== undefined) await replaceList(client, "product_box_items", "item",    productId, parseJSON(whatsInBox));
-      if (specifications !== undefined) await replaceSpecs(client, productId, parseJSON(specifications));
+      /* 4e. Replace child rows if provided */
+      if (parsedVariants !== undefined)
+        await replaceVariants(client, productId, parsedVariants);
+
+      if (parsedFeatures !== undefined)
+        await replaceList(client, "product_features",  "feature", productId, parsedFeatures);
+
+      if (parsedBox !== undefined)
+        await replaceList(client, "product_box_items", "item",    productId, parsedBox);
+
+      if (parsedSpecs !== undefined)
+        await replaceSpecs(client, productId, parsedSpecs);
 
       await client.query("COMMIT");
 
-      ok(res, {
-        message: "Listing updated and resubmitted for review",
-        data:    { status: "pending", slug: slugUpdate },
+      /* ────────────────────────────────────────────────────
+         STEP 5 — Delete OLD R2 images after successful commit
+         Done outside transaction — DB is already safe.
+      ──────────────────────────────────────────────────── */
+      if (oldImageKeys.length) {
+        await Promise.allSettled(oldImageKeys.map(deleteFromR2));
+      }
+
+      return ok(res, {
+        message: "Listing updated and resubmitted for review.",
+        data   : {
+          productId,
+          slug  : newSlug  ?? undefined,
+          status: "pending",
+        },
       });
 
-    } catch (err) {
+    } catch (dbErr) {
       await client.query("ROLLBACK");
-      console.error("PATCH /products/:id:", err);
-      if (err.code === "23505") return fail(res, 409, "Duplicate SKU or slug");
-      fail(res, 500, "Failed to update listing");
+
+      /* Delete newly uploaded R2 images — old ones are still intact */
+      await Promise.allSettled(newUploads.map((f) => deleteFromR2(f.key)));
+
+      console.error("PATCH /products/:id DB error:", dbErr);
+
+      if (dbErr.code === "23505")
+        return fail(res, 409, "A product with this slug or SKU already exists");
+
+      return fail(res, 500, "Failed to update listing. Please try again.");
+
     } finally {
       client.release();
     }
