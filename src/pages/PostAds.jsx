@@ -17,6 +17,10 @@
  * - Upload progress tracking
  * - Double-submit guard (ref + server-side inFlight)
  * - Client-side duplicate SKU detection blocks step 3 → 4
+ *
+ * Auth: uses seller token (market.users JWT) from localStorage.
+ *       Posts to /api/seller/products so req.user.id is market.users.id
+ *       and products are saved with the correct user_id.
  */
 
 import {
@@ -39,7 +43,7 @@ import "../styles/PostAds.css";
 /* ══════════════════════════════════════════════════════════════
    ENV
 ══════════════════════════════════════════════════════════════ */
-const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+const API = import.meta.env.VITE_API_BASE_URL;   // e.g. "https://api.loemart.com"
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -56,13 +60,25 @@ const MAX_TAGS        = 8;
 const MAX_TAG_LEN     = 24;
 const TOTAL_STEPS     = 5;
 
+/*
+ * SELLER PRODUCT ENDPOINT
+ * ─────────────────────────────────────────────────────────────
+ * Previously: /api/products  ← public marketplace route,
+ *             uses public.users JWT → wrong user_id saved.
+ *
+ * Now:        /api/seller/products  ← seller route,
+ *             uses market.users JWT → correct user_id saved.
+ * ─────────────────────────────────────────────────────────────
+ */
+const SELLER_PRODUCTS_URL = `${API}/api/seller/products`;
+
 /* ══════════════════════════════════════════════════════════════
    SVG ICONS
 ══════════════════════════════════════════════════════════════ */
 const IconArrowLeft = ({ size = 18 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <line x1="19" y1="12" x2="5" y2="12" />
     <polyline points="12 19 5 12 12 5" />
   </svg>
@@ -70,24 +86,24 @@ const IconArrowLeft = ({ size = 18 }) => (
 
 const IconChevronLeft = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <polyline points="15 18 9 12 15 6" />
   </svg>
 );
 
 const IconChevronRight = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <polyline points="9 18 15 12 9 6" />
   </svg>
 );
 
 const IconCheck = ({ size = 42 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
     <polyline points="22 4 12 14.01 9 11.01" />
   </svg>
@@ -95,16 +111,16 @@ const IconCheck = ({ size = 42 }) => (
 
 const IconZap = ({ size = 15 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
   </svg>
 );
 
 const IconTag = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
     <line x1="7" y1="7" x2="7.01" y2="7" />
   </svg>
@@ -112,16 +128,16 @@ const IconTag = ({ size = 14 }) => (
 
 const IconShield = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
   </svg>
 );
 
 const IconAlertTriangle = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
     <line x1="12" y1="9"  x2="12" y2="13" />
     <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -130,8 +146,8 @@ const IconAlertTriangle = ({ size = 16 }) => (
 
 const IconAlertCircle = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="10" />
     <line x1="12" y1="8"  x2="12" y2="12" />
     <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -140,8 +156,8 @@ const IconAlertCircle = ({ size = 16 }) => (
 
 const IconCamera = ({ size = 20 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
     <circle cx="12" cy="13" r="4" />
   </svg>
@@ -149,8 +165,8 @@ const IconCamera = ({ size = 20 }) => (
 
 const IconFileText = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <polyline points="14 2 14 8 20 8" />
     <line x1="16" y1="13" x2="8" y2="13" />
@@ -161,8 +177,8 @@ const IconFileText = ({ size = 16 }) => (
 
 const IconPackage = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <line x1="16.5" y1="9.4"  x2="7.5"  y2="4.21" />
     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
     <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
@@ -172,8 +188,8 @@ const IconPackage = ({ size = 16 }) => (
 
 const IconDollarSign = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
     <line x1="12" y1="1"  x2="12" y2="23" />
     <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
   </svg>
@@ -237,20 +253,40 @@ const BLANK_VARIANT = () => ({
   attributes: { color: "", size: "", storage: "", material: "" },
 });
 
-const getAuthToken = () =>
-  localStorage.getItem("token")             ||
-  localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("seller_token");
+/*
+ * GET SELLER TOKEN
+ * ─────────────────────────────────────────────────────────────
+ * Priority order — always prefer the seller-specific token.
+ * Never fall back to the marketplace "token" because that
+ * carries a public.users.id which causes the user_id mismatch.
+ *
+ * Key names to check (most to least specific):
+ *   sellerToken       — set by SellerDashboard / seller login
+ *   seller_token      — alternate naming convention
+ *   market_token      — alternate naming convention
+ *
+ * We deliberately do NOT fall back to "token" or
+ * "marketplace_token" because those are public.users JWTs.
+ * ─────────────────────────────────────────────────────────────
+ */
+function getSellerToken() {
+  return (
+    localStorage.getItem("sellerToken")   ||
+    localStorage.getItem("seller_token")  ||
+    localStorage.getItem("market_token")  ||
+    null
+  );
+}
 
 /* ── Content scanner ── */
 const scanContent = ({ title = "", description = "", keyFeatures = [] }) => {
   const corpus     = [title, description, ...keyFeatures].join(" ");
   const blocked    = PROHIBITED_PATTERNS
-    .filter((r)  => r.pattern.test(corpus))
-    .map((r)     => ({ text: corpus.match(r.pattern)?.[0] ?? "flagged", category: r.category }));
+    .filter((r) => r.pattern.test(corpus))
+    .map((r)    => ({ text: corpus.match(r.pattern)?.[0] ?? "flagged", category: r.category }));
   const suspicious = SUSPICIOUS_PATTERNS
-    .filter((r)  => r.pattern.test(corpus))
-    .map((r)     => ({ text: corpus.match(r.pattern)?.[0] ?? "flagged", label: r.label }));
+    .filter((r) => r.pattern.test(corpus))
+    .map((r)    => ({ text: corpus.match(r.pattern)?.[0] ?? "flagged", label: r.label }));
   return { blocked, suspicious };
 };
 
@@ -324,7 +360,7 @@ const guessFeatures = ({ title, categoryName, description, specs }) => {
     .slice(0, MAX_FEATURES);
 };
 
-/* ── Duplicate SKU check (client side) ── */
+/* ── Duplicate SKU check ── */
 function hasDuplicateSkus(variants) {
   const seen = new Set();
   for (const v of variants) {
@@ -407,7 +443,7 @@ const ProhibitedBanner = memo(function ProhibitedBanner({ result, scanDone }) {
 ══════════════════════════════════════════════════════════════ */
 export default function PostAds({ user }) {
   const navigate      = useNavigate();
-  const submittingRef = useRef(false); // double-submit guard
+  const submittingRef = useRef(false);
 
   /* ── Step / UI ── */
   const [step,           setStep]           = useState(1);
@@ -451,11 +487,16 @@ export default function PostAds({ user }) {
 
   /* ── Derived ── */
   const filledImages   = useMemo(() => images.filter(Boolean), [images]);
-  const activeCategory = useMemo(() => categories.find((c) => c.id === category), [category]);
+  const activeCategory = useMemo(
+    () => categories.find((c) => c.id === category),
+    [category]
+  );
 
   const discountPct = useMemo(() =>
     originalPrice && basePrice && Number(originalPrice) > Number(basePrice)
-      ? Math.round(((Number(originalPrice) - Number(basePrice)) / Number(originalPrice)) * 100)
+      ? Math.round(
+          ((Number(originalPrice) - Number(basePrice)) / Number(originalPrice)) * 100
+        )
       : 0,
     [originalPrice, basePrice]
   );
@@ -475,7 +516,6 @@ export default function PostAds({ user }) {
     return [...new Set(dupes)];
   }, [imageHashes]);
 
-  /* Client-side duplicate SKU flag — blocks step 3 → 4 */
   const duplicateSkuExists = useMemo(
     () => hasDuplicateSkus(variants),
     [variants]
@@ -484,11 +524,11 @@ export default function PostAds({ user }) {
   /* ════════════════════════════════════════════════════════════
      LIFECYCLE
   ════════════════════════════════════════════════════════════ */
-
-  /* Cleanup blob URLs on unmount */
   useEffect(() => {
     return () => {
-      images.forEach((img) => { if (img?.preview) URL.revokeObjectURL(img.preview); });
+      images.forEach((img) => {
+        if (img?.preview) URL.revokeObjectURL(img.preview);
+      });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -604,7 +644,8 @@ export default function PostAds({ user }) {
       if (extraFiles?.length) {
         let nextSlot = index + 1;
         for (const extra of extraFiles) {
-          while (nextSlot < images.length && images[nextSlot] !== null) nextSlot++;
+          while (nextSlot < images.length && images[nextSlot] !== null)
+            nextSlot++;
           if (nextSlot >= images.length) break;
           handleAddImage(nextSlot, extra);
           nextSlot++;
@@ -665,24 +706,41 @@ export default function PostAds({ user }) {
      VARIANT HELPERS
   ════════════════════════════════════════════════════════════ */
   const updateVariant = useCallback((i, field, val) =>
-    setVariants((p) => p.map((v, idx) => (idx === i ? { ...v, [field]: val } : v))), []);
+    setVariants((p) =>
+      p.map((v, idx) => (idx === i ? { ...v, [field]: val } : v))
+    ), []);
 
   const updateVariantAttr = useCallback((i, attr, val) =>
-    setVariants((p) => p.map((v, idx) =>
-      idx === i ? { ...v, attributes: { ...v.attributes, [attr]: val } } : v
-    )), []);
+    setVariants((p) =>
+      p.map((v, idx) =>
+        idx === i
+          ? { ...v, attributes: { ...v.attributes, [attr]: val } }
+          : v
+      )
+    ), []);
 
   const addVariant = useCallback(() => {
-    setVariants((p) => p.length >= MAX_VARIANTS ? p : [...p, BLANK_VARIANT()]);
+    setVariants((p) =>
+      p.length >= MAX_VARIANTS ? p : [...p, BLANK_VARIANT()]
+    );
   }, []);
 
   const removeVariant = useCallback((i) =>
-    setVariants((p) => (p.length <= 1 ? p : p.filter((_, idx) => idx !== i))), []);
+    setVariants((p) =>
+      p.length <= 1 ? p : p.filter((_, idx) => idx !== i)
+    ), []);
 
   const duplicateVariant = useCallback((i) => {
     setVariants((p) => {
-      if (p.length >= MAX_VARIANTS) { toast.error(`Max ${MAX_VARIANTS} variants`); return p; }
-      const copy = { ...p[i], id: newId(), sku: p[i].sku ? `${p[i].sku}-COPY` : "" };
+      if (p.length >= MAX_VARIANTS) {
+        toast.error(`Max ${MAX_VARIANTS} variants`);
+        return p;
+      }
+      const copy = {
+        ...p[i],
+        id : newId(),
+        sku: p[i].sku ? `${p[i].sku}-COPY` : "",
+      };
       const next = [...p];
       next.splice(i + 1, 0, copy);
       return next;
@@ -715,9 +773,14 @@ export default function PostAds({ user }) {
       description,
       specs       : specifications,
     });
-    if (!gen.length) { toast.error("Add a title or description first"); return; }
+    if (!gen.length) {
+      toast.error("Add a title or description first");
+      return;
+    }
     const existing = keyFeatures.map(normalize).filter(Boolean);
-    setKeyFeatures(uniq([...existing, ...gen]).slice(0, MAX_FEATURES) || [""]);
+    setKeyFeatures(
+      uniq([...existing, ...gen]).slice(0, MAX_FEATURES) || [""]
+    );
     toast.success(`${gen.length} features generated`);
     window.navigator?.vibrate?.(15);
   }, [title, activeCategory, description, specifications, keyFeatures]);
@@ -779,7 +842,8 @@ export default function PostAds({ user }) {
       Number(basePrice) > 0
     );
     return true;
-  }, [step, filledImages.length, title, category, variants, basePrice, duplicateSkuExists]);
+  }, [step, filledImages.length, title, category, variants,
+      basePrice, duplicateSkuExists]);
 
   const stepError = useMemo(() => {
     if (step === 1 && filledImages.length === 0)
@@ -795,7 +859,8 @@ export default function PostAds({ user }) {
     if (step === 4 && (!basePrice || Number(basePrice) <= 0))
       return "Set a valid base price";
     return "";
-  }, [step, filledImages.length, title, category, variants, basePrice, duplicateSkuExists]);
+  }, [step, filledImages.length, title, category, variants,
+      basePrice, duplicateSkuExists]);
 
   /* ════════════════════════════════════════════════════════════
      NAVIGATION
@@ -843,12 +908,17 @@ export default function PostAds({ user }) {
     if (submittingRef.current) return;
     submittingRef.current = true;
 
-    /* ── Pre-flight checks ── */
-    if (!user) {
+    /* ── Get seller token ── */
+    const token = getSellerToken();
+
+    if (!token) {
       submittingRef.current = false;
-      toast.error("Please log in first");
+      toast.error("Seller session not found. Please log in to your seller account.");
+      navigate("/seller/login");
       return;
     }
+
+    /* ── Pre-flight checks ── */
     if (!filledImages.length) {
       submittingRef.current = false;
       toast.error("Add at least one photo");
@@ -869,66 +939,100 @@ export default function PostAds({ user }) {
     setUploadPct(0);
 
     try {
-      const token = getAuthToken();
-      const fd    = new FormData();
+      const fd = new FormData();
 
-      fd.append("name",        title.trim());
-      fd.append("description", description.trim());
-      fd.append("category",    category);
-      fd.append("basePrice",   basePrice);
+      fd.append("name",              title.trim());
+      fd.append("description",       description.trim());
+      fd.append("category",          category);
+      fd.append("basePrice",         basePrice);
       if (originalPrice) fd.append("originalPrice", originalPrice);
       if (brand.trim())  fd.append("brand",         brand.trim());
       if (tags.length)   fd.append("tags",          JSON.stringify(tags));
 
       fd.append("variants",
-        JSON.stringify(variants.filter((v) => v.sku.trim() && v.name.trim())));
+        JSON.stringify(
+          variants.filter((v) => v.sku.trim() && v.name.trim())
+        )
+      );
       fd.append("keyFeatures",
-        JSON.stringify(keyFeatures.map(normalize).filter(Boolean)));
+        JSON.stringify(keyFeatures.map(normalize).filter(Boolean))
+      );
       fd.append("specifications",
-        JSON.stringify(specifications.filter((s) => normalize(s.key) && normalize(s.value))));
+        JSON.stringify(
+          specifications.filter((s) => normalize(s.key) && normalize(s.value))
+        )
+      );
       fd.append("whatsInBox",
-        JSON.stringify(whatsInBox.map(normalize).filter(Boolean)));
+        JSON.stringify(whatsInBox.map(normalize).filter(Boolean))
+      );
 
-      images.forEach((img) => { if (img?.file) fd.append("images", img.file); });
+      images.forEach((img) => {
+        if (img?.file) fd.append("images", img.file);
+      });
 
-      await axios.post(`${API}/products`, fd, {
+      /*
+       * POST to /api/seller/products
+       * Authorization: Bearer <sellerToken>  ← market.users JWT
+       *
+       * This ensures req.user.id === market.users.id on the server,
+       * so market.products.user_id is stored correctly.
+       */
+      await axios.post(SELLER_PRODUCTS_URL, fd, {
         headers: {
-          Authorization : token ? `Bearer ${token}` : undefined,
-          "Content-Type": "multipart/form-data",
+          Authorization  : `Bearer ${token}`,
+          "Content-Type" : "multipart/form-data",
         },
         onUploadProgress: (evt) => {
-          if (evt.total) setUploadPct(Math.round((evt.loaded / evt.total) * 100));
+          if (evt.total)
+            setUploadPct(Math.round((evt.loaded / evt.total) * 100));
         },
       });
 
       localStorage.removeItem(DRAFT_KEY);
       setPosted(true);
-      toast.success("Ad posted successfully");
+      toast.success("Ad posted successfully! It will go live after review.");
       window.navigator?.vibrate?.([50, 30, 80]);
 
     } catch (err) {
-      if (!err.response)
-        toast.error("Network error. Check your connection.");
-      else if (err.response.status === 401)
-        toast.error("Session expired. Please log in again.");
-      else if (err.response.status === 409)
-        toast.error(err.response.data?.message || "A duplicate was detected. Check your title.");
-      else if (err.response.status === 413)
-        toast.error("Images are too large.");
-      else if (err.response.status === 422)
-        toast.error(err.response.data?.message || "Check your inputs and try again.");
-      else if (err.response.status === 429)
+      if (!err.response) {
+        toast.error("Network error. Check your connection and try again.");
+      } else if (err.response.status === 401) {
+        toast.error("Seller session expired. Please log in again.");
+        navigate("/seller/login");
+      } else if (err.response.status === 403) {
+        toast.error(
+          err.response.data?.message ||
+          "Access denied. Verify your seller account first."
+        );
+      } else if (err.response.status === 409) {
+        toast.error(
+          err.response.data?.message ||
+          "A duplicate was detected. Check your title or variant SKUs."
+        );
+      } else if (err.response.status === 413) {
+        toast.error("Images are too large. Each image must be under 5 MB.");
+      } else if (err.response.status === 422) {
+        toast.error(
+          err.response.data?.message ||
+          "Check your inputs and try again."
+        );
+      } else if (err.response.status === 429) {
         toast.error("Already submitting. Please wait a moment.");
-      else
-        toast.error(err.response.data?.message || "Failed to post ad. Please try again.");
+      } else {
+        toast.error(
+          err.response.data?.message ||
+          "Failed to post ad. Please try again."
+        );
+      }
     } finally {
       setPosting(false);
-      submittingRef.current = false; // always release the guard
+      submittingRef.current = false;
     }
   }, [
-    user, filledImages, scanResult, duplicateSkuExists,
+    filledImages, scanResult, duplicateSkuExists,
     title, description, category, basePrice, originalPrice,
-    brand, tags, variants, keyFeatures, specifications, whatsInBox, images,
+    brand, tags, variants, keyFeatures, specifications,
+    whatsInBox, images, navigate,
   ]);
 
   /* ════════════════════════════════════════════════════════════
@@ -946,8 +1050,7 @@ export default function PostAds({ user }) {
             type="button"
             className="pa-topbar-back"
             onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
+            aria-label="Go back">
             <IconArrowLeft size={18} />
           </button>
 
@@ -968,7 +1071,7 @@ export default function PostAds({ user }) {
             <div className="pa-success-icon">
               <IconCheck size={42} />
             </div>
-            <h2 className="pa-success-title">Ad Posted</h2>
+            <h2 className="pa-success-title">Ad Posted!</h2>
             <p className="pa-success-sub">
               Your listing has been submitted for review.
               You will be notified once it is approved.
@@ -977,15 +1080,13 @@ export default function PostAds({ user }) {
               <button
                 type="button"
                 className="pa-success-primary"
-                onClick={() => navigate("/minimart")}
-              >
+                onClick={() => navigate("/minimart")}>
                 Browse Marketplace
               </button>
               <button
                 type="button"
                 className="pa-success-secondary"
-                onClick={() => navigate("/dashboard")}
-              >
+                onClick={() => navigate("/seller/dashboard")}>
                 View My Listings
               </button>
             </div>
@@ -1015,9 +1116,7 @@ export default function PostAds({ user }) {
                 <ProhibitedBanner result={scanResult} scanDone={scanDone} />
               )}
 
-              {/* ════════════════════════
-                  STEP 1 — PHOTOS
-              ════════════════════════ */}
+              {/* STEP 1 — PHOTOS */}
               {step === 1 && (
                 <section aria-labelledby="pa-step1-heading">
                   <div className="pa-section-head">
@@ -1042,9 +1141,7 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ════════════════════════
-                  STEP 2 — DETAILS
-              ════════════════════════ */}
+              {/* STEP 2 — DETAILS */}
               {step === 2 && (
                 <section aria-labelledby="pa-step2-heading">
                   <div className="pa-section-head">
@@ -1056,8 +1153,7 @@ export default function PostAds({ user }) {
                       type="button"
                       className="pa-gen-btn"
                       onClick={generateKeyFeatures}
-                      aria-label="Auto-generate key features"
-                    >
+                      aria-label="Auto-generate key features">
                       <IconZap size={14} />
                       <span>Auto-Generate Features</span>
                     </button>
@@ -1144,8 +1240,7 @@ export default function PostAds({ user }) {
                               className="pa-tag"
                               role="listitem"
                               aria-label={`Remove tag: ${t}`}
-                              onClick={() => removeTag(t)}
-                            >
+                              onClick={() => removeTag(t)}>
                               {t}
                               <span className="pa-tag-x" aria-hidden="true">
                                 <IconXSmall />
@@ -1195,8 +1290,7 @@ export default function PostAds({ user }) {
                             type="button"
                             className="pa-mini-btn pa-mini-btn--remove"
                             aria-label={`Remove feature ${i + 1}`}
-                            onClick={() => removeList(setKeyFeatures, i)}
-                          >
+                            onClick={() => removeList(setKeyFeatures, i)}>
                             <IconXSmall />
                           </button>
                         </div>
@@ -1205,8 +1299,7 @@ export default function PostAds({ user }) {
                         <button
                           type="button"
                           className="pa-add-btn"
-                          onClick={() => addList(setKeyFeatures, keyFeatures, MAX_FEATURES)}
-                        >
+                          onClick={() => addList(setKeyFeatures, keyFeatures, MAX_FEATURES)}>
                           <IconPlusSmall /> Add Feature
                         </button>
                       )}
@@ -1252,8 +1345,7 @@ export default function PostAds({ user }) {
                             type="button"
                             className="pa-mini-btn pa-mini-btn--remove"
                             aria-label={`Remove specification ${i + 1}`}
-                            onClick={() => removeList(setSpecifications, i)}
-                          >
+                            onClick={() => removeList(setSpecifications, i)}>
                             <IconXSmall />
                           </button>
                         </div>
@@ -1264,10 +1356,11 @@ export default function PostAds({ user }) {
                           className="pa-add-btn"
                           onClick={() =>
                             setSpecifications((p) =>
-                              p.length >= MAX_SPECS ? p : [...p, { key: "", value: "" }]
+                              p.length >= MAX_SPECS
+                                ? p
+                                : [...p, { key: "", value: "" }]
                             )
-                          }
-                        >
+                          }>
                           <IconPlusSmall /> Add Specification
                         </button>
                       )}
@@ -1296,8 +1389,7 @@ export default function PostAds({ user }) {
                             type="button"
                             className="pa-mini-btn pa-mini-btn--remove"
                             aria-label={`Remove box item ${i + 1}`}
-                            onClick={() => removeList(setWhatsInBox, i)}
-                          >
+                            onClick={() => removeList(setWhatsInBox, i)}>
                             <IconXSmall />
                           </button>
                         </div>
@@ -1306,8 +1398,7 @@ export default function PostAds({ user }) {
                         <button
                           type="button"
                           className="pa-add-btn"
-                          onClick={() => addList(setWhatsInBox, whatsInBox, MAX_BOX_ITEMS)}
-                        >
+                          onClick={() => addList(setWhatsInBox, whatsInBox, MAX_BOX_ITEMS)}>
                           <IconPlusSmall /> Add Item
                         </button>
                       )}
@@ -1327,8 +1418,7 @@ export default function PostAds({ user }) {
                     <div
                       className="pa-cat-grid"
                       role="radiogroup"
-                      aria-labelledby="pa-cat-label"
-                    >
+                      aria-labelledby="pa-cat-label">
                       {categories.map((c) => (
                         <button
                           key={c.id}
@@ -1336,10 +1426,14 @@ export default function PostAds({ user }) {
                           role="radio"
                           aria-checked={category === c.id}
                           className={`pa-cat-btn${category === c.id ? " pa-cat-btn--active" : ""}`}
-                          onClick={() => { setCategory(c.id); markTouched("category"); }}
-                        >
+                          onClick={() => {
+                            setCategory(c.id);
+                            markTouched("category");
+                          }}>
                           {c.icon && (
-                            <span className="pa-cat-icon" aria-hidden="true">{c.icon}</span>
+                            <span className="pa-cat-icon" aria-hidden="true">
+                              {c.icon}
+                            </span>
                           )}
                           <span>{c.name}</span>
                         </button>
@@ -1349,9 +1443,7 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ════════════════════════
-                  STEP 3 — VARIANTS
-              ════════════════════════ */}
+              {/* STEP 3 — VARIANTS */}
               {step === 3 && (
                 <section aria-labelledby="pa-step3-heading">
                   <div className="pa-section-head">
@@ -1380,9 +1472,7 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ════════════════════════
-                  STEP 4 — PRICING
-              ════════════════════════ */}
+              {/* STEP 4 — PRICING */}
               {step === 4 && (
                 <section aria-labelledby="pa-step4-heading">
                   <div className="pa-section-head">
@@ -1407,9 +1497,7 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ════════════════════════
-                  STEP 5 — REVIEW
-              ════════════════════════ */}
+              {/* STEP 5 — REVIEW */}
               {step === 5 && (
                 <section aria-labelledby="pa-step5-heading">
                   <div className="pa-section-head">
@@ -1455,8 +1543,7 @@ export default function PostAds({ user }) {
                   type="button"
                   className="pa-btn-back"
                   onClick={goBack}
-                  aria-label="Go to previous step"
-                >
+                  aria-label="Go to previous step">
                   <IconChevronLeft size={16} />
                   <span>Back</span>
                 </button>
@@ -1474,8 +1561,7 @@ export default function PostAds({ user }) {
                     compressing
                       ? "Compressing images, please wait"
                       : "Continue to next step"
-                  }
-                >
+                  }>
                   <span>{compressing ? "Compressing..." : "Continue"}</span>
                   <IconChevronRight size={16} />
                 </button>
