@@ -3,39 +3,56 @@
  * Create a new listing.
  * Multipart: images[] + JSON fields.
  *
- * • Images are compressed to WebP ≤ 1200px @ quality 75
- * • Uploaded to Cloudflare R2
- * • Orphaned R2 files are deleted on DB failure
- * • All validation happens BEFORE the DB transaction
+ * Flow:
+ *  1. Validate inputs          (before any I/O)
+ *  2. Compress + upload images (parallel, before DB)
+ *  3. DB transaction           (insert product → slug → images → children)
+ *  4. On any failure           (rollback DB + delete R2 images)
  */
 
-import express            from "express";
-import { authenticate }   from "../../middleware/auth.js";
-import { upload, uploadToR2, deleteFromR2 } from "../../middleware/upload.js";
+import express          from "express";
+import { authenticate } from "../../middleware/auth.js";
 import {
-  pool, MAX_IMAGES,
-  safeStr, parseJSON,
-  replaceVariants, insertList, replaceSpecs,
-  ok, fail,
+  upload,
+  processAndUploadImages,
+  deleteFromR2,
+} from "../../middleware/upload.js";
+import {
+  pool,
+  MAX_IMAGES,
+  safeStr,
+  parseJSON,
+  replaceVariants,
+  insertList,
+  replaceSpecs,
+  ok,
+  fail,
 } from "./helpers.js";
 
 const router = express.Router();
 
-/* ── Slug generator (pure JS — works with CockroachDB) ──────────
-   Format : "product-name-here-{first-8-chars-of-uuid}"
+/* ══════════════════════════════════════════════════════════════
+   SLUG GENERATOR
+   Pure JS — works with CockroachDB (no DB function needed)
+   Format : "product-name-{first-8-chars-of-uuid}"
    Example: "iphone-13-pro-max-80bff8ac"
-─────────────────────────────────────────────────────────────── */
+══════════════════════════════════════════════════════════════ */
 function generateSlug(name, id) {
   const base = String(name)
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
+    .replace(/[^a-z0-9\s]/g, "")   // strip special chars
+    .replace(/\s+/g, "-")           // spaces → hyphens
+    .replace(/-+/g, "-")            // collapse multiple hyphens
+    .replace(/^-|-$/g, "")          // trim leading/trailing hyphens
+    .slice(0, 60);                   // max 60 chars
 
   return `${base}-${String(id).slice(0, 8)}`;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   ALLOWED VALUES
+══════════════════════════════════════════════════════════════ */
+const ALLOWED_CONDITIONS = new Set(["new", "used", "refurbished"]);
 
 /* ══════════════════════════════════════════════════════════════
    POST /
@@ -46,90 +63,127 @@ router.post(
   upload.array("images", MAX_IMAGES),
   async (req, res) => {
 
-    /* ── 1. Validate files ── */
+    /* ────────────────────────────────────────────────────────
+       STEP 1 — Validate everything before touching I/O
+    ──────────────────────────────────────────────────────── */
     if (!req.files?.length)
       return fail(res, 400, "At least one image is required");
 
-    /* ── 2. Parse & validate body BEFORE touching the DB ── */
+    if (req.files.length > MAX_IMAGES)
+      return fail(res, 400, `You can upload a maximum of ${MAX_IMAGES} images`);
+
     const {
-      name, description, short_description,
-      category, basePrice, originalPrice,
-      brand, tags, condition,
-      variants, keyFeatures, specifications, whatsInBox,
-      weight_kg, dimensions, delivery_options,
-      return_policy, warranty,
+      name,
+      description,
+      short_description,
+      category,
+      basePrice,
+      originalPrice,
+      brand,
+      tags,
+      condition,
+      variants,
+      keyFeatures,
+      specifications,
+      whatsInBox,
+      weight_kg,
+      dimensions,
+      delivery_options,
+      return_policy,
+      warranty,
     } = req.body;
 
+    /* ── Required fields ── */
     const cleanName = safeStr(name, 200);
     if (!cleanName)
       return fail(res, 422, "Product name is required");
 
-    if (!category)
+    const cleanCategory = safeStr(category, 100);
+    if (!cleanCategory)
       return fail(res, 422, "Category is required");
 
     const price = parseInt(basePrice, 10);
     if (isNaN(price) || price <= 0)
-      return fail(res, 422, "Valid base price is required");
+      return fail(res, 422, "A valid base price is required");
 
-    const allowedConditions = ["new", "used", "refurbished"];
-    const cleanCondition    = allowedConditions.includes(condition)
+    /* ── Optional fields ── */
+    const parsedOriginalPrice = originalPrice
+      ? parseInt(originalPrice, 10)
+      : null;
+
+    if (parsedOriginalPrice !== null && isNaN(parsedOriginalPrice))
+      return fail(res, 422, "Original price must be a valid number");
+
+    if (parsedOriginalPrice !== null && parsedOriginalPrice < price)
+      return fail(res, 422, "Original price must be greater than or equal to base price");
+
+    const cleanCondition = ALLOWED_CONDITIONS.has(condition)
       ? condition
       : "new";
 
-    const parsedTags     = parseJSON(tags,             []);
-    const parsedDims     = parseJSON(dimensions,       null);
-    const parsedDelivery = parseJSON(delivery_options, null);
-    const parsedVariants = parseJSON(variants);
-    const parsedFeatures = parseJSON(keyFeatures);
-    const parsedBox      = parseJSON(whatsInBox);
-    const parsedSpecs    = parseJSON(specifications);
+    const parsedWeight = weight_kg ? parseFloat(weight_kg) : null;
+    if (parsedWeight !== null && isNaN(parsedWeight))
+      return fail(res, 422, "Weight must be a valid number");
 
-    /* ── 3. Upload images to R2 BEFORE transaction ──────────────
-       Track uploaded keys so we can delete them on failure.
-    ─────────────────────────────────────────────────────────── */
-    const uploaded = []; // { key, public_url }[]
+    /* ── JSON fields ── */
+    const parsedTags      = parseJSON(tags,             []);
+    const parsedDims      = parseJSON(dimensions,       null);
+    const parsedDelivery  = parseJSON(delivery_options, null);
+    const parsedVariants  = parseJSON(variants,         []);
+    const parsedFeatures  = parseJSON(keyFeatures,      []);
+    const parsedBox       = parseJSON(whatsInBox,       []);
+    const parsedSpecs     = parseJSON(specifications,   []);
+
+    /* ────────────────────────────────────────────────────────
+       STEP 2 — Compress + upload images to R2 in parallel
+       Done BEFORE the DB transaction so we have URLs ready.
+       On any upload failure → delete partial uploads + bail.
+    ──────────────────────────────────────────────────────── */
+    let uploaded = []; // { key, public_url }[]
 
     try {
-      const results = await Promise.allSettled(
-        req.files.map((f) => uploadToR2(f))
-      );
-
-      for (const result of results) {
-        if (result.status === "rejected") {
-          throw new Error(`Image upload failed: ${result.reason?.message}`);
-        }
-        uploaded.push(result.value);
-      }
+      uploaded = await processAndUploadImages(req.files);
     } catch (uploadErr) {
-      // Clean up any images that did succeed before the failure
       await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
-      console.error("R2 upload error:", uploadErr);
+      console.error("Image upload error:", uploadErr);
       return fail(res, 502, "Image upload failed. Please try again.");
     }
 
-    /* ── 4. DB transaction ── */
+    /* ────────────────────────────────────────────────────────
+       STEP 3 — DB transaction
+    ──────────────────────────────────────────────────────── */
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      /* 4a. Insert product to get real UUID */
+      /* 3a. Insert product row to get real UUID */
       const { rows: [{ id: productId }] } = await client.query(
         `INSERT INTO market.products (
-           user_id, name, description, short_description,
-           category, condition,
-           price, original_price,
-           brand, tags,
-           weight_kg, dimensions, delivery_options,
-           return_policy, warranty,
-           status, is_active
+           user_id,
+           name,
+           description,
+           short_description,
+           category,
+           condition,
+           price,
+           original_price,
+           brand,
+           tags,
+           weight_kg,
+           dimensions,
+           delivery_options,
+           return_policy,
+           warranty,
+           status,
+           is_active
          )
          VALUES (
-           $1,$2,$3,$4,
-           $5,$6,
-           $7,$8,
-           $9,$10,
-           $11,$12,$13,
-           $14,$15,
+           $1, $2, $3, $4,
+           $5, $6,
+           $7, $8,
+           $9, $10,
+           $11, $12, $13,
+           $14, $15,
            'pending', false
          )
          RETURNING id`,
@@ -138,38 +192,47 @@ router.post(
           cleanName,
           safeStr(description,       2000),
           safeStr(short_description,  300),
-          category,
+          cleanCategory,
           cleanCondition,
           price,
-          originalPrice ? parseInt(originalPrice, 10) : null,
+          parsedOriginalPrice,
           safeStr(brand, 100),
           parsedTags.length ? parsedTags : null,
-          weight_kg      ? parseFloat(weight_kg)          : null,
-          parsedDims     ? JSON.stringify(parsedDims)     : null,
-          parsedDelivery ? JSON.stringify(parsedDelivery) : null,
+          parsedWeight,
+          parsedDims    ? JSON.stringify(parsedDims)    : null,
+          parsedDelivery? JSON.stringify(parsedDelivery): null,
           safeStr(return_policy, 1000),
           safeStr(warranty,       500),
         ]
       );
 
-      /* 4b. Generate slug from real UUID */
+      /* 3b. Generate slug from real UUID and update */
       const slug = generateSlug(cleanName, productId);
+
       await client.query(
-        "UPDATE market.products SET slug = $1 WHERE id = $2",
+        `UPDATE market.products
+         SET slug = $1
+         WHERE id = $2`,
         [slug, productId]
       );
 
-      /* 4c. Save image rows */
+      /* 3c. Insert image rows */
       for (let i = 0; i < uploaded.length; i++) {
         await client.query(
           `INSERT INTO market.product_images
              (product_id, image_url, storage_key, is_primary, sort_order)
            VALUES ($1, $2, $3, $4, $5)`,
-          [productId, uploaded[i].public_url, uploaded[i].key, i === 0, i]
+          [
+            productId,
+            uploaded[i].public_url,
+            uploaded[i].key,
+            i === 0,   // first image is primary
+            i,
+          ]
         );
       }
 
-      /* 4d. Child rows */
+      /* 3d. Child rows — variants, features, specs, box items */
       await replaceVariants(client, productId, parsedVariants);
       await insertList(client, "product_features",  "feature", productId, parsedFeatures);
       await insertList(client, "product_box_items", "item",    productId, parsedBox);
@@ -177,10 +240,14 @@ router.post(
 
       await client.query("COMMIT");
 
-      return ok(res, {
-        message: "Listing submitted for review. You'll be notified once approved.",
-        data   : { productId, slug, status: "pending" },
-      }, 201);
+      return ok(
+        res,
+        {
+          message: "Listing submitted for review. You will be notified once approved.",
+          data   : { productId, slug, status: "pending" },
+        },
+        201
+      );
 
     } catch (dbErr) {
       await client.query("ROLLBACK");
