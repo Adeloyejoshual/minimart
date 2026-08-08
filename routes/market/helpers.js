@@ -3,28 +3,41 @@
  * SQL queries, utilities, response formatting.
  */
 
-import { pool } from "../../config/db.js";
+import { pool }                        from "../../config/db.js";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
+
+/* ── R2 Client ── */
+const r2 = new S3Client({
+  region     : process.env.R2_REGION ?? "auto",
+  endpoint   : process.env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId    : process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
+
+const R2_BUCKET = process.env.R2_BUCKET_NAME;
 
 /* ── Constants ── */
-export const MAX_IMAGES    = 6;
+export const MAX_IMAGES    = 8;
 export const DEFAULT_LIMIT = 24;
 export const MAX_LIMIT     = 100;
 
 export const SORT_MAP = {
-  newest:     "p.created_at DESC",
-  oldest:     "p.created_at ASC",
-  price_asc:  "p.price ASC",
+  newest    : "p.created_at DESC",
+  oldest    : "p.created_at ASC",
+  price_asc : "p.price ASC",
   price_desc: "p.price DESC",
-  views:      "p.view_count DESC, p.created_at DESC",
-  saves:      "p.save_count DESC, p.created_at DESC",
-  trending:   "p.view_count DESC, p.save_count DESC, p.created_at DESC",
+  views     : "p.view_count DESC, p.created_at DESC",
+  saves     : "p.save_count DESC, p.created_at DESC",
+  trending  : "p.view_count DESC, p.save_count DESC, p.created_at DESC",
 };
 
 /* ══════════════════════════════════════════════════════════════
    FULL PRODUCT SELECT
-   Cockroach-safe version:
+   Cockroach-safe:
    - NO GROUP BY
-   - uses correlated subqueries for child collections
+   - correlated subqueries for child collections
 ══════════════════════════════════════════════════════════════ */
 export const FULL_PRODUCT_SELECT = `
   SELECT
@@ -40,10 +53,11 @@ export const FULL_PRODUCT_SELECT = `
       SELECT json_agg(img.obj)
       FROM (
         SELECT json_build_object(
-          'id',         pi.id,
-          'url',        pi.image_url,
-          'is_primary', pi.is_primary,
-          'sort_order', pi.sort_order
+          'id',          pi.id,
+          'url',         pi.image_url,
+          'storage_key', pi.storage_key,
+          'is_primary',  pi.is_primary,
+          'sort_order',  pi.sort_order
         ) AS obj
         FROM market.product_images pi
         WHERE pi.product_id = p.id
@@ -113,7 +127,7 @@ export const FULL_PRODUCT_SELECT = `
     ON u.id = p.user_id
 `;
 
-/* GROUP_BY no longer needed, keep empty string for compatibility */
+/* GROUP_BY kept as empty string for compatibility */
 export const GROUP_BY = "";
 
 /* ── Public visibility conditions ── */
@@ -129,16 +143,16 @@ export const PUBLIC_CONDITIONS = [
 export function isPublicProduct(product) {
   return (
     (product.status === "approved" || product.status === "active") &&
-    product.is_active === true &&
-    product.is_hidden === false &&
-    product.is_paused === false &&
+    product.is_active  === true  &&
+    product.is_hidden  === false &&
+    product.is_paused  === false &&
     product.deleted_at === null
   );
 }
 
 /* ── Pagination ── */
 export function paginate(query) {
-  const limit  = Math.min(parseInt(query.limit, 10) || DEFAULT_LIMIT, MAX_LIMIT);
+  const limit  = Math.min(parseInt(query.limit,  10) || DEFAULT_LIMIT, MAX_LIMIT);
   const offset = Math.max(parseInt(query.offset, 10) || 0, 0);
   const page   = Math.floor(offset / limit) + 1;
   return { limit, offset, page };
@@ -178,7 +192,10 @@ export const ok = (res, data = {}, status = 200) =>
 export const fail = (res, status, message) =>
   res.status(status).json({ success: false, message });
 
-/* ── Child table helpers ── */
+/* ══════════════════════════════════════════════════════════════
+   CHILD TABLE HELPERS
+══════════════════════════════════════════════════════════════ */
+
 export async function insertList(client, table, column, productId, items) {
   for (let i = 0; i < items.length; i++) {
     const val = safeStr(String(items[i] ?? ""));
@@ -192,7 +209,10 @@ export async function insertList(client, table, column, productId, items) {
 }
 
 export async function replaceList(client, table, column, productId, items) {
-  await client.query(`DELETE FROM market.${table} WHERE product_id = $1`, [productId]);
+  await client.query(
+    `DELETE FROM market.${table} WHERE product_id = $1`,
+    [productId]
+  );
   await insertList(client, table, column, productId, items);
 }
 
@@ -235,35 +255,60 @@ export async function replaceVariants(client, productId, rawVariants) {
         productId,
         sku.toUpperCase(),
         name,
-        Math.max(0, parseFloat(v.price)   || 0),
-        Math.max(0, parseInt(v.stock, 10) || 0),
-        JSON.stringify(v.attributes || {}),
+        Math.max(0, parseFloat(v.price)    || 0),
+        Math.max(0, parseInt(v.stock, 10)  || 0),
+        JSON.stringify(v.attributes        || {}),
       ]
     );
   }
 }
 
-export async function uploadFiles(files, uploadToCloudinary) {
-  return Promise.all(files.map((f) => uploadToCloudinary(f.buffer)));
+/* ══════════════════════════════════════════════════════════════
+   R2 IMAGE HELPERS
+══════════════════════════════════════════════════════════════ */
+
+/**
+ * Delete a single file from R2 by storage key.
+ * Silent on failure — always log but never throw.
+ */
+export async function deleteFromR2(key) {
+  if (!key) return;
+  try {
+    await r2.send(
+      new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key })
+    );
+  } catch (err) {
+    console.error("R2 delete failed for key:", key, err?.message);
+  }
 }
 
-export async function deleteOldImages(client, productId, destroyFromCloudinary) {
+/**
+ * Delete ALL R2 images linked to a product.
+ * Reads storage_key from market.product_images.
+ * Safe to call inside or outside a transaction.
+ */
+export async function deleteProductImagesFromR2(client, productId) {
   const { rows } = await client.query(
-    "SELECT image_url FROM market.product_images WHERE product_id = $1",
+    "SELECT storage_key FROM market.product_images WHERE product_id = $1",
     [productId]
   );
 
-  rows.forEach(({ image_url }) => {
-    try {
-      const publicId = image_url.split("/upload/")[1]?.replace(/\.[^.]+$/, "");
-      if (publicId) destroyFromCloudinary(publicId).catch(() => {});
-    } catch {}
-  });
+  await Promise.allSettled(
+    rows
+      .map((r) => r.storage_key)
+      .filter(Boolean)
+      .map(deleteFromR2)
+  );
 }
 
+/* ══════════════════════════════════════════════════════════════
+   OWNERSHIP GUARD
+══════════════════════════════════════════════════════════════ */
 export async function assertOwner(client, productId, userId) {
   const { rows } = await client.query(
-    "SELECT user_id, status FROM market.products WHERE id = $1 AND deleted_at IS NULL",
+    `SELECT user_id, status
+     FROM market.products
+     WHERE id = $1 AND deleted_at IS NULL`,
     [productId]
   );
 
