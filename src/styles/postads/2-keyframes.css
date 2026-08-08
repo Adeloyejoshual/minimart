@@ -1,0 +1,40 @@
+/* ═══════════════════════════════════════════════════════════════
+   2-keyframes.css
+   All @keyframes in one place.
+   Reference these by name in any component CSS.
+═══════════════════════════════════════════════════════════════ */
+
+/* Slide up + fade in — used by .pa-inline-error, .pa-modal */
+@keyframes pa-up {
+  from { transform: translateY(18px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* Pop scale — used by .pa-success-icon */
+@keyframes pa-pop {
+  from { transform: scale(0);  opacity: 0; }
+  to   { transform: scale(1);  opacity: 1; }
+}
+
+/* Spin — used by .pa-spinner, .pa-spinner-sm, .pa-spin (SVG) */
+@keyframes pa-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Fade in up — used by .pa-variant-card */
+@keyframes pa-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* Active step pulse ring */
+@keyframes pa-step-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%       { opacity: 0.3; transform: scale(1.12); }
+}
+
+/* SVG spinner — used on .pa-spin class */
+.pa-spin {
+  animation: pa-spin 0.75s linear infinite;
+  transform-origin: center;
+}
