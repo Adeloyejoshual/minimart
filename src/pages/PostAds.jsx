@@ -21,16 +21,10 @@ import {
   useEffect, useMemo, useState,
   useCallback, memo,
 } from "react";
-import { useNavigate } from "react-router-dom";
-import axios              from "axios";
-import toast              from "react-hot-toast";
-import imageCompression   from "browser-image-compression";
-import {
-  FiChevronLeft, FiChevronRight, FiCheckCircle, FiArrowLeft,
-  FiZap, FiTag, FiPackage, FiDollarSign,
-  FiFileText, FiShield, FiAlertTriangle, FiAlertCircle,
-  FiCamera,
-} from "react-icons/fi";
+import { useNavigate }  from "react-router-dom";
+import axios            from "axios";
+import toast            from "react-hot-toast";
+import imageCompression from "browser-image-compression";
 
 import categories    from "../config/categories";
 import ImageGrid     from "./PostAds/ImageGrid";
@@ -40,19 +34,19 @@ import PricingStep   from "./PostAds/PricingStep";
 import StepBar       from "./PostAds/StepBar";
 import "../styles/PostAds.css";
 
-/* ═══════════════════════════════════════════════════════════════
-   ENV + API
-═══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   ENV
+══════════════════════════════════════════════════════════════ */
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    CONSTANTS
-═══════════════════════════════════════════════════════════════ */
-const DRAFT_KEY       = "post-ad-draft-v8";
-const MAX_IMAGES      = 6;
+══════════════════════════════════════════════════════════════ */
+const DRAFT_KEY       = "post-ad-draft-v9";
+const MAX_IMAGES      = 8;
 const MAX_FILE_MB     = 5;
 const MAX_VARIANTS    = 20;
-const COMPRESS_TARGET = 0.5; // MB
+const COMPRESS_TARGET = 0.5;
 const MAX_FEATURES    = 10;
 const MAX_SPECS       = 12;
 const MAX_BOX_ITEMS   = 12;
@@ -60,9 +54,119 @@ const MAX_TAGS        = 8;
 const MAX_TAG_LEN     = 24;
 const TOTAL_STEPS     = 5;
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
+   SVG ICONS — transparent, no fill unless specified
+══════════════════════════════════════════════════════════════ */
+const IconArrowLeft = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
+const IconChevronLeft = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 18 9 12 15 6" />
+  </svg>
+);
+
+const IconChevronRight = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
+const IconCheck = ({ size = 42 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+    <polyline points="22 4 12 14.01 9 11.01" />
+  </svg>
+);
+
+const IconZap = ({ size = 15 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+
+const IconTag = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+    <line x1="7" y1="7" x2="7.01" y2="7" />
+  </svg>
+);
+
+const IconShield = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+);
+
+const IconAlertTriangle = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+const IconAlertCircle = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="8" x2="12" y2="12" />
+    <line x1="12" y1="16" x2="12.01" y2="16" />
+  </svg>
+);
+
+const IconCamera = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </svg>
+);
+
+const IconFileText = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+    <polyline points="10 9 9 9 8 9" />
+  </svg>
+);
+
+const IconPackage = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="16.5" y1="9.4" x2="7.5" y2="4.21" />
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+    <line x1="12" y1="22.08" x2="12" y2="12" />
+  </svg>
+);
+
+const IconDollarSign = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="1" x2="12" y2="23" />
+    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+  </svg>
+);
+
+/* ══════════════════════════════════════════════════════════════
    PROHIBITED CONTENT PATTERNS
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const PROHIBITED_PATTERNS = [
   { pattern: /\b(gun|pistol|rifle|shotgun|firearm|weapon|ammo|ammunition|explosive|bomb|grenade|machete)\b/i, category: "Weapons & Dangerous Items" },
   { pattern: /\b(cocaine|heroin|meth|cannabis|marijuana|weed|narcotic|tramadol abuse|codeine syrup)\b/i,      category: "Illegal Drugs"              },
@@ -80,9 +184,9 @@ const SUSPICIOUS_PATTERNS = [
   { pattern: /\b(urgent sale|leaving country|emergency sale)\b/i,              label: "Urgency pressure tactic" },
 ];
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    HELPERS
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const normalize = (s = "") => String(s).replace(/\s+/g, " ").trim();
 const uniq      = (arr)    => [...new Set(arr.filter(Boolean))];
 
@@ -92,12 +196,12 @@ const newId = () =>
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const BLANK_VARIANT = () => ({
-  id         : newId(),
-  sku        : "",
-  name       : "",
-  price      : "",
-  stock      : "1",
-  attributes : { color: "", size: "", storage: "", material: "" },
+  id        : newId(),
+  sku       : "",
+  name      : "",
+  price     : "",
+  stock     : "1",
+  attributes: { color: "", size: "", storage: "", material: "" },
 });
 
 const getAuthToken = () =>
@@ -105,9 +209,9 @@ const getAuthToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("seller_token");
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    CONTENT SCANNER
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const scanContent = ({ title = "", description = "", keyFeatures = [] }) => {
   const corpus     = [title, description, ...keyFeatures].join(" ");
   const blocked    = PROHIBITED_PATTERNS
@@ -119,9 +223,9 @@ const scanContent = ({ title = "", description = "", keyFeatures = [] }) => {
   return { blocked, suspicious };
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    SHA-256 FILE HASH
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const hashFile = async (file) => {
   try {
     const buf    = await file.arrayBuffer();
@@ -134,40 +238,40 @@ const hashFile = async (file) => {
   }
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    IMAGE COMPRESSION
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const compressImage = async (file) => {
   if (file.size <= COMPRESS_TARGET * 1024 * 1024) return file;
   try {
     return await imageCompression(file, {
-      maxSizeMB        : COMPRESS_TARGET,
-      maxWidthOrHeight : 1920,
-      useWebWorker     : true,
-      fileType         : file.type,
+      maxSizeMB       : COMPRESS_TARGET,
+      maxWidthOrHeight: 1920,
+      useWebWorker    : true,
+      fileType        : file.type,
     });
   } catch {
     return file;
   }
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    SMART FEATURE GENERATOR
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const guessFeatures = ({ title, categoryName, description, specs }) => {
-  const t        = normalize(title).toLowerCase();
-  const d        = normalize(description).toLowerCase();
+  const t         = normalize(title).toLowerCase();
+  const d         = normalize(description).toLowerCase();
   const specPairs = (specs || [])
     .filter((x) => normalize(x.key) && normalize(x.value))
     .map((x) => `${normalize(x.key)}: ${normalize(x.value)}`);
 
   const features = [];
 
-  if (t.includes("new")       || d.includes("brand new"))  features.push("Brand new condition");
-  if (t.includes("original")  || d.includes("original"))   features.push("100% original product");
-  if (d.includes("warranty"))                               features.push("Warranty included");
-  if (d.includes("delivery")  || d.includes("shipping"))   features.push("Fast delivery available");
-  if (d.includes("negotiable"))                             features.push("Price negotiable");
+  if (t.includes("new")      || d.includes("brand new"))  features.push("Brand new condition");
+  if (t.includes("original") || d.includes("original"))   features.push("100% original product");
+  if (d.includes("warranty"))                              features.push("Warranty included");
+  if (d.includes("delivery") || d.includes("shipping"))   features.push("Fast delivery available");
+  if (d.includes("negotiable"))                            features.push("Price negotiable");
 
   if (/(iphone|samsung|tecno|infinix|xiaomi|pixel|redmi|oppo|vivo)/i.test(t)) {
     features.push("Fast performance for daily use");
@@ -177,7 +281,7 @@ const guessFeatures = ({ title, categoryName, description, specs }) => {
   }
 
   if (/(laptop|macbook|hp|dell|lenovo|asus|acer|thinkpad)/i.test(t)) {
-    features.push("Smooth multitasking for work & school");
+    features.push("Smooth multitasking for work and school");
     if (d.includes("ssd") || specPairs.join(" ").includes("ssd")) features.push("Fast SSD storage");
     if (d.includes("ram") || /(8|16|32)\s?gb\s?ram/i.test(t))    features.push("Powerful RAM");
   }
@@ -195,9 +299,9 @@ const guessFeatures = ({ title, categoryName, description, specs }) => {
     .slice(0, MAX_FEATURES);
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    PROHIBITED BANNER
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const ProhibitedBanner = memo(({ result, scanDone }) => {
   if (!scanDone || !result) return null;
 
@@ -205,127 +309,75 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
 
   if (!blocked.length && !suspicious.length) {
     return (
-      <div style={{
-        display       : "flex",
-        alignItems    : "center",
-        gap           : "8px",
-        padding       : "10px 14px",
-        borderRadius  : "12px",
-        background    : "rgba(16,185,129,0.08)",
-        border        : "1px solid rgba(16,185,129,0.2)",
-        backdropFilter: "blur(8px)",
-        marginBottom  : "14px",
-        fontSize      : "12px",
-        fontWeight    : 700,
-        color         : "#065f46",
-      }}>
-        <FiShield size={14} style={{ flexShrink: 0 }} />
-        ✅ Content scan passed — no prohibited items detected
+      <div className="pa-scan-pass" role="status" aria-live="polite">
+        <IconShield size={14} />
+        <span>Content scan passed — no prohibited items detected</span>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "14px" }}>
+    <div className="pa-scan-wrap">
 
       {blocked.length > 0 && (
-        <div style={{
-          padding       : "14px 16px",
-          borderRadius  : "14px",
-          background    : "rgba(220,38,38,0.08)",
-          border        : "1.5px solid rgba(220,38,38,0.25)",
-          backdropFilter: "blur(8px)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-            <FiAlertTriangle size={16} color="#dc2626" />
-            <span style={{ fontWeight: 800, fontSize: "13px", color: "#991b1b" }}>
-              🚫 Prohibited Content Detected
-            </span>
-            <span style={{
-              marginLeft  : "auto",
-              background  : "#dc2626",
-              color       : "#fff",
-              fontSize    : "10px",
-              fontWeight  : 900,
-              padding     : "2px 7px",
-              borderRadius: "5px",
-            }}>
-              BLOCKED
-            </span>
+        <div className="pa-scan-blocked" role="alert" aria-live="assertive">
+          <div className="pa-scan-header">
+            <IconAlertTriangle size={16} />
+            <span className="pa-scan-title">Prohibited Content Detected</span>
+            <span className="pa-scan-badge pa-scan-badge--blocked">BLOCKED</span>
           </div>
           {blocked.map((b, i) => (
-            <div key={i} style={{
-              display      : "flex",
-              alignItems   : "center",
-              gap          : "8px",
-              padding      : "8px 12px",
-              borderRadius : "10px",
-              background   : "rgba(220,38,38,0.06)",
-              fontSize     : "12px",
-              marginBottom : "4px",
-            }}>
-              <span style={{
-                padding      : "2px 8px",
-                borderRadius : "6px",
-                background   : "rgba(220,38,38,0.12)",
-                color        : "#991b1b",
-                fontWeight   : 800,
-                fontSize     : "11px",
-              }}>
-                {b.category}
-              </span>
-              <span style={{ color: "#991b1b", fontWeight: 700 }}>"{b.text}"</span>
+            <div key={i} className="pa-scan-row">
+              <span className="pa-scan-category">{b.category}</span>
+              <span className="pa-scan-term">"{b.text}"</span>
             </div>
           ))}
-          <p style={{ margin: "10px 0 0", fontSize: "12px", fontWeight: 600, color: "#991b1b", lineHeight: 1.5 }}>
+          <p className="pa-scan-note">
             Remove prohibited content before continuing.
           </p>
         </div>
       )}
 
       {suspicious.length > 0 && (
-        <div style={{
-          padding       : "12px 14px",
-          borderRadius  : "14px",
-          background    : "rgba(245,158,11,0.08)",
-          border        : "1.5px solid rgba(245,158,11,0.2)",
-          backdropFilter: "blur(8px)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-            <FiAlertCircle size={15} color="#d97706" />
-            <span style={{ fontWeight: 800, fontSize: "13px", color: "#92400e" }}>
-              ⚠️ Suspicious Terms
-            </span>
-            <span style={{
-              marginLeft  : "auto",
-              background  : "rgba(245,158,11,0.15)",
-              color       : "#92400e",
-              fontSize    : "10px",
-              fontWeight  : 900,
-              padding     : "2px 7px",
-              borderRadius: "5px",
-            }}>
-              WARNING
-            </span>
+        <div className="pa-scan-suspicious" role="alert" aria-live="polite">
+          <div className="pa-scan-header">
+            <IconAlertCircle size={15} />
+            <span className="pa-scan-title">Suspicious Terms Detected</span>
+            <span className="pa-scan-badge pa-scan-badge--warn">WARNING</span>
           </div>
           {suspicious.map((s, i) => (
-            <div key={i} style={{ fontSize: "12px", color: "#92400e", fontWeight: 600, marginBottom: "4px" }}>
-              • {s.label}: <em>"{s.text}"</em>
+            <div key={i} className="pa-scan-row pa-scan-row--warn">
+              <span>{s.label}:</span>
+              <em>"{s.text}"</em>
             </div>
           ))}
         </div>
       )}
+
     </div>
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
+ProhibitedBanner.displayName = "ProhibitedBanner";
+
+/* ══════════════════════════════════════════════════════════════
+   STEP ICONS — used in section headers
+══════════════════════════════════════════════════════════════ */
+const STEP_META = [
+  { label: "Photos",   Icon: IconCamera    },
+  { label: "Details",  Icon: IconFileText  },
+  { label: "Variants", Icon: IconPackage   },
+  { label: "Pricing",  Icon: IconDollarSign},
+  { label: "Review",   Icon: IconCheck     },
+];
+
+/* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 export default function PostAds({ user }) {
   const navigate = useNavigate();
 
-  // ── Step / UI ─────────────────────────────────────────────
+  /* ── Step / UI ── */
   const [step,           setStep]           = useState(1);
   const [completedSteps, setCompletedSteps] = useState([]);
   const [posting,        setPosting]        = useState(false);
@@ -335,12 +387,12 @@ export default function PostAds({ user }) {
   const [lastSaved,      setLastSaved]      = useState(null);
   const [attemptedNext,  setAttemptedNext]  = useState(false);
 
-  // ── Images ────────────────────────────────────────────────
+  /* ── Images ── */
   const [images,       setImages]       = useState(Array(MAX_IMAGES).fill(null));
   const [imageHashes,  setImageHashes]  = useState({});
   const [slotStatuses, setSlotStatuses] = useState({});
 
-  // ── Step 2 ────────────────────────────────────────────────
+  /* ── Step 2 ── */
   const [title,          setTitle]          = useState("");
   const [brand,          setBrand]          = useState("");
   const [tags,           setTags]           = useState([]);
@@ -351,21 +403,21 @@ export default function PostAds({ user }) {
   const [specifications, setSpecifications] = useState([{ key: "", value: "" }]);
   const [whatsInBox,     setWhatsInBox]     = useState([""]);
 
-  // ── Step 3 ────────────────────────────────────────────────
+  /* ── Step 3 ── */
   const [variants, setVariants] = useState([BLANK_VARIANT()]);
 
-  // ── Step 4 ────────────────────────────────────────────────
+  /* ── Step 4 ── */
   const [basePrice,     setBasePrice]     = useState("");
   const [originalPrice, setOriginalPrice] = useState("");
 
-  // ── Validation ────────────────────────────────────────────
+  /* ── Validation ── */
   const [touched, setTouched] = useState({});
 
-  // ── Prohibited ────────────────────────────────────────────
+  /* ── Prohibited ── */
   const [scanResult, setScanResult] = useState(null);
   const [scanDone,   setScanDone]   = useState(false);
 
-  // ── Derived ───────────────────────────────────────────────
+  /* ── Derived ── */
   const filledImages   = useMemo(() => images.filter(Boolean), [images]);
   const activeCategory = useMemo(() => categories.find((c) => c.id === category), [category]);
 
@@ -395,7 +447,7 @@ export default function PostAds({ user }) {
      LIFECYCLE
   ════════════════════════════════════════════════════════════ */
 
-  // Cleanup blob URLs on unmount
+  /* Cleanup blob URLs on unmount */
   useEffect(() => {
     return () => {
       images.forEach((img) => { if (img?.preview) URL.revokeObjectURL(img.preview); });
@@ -403,7 +455,7 @@ export default function PostAds({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load draft
+  /* Load draft */
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
@@ -426,23 +478,23 @@ export default function PostAds({ user }) {
     } catch { /* silently ignore corrupt draft */ }
   }, []);
 
-  // Auto-save draft
+  /* Auto-save draft */
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({
       step, completedSteps,
       title, brand, tags, description, category,
-      keyFeatures, specifications, whatsInBox, variants,
-      basePrice, originalPrice,
+      keyFeatures, specifications, whatsInBox,
+      variants, basePrice, originalPrice,
     }));
     setLastSaved(Date.now());
   }, [
     step, completedSteps,
     title, brand, tags, description, category,
-    keyFeatures, specifications, whatsInBox, variants,
-    basePrice, originalPrice,
+    keyFeatures, specifications, whatsInBox,
+    variants, basePrice, originalPrice,
   ]);
 
-  // Prohibited content scan
+  /* Prohibited content scan */
   useEffect(() => {
     if (!title && !description && !keyFeatures.some((f) => f.trim())) {
       setScanResult(null);
@@ -453,11 +505,11 @@ export default function PostAds({ user }) {
     setScanResult(result);
     setScanDone(true);
     if (result.blocked.length > 0) {
-      toast.error(`🚫 Prohibited: ${result.blocked[0].category}`);
+      toast.error(`Prohibited: ${result.blocked[0].category}`);
     }
   }, [title, description, keyFeatures]);
 
-  // Edit-step events from ReviewStep
+  /* Edit-step events from ReviewStep */
   useEffect(() => {
     const handler = (e) => setStep(e.detail);
     window.addEventListener("pa-edit-step", handler);
@@ -468,8 +520,8 @@ export default function PostAds({ user }) {
      IMAGE HANDLERS
   ════════════════════════════════════════════════════════════ */
   const handleAddImage = useCallback(async (index, file, extraFiles = []) => {
-    if (!file.type.startsWith("image/")) { toast.error("Only image files"); return; }
-    if (file.size > MAX_FILE_MB * 1024 * 1024) { toast.error(`Max ${MAX_FILE_MB}MB per image`); return; }
+    if (!file.type.startsWith("image/")) { toast.error("Only image files are allowed"); return; }
+    if (file.size > MAX_FILE_MB * 1024 * 1024) { toast.error(`Max ${MAX_FILE_MB} MB per image`); return; }
 
     setCompressing(true);
     setSlotStatuses((p) => ({ ...p, [index]: "compressing" }));
@@ -601,7 +653,7 @@ export default function PostAds({ user }) {
   const commitTag = useCallback(() => {
     const t = normalize(tagInput).toLowerCase();
     if (!t || t.length > MAX_TAG_LEN) return;
-    if (tags.includes(t))     { setTagInput(""); return; }
+    if (tags.includes(t))      { setTagInput(""); return; }
     if (tags.length >= MAX_TAGS) { toast.error(`Max ${MAX_TAGS} tags`); return; }
     setTags((p) => [...p, t]);
     setTagInput("");
@@ -616,11 +668,11 @@ export default function PostAds({ user }) {
   const generateKeyFeatures = useCallback(() => {
     const gen = guessFeatures({
       title,
-      categoryName : activeCategory?.name,
+      categoryName: activeCategory?.name,
       description,
-      specs        : specifications,
+      specs       : specifications,
     });
-    if (!gen.length) { toast.error("Add title/description first"); return; }
+    if (!gen.length) { toast.error("Add a title or description first"); return; }
 
     const existing = keyFeatures.map(normalize).filter(Boolean);
     setKeyFeatures(uniq([...existing, ...gen]).slice(0, MAX_FEATURES) || [""]);
@@ -642,8 +694,9 @@ export default function PostAds({ user }) {
 
     if (touched.title && title.trim().length < 3)
       e.title = "Title must be at least 3 characters";
+
     if (touched.title && title.trim().length > 80)
-      e.title = "Title too long";
+      e.title = "Title is too long";
 
     if (touched.category && !category)
       e.category = "Select a category";
@@ -656,7 +709,7 @@ export default function PostAds({ user }) {
 
     if (touched.originalPrice && originalPrice) {
       if (Number(originalPrice) <= Number(basePrice))
-        e.originalPrice = "Should be higher than base price";
+        e.originalPrice = "Should be higher than the base price";
     }
 
     variants.forEach((v, i) => {
@@ -665,7 +718,7 @@ export default function PostAds({ user }) {
       if (touched[`v_name_${i}`]  && !v.name.trim())
         e[`v_name_${i}`]  = "Required";
       if (touched[`v_price_${i}`] && (isNaN(Number(v.price)) || Number(v.price) < 0))
-        e[`v_price_${i}`] = "Invalid";
+        e[`v_price_${i}`] = "Invalid price";
     });
 
     return e;
@@ -685,7 +738,7 @@ export default function PostAds({ user }) {
     if (step === 2 && title.trim().length < 3)   return "Title needs at least 3 characters";
     if (step === 2 && !category)                 return "Pick a category";
     if (step === 3 && !variants.every((v) => v.sku.trim() && v.name.trim()))
-      return "Fill SKU and name for each variant";
+      return "Fill in the SKU and name for each variant";
     if (step === 4 && (!basePrice || Number(basePrice) <= 0))
       return "Set a valid base price";
     return "";
@@ -701,7 +754,6 @@ export default function PostAds({ user }) {
       toast.error("Remove prohibited content before continuing");
       return;
     }
-
     setCompletedSteps((prev) =>
       prev.includes(step) ? prev : [...prev, step]
     );
@@ -768,8 +820,8 @@ export default function PostAds({ user }) {
 
       await axios.post(`${API}/products`, fd, {
         headers: {
-          Authorization  : token ? `Bearer ${token}` : undefined,
-          "Content-Type" : "multipart/form-data",
+          Authorization : token ? `Bearer ${token}` : undefined,
+          "Content-Type": "multipart/form-data",
         },
         onUploadProgress: (evt) => {
           if (evt.total) setUploadPct(Math.round((evt.loaded / evt.total) * 100));
@@ -778,14 +830,14 @@ export default function PostAds({ user }) {
 
       localStorage.removeItem(DRAFT_KEY);
       setPosted(true);
-      toast.success("Ad posted! 🎉");
+      toast.success("Ad posted successfully");
       window.navigator?.vibrate?.([50, 30, 80]);
 
     } catch (err) {
-      if (!err.response)                     toast.error("Network error.");
-      else if (err.response.status === 401)  toast.error("Session expired.");
-      else if (err.response.status === 413)  toast.error("Images too large.");
-      else toast.error(err.response.data?.message || "Failed to post.");
+      if (!err.response)                    toast.error("Network error. Check your connection.");
+      else if (err.response.status === 401) toast.error("Session expired. Please log in again.");
+      else if (err.response.status === 413) toast.error("Images are too large.");
+      else toast.error(err.response.data?.message || "Failed to post ad.");
     } finally {
       setPosting(false);
     }
@@ -805,40 +857,45 @@ export default function PostAds({ user }) {
       <div className="pa-page pa-glass">
 
         {/* ── Topbar ── */}
-        <div className="pa-topbar pa-glass-bar">
+        <header className="pa-topbar pa-glass-bar">
           <button
             type="button"
             className="pa-topbar-back"
             onClick={() => navigate(-1)}
             aria-label="Go back"
           >
-            <FiArrowLeft size={18} />
+            <IconArrowLeft size={18} />
           </button>
+
           <div className="pa-topbar-center">
             <h1 className="pa-topbar-title">Post an Ad</h1>
             <p className="pa-topbar-sub">
-              Step {step}/{TOTAL_STEPS}
-              {activeCategory ? ` · ${activeCategory.icon} ${activeCategory.name}` : ""}
+              Step {step} of {TOTAL_STEPS}
+              {activeCategory ? ` — ${activeCategory.name}` : ""}
             </p>
           </div>
-          <div style={{ width: 36 }} aria-hidden="true" />
-        </div>
 
-        {/* ── Success ── */}
+          <div style={{ width: 36 }} aria-hidden="true" />
+        </header>
+
+        {/* ── Success screen ── */}
         {posted ? (
           <div className="pa-success" role="alert" aria-live="polite">
             <div className="pa-success-icon">
-              <FiCheckCircle size={42} />
+              <IconCheck size={42} />
             </div>
-            <h2>Ad Posted! 🎉</h2>
-            <p>Your listing is now live. Buyers can see it right away.</p>
+            <h2 className="pa-success-title">Ad Posted</h2>
+            <p className="pa-success-sub">
+              Your listing has been submitted for review.
+              You will be notified once it is approved.
+            </p>
             <div className="pa-success-btns">
               <button
                 type="button"
                 className="pa-success-primary"
                 onClick={() => navigate("/minimart")}
               >
-                Browse Loemart
+                Browse Marketplace
               </button>
               <button
                 type="button"
@@ -849,12 +906,14 @@ export default function PostAds({ user }) {
               </button>
             </div>
           </div>
+
         ) : (
           <>
             <StepBar
               current={step}
               completedSteps={completedSteps}
               onStepClick={handleStepClick}
+              stepMeta={STEP_META}
             />
 
             <main className="pa-body" id="pa-main">
@@ -862,7 +921,8 @@ export default function PostAds({ user }) {
               {/* Inline step error */}
               {attemptedNext && stepError && (
                 <div className="pa-inline-error" role="alert" aria-live="assertive">
-                  <FiAlertCircle size={16} /> {stepError}
+                  <IconAlertCircle size={16} />
+                  <span>{stepError}</span>
                 </div>
               )}
 
@@ -871,11 +931,20 @@ export default function PostAds({ user }) {
                 <ProhibitedBanner result={scanResult} scanDone={scanDone} />
               )}
 
-              {/* ══════════════════════════════════════════════
+              {/* ════════════════════════════════════════════
                   STEP 1 — PHOTOS
-              ══════════════════════════════════════════════ */}
+              ════════════════════════════════════════════ */}
               {step === 1 && (
-                <section aria-label="Add photos">
+                <section aria-labelledby="pa-step1-heading">
+                  <div className="pa-section-head">
+                    <IconCamera size={18} aria-hidden="true" />
+                    <h2 id="pa-step1-heading" className="pa-section-title">
+                      Add Photos
+                    </h2>
+                  </div>
+                  <p className="pa-section-sub">
+                    Up to {MAX_IMAGES} photos. First photo is your cover image.
+                  </p>
                   <ImageGrid
                     images={images}
                     onAdd={handleAddImage}
@@ -884,38 +953,45 @@ export default function PostAds({ user }) {
                     compressing={compressing}
                     slotStatuses={slotStatuses}
                     duplicates={duplicateSlots}
+                    maxImages={MAX_IMAGES}
                   />
                 </section>
               )}
 
-              {/* ══════════════════════════════════════════════
+              {/* ════════════════════════════════════════════
                   STEP 2 — DETAILS
-              ══════════════════════════════════════════════ */}
+              ════════════════════════════════════════════ */}
               {step === 2 && (
-                <section aria-label="Product details">
+                <section aria-labelledby="pa-step2-heading">
                   <div className="pa-section-head">
-                    <div>
-                      <p className="pa-section-title">📝 Product Details</p>
-                      <p className="pa-section-sub">Clear titles rank higher.</p>
-                    </div>
+                    <IconFileText size={18} aria-hidden="true" />
+                    <h2 id="pa-step2-heading" className="pa-section-title">
+                      Product Details
+                    </h2>
                     <button
                       type="button"
                       className="pa-gen-btn"
                       onClick={generateKeyFeatures}
-                      aria-label="Auto-generate key features"
+                      aria-label="Auto-generate key features from title and description"
                     >
-                      <FiZap size={15} aria-hidden="true" /> Auto-Generate
+                      <IconZap size={14} aria-hidden="true" />
+                      <span>Auto-Generate Features</span>
                     </button>
                   </div>
+                  <p className="pa-section-sub">
+                    Clear titles and detailed descriptions rank higher in search.
+                  </p>
 
                   {/* Title */}
                   <div className="pa-field">
-                    <label className="pa-label" htmlFor="pa-title">Title *</label>
+                    <label className="pa-label" htmlFor="pa-title">
+                      Title <span aria-hidden="true">*</span>
+                    </label>
                     <input
                       id="pa-title"
                       type="text"
-                      className={`pa-input ${fieldErrors.title ? "pa-input--error" : ""}`}
-                      placeholder='e.g. "iPhone 13 Pro Max 256GB"'
+                      className={`pa-input${fieldErrors.title ? " pa-input--error" : ""}`}
+                      placeholder='e.g. "iPhone 13 Pro Max 256 GB"'
                       value={title}
                       maxLength={80}
                       aria-required="true"
@@ -930,7 +1006,7 @@ export default function PostAds({ user }) {
                           {fieldErrors.title}
                         </span>
                       )}
-                      <span className={`pa-char-count ${title.length > 70 ? "pa-char-count--warn" : ""}`}>
+                      <span className={`pa-char-count${title.length > 70 ? " pa-char-count--warn" : ""}`}>
                         {title.length}/80
                       </span>
                     </div>
@@ -950,19 +1026,26 @@ export default function PostAds({ user }) {
                         onChange={(e) => setBrand(e.target.value)}
                       />
                     </div>
+
                     <div className="pa-field">
-                      <label className="pa-label" htmlFor="pa-tag-input">Tags</label>
-                      <div className="pa-tag-input">
-                        <FiTag size={14} aria-hidden="true" />
+                      <label className="pa-label" htmlFor="pa-tag-input">
+                        Tags
+                        <span className="pa-label-hint">
+                          {tags.length}/{MAX_TAGS}
+                        </span>
+                      </label>
+                      <div className="pa-tag-input-wrap">
+                        <IconTag size={13} aria-hidden="true" />
                         <input
                           id="pa-tag-input"
                           value={tagInput}
                           onChange={(e) => setTagInput(e.target.value)}
-                          aria-label="Add a tag and press Enter"
-                          placeholder="press Enter to add"
+                          aria-label="Type a tag and press Enter to add"
+                          placeholder="Press Enter to add"
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === ",") {
-                              e.preventDefault(); commitTag();
+                              e.preventDefault();
+                              commitTag();
                             }
                             if (e.key === "Backspace" && !tagInput && tags.length) {
                               removeTag(tags[tags.length - 1]);
@@ -981,7 +1064,15 @@ export default function PostAds({ user }) {
                               aria-label={`Remove tag: ${t}`}
                               onClick={() => removeTag(t)}
                             >
-                              {t} <span aria-hidden="true">×</span>
+                              {t}
+                              <span className="pa-tag-x" aria-hidden="true">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                                  stroke="currentColor" strokeWidth="2.5"
+                                  strokeLinecap="round">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              </span>
                             </button>
                           ))}
                         </div>
@@ -995,50 +1086,71 @@ export default function PostAds({ user }) {
                     <textarea
                       id="pa-desc"
                       className="pa-textarea"
-                      placeholder="Describe your product…"
+                      placeholder="Describe your product — condition, features, usage history..."
                       value={description}
                       maxLength={700}
                       onChange={(e) => setDescription(e.target.value)}
                     />
-                    <span className={`pa-char-count ${description.length > 640 ? "pa-char-count--warn" : ""}`}>
+                    <span className={`pa-char-count${description.length > 640 ? " pa-char-count--warn" : ""}`}>
                       {description.length}/700
                     </span>
                   </div>
 
                   {/* Key Features */}
                   <div className="pa-field">
-                    <label className="pa-label">Key Features</label>
+                    <label className="pa-label">
+                      Key Features
+                      <span className="pa-label-hint">{keyFeatures.filter(Boolean).length}/{MAX_FEATURES}</span>
+                    </label>
                     <div className="pa-list-wrap">
                       {keyFeatures.map((item, i) => (
                         <div className="pa-list-row" key={i}>
                           <input
                             className="pa-mini-input"
                             value={item}
-                            placeholder='e.g. "5000mAh battery"'
+                            placeholder='e.g. "5000 mAh battery"'
                             aria-label={`Key feature ${i + 1}`}
                             onChange={(e) => updateList(setKeyFeatures, i, e.target.value)}
                           />
                           <button
                             type="button"
-                            className="pa-mini-btn"
+                            className="pa-mini-btn pa-mini-btn--remove"
                             aria-label={`Remove feature ${i + 1}`}
                             onClick={() => removeList(setKeyFeatures, i)}
-                          >−</button>
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        className="pa-add-btn"
-                        onClick={() => addList(setKeyFeatures, keyFeatures, MAX_FEATURES)}
-                      >
-                        + Add Feature
-                      </button>
+                      {keyFeatures.length < MAX_FEATURES && (
+                        <button
+                          type="button"
+                          className="pa-add-btn"
+                          onClick={() => addList(setKeyFeatures, keyFeatures, MAX_FEATURES)}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
+                          Add Feature
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   {/* Specifications */}
                   <div className="pa-field">
-                    <label className="pa-label">Specifications</label>
+                    <label className="pa-label">
+                      Specifications
+                      <span className="pa-label-hint">
+                        {specifications.filter((s) => s.key && s.value).length}/{MAX_SPECS}
+                      </span>
+                    </label>
                     <div className="pa-list-wrap">
                       {specifications.map((row, i) => (
                         <div className="pa-list-row" key={i}>
@@ -1047,7 +1159,7 @@ export default function PostAds({ user }) {
                               className="pa-mini-input"
                               value={row.key}
                               placeholder="e.g. RAM"
-                              aria-label={`Spec ${i + 1} name`}
+                              aria-label={`Specification ${i + 1} name`}
                               onChange={(e) => {
                                 const n = [...specifications];
                                 n[i] = { ...n[i], key: e.target.value };
@@ -1057,8 +1169,8 @@ export default function PostAds({ user }) {
                             <input
                               className="pa-mini-input"
                               value={row.value}
-                              placeholder="e.g. 8GB"
-                              aria-label={`Spec ${i + 1} value`}
+                              placeholder="e.g. 8 GB"
+                              aria-label={`Specification ${i + 1} value`}
                               onChange={(e) => {
                                 const n = [...specifications];
                                 n[i] = { ...n[i], value: e.target.value };
@@ -1068,77 +1180,116 @@ export default function PostAds({ user }) {
                           </div>
                           <button
                             type="button"
-                            className="pa-mini-btn"
-                            aria-label={`Remove spec ${i + 1}`}
+                            className="pa-mini-btn pa-mini-btn--remove"
+                            aria-label={`Remove specification ${i + 1}`}
                             onClick={() => removeList(setSpecifications, i)}
-                          >−</button>
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        className="pa-add-btn"
-                        onClick={() =>
-                          setSpecifications((p) =>
-                            p.length >= MAX_SPECS ? p : [...p, { key: "", value: "" }]
-                          )
-                        }
-                      >
-                        + Add Spec
-                      </button>
+                      {specifications.length < MAX_SPECS && (
+                        <button
+                          type="button"
+                          className="pa-add-btn"
+                          onClick={() =>
+                            setSpecifications((p) =>
+                              p.length >= MAX_SPECS ? p : [...p, { key: "", value: "" }]
+                            )
+                          }
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
+                          Add Specification
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   {/* What's in the Box */}
                   <div className="pa-field">
-                    <label className="pa-label">What's in the Box</label>
+                    <label className="pa-label">
+                      What's in the Box
+                      <span className="pa-label-hint">
+                        {whatsInBox.filter(Boolean).length}/{MAX_BOX_ITEMS}
+                      </span>
+                    </label>
                     <div className="pa-list-wrap">
                       {whatsInBox.map((item, i) => (
                         <div className="pa-list-row" key={i}>
                           <input
                             className="pa-mini-input"
                             value={item}
-                            placeholder='e.g. "1× Charging Cable"'
+                            placeholder='e.g. "1x Charging Cable"'
                             aria-label={`Box item ${i + 1}`}
                             onChange={(e) => updateList(setWhatsInBox, i, e.target.value)}
                           />
                           <button
                             type="button"
-                            className="pa-mini-btn"
+                            className="pa-mini-btn pa-mini-btn--remove"
                             aria-label={`Remove box item ${i + 1}`}
                             onClick={() => removeList(setWhatsInBox, i)}
-                          >−</button>
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        className="pa-add-btn"
-                        onClick={() => addList(setWhatsInBox, whatsInBox, MAX_BOX_ITEMS)}
-                      >
-                        + Add Item
-                      </button>
+                      {whatsInBox.length < MAX_BOX_ITEMS && (
+                        <button
+                          type="button"
+                          className="pa-add-btn"
+                          onClick={() => addList(setWhatsInBox, whatsInBox, MAX_BOX_ITEMS)}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
+                          Add Item
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   {/* Category */}
                   <div className="pa-field">
-                    <label className="pa-label" id="pa-cat-label">Category *</label>
+                    <label className="pa-label" id="pa-cat-label">
+                      Category <span aria-hidden="true">*</span>
+                    </label>
                     {fieldErrors.category && (
                       <span className="pa-field-error" role="alert">
                         {fieldErrors.category}
                       </span>
                     )}
-                    <div className="pa-cat-grid" role="radiogroup" aria-labelledby="pa-cat-label">
+                    <div
+                      className="pa-cat-grid"
+                      role="radiogroup"
+                      aria-labelledby="pa-cat-label"
+                    >
                       {categories.map((c) => (
                         <button
                           key={c.id}
                           type="button"
                           role="radio"
                           aria-checked={category === c.id}
-                          className={`pa-cat-btn ${category === c.id ? "pa-cat-btn--active" : ""}`}
+                          className={`pa-cat-btn${category === c.id ? " pa-cat-btn--active" : ""}`}
                           onClick={() => { setCategory(c.id); markTouched("category"); }}
                         >
-                          <span className="pa-cat-icon" aria-hidden="true">{c.icon}</span>
-                          {c.name}
+                          {c.icon && (
+                            <span className="pa-cat-icon" aria-hidden="true">{c.icon}</span>
+                          )}
+                          <span>{c.name}</span>
                         </button>
                       ))}
                     </div>
@@ -1146,11 +1297,20 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ══════════════════════════════════════════════
+              {/* ════════════════════════════════════════════
                   STEP 3 — VARIANTS
-              ══════════════════════════════════════════════ */}
+              ════════════════════════════════════════════ */}
               {step === 3 && (
-                <section aria-label="Product variants">
+                <section aria-labelledby="pa-step3-heading">
+                  <div className="pa-section-head">
+                    <IconPackage size={18} aria-hidden="true" />
+                    <h2 id="pa-step3-heading" className="pa-section-title">
+                      Variants
+                    </h2>
+                  </div>
+                  <p className="pa-section-sub">
+                    Add variants for different sizes, colours, or storage options.
+                  </p>
                   <VariantEditor
                     variants={variants}
                     onUpdate={updateVariant}
@@ -1158,20 +1318,30 @@ export default function PostAds({ user }) {
                     onAdd={addVariant}
                     onRemove={removeVariant}
                     onDuplicate={duplicateVariant}
-                    onBulkReplace={(newVariants) => setVariants(newVariants)}
+                    onBulkReplace={(v) => setVariants(v)}
                     errors={fieldErrors}
                     onBlur={markTouched}
                     title={title}
                     categoryName={activeCategory?.name ?? ""}
+                    maxVariants={MAX_VARIANTS}
                   />
                 </section>
               )}
 
-              {/* ══════════════════════════════════════════════
+              {/* ════════════════════════════════════════════
                   STEP 4 — PRICING
-              ══════════════════════════════════════════════ */}
+              ════════════════════════════════════════════ */}
               {step === 4 && (
-                <section aria-label="Pricing">
+                <section aria-labelledby="pa-step4-heading">
+                  <div className="pa-section-head">
+                    <IconDollarSign size={18} aria-hidden="true" />
+                    <h2 id="pa-step4-heading" className="pa-section-title">
+                      Pricing
+                    </h2>
+                  </div>
+                  <p className="pa-section-sub">
+                    Set a competitive price to attract more buyers.
+                  </p>
                   <PricingStep
                     basePrice={basePrice}
                     setBasePrice={setBasePrice}
@@ -1185,11 +1355,20 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ══════════════════════════════════════════════
+              {/* ════════════════════════════════════════════
                   STEP 5 — REVIEW
-              ══════════════════════════════════════════════ */}
+              ════════════════════════════════════════════ */}
               {step === 5 && (
-                <section aria-label="Review listing">
+                <section aria-labelledby="pa-step5-heading">
+                  <div className="pa-section-head">
+                    <IconCheck size={18} aria-hidden="true" />
+                    <h2 id="pa-step5-heading" className="pa-section-title">
+                      Review & Submit
+                    </h2>
+                  </div>
+                  <p className="pa-section-sub">
+                    Check everything looks right before submitting.
+                  </p>
                   <ReviewStep
                     filledImages={filledImages}
                     title={title}
@@ -1218,9 +1397,8 @@ export default function PostAds({ user }) {
             </main>
 
             {/* ── Footer Navigation ── */}
-            <div
+            <nav
               className="pa-footer pa-glass-bar"
-              role="navigation"
               aria-label="Step navigation"
             >
               {step > 1 ? (
@@ -1230,7 +1408,8 @@ export default function PostAds({ user }) {
                   onClick={goBack}
                   aria-label="Go to previous step"
                 >
-                  <FiChevronLeft size={16} aria-hidden="true" /> Back
+                  <IconChevronLeft size={16} />
+                  <span>Back</span>
                 </button>
               ) : (
                 <div aria-hidden="true" />
@@ -1242,15 +1421,19 @@ export default function PostAds({ user }) {
                   className="pa-btn-next"
                   onClick={goNext}
                   disabled={posting || compressing}
-                  aria-label={compressing ? "Compressing, please wait" : "Go to next step"}
+                  aria-label={
+                    compressing
+                      ? "Compressing images, please wait"
+                      : "Continue to next step"
+                  }
                 >
-                  {compressing ? "Compressing…" : "Continue"}
-                  <FiChevronRight size={16} aria-hidden="true" />
+                  <span>{compressing ? "Compressing..." : "Continue"}</span>
+                  <IconChevronRight size={16} />
                 </button>
               ) : (
                 <div aria-hidden="true" />
               )}
-            </div>
+            </nav>
           </>
         )}
       </div>
