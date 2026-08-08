@@ -15,11 +15,13 @@
  * - Smart feature generator
  * - Auto-save draft to localStorage
  * - Upload progress tracking
+ * - Double-submit guard (ref + server-side inFlight)
+ * - Client-side duplicate SKU detection blocks step 3 → 4
  */
 
 import {
   useEffect, useMemo, useState,
-  useCallback, memo,
+  useCallback, useRef, memo,
 } from "react";
 import { useNavigate }  from "react-router-dom";
 import axios            from "axios";
@@ -55,11 +57,12 @@ const MAX_TAG_LEN     = 24;
 const TOTAL_STEPS     = 5;
 
 /* ══════════════════════════════════════════════════════════════
-   SVG ICONS — transparent, no fill unless specified
+   SVG ICONS
 ══════════════════════════════════════════════════════════════ */
 const IconArrowLeft = ({ size = 18 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <line x1="19" y1="12" x2="5" y2="12" />
     <polyline points="12 19 5 12 12 5" />
   </svg>
@@ -67,21 +70,24 @@ const IconArrowLeft = ({ size = 18 }) => (
 
 const IconChevronLeft = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <polyline points="15 18 9 12 15 6" />
   </svg>
 );
 
 const IconChevronRight = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <polyline points="9 18 15 12 9 6" />
   </svg>
 );
 
 const IconCheck = ({ size = 42 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
     <polyline points="22 4 12 14.01 9 11.01" />
   </svg>
@@ -89,14 +95,16 @@ const IconCheck = ({ size = 42 }) => (
 
 const IconZap = ({ size = 15 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
   </svg>
 );
 
 const IconTag = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
     <line x1="7" y1="7" x2="7.01" y2="7" />
   </svg>
@@ -104,32 +112,36 @@ const IconTag = ({ size = 14 }) => (
 
 const IconShield = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
   </svg>
 );
 
 const IconAlertTriangle = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="9"  x2="12" y2="13" />
     <line x1="12" y1="17" x2="12.01" y2="17" />
   </svg>
 );
 
 const IconAlertCircle = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <circle cx="12" cy="12" r="10" />
-    <line x1="12" y1="8" x2="12" y2="12" />
+    <line x1="12" y1="8"  x2="12" y2="12" />
     <line x1="12" y1="16" x2="12.01" y2="16" />
   </svg>
 );
 
 const IconCamera = ({ size = 20 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
     <circle cx="12" cy="13" r="4" />
   </svg>
@@ -137,7 +149,8 @@ const IconCamera = ({ size = 20 }) => (
 
 const IconFileText = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <polyline points="14 2 14 8 20 8" />
     <line x1="16" y1="13" x2="8" y2="13" />
@@ -148,8 +161,9 @@ const IconFileText = ({ size = 16 }) => (
 
 const IconPackage = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="16.5" y1="9.4" x2="7.5" y2="4.21" />
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
+    <line x1="16.5" y1="9.4"  x2="7.5"  y2="4.21" />
     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
     <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
     <line x1="12" y1="22.08" x2="12" y2="12" />
@@ -158,9 +172,28 @@ const IconPackage = ({ size = 16 }) => (
 
 const IconDollarSign = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="1" x2="12" y2="23" />
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
+    <line x1="12" y1="1"  x2="12" y2="23" />
     <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+  </svg>
+);
+
+const IconXSmall = () => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+    aria-hidden="true">
+    <line x1="18" y1="6"  x2="6"  y2="18" />
+    <line x1="6"  y1="6"  x2="18" y2="18" />
+  </svg>
+);
+
+const IconPlusSmall = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+    aria-hidden="true">
+    <line x1="12" y1="5"  x2="12" y2="19" />
+    <line x1="5"  y1="12" x2="19" y2="12" />
   </svg>
 );
 
@@ -185,7 +218,7 @@ const SUSPICIOUS_PATTERNS = [
 ];
 
 /* ══════════════════════════════════════════════════════════════
-   HELPERS
+   PURE HELPERS
 ══════════════════════════════════════════════════════════════ */
 const normalize = (s = "") => String(s).replace(/\s+/g, " ").trim();
 const uniq      = (arr)    => [...new Set(arr.filter(Boolean))];
@@ -209,23 +242,19 @@ const getAuthToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("seller_token");
 
-/* ══════════════════════════════════════════════════════════════
-   CONTENT SCANNER
-══════════════════════════════════════════════════════════════ */
+/* ── Content scanner ── */
 const scanContent = ({ title = "", description = "", keyFeatures = [] }) => {
   const corpus     = [title, description, ...keyFeatures].join(" ");
   const blocked    = PROHIBITED_PATTERNS
-    .filter((r) => r.pattern.test(corpus))
-    .map((r) => ({ text: corpus.match(r.pattern)?.[0] ?? "flagged", category: r.category }));
+    .filter((r)  => r.pattern.test(corpus))
+    .map((r)     => ({ text: corpus.match(r.pattern)?.[0] ?? "flagged", category: r.category }));
   const suspicious = SUSPICIOUS_PATTERNS
-    .filter((r) => r.pattern.test(corpus))
-    .map((r) => ({ text: corpus.match(r.pattern)?.[0] ?? "flagged", label: r.label }));
+    .filter((r)  => r.pattern.test(corpus))
+    .map((r)     => ({ text: corpus.match(r.pattern)?.[0] ?? "flagged", label: r.label }));
   return { blocked, suspicious };
 };
 
-/* ══════════════════════════════════════════════════════════════
-   SHA-256 FILE HASH
-══════════════════════════════════════════════════════════════ */
+/* ── SHA-256 file hash ── */
 const hashFile = async (file) => {
   try {
     const buf    = await file.arrayBuffer();
@@ -238,9 +267,7 @@ const hashFile = async (file) => {
   }
 };
 
-/* ══════════════════════════════════════════════════════════════
-   IMAGE COMPRESSION
-══════════════════════════════════════════════════════════════ */
+/* ── Image compression ── */
 const compressImage = async (file) => {
   if (file.size <= COMPRESS_TARGET * 1024 * 1024) return file;
   try {
@@ -255,15 +282,13 @@ const compressImage = async (file) => {
   }
 };
 
-/* ══════════════════════════════════════════════════════════════
-   SMART FEATURE GENERATOR
-══════════════════════════════════════════════════════════════ */
+/* ── Smart feature generator ── */
 const guessFeatures = ({ title, categoryName, description, specs }) => {
   const t         = normalize(title).toLowerCase();
   const d         = normalize(description).toLowerCase();
   const specPairs = (specs || [])
     .filter((x) => normalize(x.key) && normalize(x.value))
-    .map((x) => `${normalize(x.key)}: ${normalize(x.value)}`);
+    .map((x)    => `${normalize(x.key)}: ${normalize(x.value)}`);
 
   const features = [];
 
@@ -299,10 +324,33 @@ const guessFeatures = ({ title, categoryName, description, specs }) => {
     .slice(0, MAX_FEATURES);
 };
 
+/* ── Duplicate SKU check (client side) ── */
+function hasDuplicateSkus(variants) {
+  const seen = new Set();
+  for (const v of variants) {
+    const sku = v.sku?.trim().toUpperCase();
+    if (!sku) continue;
+    if (seen.has(sku)) return true;
+    seen.add(sku);
+  }
+  return false;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   STEP META
+══════════════════════════════════════════════════════════════ */
+const STEP_META = [
+  { label: "Photos",   Icon: IconCamera     },
+  { label: "Details",  Icon: IconFileText   },
+  { label: "Variants", Icon: IconPackage    },
+  { label: "Pricing",  Icon: IconDollarSign },
+  { label: "Review",   Icon: IconCheck      },
+];
+
 /* ══════════════════════════════════════════════════════════════
    PROHIBITED BANNER
 ══════════════════════════════════════════════════════════════ */
-const ProhibitedBanner = memo(({ result, scanDone }) => {
+const ProhibitedBanner = memo(function ProhibitedBanner({ result, scanDone }) {
   if (!scanDone || !result) return null;
 
   const { blocked, suspicious } = result;
@@ -318,7 +366,6 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
 
   return (
     <div className="pa-scan-wrap">
-
       {blocked.length > 0 && (
         <div className="pa-scan-blocked" role="alert" aria-live="assertive">
           <div className="pa-scan-header">
@@ -332,9 +379,7 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
               <span className="pa-scan-term">"{b.text}"</span>
             </div>
           ))}
-          <p className="pa-scan-note">
-            Remove prohibited content before continuing.
-          </p>
+          <p className="pa-scan-note">Remove prohibited content before continuing.</p>
         </div>
       )}
 
@@ -353,29 +398,16 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
           ))}
         </div>
       )}
-
     </div>
   );
 });
-
-ProhibitedBanner.displayName = "ProhibitedBanner";
-
-/* ══════════════════════════════════════════════════════════════
-   STEP ICONS — used in section headers
-══════════════════════════════════════════════════════════════ */
-const STEP_META = [
-  { label: "Photos",   Icon: IconCamera    },
-  { label: "Details",  Icon: IconFileText  },
-  { label: "Variants", Icon: IconPackage   },
-  { label: "Pricing",  Icon: IconDollarSign},
-  { label: "Review",   Icon: IconCheck     },
-];
 
 /* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════ */
 export default function PostAds({ user }) {
-  const navigate = useNavigate();
+  const navigate      = useNavigate();
+  const submittingRef = useRef(false); // double-submit guard
 
   /* ── Step / UI ── */
   const [step,           setStep]           = useState(1);
@@ -443,6 +475,12 @@ export default function PostAds({ user }) {
     return [...new Set(dupes)];
   }, [imageHashes]);
 
+  /* Client-side duplicate SKU flag — blocks step 3 → 4 */
+  const duplicateSkuExists = useMemo(
+    () => hasDuplicateSkus(variants),
+    [variants]
+  );
+
   /* ════════════════════════════════════════════════════════════
      LIFECYCLE
   ════════════════════════════════════════════════════════════ */
@@ -461,7 +499,6 @@ export default function PostAds({ user }) {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const d = JSON.parse(raw);
-
       if (d.step)                          setStep(d.step);
       if (Array.isArray(d.completedSteps)) setCompletedSteps(d.completedSteps);
       if (d.title)                         setTitle(d.title);
@@ -520,8 +557,14 @@ export default function PostAds({ user }) {
      IMAGE HANDLERS
   ════════════════════════════════════════════════════════════ */
   const handleAddImage = useCallback(async (index, file, extraFiles = []) => {
-    if (!file.type.startsWith("image/")) { toast.error("Only image files are allowed"); return; }
-    if (file.size > MAX_FILE_MB * 1024 * 1024) { toast.error(`Max ${MAX_FILE_MB} MB per image`); return; }
+    if (!file.type.startsWith("image/")) {
+      toast.error("Only image files are allowed");
+      return;
+    }
+    if (file.size > MAX_FILE_MB * 1024 * 1024) {
+      toast.error(`Max ${MAX_FILE_MB} MB per image`);
+      return;
+    }
 
     setCompressing(true);
     setSlotStatuses((p) => ({ ...p, [index]: "compressing" }));
@@ -653,7 +696,7 @@ export default function PostAds({ user }) {
   const commitTag = useCallback(() => {
     const t = normalize(tagInput).toLowerCase();
     if (!t || t.length > MAX_TAG_LEN) return;
-    if (tags.includes(t))      { setTagInput(""); return; }
+    if (tags.includes(t))        { setTagInput(""); return; }
     if (tags.length >= MAX_TAGS) { toast.error(`Max ${MAX_TAGS} tags`); return; }
     setTags((p) => [...p, t]);
     setTagInput("");
@@ -673,7 +716,6 @@ export default function PostAds({ user }) {
       specs       : specifications,
     });
     if (!gen.length) { toast.error("Add a title or description first"); return; }
-
     const existing = keyFeatures.map(normalize).filter(Boolean);
     setKeyFeatures(uniq([...existing, ...gen]).slice(0, MAX_FEATURES) || [""]);
     toast.success(`${gen.length} features generated`);
@@ -694,7 +736,6 @@ export default function PostAds({ user }) {
 
     if (touched.title && title.trim().length < 3)
       e.title = "Title must be at least 3 characters";
-
     if (touched.title && title.trim().length > 80)
       e.title = "Title is too long";
 
@@ -727,22 +768,34 @@ export default function PostAds({ user }) {
   const stepValid = useMemo(() => {
     if (step === 1) return filledImages.length > 0;
     if (step === 2) return title.trim().length >= 3 && !!category;
-    if (step === 3) return variants.every((v) => v.sku.trim() && v.name.trim() && Number(v.price) >= 0);
+    if (step === 3) return (
+      variants.every((v) => v.sku.trim() && v.name.trim() && Number(v.price) >= 0) &&
+      !duplicateSkuExists
+    );
     if (step === 4) return !isNaN(Number(basePrice)) && Number(basePrice) > 0;
-    if (step === 5) return filledImages.length > 0 && title.trim().length >= 3 && Number(basePrice) > 0;
+    if (step === 5) return (
+      filledImages.length > 0 &&
+      title.trim().length >= 3 &&
+      Number(basePrice) > 0
+    );
     return true;
-  }, [step, filledImages.length, title, category, variants, basePrice]);
+  }, [step, filledImages.length, title, category, variants, basePrice, duplicateSkuExists]);
 
   const stepError = useMemo(() => {
-    if (step === 1 && filledImages.length === 0) return "Add at least one photo";
-    if (step === 2 && title.trim().length < 3)   return "Title needs at least 3 characters";
-    if (step === 2 && !category)                 return "Pick a category";
+    if (step === 1 && filledImages.length === 0)
+      return "Add at least one photo";
+    if (step === 2 && title.trim().length < 3)
+      return "Title needs at least 3 characters";
+    if (step === 2 && !category)
+      return "Pick a category";
+    if (step === 3 && duplicateSkuExists)
+      return "Two or more variants share the same SKU — each SKU must be unique";
     if (step === 3 && !variants.every((v) => v.sku.trim() && v.name.trim()))
       return "Fill in the SKU and name for each variant";
     if (step === 4 && (!basePrice || Number(basePrice) <= 0))
       return "Set a valid base price";
     return "";
-  }, [step, filledImages.length, title, category, variants, basePrice]);
+  }, [step, filledImages.length, title, category, variants, basePrice, duplicateSkuExists]);
 
   /* ════════════════════════════════════════════════════════════
      NAVIGATION
@@ -785,10 +838,30 @@ export default function PostAds({ user }) {
      SUBMIT
   ════════════════════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
-    if (!user)                { toast.error("Please log in first");    return; }
-    if (!filledImages.length) { toast.error("Add at least one photo"); return; }
+
+    /* ── Double-submit guard ── */
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+
+    /* ── Pre-flight checks ── */
+    if (!user) {
+      submittingRef.current = false;
+      toast.error("Please log in first");
+      return;
+    }
+    if (!filledImages.length) {
+      submittingRef.current = false;
+      toast.error("Add at least one photo");
+      return;
+    }
     if (scanResult?.blocked.length > 0) {
+      submittingRef.current = false;
       toast.error("Remove prohibited content first");
+      return;
+    }
+    if (duplicateSkuExists) {
+      submittingRef.current = false;
+      toast.error("Fix duplicate variant SKUs before submitting");
       return;
     }
 
@@ -834,15 +907,26 @@ export default function PostAds({ user }) {
       window.navigator?.vibrate?.([50, 30, 80]);
 
     } catch (err) {
-      if (!err.response)                    toast.error("Network error. Check your connection.");
-      else if (err.response.status === 401) toast.error("Session expired. Please log in again.");
-      else if (err.response.status === 413) toast.error("Images are too large.");
-      else toast.error(err.response.data?.message || "Failed to post ad.");
+      if (!err.response)
+        toast.error("Network error. Check your connection.");
+      else if (err.response.status === 401)
+        toast.error("Session expired. Please log in again.");
+      else if (err.response.status === 409)
+        toast.error(err.response.data?.message || "A duplicate was detected. Check your title.");
+      else if (err.response.status === 413)
+        toast.error("Images are too large.");
+      else if (err.response.status === 422)
+        toast.error(err.response.data?.message || "Check your inputs and try again.");
+      else if (err.response.status === 429)
+        toast.error("Already submitting. Please wait a moment.");
+      else
+        toast.error(err.response.data?.message || "Failed to post ad. Please try again.");
     } finally {
       setPosting(false);
+      submittingRef.current = false; // always release the guard
     }
   }, [
-    user, filledImages, scanResult,
+    user, filledImages, scanResult, duplicateSkuExists,
     title, description, category, basePrice, originalPrice,
     brand, tags, variants, keyFeatures, specifications, whatsInBox, images,
   ]);
@@ -931,13 +1015,13 @@ export default function PostAds({ user }) {
                 <ProhibitedBanner result={scanResult} scanDone={scanDone} />
               )}
 
-              {/* ════════════════════════════════════════════
+              {/* ════════════════════════
                   STEP 1 — PHOTOS
-              ════════════════════════════════════════════ */}
+              ════════════════════════ */}
               {step === 1 && (
                 <section aria-labelledby="pa-step1-heading">
                   <div className="pa-section-head">
-                    <IconCamera size={18} aria-hidden="true" />
+                    <IconCamera size={18} />
                     <h2 id="pa-step1-heading" className="pa-section-title">
                       Add Photos
                     </h2>
@@ -958,13 +1042,13 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ════════════════════════════════════════════
+              {/* ════════════════════════
                   STEP 2 — DETAILS
-              ════════════════════════════════════════════ */}
+              ════════════════════════ */}
               {step === 2 && (
                 <section aria-labelledby="pa-step2-heading">
                   <div className="pa-section-head">
-                    <IconFileText size={18} aria-hidden="true" />
+                    <IconFileText size={18} />
                     <h2 id="pa-step2-heading" className="pa-section-title">
                       Product Details
                     </h2>
@@ -972,9 +1056,9 @@ export default function PostAds({ user }) {
                       type="button"
                       className="pa-gen-btn"
                       onClick={generateKeyFeatures}
-                      aria-label="Auto-generate key features from title and description"
+                      aria-label="Auto-generate key features"
                     >
-                      <IconZap size={14} aria-hidden="true" />
+                      <IconZap size={14} />
                       <span>Auto-Generate Features</span>
                     </button>
                   </div>
@@ -1030,12 +1114,10 @@ export default function PostAds({ user }) {
                     <div className="pa-field">
                       <label className="pa-label" htmlFor="pa-tag-input">
                         Tags
-                        <span className="pa-label-hint">
-                          {tags.length}/{MAX_TAGS}
-                        </span>
+                        <span className="pa-label-hint">{tags.length}/{MAX_TAGS}</span>
                       </label>
                       <div className="pa-tag-input-wrap">
-                        <IconTag size={13} aria-hidden="true" />
+                        <IconTag size={13} />
                         <input
                           id="pa-tag-input"
                           value={tagInput}
@@ -1066,12 +1148,7 @@ export default function PostAds({ user }) {
                             >
                               {t}
                               <span className="pa-tag-x" aria-hidden="true">
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-                                  stroke="currentColor" strokeWidth="2.5"
-                                  strokeLinecap="round">
-                                  <line x1="18" y1="6" x2="6" y2="18" />
-                                  <line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
+                                <IconXSmall />
                               </span>
                             </button>
                           ))}
@@ -1100,7 +1177,9 @@ export default function PostAds({ user }) {
                   <div className="pa-field">
                     <label className="pa-label">
                       Key Features
-                      <span className="pa-label-hint">{keyFeatures.filter(Boolean).length}/{MAX_FEATURES}</span>
+                      <span className="pa-label-hint">
+                        {keyFeatures.filter(Boolean).length}/{MAX_FEATURES}
+                      </span>
                     </label>
                     <div className="pa-list-wrap">
                       {keyFeatures.map((item, i) => (
@@ -1118,11 +1197,7 @@ export default function PostAds({ user }) {
                             aria-label={`Remove feature ${i + 1}`}
                             onClick={() => removeList(setKeyFeatures, i)}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                              <line x1="18" y1="6" x2="6" y2="18" />
-                              <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
+                            <IconXSmall />
                           </button>
                         </div>
                       ))}
@@ -1132,12 +1207,7 @@ export default function PostAds({ user }) {
                           className="pa-add-btn"
                           onClick={() => addList(setKeyFeatures, keyFeatures, MAX_FEATURES)}
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                            <line x1="12" y1="5" x2="12" y2="19" />
-                            <line x1="5" y1="12" x2="19" y2="12" />
-                          </svg>
-                          Add Feature
+                          <IconPlusSmall /> Add Feature
                         </button>
                       )}
                     </div>
@@ -1184,11 +1254,7 @@ export default function PostAds({ user }) {
                             aria-label={`Remove specification ${i + 1}`}
                             onClick={() => removeList(setSpecifications, i)}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                              <line x1="18" y1="6" x2="6" y2="18" />
-                              <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
+                            <IconXSmall />
                           </button>
                         </div>
                       ))}
@@ -1202,12 +1268,7 @@ export default function PostAds({ user }) {
                             )
                           }
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                            <line x1="12" y1="5" x2="12" y2="19" />
-                            <line x1="5" y1="12" x2="19" y2="12" />
-                          </svg>
-                          Add Specification
+                          <IconPlusSmall /> Add Specification
                         </button>
                       )}
                     </div>
@@ -1237,11 +1298,7 @@ export default function PostAds({ user }) {
                             aria-label={`Remove box item ${i + 1}`}
                             onClick={() => removeList(setWhatsInBox, i)}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                              <line x1="18" y1="6" x2="6" y2="18" />
-                              <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
+                            <IconXSmall />
                           </button>
                         </div>
                       ))}
@@ -1251,12 +1308,7 @@ export default function PostAds({ user }) {
                           className="pa-add-btn"
                           onClick={() => addList(setWhatsInBox, whatsInBox, MAX_BOX_ITEMS)}
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                            <line x1="12" y1="5" x2="12" y2="19" />
-                            <line x1="5" y1="12" x2="19" y2="12" />
-                          </svg>
-                          Add Item
+                          <IconPlusSmall /> Add Item
                         </button>
                       )}
                     </div>
@@ -1297,13 +1349,13 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ════════════════════════════════════════════
+              {/* ════════════════════════
                   STEP 3 — VARIANTS
-              ════════════════════════════════════════════ */}
+              ════════════════════════ */}
               {step === 3 && (
                 <section aria-labelledby="pa-step3-heading">
                   <div className="pa-section-head">
-                    <IconPackage size={18} aria-hidden="true" />
+                    <IconPackage size={18} />
                     <h2 id="pa-step3-heading" className="pa-section-title">
                       Variants
                     </h2>
@@ -1328,13 +1380,13 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ════════════════════════════════════════════
+              {/* ════════════════════════
                   STEP 4 — PRICING
-              ════════════════════════════════════════════ */}
+              ════════════════════════ */}
               {step === 4 && (
                 <section aria-labelledby="pa-step4-heading">
                   <div className="pa-section-head">
-                    <IconDollarSign size={18} aria-hidden="true" />
+                    <IconDollarSign size={18} />
                     <h2 id="pa-step4-heading" className="pa-section-title">
                       Pricing
                     </h2>
@@ -1355,13 +1407,13 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ════════════════════════════════════════════
+              {/* ════════════════════════
                   STEP 5 — REVIEW
-              ════════════════════════════════════════════ */}
+              ════════════════════════ */}
               {step === 5 && (
                 <section aria-labelledby="pa-step5-heading">
                   <div className="pa-section-head">
-                    <IconCheck size={18} aria-hidden="true" />
+                    <IconCheck size={18} />
                     <h2 id="pa-step5-heading" className="pa-section-title">
                       Review & Submit
                     </h2>
@@ -1397,10 +1449,7 @@ export default function PostAds({ user }) {
             </main>
 
             {/* ── Footer Navigation ── */}
-            <nav
-              className="pa-footer pa-glass-bar"
-              aria-label="Step navigation"
-            >
+            <nav className="pa-footer pa-glass-bar" aria-label="Step navigation">
               {step > 1 ? (
                 <button
                   type="button"
