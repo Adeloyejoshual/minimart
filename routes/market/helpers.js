@@ -3,10 +3,12 @@
  * SQL queries, utilities, response formatting.
  */
 
-import { pool }                        from "../../config/db.js";
+import { pool }                          from "../../config/db.js";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
-/* ── R2 Client ── */
+/* ══════════════════════════════════════════════════════════════
+   R2 CLIENT
+══════════════════════════════════════════════════════════════ */
 const r2 = new S3Client({
   region     : process.env.R2_REGION ?? "auto",
   endpoint   : process.env.R2_ENDPOINT,
@@ -18,7 +20,9 @@ const r2 = new S3Client({
 
 const R2_BUCKET = process.env.R2_BUCKET_NAME;
 
-/* ── Constants ── */
+/* ══════════════════════════════════════════════════════════════
+   CONSTANTS
+══════════════════════════════════════════════════════════════ */
 export const MAX_IMAGES    = 8;
 export const DEFAULT_LIMIT = 24;
 export const MAX_LIMIT     = 100;
@@ -150,7 +154,9 @@ export function isPublicProduct(product) {
   );
 }
 
-/* ── Pagination ── */
+/* ══════════════════════════════════════════════════════════════
+   PAGINATION
+══════════════════════════════════════════════════════════════ */
 export function paginate(query) {
   const limit  = Math.min(parseInt(query.limit,  10) || DEFAULT_LIMIT, MAX_LIMIT);
   const offset = Math.max(parseInt(query.offset, 10) || 0, 0);
@@ -169,14 +175,15 @@ export function safeSort(sort) {
   return SORT_MAP[sort] || SORT_MAP.newest;
 }
 
-/* ── String sanitisation ── */
+/* ══════════════════════════════════════════════════════════════
+   STRING HELPERS
+══════════════════════════════════════════════════════════════ */
 export function safeStr(val, max = 500) {
   if (typeof val !== "string") return null;
   const t = val.trim();
   return t.length ? t.slice(0, max) : null;
 }
 
-/* ── JSON parsing ── */
 export function parseJSON(raw, fallback = []) {
   try {
     return typeof raw === "string" ? JSON.parse(raw) : (raw ?? fallback);
@@ -185,7 +192,9 @@ export function parseJSON(raw, fallback = []) {
   }
 }
 
-/* ── Response helpers ── */
+/* ══════════════════════════════════════════════════════════════
+   RESPONSE HELPERS
+══════════════════════════════════════════════════════════════ */
 export const ok = (res, data = {}, status = 200) =>
   res.status(status).json({ success: true, ...data });
 
@@ -197,6 +206,8 @@ export const fail = (res, status, message) =>
 ══════════════════════════════════════════════════════════════ */
 
 export async function insertList(client, table, column, productId, items) {
+  if (!Array.isArray(items)) return;
+
   for (let i = 0; i < items.length; i++) {
     const val = safeStr(String(items[i] ?? ""));
     if (!val) continue;
@@ -221,6 +232,9 @@ export async function replaceSpecs(client, productId, specs) {
     "DELETE FROM market.product_specifications WHERE product_id = $1",
     [productId]
   );
+
+  if (!Array.isArray(specs)) return;
+
   for (let i = 0; i < specs.length; i++) {
     const k = safeStr(specs[i]?.key);
     const v = safeStr(specs[i]?.value);
@@ -234,18 +248,49 @@ export async function replaceSpecs(client, productId, specs) {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   REPLACE VARIANTS
+   
+   Changes vs old version:
+   - Accepts already-parsed array OR raw JSON string
+   - Deduplicates SKUs within the same product before inserting
+   - Throws a typed 422 error on duplicate SKU so the route
+     catch block can return a precise user-facing message
+   - Never throws a 23505 for SKUs — caught here first
+══════════════════════════════════════════════════════════════ */
 export async function replaceVariants(client, productId, rawVariants) {
   await client.query(
     "DELETE FROM market.product_variants WHERE product_id = $1",
     [productId]
   );
 
-  const variants = parseJSON(rawVariants);
+  /* Accept pre-parsed array or raw JSON string */
+  const variants = Array.isArray(rawVariants)
+    ? rawVariants
+    : parseJSON(rawVariants, []);
+
+  if (!variants.length) return;
+
+  /* Deduplicate SKUs within this product before touching the DB */
+  const seen = new Set();
 
   for (const v of variants) {
-    const sku  = safeStr(v?.sku);
+    const sku  = safeStr(String(v?.sku ?? ""))?.toUpperCase();
     const name = safeStr(v?.name);
+
+    /* Skip incomplete variants silently */
     if (!sku || !name) continue;
+
+    /* Throw a typed error so the route catch block can give a clear message */
+    if (seen.has(sku)) {
+      const err = new Error(
+        `Duplicate variant SKU within this product: "${sku}". Each variant must have a unique SKU.`
+      );
+      err.status = 422;
+      throw err;
+    }
+
+    seen.add(sku);
 
     await client.query(
       `INSERT INTO market.product_variants
@@ -253,11 +298,11 @@ export async function replaceVariants(client, productId, rawVariants) {
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         productId,
-        sku.toUpperCase(),
+        sku,
         name,
-        Math.max(0, parseFloat(v.price)    || 0),
-        Math.max(0, parseInt(v.stock, 10)  || 0),
-        JSON.stringify(v.attributes        || {}),
+        Math.max(0, parseFloat(v.price)   || 0),
+        Math.max(0, parseInt(v.stock, 10) || 0),
+        JSON.stringify(v.attributes       || {}),
       ]
     );
   }
@@ -269,7 +314,7 @@ export async function replaceVariants(client, productId, rawVariants) {
 
 /**
  * Delete a single file from R2 by storage key.
- * Silent on failure — always log but never throw.
+ * Silent on failure — always logs but never throws.
  */
 export async function deleteFromR2(key) {
   if (!key) return;
@@ -304,11 +349,18 @@ export async function deleteProductImagesFromR2(client, productId) {
 /* ══════════════════════════════════════════════════════════════
    OWNERSHIP GUARD
 ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Checks that productId exists and belongs to userId.
+ * Returns { row } on success or { error, message } on failure.
+ * Never throws — always returns a result object.
+ */
 export async function assertOwner(client, productId, userId) {
   const { rows } = await client.query(
     `SELECT user_id, status
      FROM market.products
-     WHERE id = $1 AND deleted_at IS NULL`,
+     WHERE id = $1
+       AND deleted_at IS NULL`,
     [productId]
   );
 
