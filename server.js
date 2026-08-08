@@ -213,6 +213,7 @@ import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
 import sellerProfileRouter    from "./routes/sellerprofile.js";
 import sellerPayoutRoutes     from "./routes/seller/payout.js";
 import sellerSettingsRouter   from "./routes/seller/settings.js";
+import sellerProductRouter    from "./routes/seller/product.js";
 
 /* ── Seller Dashboard ── */
 import sellerDashboardRouter from "./routes/dashboard.js";
@@ -367,29 +368,27 @@ app.use(globalLimiter);
 app.use("/api/payment",  paymentRouter);
 app.use("/api/checkout", checkoutRouter);
 
-/* ── Marketplace auth — public.users ───────────────────────
-   POST /api/auth/...                  → authRouter
-   POST /api/auth/forgot-password      → forgotPasswordRouter
+/* ── Marketplace auth (public.users) ───────────────────────
+   POST /api/auth/...
+   POST /api/auth/forgot-password
    POST /api/auth/forgot-password/verify
-   POST /api/auth/reset-password       → resetPasswordRouter
+   POST /api/auth/reset-password
    All three routers operate on public.users ONLY.
-   Completely untouched — no seller logic here.
 ─────────────────────────────────────────────────────────── */
 app.use("/api/auth", authRouter);
 app.use("/api/auth", forgotPasswordRouter);
 app.use("/api/auth", resetPasswordRouter);
 
-/* ── Seller auth — market.users ────────────────────────────
+/* ── Seller auth (market.users) ────────────────────────────
    Mounted on /api/seller-auth — completely separate prefix.
-   Never conflicts with marketplace auth above.
 
    POST /api/seller-auth/register
    POST /api/seller-auth/verify-email
    POST /api/seller-auth/resend-verification
    POST /api/seller-auth/login
-   POST /api/seller-auth/forgot-password     → market.users
-   POST /api/seller-auth/verify-reset-code   → market.users
-   POST /api/seller-auth/reset-password      → market.users
+   POST /api/seller-auth/forgot-password
+   POST /api/seller-auth/verify-reset-code
+   POST /api/seller-auth/reset-password
    GET  /api/seller-auth/me
 ─────────────────────────────────────────────────────────── */
 app.use("/api/seller-auth", sellerAuthRouter);
@@ -398,8 +397,22 @@ app.use("/api/seller-auth", sellerAuthRouter);
 app.use("/api/users",        userRouter);
 app.use("/api/edit-profile", editProfileRouter);
 
-/* ── Seller ── */
+/* ── Seller ─────────────────────────────────────────────────
+   /api/seller/products  → sellerProductRouter
+     GET    /api/seller/products
+     GET    /api/seller/products/:id
+     PUT    /api/seller/products/:id
+     PATCH  /api/seller/products/:id/pause
+     PATCH  /api/seller/products/:id/images
+     DELETE /api/seller/products/:id/images/:imgId
+     DELETE /api/seller/products/:id
+
+   NOTE: sellerProductRouter is mounted BEFORE sellerProfileRouter
+   so that /api/seller/products routes are matched first and never
+   swallowed by a catch-all in sellerProfileRouter.
+─────────────────────────────────────────────────────────── */
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
+app.use("/api/seller",            sellerProductRouter);
 app.use("/api/seller",            sellerProfileRouter);
 app.use("/api/seller/payout",     sellerPayoutRoutes);
 app.use("/api/seller/settings",   sellerSettingsRouter);
@@ -734,6 +747,15 @@ async function start() {
 
   ── Seller Onboarding ──────────────────────────────
     /api/seller-onboarding
+
+  ── Seller Products ────────────────────────────────
+    GET    /api/seller/products
+    GET    /api/seller/products/:id
+    PUT    /api/seller/products/:id
+    PATCH  /api/seller/products/:id/pause
+    PATCH  /api/seller/products/:id/images
+    DELETE /api/seller/products/:id/images/:imgId
+    DELETE /api/seller/products/:id
 
   ── Seller Dashboard ───────────────────────────────
     /api/seller-dashboard
