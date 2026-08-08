@@ -1,0 +1,83 @@
+/* ═══════════════════════════════════════════════════════════════
+   1-tokens.css
+   Single source of truth — change here, updates everywhere.
+   Includes: brand, glass, surfaces, text, border, radius,
+             transitions, shadows, and glass-bar utility.
+═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Brand ── */
+  --pa-primary:      #ff5722;
+  --pa-primary-end:  #ff8a00;
+  --pa-secondary:    #6366f1;
+  --pa-success:      #10b981;
+  --pa-danger:       #ef4444;
+  --pa-warning:      #f59e0b;
+
+  /* ── Glass ── */
+  --pa-blur:         8px;
+  --pa-glass-bg:     rgba(255,255,255,0.88);
+  --pa-glass-border: rgba(0,0,0,0.07);
+
+  /* ── Surfaces ── */
+  --pa-surface:      #ffffff;
+  --pa-surface-2:    #fafaf8;
+  --pa-surface-3:    #f7f7f5;
+  --pa-page-bg:      #f5f5f3;
+
+  /* ── Text ── */
+  --pa-text-primary:   rgba(0,0,0,0.85);
+  --pa-text-secondary: rgba(0,0,0,0.60);
+  --pa-text-muted:     rgba(0,0,0,0.45);
+  --pa-text-faint:     rgba(0,0,0,0.30);
+
+  /* ── Border ── */
+  --pa-border:       rgba(0,0,0,0.09);
+  --pa-border-light: rgba(0,0,0,0.06);
+
+  /* ── Radius ── */
+  --pa-radius-sm: 8px;
+  --pa-radius-md: 12px;
+  --pa-radius-lg: 16px;
+  --pa-radius-xl: 20px;
+
+  /* ── Transitions ── */
+  --pa-t-fast:   background 0.15s, color 0.15s, border-color 0.15s;
+  --pa-t-full:   background 0.15s, color 0.15s, border-color 0.15s,
+                 transform 0.15s, opacity 0.15s;
+  --pa-t-border: border-color 0.15s, box-shadow 0.15s;
+
+  /* ── Shadows ── */
+  --pa-shadow-primary:   0 3px 12px rgba(255,87,34,0.25);
+  --pa-shadow-secondary: 0 2px 8px rgba(99,102,241,0.22);
+  --pa-shadow-success:   0 2px 8px rgba(16,185,129,0.18);
+}
+
+/* ── Glass utility ──────────────────────────────────────────────
+   Applied ONLY to: .pa-topbar · .pa-stepbar-wrap · .pa-footer
+   · .pa-modal · .pa-modal-header · .pa-modal-footer
+─────────────────────────────────────────────────────────────── */
+.pa-glass-bar {
+  background:              var(--pa-glass-bg) !important;
+  backdrop-filter:         blur(var(--pa-blur));
+  -webkit-backdrop-filter: blur(var(--pa-blur));
+}
+
+/* Capability fallback */
+@supports not (backdrop-filter: blur(8px)) {
+  .pa-glass-bar {
+    backdrop-filter:         none;
+    -webkit-backdrop-filter: none;
+    background:              rgba(255,255,255,0.98) !important;
+  }
+}
+
+/* Low-end / transparency-sensitive fallback */
+@media (max-width: 480px),
+       (prefers-reduced-transparency: reduce) {
+  .pa-glass-bar {
+    backdrop-filter:         none !important;
+    -webkit-backdrop-filter: none !important;
+    background:              rgba(255,255,255,0.97) !important;
+  }
+}
