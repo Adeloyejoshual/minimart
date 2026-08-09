@@ -7,10 +7,20 @@
  *
  * This ensures req.user.id === market.users.id
  * which matches market.products.user_id correctly.
+ *
+ * Columns confirmed from market.users schema:
+ *   id, name, email, password_hash, phone_number,
+ *   country, city, profile_image, verified, status,
+ *   created_at, updated_at, is_verified,
+ *   verify_code, verify_expires, reset_code, reset_expires
+ *
+ * NOTE: column is "name" NOT "full_name"
+ *       column is "status" NOT "is_active"
+ *       suspended check: status IN ('suspended', 'banned')
  */
 
-import jwt        from "jsonwebtoken";
-import { pool }   from "../config/db.js";
+import jwt      from "jsonwebtoken";
+import { pool } from "../config/db.js";
 
 export async function authenticateSeller(req, res, next) {
   try {
@@ -40,14 +50,20 @@ export async function authenticateSeller(req, res, next) {
       });
     }
 
-    /* ── 3. Look up in market.users (NOT public.users) ── */
+    /* ── 3. Look up market.users ── */
+    /*
+     * Uses only columns that actually exist in market.users:
+     *   name        (NOT full_name)
+     *   status      (NOT is_active)
+     *   is_verified (exists)
+     */
     const { rows } = await pool.query(
       `SELECT
          id,
+         name,
          email,
-         full_name,
-         is_verified,
-         is_active
+         status,
+         is_verified
        FROM market.users
        WHERE id = $1`,
       [decoded.id]
@@ -70,7 +86,11 @@ export async function authenticateSeller(req, res, next) {
       });
     }
 
-    if (seller.is_active === false) {
+    /*
+     * status column: 'active' | 'suspended' | 'banned'
+     * (confirmed from CHECK constraint in schema)
+     */
+    if (seller.status !== "active") {
       return res.status(403).json({
         success : false,
         message : "Your seller account has been suspended. Please contact support.",
@@ -79,18 +99,26 @@ export async function authenticateSeller(req, res, next) {
 
     /* ── 5. Attach seller to request ── */
     req.user = {
-      id        : seller.id,        // market.users.id ✓
-      email     : seller.email,
-      full_name : seller.full_name,
+      id       : seller.id,      // market.users.id ✓
+      email    : seller.email,
+      name     : seller.name,    // "name" not "full_name"
     };
 
     next();
 
   } catch (err) {
-    console.error("[authenticateSeller]", err.message);
+    console.error("[authenticateSeller] CRASH:", {
+      message : err.message,
+      code    : err.code,
+      detail  : err.detail,
+      stack   : err.stack?.split("\n").slice(0, 3).join(" | "),
+    });
     return res.status(500).json({
       success : false,
       message : "Authentication error. Please try again.",
+      ...(process.env.NODE_ENV !== "production"
+        ? { debug: err.message }
+        : {}),
     });
   }
 }
