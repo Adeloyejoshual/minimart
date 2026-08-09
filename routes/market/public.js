@@ -1,3 +1,18 @@
+/**
+ * routes/market/getproducts.js
+ *
+ * GET /api/products         → Public product listing (with filters)
+ * GET /api/products/:idOrSlug → Single product detail
+ *
+ * Business rules:
+ *  - Stock comes from products.stock (auto-computed from variants on write)
+ *  - sold_count is the urgency/social-proof signal (not view_count)
+ *  - seller_verified, location come from JOIN with market.users
+ *  - is_featured, is_trending are admin-controlled
+ *  - has_delivery is delivery-agent controlled
+ *  - View tracking kept for analytics only (not shown to buyers)
+ */
+
 import express from "express";
 import {
   pool,
@@ -27,6 +42,8 @@ router.get("/", async (req, res) => {
       featured,
       trending,
       sponsored,
+      hasDelivery,   // ← NEW: filter by has_delivery
+      inStock,       // ← NEW: only show in-stock
       minPrice,
       maxPrice,
       sort = "newest",
@@ -38,7 +55,7 @@ router.get("/", async (req, res) => {
     const params = [];
     let p = 1;
 
-    /* Search */
+    /* ── Search ── */
     if (search) {
       const cleaned = search.trim();
       conditions.push(
@@ -50,6 +67,7 @@ router.get("/", async (req, res) => {
       p += 2;
     }
 
+    /* ── Category / brand / tags ── */
     if (category) {
       conditions.push(`p.category = $${p++}`);
       params.push(category);
@@ -65,6 +83,7 @@ router.get("/", async (req, res) => {
       params.push(tags.split(","));
     }
 
+    /* ── Price range ── */
     if (minPrice) {
       conditions.push(`p.price >= $${p++}`);
       params.push(parseInt(minPrice, 10));
@@ -75,19 +94,33 @@ router.get("/", async (req, res) => {
       params.push(parseInt(maxPrice, 10));
     }
 
-    if (featured === "true")  conditions.push("p.is_featured = true");
-    if (trending === "true")  conditions.push("p.is_trending = true");
+    /* ── Admin flags ── */
+    if (featured  === "true") conditions.push("p.is_featured  = true");
+    if (trending  === "true") conditions.push("p.is_trending  = true");
     if (sponsored === "true") conditions.push("p.is_sponsored = true");
+
+    /* ── Delivery agent flag ── */
+    if (hasDelivery === "true") conditions.push("p.has_delivery = true");
+
+    /* ── Stock filter (only show items with stock > 0) ── */
+    if (inStock === "true") conditions.push("p.stock > 0");
 
     const where = `WHERE ${conditions.join(" AND ")}`;
 
+    /* ── Sort ── */
     let order;
     if (sort === "relevance" && search) {
       order = `ts_rank(p.search_vector, plainto_tsquery('english', $1)) DESC, p.created_at DESC`;
+    } else if (sort === "bestselling") {
+      order = `p.sold_count DESC, p.created_at DESC`;
+    } else if (sort === "trending") {
+      /* Trending = recently created + high sold velocity */
+      order = `(p.sold_count::float / GREATEST(EXTRACT(EPOCH FROM (now() - p.created_at)) / 86400, 1)) DESC, p.created_at DESC`;
     } else {
       order = SORT_MAP[sort] || SORT_MAP.newest;
     }
 
+    /* ── Query ── */
     const [{ rows }, countRes] = await Promise.all([
       pool.query(
         `${FULL_PRODUCT_SELECT}
@@ -148,6 +181,7 @@ router.get("/:idOrSlug", async (req, res) => {
 
     if (!canSee) return fail(res, 404, "Product not found");
 
+    /* Track view for analytics (not shown publicly, but useful for admin) */
     if (isPublicProduct(product)) {
       trackView(product.id, req).catch(() => {});
     }
@@ -163,6 +197,7 @@ router.get("/:idOrSlug", async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    Track view (deduped by IP for 24h)
+   Kept for internal analytics only — not exposed on frontend
 ══════════════════════════════════════════════════════════════ */
 async function trackView(productId, req) {
   const ipRaw =
