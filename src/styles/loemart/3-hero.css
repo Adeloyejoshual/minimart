@@ -1,0 +1,226 @@
+/* ════════════════════════════════════════════════════════════
+   3-hero.css
+   Welcome bar, hero banner (with dots), quick tiles grid
+════════════════════════════════════════════════════════════ */
+
+/* ── Welcome bar ── */
+.lmm-welcome {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  padding        : 8px 14px;
+  background     : linear-gradient(135deg, rgba(255, 87, 34, 0.06), rgba(99, 102, 241, 0.06));
+  border-bottom  : 1px solid rgba(255, 87, 34, 0.08);
+  font-size      : 12px;
+  color          : var(--lmm-text2);
+  font-weight    : 500;
+}
+.lmm-welcome strong { color: var(--lmm-text); }
+
+.lmm-welcome__link {
+  background  : none;
+  border      : none;
+  cursor      : pointer;
+  color       : var(--lmm-orange);
+  font-size   : 12px;
+  font-weight : 700;
+  display     : inline-flex;
+  align-items : center;
+  gap         : 3px;
+  font-family : inherit;
+}
+
+/* ── Hero ── */
+.lmm-hero {
+  position     : relative;
+  height       : 200px;
+  overflow     : hidden;
+  margin       : 8px 12px 0;
+  border-radius: 18px;
+}
+
+.lmm-hero__bg {
+  position   : absolute;
+  inset      : 0;
+  transition : background 1s ease;
+}
+
+.lmm-hero__overlay {
+  position   : absolute;
+  inset      : 0;
+  background : linear-gradient(135deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.25) 55%, transparent);
+}
+
+.lmm-hero__content {
+  position       : relative;
+  z-index        : 2;
+  padding        : 20px 16px 16px;
+  height         : 100%;
+  display        : flex;
+  flex-direction : column;
+  justify-content: center;
+  max-width      : 260px;
+}
+
+.lmm-hero__eyebrow {
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 5px;
+  background     : rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+  border         : 1px solid rgba(255, 255, 255, 0.25);
+  color          : #fff;
+  font-size      : 9px;
+  font-weight    : 800;
+  padding        : 3px 9px;
+  border-radius  : 20px;
+  margin-bottom  : 8px;
+  text-transform : uppercase;
+  letter-spacing : 0.5px;
+  width          : fit-content;
+}
+.lmm-hero__icon  { font-size: 11px; }
+
+.lmm-hero__title {
+  font-size     : 22px;
+  font-weight   : 900;
+  color         : #fff;
+  line-height   : 1.15;
+  letter-spacing: -0.7px;
+  margin        : 0 0 6px;
+  text-shadow   : 0 1px 8px rgba(0, 0, 0, 0.25);
+}
+
+.lmm-hero__sub {
+  font-size  : 11px;
+  color      : rgba(255, 255, 255, 0.82);
+  margin     : 0 0 12px;
+  line-height: 1.45;
+}
+
+.lmm-hero__actions {
+  display: flex;
+  gap    : 7px;
+}
+
+.lmm-hero__cta {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 5px;
+  padding      : 9px 16px;
+  border-radius: 10px;
+  border       : none;
+  color        : #fff;
+  font-size    : 12px;
+  font-weight  : 800;
+  cursor       : pointer;
+  box-shadow   : 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition   : transform .15s;
+  font-family  : inherit;
+}
+.lmm-hero__cta:active { transform: scale(0.96); }
+
+.lmm-hero__cta-2 {
+  display        : inline-flex;
+  align-items    : center;
+  padding        : 9px 16px;
+  border-radius  : 10px;
+  border         : 1px solid rgba(255, 255, 255, 0.35);
+  background     : rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+  color          : #fff;
+  font-size      : 12px;
+  font-weight    : 700;
+  cursor         : pointer;
+  font-family    : inherit;
+}
+
+.lmm-hero__cart-pill {
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 5px;
+  margin-top     : 10px;
+  padding        : 5px 11px;
+  background     : rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+  border         : 1px solid rgba(255, 255, 255, 0.25);
+  border-radius  : 999px;
+  color          : #fff;
+  font-size      : 10px;
+  font-weight    : 700;
+  cursor         : pointer;
+  width          : fit-content;
+  font-family    : inherit;
+  animation      : lmm-pop-in .3s;
+}
+
+@keyframes lmm-pop-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to   { opacity: 1; transform: scale(1);   }
+}
+
+.lmm-hero__dots {
+  position : absolute;
+  bottom   : 10px;
+  left     : 50%;
+  transform: translateX(-50%);
+  display  : flex;
+  gap      : 4px;
+  z-index  : 3;
+}
+.lmm-hero__dot {
+  width        : 5px;
+  height       : 5px;
+  border-radius: 50%;
+  background   : rgba(255, 255, 255, 0.4);
+  border       : none;
+  cursor       : pointer;
+  padding      : 0;
+  transition   : all .2s;
+}
+.lmm-hero__dot--on {
+  background   : #fff;
+  width        : 16px;
+  border-radius: 3px;
+}
+
+/* ── Quick tiles ── */
+.lmm-quick-tiles {
+  display              : grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap                  : 8px;
+  padding              : 14px 12px 4px;
+}
+
+.lmm-tile {
+  display        : flex;
+  flex-direction : column;
+  align-items    : center;
+  gap            : 5px;
+  padding        : 12px 6px 10px;
+  background     : var(--lmm-card);
+  border         : 1px solid var(--lmm-border);
+  border-radius  : 14px;
+  cursor         : pointer;
+  transition     : transform .15s, box-shadow .15s;
+  font-family    : inherit;
+}
+.lmm-tile:hover  { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); }
+.lmm-tile:active { transform: scale(0.96); }
+
+.lmm-tile__icon {
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  width          : 36px;
+  height         : 36px;
+  border-radius  : 10px;
+  font-size      : 18px;
+}
+.lmm-tile__label {
+  font-size  : 10px;
+  font-weight: 700;
+  color      : var(--lmm-text);
+  line-height: 1.2;
+  text-align : center;
+}
