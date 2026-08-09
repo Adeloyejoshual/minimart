@@ -41,21 +41,6 @@ const STATUS_CONFIG = {
   archived : { bg: "#f3f4f6", color: "#6b7280", dot: "#9ca3af", label: "Archived" },
 };
 
-/*
- * Server mounts seller routes at:
- *   app.use("/api/seller", sellerProfileRouter)
- *   app.use("/api/seller/payout", sellerPayoutRoutes)
- *   app.use("/api/seller/settings", sellerSettingsRouter)
- *
- * Our new product router must be mounted at /api/seller as well
- * so all product paths resolve under /api/seller/products/...
- *
- * In server.js add:
- *   import sellerProductRouter from "./routes/seller/product.js";
- *   app.use("/api/seller", sellerProductRouter);
- *
- * Every sellerApi call below already uses the correct full path.
- */
 const PRODUCTS_BASE = "/api/seller/products";
 
 /* ══════════════════════════════════════════════════════════════
@@ -362,12 +347,9 @@ const StockBadge = memo(function StockBadge({ stock }) {
 
 /* ══════════════════════════════════════════════════════════════
    PRODUCT IMAGE
-   Shared between card and row — handles fallback gracefully.
 ══════════════════════════════════════════════════════════════ */
 function ProductImage({ src, alt, width, height, borderRadius = 0 }) {
   const [err, setErr] = useState(false);
-
-  /* Reset error state when src changes (e.g. after edit) */
   useEffect(() => { setErr(false); }, [src]);
 
   return (
@@ -380,10 +362,8 @@ function ProductImage({ src, alt, width, height, borderRadius = 0 }) {
         <img
           src={src}
           alt={alt}
-          style={{
-            width: "100%", height: "100%",
-            objectFit: "cover", display: "block",
-          }}
+          style={{ width: "100%", height: "100%",
+            objectFit: "cover", display: "block" }}
           onError={() => setErr(true)}
         />
       ) : (
@@ -403,7 +383,7 @@ function ProductImage({ src, alt, width, height, borderRadius = 0 }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ACTION BUTTONS  (shared between card and row)
+   ACTION BUTTONS
 ══════════════════════════════════════════════════════════════ */
 function ActionButtons({ product, onEdit, onDelete, onPause, compact = false }) {
   return (
@@ -417,7 +397,7 @@ function ActionButtons({ product, onEdit, onDelete, onPause, compact = false }) 
         <span>Edit</span>
       </button>
 
-      {product.status === "approved" && (
+      {(product.status === "approved" || product.status === "active") && (
         <button
           onClick={() => onPause(product)}
           className="sp-btn sp-btn--amber"
@@ -448,60 +428,41 @@ function ActionButtons({ product, onEdit, onDelete, onPause, compact = false }) 
 const ProductCard = memo(function ProductCard({
   product: p, mobile, onEdit, onDelete, onPause,
 }) {
-  const cover      = useMemo(() => getCoverImage(p),   [p]);
-  const totalStock = useMemo(() => getTotalStock(p),   [p]);
+  const cover      = useMemo(() => getCoverImage(p), [p]);
+  const totalStock = useMemo(() => getTotalStock(p), [p]);
   const imgH       = mobile ? 130 : 155;
 
   return (
     <article className="sp-card">
-      {/* Image area */}
       <div style={{ height: imgH, position: "relative", overflow: "hidden" }}>
-        <ProductImage
-          src={cover}
-          alt={p.name}
-          width="100%"
-          height={imgH}
-        />
-
-        {/* Status chip overlay */}
+        <ProductImage src={cover} alt={p.name} width="100%" height={imgH} />
         <div style={{ position: "absolute", top: 8, left: 8 }}>
           <StatusChip product={p} />
         </div>
-
-        {/* Paused dim overlay — aria-hidden: StatusChip already conveys state */}
         {p.is_paused && (
-          <div
-            aria-hidden="true"
-            style={{
-              position: "absolute", inset: 0,
-              background: "rgba(0,0,0,0.35)",
-              display: "flex", alignItems: "center",
-              justifyContent: "center",
-            }}>
+          <div aria-hidden="true" style={{
+            position: "absolute", inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
             <span style={{
               color: "white", fontSize: "0.72rem", fontWeight: 800,
               background: "rgba(0,0,0,0.5)",
               padding: "0.25rem 0.6rem", borderRadius: "6px",
-            }}>
-              PAUSED
-            </span>
+            }}>PAUSED</span>
           </div>
         )}
       </div>
 
-      {/* Body */}
       <div style={{
         padding: mobile ? "0.7rem" : "0.875rem",
         display: "flex", flexDirection: "column", gap: "0.35rem",
       }}>
-        <p
-          title={p.name}
-          style={{
-            fontWeight: 700, color: "#1f2937", margin: 0,
-            fontSize: mobile ? "0.8rem" : "0.875rem",
-            overflow: "hidden", textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}>
+        <p title={p.name} style={{
+          fontWeight: 700, color: "#1f2937", margin: 0,
+          fontSize: mobile ? "0.8rem" : "0.875rem",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
           {p.name}
         </p>
 
@@ -554,27 +515,14 @@ const ProductRow = memo(function ProductRow({
   const totalStock = useMemo(() => getTotalStock(p), [p]);
 
   return (
-    <div
-      className="sp-row"
-      style={{
-        display: "grid",
-        gridTemplateColumns: "2.5fr 1fr 1fr 1fr auto",
-        gap: "0.5rem", alignItems: "center",
-        padding: "0.875rem 1.25rem",
-      }}>
-
-      {/* Product info */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        gap: "0.75rem", minWidth: 0,
-      }}>
-        <ProductImage
-          src={cover}
-          alt={p.name}
-          width={48}
-          height={48}
-          borderRadius={10}
-        />
+    <div className="sp-row" style={{
+      display: "grid",
+      gridTemplateColumns: "2.5fr 1fr 1fr 1fr auto",
+      gap: "0.5rem", alignItems: "center",
+      padding: "0.875rem 1.25rem",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
+        <ProductImage src={cover} alt={p.name} width={48} height={48} borderRadius={10} />
         <div style={{ minWidth: 0 }}>
           <p style={{
             fontWeight: 600, color: "#1f2937", margin: 0,
@@ -584,75 +532,45 @@ const ProductRow = memo(function ProductRow({
             {p.name}
           </p>
           {p.category && (
-            <p style={{
-              color: "#9ca3af", fontSize: "0.7rem",
-              margin: "0.1rem 0 0",
-            }}>
+            <p style={{ color: "#9ca3af", fontSize: "0.7rem", margin: "0.1rem 0 0" }}>
               {p.category}
             </p>
           )}
           {Array.isArray(p.variants) && p.variants.length > 1 && (
-            <p style={{
-              color: "#c4b5fd", fontSize: "0.65rem",
-              margin: "0.1rem 0 0",
-            }}>
+            <p style={{ color: "#c4b5fd", fontSize: "0.65rem", margin: "0.1rem 0 0" }}>
               {p.variants.length} variants
             </p>
           )}
         </div>
       </div>
 
-      {/* Price */}
       <span style={{ fontWeight: 700, color: "#1f2937", fontSize: "0.9rem" }}>
         {fmt(p.price)}
       </span>
-
-      {/* Stock */}
       <StockBadge stock={totalStock} />
-
-      {/* Status */}
       <StatusChip product={p} />
-
-      {/* Actions */}
-      <ActionButtons
-        product={p}
-        onEdit={onEdit}
-        onDelete={onDelete}
-        onPause={onPause}
-        compact
-      />
+      <ActionButtons product={p} onEdit={onEdit} onDelete={onDelete} onPause={onPause} compact />
     </div>
   );
 });
 
 /* ══════════════════════════════════════════════════════════════
    MODAL SHELL
-   Reusable wrapper: backdrop + centred card + focus + Escape.
 ══════════════════════════════════════════════════════════════ */
 function Modal({ onClose, label, children }) {
   const ref = useRef();
 
   useEffect(() => {
-    /* Trap focus on mount */
     ref.current?.focus();
-
-    /* Close on Escape */
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   return (
-    <div
-      style={MS.overlay}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}>
-      <div
-        ref={ref}
-        tabIndex={-1}
-        style={MS.modal}
+    <div style={MS.overlay} onClick={onClose}
+      role="dialog" aria-modal="true" aria-label={label}>
+      <div ref={ref} tabIndex={-1} style={MS.modal}
         onClick={(e) => e.stopPropagation()}>
         {children}
       </div>
@@ -698,9 +616,7 @@ function DeleteModal({ product, onClose, onDeleted }) {
         setError(data.message ?? "Delete failed");
       }
     } catch (err) {
-      setError(
-        err.response?.data?.message ?? "Delete failed. Please try again."
-      );
+      setError(err.response?.data?.message ?? "Delete failed. Please try again.");
     } finally {
       setDeleting(false);
     }
@@ -712,7 +628,6 @@ function DeleteModal({ product, onClose, onDeleted }) {
         <div style={{ ...MS.iconWrap, background: "#fef2f2" }}>
           <Icon.Trash size={24} />
         </div>
-
         <div style={{ textAlign: "center" }}>
           <h3 style={MS.title}>Delete Listing?</h3>
           <p style={MS.subtitle}>
@@ -720,19 +635,12 @@ function DeleteModal({ product, onClose, onDeleted }) {
             and cannot be recovered.
           </p>
         </div>
-
         <ErrorBanner message={error} />
-
         <div style={MS.actions}>
-          <button
-            onClick={onClose}
-            style={MS.cancelBtn}
-            disabled={deleting}>
+          <button onClick={onClose} style={MS.cancelBtn} disabled={deleting}>
             Keep It
           </button>
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
+          <button onClick={handleDelete} disabled={deleting}
             style={{ ...MS.dangerBtn, opacity: deleting ? 0.7 : 1 }}>
             {deleting ? (
               <span style={MS.btnInner}>
@@ -750,7 +658,7 @@ function DeleteModal({ product, onClose, onDeleted }) {
    PAUSE MODAL
 ══════════════════════════════════════════════════════════════ */
 function PauseModal({ product, onClose, onToggled }) {
-  const isPaused          = product.is_paused;
+  const isPaused      = product.is_paused;
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
 
@@ -767,28 +675,18 @@ function PauseModal({ product, onClose, onToggled }) {
         setError(data.message ?? "Failed. Please try again.");
       }
     } catch (err) {
-      setError(
-        err.response?.data?.message ?? "Failed. Please try again."
-      );
+      setError(err.response?.data?.message ?? "Failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Modal
-      onClose={onClose}
-      label={isPaused ? "Resume listing" : "Pause listing"}>
+    <Modal onClose={onClose} label={isPaused ? "Resume listing" : "Pause listing"}>
       <div style={MS.body}>
-        <div style={{
-          ...MS.iconWrap,
-          background: isPaused ? "#ecfdf5" : "#fffbeb",
-        }}>
-          {isPaused
-            ? <Icon.Play  size={22} />
-            : <Icon.Pause size={22} />}
+        <div style={{ ...MS.iconWrap, background: isPaused ? "#ecfdf5" : "#fffbeb" }}>
+          {isPaused ? <Icon.Play size={22} /> : <Icon.Pause size={22} />}
         </div>
-
         <div style={{ textAlign: "center" }}>
           <h3 style={MS.title}>
             {isPaused ? "Resume Listing?" : "Pause Listing?"}
@@ -799,19 +697,12 @@ function PauseModal({ product, onClose, onToggled }) {
               : "This listing will be hidden from buyers until you resume it."}
           </p>
         </div>
-
         <ErrorBanner message={error} />
-
         <div style={MS.actions}>
-          <button
-            onClick={onClose}
-            style={MS.cancelBtn}
-            disabled={loading}>
+          <button onClick={onClose} style={MS.cancelBtn} disabled={loading}>
             Cancel
           </button>
-          <button
-            onClick={handleToggle}
-            disabled={loading}
+          <button onClick={handleToggle} disabled={loading}
             style={{
               ...MS.primaryBtn,
               opacity: loading ? 0.7 : 1,
@@ -838,28 +729,19 @@ function PauseModal({ product, onClose, onToggled }) {
 function SummaryStrip({ products, mobile }) {
   const stats = useMemo(() => ({
     active: products.filter(
-      (p) =>
-        (p.status === "approved" || p.status === "active") && !p.is_paused
+      (p) => (p.status === "approved" || p.status === "active") && !p.is_paused
     ).length,
     stock: products.reduce((s, p) => s + getTotalStock(p), 0),
-    low:   products.filter(
-      (p) => getTotalStock(p) <= LOW_STOCK_THRESHOLD
-    ).length,
+    low:   products.filter((p) => getTotalStock(p) <= LOW_STOCK_THRESHOLD).length,
   }), [products]);
 
   const items = [
-    {
-      label: "Active Listings", value: stats.active,
-      I: Icon.Activity,  color: "#10b981", bg: "#ecfdf5",
-    },
-    {
-      label: "Total Stock",     value: stats.stock,
-      I: Icon.Warehouse, color: "#6366f1", bg: "#eff6ff",
-    },
-    {
-      label: "Low Stock Items", value: stats.low,
-      I: Icon.Alert,     color: "#f59e0b", bg: "#fffbeb",
-    },
+    { label: "Active Listings", value: stats.active,
+      I: Icon.Activity,  color: "#10b981", bg: "#ecfdf5" },
+    { label: "Total Stock",     value: stats.stock,
+      I: Icon.Warehouse, color: "#6366f1", bg: "#eff6ff" },
+    { label: "Low Stock Items", value: stats.low,
+      I: Icon.Alert,     color: "#f59e0b", bg: "#fffbeb" },
   ];
 
   return (
@@ -877,22 +759,17 @@ function SummaryStrip({ products, mobile }) {
           <div style={{
             width: 38, height: 38, borderRadius: "10px",
             background: bg, color, flexShrink: 0,
-            display: "flex", alignItems: "center",
-            justifyContent: "center",
+            display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <I size={18} />
           </div>
           <div>
-            <p style={{
-              fontWeight: 800, color, margin: 0,
-              fontSize: "1.15rem", lineHeight: 1,
-            }}>
+            <p style={{ fontWeight: 800, color, margin: 0,
+              fontSize: "1.15rem", lineHeight: 1 }}>
               {value.toLocaleString()}
             </p>
-            <p style={{
-              color: "#9ca3af", fontSize: "0.72rem",
-              margin: "0.2rem 0 0", lineHeight: 1,
-            }}>
+            <p style={{ color: "#9ca3af", fontSize: "0.72rem",
+              margin: "0.2rem 0 0", lineHeight: 1 }}>
               {label}
             </p>
           </div>
@@ -914,35 +791,23 @@ function PaginationBar({ pagination, page, onPage }) {
       display: "flex", justifyContent: "space-between",
       alignItems: "center", flexWrap: "wrap", gap: "0.75rem",
       background: "white", borderRadius: "14px",
-      padding: "0.875rem 1.25rem",
-      border: "1px solid #f3f4f6",
+      padding: "0.875rem 1.25rem", border: "1px solid #f3f4f6",
     }}>
       <p style={{ fontSize: "0.78rem", color: "#9ca3af", margin: 0 }}>
         Page {pagination.page} of {totalPages} · {pagination.total} products
       </p>
-
       <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
-        <button
-          className="sp-page-btn"
-          onClick={() => onPage(page - 1)}
-          disabled={page === 1}
-          style={pageBtnStyle(false, page === 1)}>
+        <button className="sp-page-btn" onClick={() => onPage(page - 1)}
+          disabled={page === 1} style={pageBtnStyle(false, page === 1)}>
           ← Prev
         </button>
-
         {buildPageNumbers(page, totalPages).map((n) => (
-          <button
-            key={n}
-            className="sp-page-btn"
-            onClick={() => onPage(n)}
+          <button key={n} className="sp-page-btn" onClick={() => onPage(n)}
             style={pageBtnStyle(page === n, false)}>
             {n}
           </button>
         ))}
-
-        <button
-          className="sp-page-btn"
-          onClick={() => onPage(page + 1)}
+        <button className="sp-page-btn" onClick={() => onPage(page + 1)}
           disabled={page === totalPages}
           style={pageBtnStyle(false, page === totalPages)}>
           Next →
@@ -983,24 +848,18 @@ function EmptyState({ hasFilters, onClear, onPost, mobile }) {
       <span style={{ color: "#d1d5db" }}>
         <Icon.Package size={56} />
       </span>
-      <h3 style={{
-        fontWeight: 700, color: "#374151",
-        margin: 0, fontSize: "1.1rem",
-      }}>
+      <h3 style={{ fontWeight: 700, color: "#374151",
+        margin: 0, fontSize: "1.1rem" }}>
         {hasFilters ? "No products found" : "No listings yet"}
       </h3>
-      <p style={{
-        color: "#9ca3af", fontSize: "0.875rem",
-        margin: 0, maxWidth: 280, lineHeight: 1.5,
-      }}>
+      <p style={{ color: "#9ca3af", fontSize: "0.875rem",
+        margin: 0, maxWidth: 280, lineHeight: 1.5 }}>
         {hasFilters
           ? "Try a different search term or clear the filter."
           : "Post your first product to start selling."}
       </p>
       {hasFilters ? (
-        <button onClick={onClear} style={GHOST_BTN}>
-          Clear filters
-        </button>
+        <button onClick={onClear} style={GHOST_BTN}>Clear filters</button>
       ) : (
         <button onClick={onPost} style={POST_BTN}>
           <Icon.Plus size={15} />
@@ -1017,7 +876,6 @@ function EmptyState({ hasFilters, onClear, onPost, mobile }) {
 export default function Products() {
   const navigate = useNavigate();
 
-  /* ── State ── */
   const [products,     setProducts]     = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
@@ -1030,6 +888,7 @@ export default function Products() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [pauseTarget,  setPauseTarget]  = useState(null);
   const [screenW,      setScreenW]      = useState(window.innerWidth);
+  const [fetchError,   setFetchError]   = useState(null);
 
   const searchRef = useRef();
   const abortRef  = useRef(null);
@@ -1044,7 +903,7 @@ export default function Products() {
   const mobile = screenW < 640;
   const tablet = screenW < 1024;
 
-  /* ── Debounce search input → committed search ── */
+  /* ── Debounce search ── */
   useEffect(() => {
     const t = setTimeout(() => {
       setSearch(searchInput);
@@ -1053,19 +912,32 @@ export default function Products() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  /* ── Co-locate filter + page reset ── */
   const handleFilterChange = useCallback((key) => {
     setFilter(key);
     setPage(1);
   }, []);
 
-  /* ── Fetch ── */
+  /* ══════════════════════════════════════════════════════════
+     FETCH
+     ─────────────────────────────────────────────────────────
+     The server's ok() helper returns:
+       { success: true, products: [...], pagination: {...} }
+
+     NOT wrapped in a "data" key. So we read:
+       data.products   (not data.data.products)
+       data.pagination (not data.data.pagination)
+
+     We handle both shapes defensively in case the response
+     shape changes:
+       data.products ?? data.data?.products ?? []
+  ══════════════════════════════════════════════════════════ */
   const load = useCallback(async (silent = false) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     if (!silent) setLoading(true);
+    setFetchError(null);
 
     try {
       const { data } = await sellerApi.get(PRODUCTS_BASE, {
@@ -1078,14 +950,28 @@ export default function Products() {
         signal: controller.signal,
       });
 
+      if (import.meta.env.DEV) {
+        console.log("[Products] API response:", data);
+      }
+
       if (data.success) {
-        setProducts(data.data?.products     ?? []);
-        setPagination(data.data?.pagination ?? null);
+        /*
+         * Handle both response shapes:
+         *   Shape A: { success, products, pagination }       ← server ok() helper
+         *   Shape B: { success, data: { products, pagination } }  ← wrapped
+         */
+        const products   = data.products   ?? data.data?.products   ?? [];
+        const pagination = data.pagination ?? data.data?.pagination ?? null;
+
+        setProducts(products);
+        setPagination(pagination);
+      } else {
+        setFetchError(data.message ?? "Failed to load products");
       }
     } catch (err) {
-      /* Ignore aborted requests */
       if (err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
       console.error("[Products] fetch error:", err.message);
+      setFetchError(err.response?.data?.message ?? err.message);
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false);
@@ -1096,23 +982,15 @@ export default function Products() {
 
   useEffect(() => { load(); }, [load]);
 
-  /* ── Manual refresh ── */
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     load(true);
   }, [load]);
 
-  /* ── Edit — redirect to update flow ── */
   const handleEdit = useCallback((p) => {
     navigate(`/minimart/edit-ad/${p.id}`);
   }, [navigate]);
 
-  /*
-   * ── After any mutation (delete / pause / resume) ──
-   * Closes both modals and silently reloads the list.
-   * Single callback avoids the double-fire bug from the
-   * previous implementation.
-   */
   const handleMutated = useCallback(() => {
     setDeleteTarget(null);
     setPauseTarget(null);
@@ -1126,7 +1004,6 @@ export default function Products() {
   ══════════════════════════════════════════════════════════ */
   return (
     <>
-      {/* ── Global keyframes + utility classes ── */}
       <style>{`
         @keyframes sp-spin {
           to { transform: rotate(360deg); }
@@ -1139,7 +1016,6 @@ export default function Products() {
           from { opacity: 0; transform: translateY(8px); }
           to   { opacity: 1; transform: translateY(0);   }
         }
-
         .sp-card {
           background: white; border-radius: 16px;
           border: 1px solid #f3f4f6; overflow: hidden;
@@ -1151,16 +1027,12 @@ export default function Products() {
           box-shadow: 0 8px 24px rgba(99,102,241,0.1);
           transform: translateY(-2px);
         }
-
         .sp-row {
-          border-bottom: 1px solid #f9fafb;
-          background: white;
-          transition: background 0.15s;
-          animation: sp-fadeup 0.2s ease;
+          border-bottom: 1px solid #f9fafb; background: white;
+          transition: background 0.15s; animation: sp-fadeup 0.2s ease;
         }
         .sp-row:last-child { border-bottom: none; }
         .sp-row:hover      { background: #fafafa; }
-
         .sp-btn {
           display: inline-flex; align-items: center;
           justify-content: center; gap: 0.3rem;
@@ -1176,7 +1048,6 @@ export default function Products() {
         .sp-btn--blue         { background:#eff6ff; border-color:#bfdbfe; color:#1e40af; }
         .sp-btn--amber        { background:#fffbeb; border-color:#fde68a; color:#92400e; }
         .sp-btn--red          { background:#fef2f2; border-color:#fecaca; color:#ef4444; }
-
         .sp-pill {
           padding: 0.38rem 0.875rem; border-radius: 100px;
           font-size: 0.78rem; cursor: pointer;
@@ -1187,12 +1058,9 @@ export default function Products() {
           border-color: #6366f1 !important;
           color: #6366f1 !important;
         }
-
         .sp-page-btn:hover:not(:disabled) {
-          border-color: #6366f1;
-          color: #6366f1;
+          border-color: #6366f1; color: #6366f1;
         }
-
         input:focus {
           border-color: #6366f1 !important;
           box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
@@ -1202,36 +1070,27 @@ export default function Products() {
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
 
-        {/* ══ HEADER ═══════════════════════════════════════════ */}
+        {/* ── HEADER ── */}
         <div style={{
           display: "flex", justifyContent: "space-between",
           alignItems: "flex-start", flexWrap: "wrap", gap: "0.75rem",
         }}>
           <div>
             <h2 style={{
-              fontWeight: 800, fontSize: "1.35rem",
-              color: "#1f2937", margin: 0,
+              fontWeight: 800, fontSize: "1.35rem", color: "#1f2937", margin: 0,
               display: "flex", alignItems: "center", gap: "0.5rem",
             }}>
               <Icon.Tag size={22} />
               My Listings
             </h2>
-            <p style={{
-              color: "#9ca3af", fontSize: "0.85rem",
-              margin: "0.2rem 0 0",
-            }}>
+            <p style={{ color: "#9ca3af", fontSize: "0.85rem", margin: "0.2rem 0 0" }}>
               {pagination?.total ?? products.length} products in your store
             </p>
           </div>
 
-          <div style={{
-            display: "flex", gap: "0.5rem",
-            alignItems: "center", flexWrap: "wrap",
-          }}>
-
-            {/* Refresh */}
-            <button
-              onClick={handleRefresh}
+          <div style={{ display: "flex", gap: "0.5rem",
+            alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={handleRefresh}
               disabled={refreshing || loading}
               aria-label="Refresh listings"
               style={{
@@ -1240,57 +1099,45 @@ export default function Products() {
                 cursor: (refreshing || loading) ? "default" : "pointer",
                 color: "#6b7280",
                 display: "flex", alignItems: "center", gap: "0.4rem",
-                fontSize: "0.8rem", fontWeight: 600,
-                fontFamily: "inherit",
+                fontSize: "0.8rem", fontWeight: 600, fontFamily: "inherit",
                 opacity: (refreshing || loading) ? 0.6 : 1,
                 transition: "opacity 0.15s",
               }}>
               <span style={{
                 display: "inline-block",
-                animation: refreshing
-                  ? "sp-spin 0.7s linear infinite" : "none",
+                animation: refreshing ? "sp-spin 0.7s linear infinite" : "none",
               }}>
                 <Icon.Refresh size={15} />
               </span>
               {!mobile && <span>Refresh</span>}
             </button>
 
-            {/* View toggle — desktop only */}
             {!mobile && (
-              <div
-                style={{
-                  display: "flex", background: "white",
-                  border: "1px solid #e5e7eb", borderRadius: "10px",
-                  padding: "3px", gap: "2px",
-                }}
-                role="group"
-                aria-label="View mode">
-                {[
-                  { mode: "grid", I: Icon.Grid },
-                  { mode: "list", I: Icon.List },
-                ].map(({ mode, I }) => (
-                  <button
-                    key={mode}
-                    onClick={() => setViewMode(mode)}
-                    aria-label={`${mode} view`}
-                    aria-pressed={viewMode === mode}
-                    style={{
-                      padding: "0.35rem 0.65rem", borderRadius: "7px",
-                      border: "none", cursor: "pointer",
-                      background: viewMode === mode ? "#6366f1" : "transparent",
-                      color:      viewMode === mode ? "white"   : "#9ca3af",
-                      display: "flex", alignItems: "center",
-                      transition: "all 0.15s",
-                    }}>
-                    <I size={15} />
-                  </button>
-                ))}
+              <div style={{
+                display: "flex", background: "white",
+                border: "1px solid #e5e7eb", borderRadius: "10px",
+                padding: "3px", gap: "2px",
+              }} role="group" aria-label="View mode">
+                {[{ mode: "grid", I: Icon.Grid }, { mode: "list", I: Icon.List }].map(
+                  ({ mode, I }) => (
+                    <button key={mode} onClick={() => setViewMode(mode)}
+                      aria-label={`${mode} view`} aria-pressed={viewMode === mode}
+                      style={{
+                        padding: "0.35rem 0.65rem", borderRadius: "7px",
+                        border: "none", cursor: "pointer",
+                        background: viewMode === mode ? "#6366f1" : "transparent",
+                        color:      viewMode === mode ? "white"   : "#9ca3af",
+                        display: "flex", alignItems: "center",
+                        transition: "all 0.15s",
+                      }}>
+                      <I size={15} />
+                    </button>
+                  )
+                )}
               </div>
             )}
 
-            {/* Post new product */}
-            <button
-              onClick={() => navigate("/minimart/post-ad")}
+            <button onClick={() => navigate("/minimart/post-ad")}
               style={POST_BTN}
               onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
               onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}>
@@ -1300,15 +1147,33 @@ export default function Products() {
           </div>
         </div>
 
-        {/* ══ SUMMARY STRIP ════════════════════════════════════ */}
+        {/* ── FETCH ERROR BANNER ── */}
+        {fetchError && (
+          <div style={{
+            background: "#fef2f2", border: "1px solid #fecaca",
+            borderRadius: "12px", padding: "0.875rem 1rem",
+            color: "#991b1b", fontSize: "0.875rem",
+            display: "flex", alignItems: "center", gap: "0.5rem",
+          }}>
+            <Icon.Alert size={16} />
+            <span>{fetchError}</span>
+            <button onClick={() => load(true)} style={{
+              marginLeft: "auto", background: "none", border: "none",
+              color: "#991b1b", cursor: "pointer", fontWeight: 600,
+              fontSize: "0.8rem", fontFamily: "inherit",
+            }}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* ── SUMMARY STRIP ── */}
         {!loading && products.length > 0 && (
           <SummaryStrip products={products} mobile={mobile} />
         )}
 
-        {/* ══ SEARCH + FILTERS ════════════════════════════════ */}
+        {/* ── SEARCH + FILTERS ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-
-          {/* Search box */}
           <div style={{ position: "relative" }}>
             <span style={{
               position: "absolute", left: "0.9rem", top: "50%",
@@ -1335,39 +1200,27 @@ export default function Products() {
               }}
             />
             {searchInput && (
-              <button
-                onClick={() => {
-                  setSearchInput("");
-                  searchRef.current?.focus();
-                }}
+              <button onClick={() => { setSearchInput(""); searchRef.current?.focus(); }}
                 aria-label="Clear search"
                 style={{
                   position: "absolute", right: "0.8rem", top: "50%",
                   transform: "translateY(-50%)",
-                  background: "#f3f4f6", border: "none",
-                  cursor: "pointer", color: "#6b7280",
-                  width: 22, height: 22, borderRadius: "50%",
-                  display: "flex", alignItems: "center",
-                  justifyContent: "center",
+                  background: "#f3f4f6", border: "none", cursor: "pointer",
+                  color: "#6b7280", width: 22, height: 22, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
                 <Icon.X size={11} />
               </button>
             )}
           </div>
 
-          {/* Filter pills */}
-          <div
-            style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}
-            role="radiogroup"
-            aria-label="Filter by status">
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}
+            role="radiogroup" aria-label="Filter by status">
             {STATUS_FILTERS.map(({ key, label }) => {
               const active = filter === key;
               return (
-                <button
-                  key={key}
-                  className="sp-pill"
-                  role="radio"
-                  aria-checked={active}
+                <button key={key} className="sp-pill"
+                  role="radio" aria-checked={active}
                   onClick={() => handleFilterChange(key)}
                   style={{
                     border:     `1.5px solid ${active ? "#6366f1" : "#e5e7eb"}`,
@@ -1382,9 +1235,7 @@ export default function Products() {
           </div>
         </div>
 
-        {/* ══ CONTENT AREA ════════════════════════════════════ */}
-
-        {/* Loading skeletons */}
+        {/* ── CONTENT ── */}
         {loading ? (
           viewMode === "grid" || mobile ? (
             <div style={{
@@ -1393,22 +1244,14 @@ export default function Products() {
                 ? "repeat(2,1fr)"
                 : tablet ? "repeat(3,1fr)" : "repeat(4,1fr)",
             }}>
-              {Array.from({ length: 8 }).map((_, i) => (
-                <SkeletonCard key={i} />
-              ))}
+              {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
             </div>
           ) : (
-            <div style={{
-              background: "white", borderRadius: "16px",
-              border: "1px solid #f3f4f6", overflow: "hidden",
-            }}>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <SkeletonRow key={i} />
-              ))}
+            <div style={{ background: "white", borderRadius: "16px",
+              border: "1px solid #f3f4f6", overflow: "hidden" }}>
+              {Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)}
             </div>
           )
-
-        /* Empty state */
         ) : products.length === 0 ? (
           <EmptyState
             hasFilters={hasFilters}
@@ -1416,8 +1259,6 @@ export default function Products() {
             onPost={() => navigate("/minimart/post-ad")}
             mobile={mobile}
           />
-
-        /* Grid view */
         ) : viewMode === "grid" || mobile ? (
           <div style={{
             display: "grid", gap: "1rem",
@@ -1426,30 +1267,19 @@ export default function Products() {
               : tablet ? "repeat(3,1fr)" : "repeat(4,1fr)",
           }}>
             {products.map((p) => (
-              <ProductCard
-                key={p.id}
-                product={p}
-                mobile={mobile}
-                onEdit={handleEdit}
-                onDelete={setDeleteTarget}
-                onPause={setPauseTarget}
-              />
+              <ProductCard key={p.id} product={p} mobile={mobile}
+                onEdit={handleEdit} onDelete={setDeleteTarget}
+                onPause={setPauseTarget} />
             ))}
           </div>
-
-        /* List view */
         ) : (
-          <div style={{
-            background: "white", borderRadius: "16px",
-            border: "1px solid #f3f4f6", overflow: "hidden",
-          }}>
-            {/* Column headers */}
+          <div style={{ background: "white", borderRadius: "16px",
+            border: "1px solid #f3f4f6", overflow: "hidden" }}>
             <div style={{
               display: "grid",
               gridTemplateColumns: "2.5fr 1fr 1fr 1fr auto",
               gap: "0.5rem", padding: "0.75rem 1.25rem",
-              background: "#f9fafb",
-              borderBottom: "1px solid #f3f4f6",
+              background: "#f9fafb", borderBottom: "1px solid #f3f4f6",
             }}>
               {["Product", "Price", "Stock", "Status", "Actions"].map((h) => (
                 <span key={h} style={{
@@ -1461,42 +1291,26 @@ export default function Products() {
                 </span>
               ))}
             </div>
-
             {products.map((p) => (
-              <ProductRow
-                key={p.id}
-                product={p}
-                onEdit={handleEdit}
-                onDelete={setDeleteTarget}
-                onPause={setPauseTarget}
-              />
+              <ProductRow key={p.id} product={p}
+                onEdit={handleEdit} onDelete={setDeleteTarget}
+                onPause={setPauseTarget} />
             ))}
           </div>
         )}
 
-        {/* ══ PAGINATION ═══════════════════════════════════════ */}
-        <PaginationBar
-          pagination={pagination}
-          page={page}
-          onPage={setPage}
-        />
-
+        <PaginationBar pagination={pagination} page={page} onPage={setPage} />
       </div>
 
-      {/* ══ MODALS ═══════════════════════════════════════════ */}
       {deleteTarget && (
-        <DeleteModal
-          product={deleteTarget}
+        <DeleteModal product={deleteTarget}
           onClose={() => setDeleteTarget(null)}
-          onDeleted={handleMutated}
-        />
+          onDeleted={handleMutated} />
       )}
       {pauseTarget && (
-        <PauseModal
-          product={pauseTarget}
+        <PauseModal product={pauseTarget}
           onClose={() => setPauseTarget(null)}
-          onToggled={handleMutated}
-        />
+          onToggled={handleMutated} />
       )}
     </>
   );
@@ -1559,9 +1373,7 @@ const MS = {
     color: "#6b7280", fontSize: "0.875rem",
     margin: 0, lineHeight: 1.6,
   },
-  actions: {
-    display: "flex", gap: "0.75rem",
-  },
+  actions: { display: "flex", gap: "0.75rem" },
   btnInner: {
     display: "flex", alignItems: "center",
     gap: "0.4rem", justifyContent: "center",
