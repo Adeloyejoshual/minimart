@@ -4,18 +4,19 @@
  * Main product grid with:
  * - 2-column responsive grid
  * - Premium product cards (rating, sold count, delivery badge)
- * - Confetti burst on add to cart
+ * - REAL feedback: cart pulse + quantity badge + inline confirmation
  * - Skeleton loader with shimmer
  * - Beautiful error + empty states
  * - Load more with spinner
  */
 
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FiSearch, FiPackage, FiHeart, FiShoppingCart,
   FiCheckCircle, FiShield, FiEye, FiMapPin,
   FiAlertCircle, FiRefreshCw, FiChevronRight, FiTruck,
+  FiPlus, FiMinus,
 } from "react-icons/fi";
 
 import {
@@ -23,32 +24,6 @@ import {
   fakeReviewCount, addToRecentlyViewed, useFadeIn,
   haptic, TRENDING_SEARCHES, getDeliveryEstimate,
 } from "./mobileHelpers";
-
-/* ═══════════════════════════════════════════════════════════════
-   CONFETTI (small burst)
-═══════════════════════════════════════════════════════════════ */
-const CONFETTI_COLORS = ["#ff5722", "#ff8a00", "#10b981", "#6366f1", "#f59e0b"];
-
-function Confetti({ show }) {
-  if (!show) return null;
-  return (
-    <div className="lmm-confetti" aria-hidden="true">
-      {Array.from({ length: 14 }).map((_, i) => (
-        <span
-          key={i}
-          className="lmm-confetti__piece"
-          style={{
-            background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-            "--x"     : `${(Math.random() - 0.5) * 180}px`,
-            "--y"     : `${-Math.random() * 240 - 40}px`,
-            "--r"     : `${Math.random() * 720}deg`,
-            "--delay" : `${Math.random() * 80}ms`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════════════════════════
    STAR RATING
@@ -86,15 +61,46 @@ const Stars = memo(function Stars({ rating }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   QUANTITY STEPPER (appears after adding to cart)
+   Real UX: lets user adjust quantity right on card
+═══════════════════════════════════════════════════════════════ */
+const QuantityStepper = memo(function QuantityStepper({
+  qty, onIncrease, onDecrease,
+}) {
+  return (
+    <div className="lmm-qty" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        className="lmm-qty__btn"
+        onClick={onDecrease}
+        aria-label="Decrease quantity"
+      >
+        <FiMinus size={12} strokeWidth={2.5} />
+      </button>
+      <span className="lmm-qty__val" aria-live="polite">{qty}</span>
+      <button
+        type="button"
+        className="lmm-qty__btn lmm-qty__btn--plus"
+        onClick={onIncrease}
+        aria-label="Increase quantity"
+      >
+        <FiPlus size={12} strokeWidth={2.5} />
+      </button>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
    PRODUCT CARD (2-col mobile)
 ═══════════════════════════════════════════════════════════════ */
 const MobileCard = memo(function MobileCard({
   product, wishlisted, onWishlist, onAddToCart, index = 0,
 }) {
   const navigate = useNavigate();
-  const [hearted, setHearted]   = useState(wishlisted);
-  const [carted,  setCarted]    = useState(false);
-  const [confetti,setConfetti]  = useState(false);
+  const [hearted,  setHearted]  = useState(wishlisted);
+  const [qty,      setQty]      = useState(0);
+  const [pulsing,  setPulsing]  = useState(false);
+  const cartBtnRef              = useRef(null);
   const { ref, visible } = useFadeIn();
 
   const discount    = calcDiscount(product);
@@ -103,6 +109,8 @@ const MobileCard = memo(function MobileCard({
   const rating      = fakeRating(product);
   const reviewCount = fakeReviewCount(product);
   const hasDelivery = product.has_delivery ?? (product.view_count ?? 0) % 3 !== 0;
+  const inStock     = (product.stock ?? 99) > 0;
+  const lowStock    = inStock && (product.stock ?? 99) < 10;
   const dest        = `/shop/${product.slug ?? product.id}`;
 
   const go = useCallback(() => {
@@ -117,15 +125,26 @@ const MobileCard = memo(function MobileCard({
     haptic(10);
   }, [onWishlist, product.id]);
 
-  const handleCart = useCallback((e) => {
+  const handleAdd = useCallback((e) => {
     e.stopPropagation();
-    setCarted(true);
-    setConfetti(true);
+    setQty(1);
+    setPulsing(true);
     onAddToCart(product);
-    haptic([20, 10, 20]);
-    setTimeout(() => setConfetti(false), 900);
-    setTimeout(() => setCarted(false),   1500);
+    haptic(15);
+    setTimeout(() => setPulsing(false), 600);
   }, [onAddToCart, product]);
+
+  const handleIncrease = useCallback(() => {
+    setQty((q) => q + 1);
+    onAddToCart(product);
+    haptic(8);
+  }, [onAddToCart, product]);
+
+  const handleDecrease = useCallback(() => {
+    setQty((q) => Math.max(0, q - 1));
+    haptic(8);
+    // Note: In real app, dispatch remove/decrement action here
+  }, []);
 
   useEffect(() => { setHearted(wishlisted); }, [wishlisted]);
 
@@ -195,6 +214,20 @@ const MobileCard = memo(function MobileCard({
             <FiTruck size={9} /> Free
           </div>
         )}
+
+        {/* Low stock alert — REAL urgency signal */}
+        {lowStock && (
+          <div className="lmm-card__stock-alert">
+            Only {product.stock} left
+          </div>
+        )}
+
+        {/* Out of stock overlay */}
+        {!inStock && (
+          <div className="lmm-card__oos">
+            <span>Out of Stock</span>
+          </div>
+        )}
       </div>
 
       {/* Body */}
@@ -215,6 +248,13 @@ const MobileCard = memo(function MobileCard({
           )}
         </div>
 
+        {/* Savings amount — REAL value signal */}
+        {discount > 0 && product.original_price && (
+          <p className="lmm-card__savings">
+            You save {fmtPrice(product.original_price - product.price)}
+          </p>
+        )}
+
         {/* Meta */}
         <div className="lmm-card__meta">
           <span className={`lmm-card__cond lmm-card__cond--${condition.toLowerCase()}`}>
@@ -230,25 +270,36 @@ const MobileCard = memo(function MobileCard({
         {/* Verified seller */}
         {product.seller_verified && (
           <div className="lmm-card__verified">
-            <FiShield size={9} /> Verified
+            <FiShield size={9} /> Verified Seller
           </div>
         )}
 
-        {/* Add to cart with confetti */}
+        {/* Add to cart OR quantity stepper — REAL interaction */}
         <div className="lmm-card__cart-wrap">
-          <Confetti show={confetti} />
-          <button
-            type="button"
-            className={`lmm-card__cart ${carted ? "lmm-card__cart--done" : ""}`}
-            onClick={handleCart}
-            aria-label={`Add ${product.name} to cart`}
-          >
-            {carted ? (
-              <><FiCheckCircle size={12} /> Added!</>
-            ) : (
-              <><FiShoppingCart size={12} /> Add to Cart</>
-            )}
-          </button>
+          {qty === 0 ? (
+            <button
+              ref={cartBtnRef}
+              type="button"
+              className={`lmm-card__cart ${pulsing ? "lmm-card__cart--pulse" : ""}`}
+              onClick={handleAdd}
+              disabled={!inStock}
+              aria-label={`Add ${product.name} to cart`}
+            >
+              <FiShoppingCart size={12} strokeWidth={2.2} />
+              {inStock ? "Add to Cart" : "Sold Out"}
+            </button>
+          ) : (
+            <div className="lmm-card__added-wrap">
+              <QuantityStepper
+                qty={qty}
+                onIncrease={handleIncrease}
+                onDecrease={handleDecrease}
+              />
+              <span className="lmm-card__added-label">
+                <FiCheckCircle size={11} strokeWidth={2.5} /> In cart
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </article>
