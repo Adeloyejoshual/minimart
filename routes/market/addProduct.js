@@ -6,6 +6,9 @@
  *
  * Auth: authenticateSeller — market.users JWT
  *       req.user.id === market.users.id === market.products.user_id ✓
+ *
+ * Mounted via router.use("/", addProduct) in index.js
+ * Final URL: POST /api/products
  */
 
 import express                from "express";
@@ -72,16 +75,14 @@ function classifyDuplicateError(err) {
 
 /* ══════════════════════════════════════════════════════════════
    POST /
-   Mounted via router.use("/", addProduct) in index.js
-   Final URL: POST /api/products
-   ↑ This is the ONLY change from the previous version
 ══════════════════════════════════════════════════════════════ */
 router.post(
-  "/",                    // ← was "/products" — that made it POST /api/products/products
+  "/",
   authenticateSeller,
   upload.array("images", MAX_IMAGES),
   async (req, res) => {
 
+    /* ── Double-submit guard ── */
     const userId = req.user.id;   // market.users.id ✓
 
     if (inFlight.has(userId)) {
@@ -161,7 +162,7 @@ router.post(
     const parsedBox      = parseJSON(whatsInBox,       []);
     const parsedSpecs    = parseJSON(specifications,   []);
 
-    /* ── Duplicate SKU check ── */
+    /* ── Duplicate SKU check (client-side — server-side in replaceVariants) ── */
     if (parsedVariants.length > 0) {
       const skuSet = new Set();
       for (const v of parsedVariants) {
@@ -175,7 +176,7 @@ router.post(
       }
     }
 
-    /* ── Upload images ── */
+    /* ── Upload images to R2 ── */
     let uploaded = [];
     try {
       uploaded = await processAndUploadImages(req.files);
@@ -190,6 +191,7 @@ router.post(
     try {
       await client.query("BEGIN");
 
+      /* Insert product row */
       const { rows: [{ id: productId }] } = await client.query(
         `INSERT INTO market.products (
            user_id,
@@ -221,7 +223,7 @@ router.post(
          )
          RETURNING id`,
         [
-          userId,                                       // market.users.id ✓
+          userId,
           cleanName,
           safeStr(description,       2000),
           safeStr(short_description,  300),
@@ -239,12 +241,14 @@ router.post(
         ]
       );
 
+      /* Generate + set slug */
       const slug = generateSlug(cleanName, productId);
       await client.query(
         `UPDATE market.products SET slug = $1 WHERE id = $2`,
         [slug, productId]
       );
 
+      /* Insert images */
       for (let i = 0; i < uploaded.length; i++) {
         await client.query(
           `INSERT INTO market.product_images
@@ -254,6 +258,7 @@ router.post(
         );
       }
 
+      /* Insert child rows */
       await replaceVariants(client, productId, parsedVariants);
       await insertList(client, "product_features",  "feature",
                        productId, parsedFeatures);
@@ -263,9 +268,7 @@ router.post(
 
       await client.query("COMMIT");
 
-      console.log(
-        `[addproduct] ✅ created | id=${productId} | user=${userId}`
-      );
+      console.log(`[addproduct] ✅ created | id=${productId} | user=${userId}`);
 
       return ok(res, {
         message : "Listing submitted for review. You will be notified once approved.",
@@ -275,7 +278,12 @@ router.post(
     } catch (dbErr) {
       await client.query("ROLLBACK");
       await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
-      console.error("[addproduct] DB error:", dbErr);
+      console.error("[addproduct] DB error:", {
+        message : dbErr.message,
+        code    : dbErr.code,
+        detail  : dbErr.detail,
+        status  : dbErr.status,
+      });
 
       if (dbErr.status === 422) return fail(res, 422, dbErr.message);
       if (dbErr.code === "23505")
