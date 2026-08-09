@@ -209,24 +209,20 @@ import resetPasswordRouter  from "./routes/resetPassword.js";
 import sellerAuthRouter from "./routes/sellerAuth.routes.js";
 
 /* ── Seller ─────────────────────────────────────────────────
-   Three separate routers all mounted under /api/seller:
+   sellerProductRouter — GET / PUT / PATCH / DELETE
+                         /api/seller/products and /api/seller/products/:id
+                         routes/seller/product.js
+                         uses authenticateSeller (market.users JWT)
 
-   sellerAddProductRouter  — POST   /api/seller/products
-                             (routes/seller/addproduct.js)
-                             uses authenticateSeller (market.users JWT)
-                             stores correct market.users.id in products
+   POST /api/seller/products is handled by routes/market/addProduct.js
+   which is mounted under marketRouter (/api/products) and already
+   uses authenticateSeller — so req.user.id = market.users.id ✓
 
-   sellerProductRouter     — GET / PUT / PATCH / DELETE
-                             /api/seller/products and /api/seller/products/:id
-                             (routes/seller/product.js)
-                             uses authenticateSeller (market.users JWT)
-
-   sellerProfileRouter     — everything else under /api/seller
-                             mounted LAST so it never swallows /products/*
+   sellerProfileRouter — everything else under /api/seller
+                         mounted LAST so it never swallows /products/*
 ─────────────────────────────────────────────────────────── */
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
-import sellerAddProductRouter from "./routes/seller/addproduct.js";  // ← POST only
-import sellerProductRouter    from "./routes/seller/product.js";      // ← CRUD
+import sellerProductRouter    from "./routes/seller/product.js";
 import sellerProfileRouter    from "./routes/sellerprofile.js";
 import sellerPayoutRoutes     from "./routes/seller/payout.js";
 import sellerSettingsRouter   from "./routes/seller/settings.js";
@@ -234,18 +230,24 @@ import sellerSettingsRouter   from "./routes/seller/settings.js";
 /* ── Seller Dashboard ── */
 import sellerDashboardRouter from "./routes/dashboard.js";
 
-/* ── Public marketplace products (public.users) ─────────────
-   These are COMPLETELY SEPARATE from seller routes.
-   addproductRouter / editproductRouter use public.users auth.
-   Mounted at /api/addproduct — untouched.
+/* ── Marketplace products ────────────────────────────────────
+   marketRouter (routes/market/index.js) mounts ALL product routes:
+     routes/market/addProduct.js    — POST   /api/products   (authenticateSeller)
+     routes/market/editProduct.js   — PUT    /api/products/:id
+     routes/market/deleteProduct.js — DELETE /api/products/:id
+     routes/market/sellerActions.js — /api/products/mine, /pause etc.
+     routes/market/public.js        — GET    /api/products (public browse)
+     routes/market/interactions.js  — views, likes, reviews
+
+   Public addproduct (public.users) stays at /api/addproduct — untouched.
 ─────────────────────────────────────────────────────────── */
-import addproductRouter    from "./routes/addproduct.js";
-import editproductRouter   from "./routes/editproduct.js";
-import promotePlansRouter  from "./routes/promoteplans.js";
 import marketRouter        from "./routes/market/index.js";
 import marketDetailRouter  from "./routes/marketDetail/index.js";
 import productDetailRouter from "./routes/productDetail.js";
 import cartRouter          from "./routes/cart/index.js";
+import addproductRouter    from "./routes/addproduct.js";
+import editproductRouter   from "./routes/editproduct.js";
+import promotePlansRouter  from "./routes/promoteplans.js";
 
 /* ── Users ── */
 import userRouter        from "./routes/users.js";
@@ -389,7 +391,8 @@ app.use("/api/payment",  paymentRouter);
 app.use("/api/checkout", checkoutRouter);
 
 /* ── Marketplace auth (public.users) ───────────────────────
-   POST /api/auth/...
+   POST /api/auth/register
+   POST /api/auth/login
    POST /api/auth/forgot-password
    POST /api/auth/forgot-password/verify
    POST /api/auth/reset-password
@@ -417,37 +420,54 @@ app.use("/api/edit-profile", editProfileRouter);
 /* ── Seller ─────────────────────────────────────────────────
    MOUNT ORDER IS CRITICAL:
 
-   1. sellerAddProductRouter first
-      → registers POST /api/seller/products
-      → uses authenticateSeller (market.users JWT)
-      → req.user.id = market.users.id ✓
-      → stored in market.products.user_id ✓
+   1. sellerProductRouter FIRST
+      GET    /api/seller/products
+      GET    /api/seller/products/:id
+      PUT    /api/seller/products/:id
+      PATCH  /api/seller/products/:id/pause
+      PATCH  /api/seller/products/:id/images
+      DELETE /api/seller/products/:id/images/:imgId
+      DELETE /api/seller/products/:id
+      All use authenticateSeller (market.users JWT)
 
-   2. sellerProductRouter second
-      → registers GET/PUT/PATCH/DELETE /api/seller/products/*
-      → uses authenticateSeller (market.users JWT)
+   2. sellerProfileRouter LAST
+      Handles all other /api/seller/* routes.
+      Must come after sellerProductRouter to avoid
+      swallowing /products/* requests.
 
-   3. sellerProfileRouter LAST
-      → handles everything else under /api/seller
-      → must come after /products routes or it may swallow them
+   NOTE: POST /api/seller/products does NOT exist here.
+         It is handled by routes/market/addProduct.js
+         mounted at /api/products below. That file uses
+         authenticateSeller so req.user.id is market.users.id.
+         The frontend posts to /api/products with the seller
+         token — correct user_id is stored in market.products.
 ─────────────────────────────────────────────────────────── */
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
-app.use("/api/seller",            sellerAddProductRouter); // POST   /api/seller/products
-app.use("/api/seller",            sellerProductRouter);    // CRUD   /api/seller/products/*
-app.use("/api/seller",            sellerProfileRouter);    // other  /api/seller/*
+app.use("/api/seller",            sellerProductRouter);   // CRUD  /api/seller/products
+app.use("/api/seller",            sellerProfileRouter);   // other /api/seller/*
 app.use("/api/seller/payout",     sellerPayoutRoutes);
 app.use("/api/seller/settings",   sellerSettingsRouter);
 app.use("/api/seller-dashboard",  sellerDashboardRouter);
 
-/* ── Public marketplace products (public.users) ─────────────
-   Completely separate from seller routes above.
-   Uses public.users auth — untouched.
+/* ── Marketplace products ────────────────────────────────────
+   marketRouter handles ALL /api/products sub-routes:
+
+   POST   /api/products          ← addProduct.js   (authenticateSeller)
+   GET    /api/products          ← public.js        (public browse)
+   GET    /api/products/:id      ← public.js        (product detail)
+   PUT    /api/products/:id      ← editProduct.js   (authenticateSeller)
+   DELETE /api/products/:id      ← deleteProduct.js (authenticateSeller)
+   GET    /api/products/mine     ← sellerActions.js (authenticateSeller)
+   PATCH  /api/products/:id/pause← sellerActions.js (authenticateSeller)
+
+   Public addproduct (public.users) stays at /api/addproduct — completely
+   separate from seller flow, uses different auth middleware.
 ─────────────────────────────────────────────────────────── */
 app.use("/api/products",     marketRouter);
 app.use("/api/shop",         marketDetailRouter);
 app.use("/api/cart",         cartRouter);
-app.use("/api/addproduct",   addproductRouter);   // public user POST
-app.use("/api/addproduct",   editproductRouter);  // public user PUT/PATCH
+app.use("/api/addproduct",   addproductRouter);    // public.users create
+app.use("/api/addproduct",   editproductRouter);   // public.users edit
 app.use("/api/product",      productDetailRouter);
 app.use("/api/promoteplans", promotePlansRouter);
 
@@ -598,29 +618,13 @@ app.use((err, req, res, _next) => {
   };
 
   if (err.code === "LIMIT_FILE_SIZE")
-    return res.status(400).json({
-      success : false,
-      message : "File too large",
-      reqId,
-    });
+    return res.status(400).json({ success: false, message: "File too large",         reqId });
   if (err.code === "LIMIT_FILE_COUNT")
-    return res.status(400).json({
-      success : false,
-      message : "Too many files",
-      reqId,
-    });
+    return res.status(400).json({ success: false, message: "Too many files",         reqId });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
-    return res.status(400).json({
-      success : false,
-      message : "Unexpected file field",
-      reqId,
-    });
+    return res.status(400).json({ success: false, message: "Unexpected file field",  reqId });
   if (err.message?.startsWith("CORS"))
-    return res.status(403).json({
-      success : false,
-      message : err.message,
-      reqId,
-    });
+    return res.status(403).json({ success: false, message: err.message,              reqId });
 
   if (PG_ERRORS[err.code]) {
     const [status, message] = PG_ERRORS[err.code];
@@ -692,14 +696,10 @@ async function start() {
     console.log("✅ [airtime] schema ready");
   } catch (err) {
     if (IS_PROD) {
-      console.error(
-        "❌ [airtime] schema init failed — aborting:", err.message
-      );
+      console.error("❌ [airtime] schema init failed — aborting:", err.message);
       process.exit(1);
     } else {
-      console.error(
-        "⚠️  [airtime] schema init failed (non-fatal in dev):", err.message
-      );
+      console.error("⚠️  [airtime] schema init failed (non-fatal in dev):", err.message);
     }
   }
 
@@ -754,7 +754,8 @@ async function start() {
   ════════════════════════════════════════════════════
 
   ── Marketplace Auth  (public.users) ───────────────
-    POST   /api/auth/...
+    POST   /api/auth/register
+    POST   /api/auth/login
     POST   /api/auth/forgot-password
     POST   /api/auth/forgot-password/verify
     POST   /api/auth/reset-password
@@ -772,9 +773,9 @@ async function start() {
   ── Seller Onboarding ──────────────────────────────
     /api/seller-onboarding
 
-  ── Seller Products  (market.users) ────────────────
-    POST   /api/seller/products          ← sellerAddProductRouter
-    GET    /api/seller/products          ← sellerProductRouter
+  ── Seller Products  (market.users JWT) ────────────
+    POST   /api/products             ← market/addProduct.js (authenticateSeller)
+    GET    /api/seller/products      ← seller/product.js
     GET    /api/seller/products/:id
     PUT    /api/seller/products/:id
     PATCH  /api/seller/products/:id/pause
@@ -787,11 +788,16 @@ async function start() {
     /api/seller/payout
     /api/seller/settings
 
-  ── Public Marketplace Products  (public.users) ────
+  ── Public Marketplace  (public browse) ────────────
+    GET    /api/products
+    GET    /api/products/:id
+    GET    /api/products/mine       (seller, authenticateSeller)
+    PUT    /api/products/:id        (seller, authenticateSeller)
+    DELETE /api/products/:id        (seller, authenticateSeller)
+
+  ── Public Addproduct  (public.users) ──────────────
     POST   /api/addproduct
     PUT    /api/addproduct/:id
-    GET    /api/products
-    GET    /api/product/:id
 
   ── Settings ───────────────────────────────────────
     GET    /api/settings/profile
