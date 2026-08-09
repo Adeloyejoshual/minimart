@@ -1,13 +1,6 @@
 /**
  * routes/market/helpers.js
  * Shared helpers for all market routes.
- *
- * Business rules:
- *  - Stock = sum of variant quantities (auto-computed on write)
- *  - sold_count = auto-incremented on order completion
- *  - is_featured / is_trending = admin-controlled
- *  - has_delivery = delivery-agent controlled
- *  - seller_verified / location = from users JOIN
  */
 
 import { pool }                          from "../../config/db.js";
@@ -34,31 +27,14 @@ export const MAX_IMAGES    = 8;
 export const DEFAULT_LIMIT = 24;
 export const MAX_LIMIT     = 100;
 
-/* ══════════════════════════════════════════════════════════════
-   SORT MAP
-   - Kept legacy sorts (views, saves) for back-compat
-   - Added bestselling + trending using sold_count
-══════════════════════════════════════════════════════════════ */
 export const SORT_MAP = {
-  newest      : "p.created_at DESC",
-  oldest      : "p.created_at ASC",
-  price_asc   : "p.price ASC, p.created_at DESC",
-  price_desc  : "p.price DESC, p.created_at DESC",
-
-  /* NEW — real social proof */
-  bestselling : "p.sold_count DESC, p.created_at DESC",
-
-  /* NEW — sales velocity (sold per day since posted) */
-  trending    : `
-    (p.sold_count::float / GREATEST(
-      EXTRACT(EPOCH FROM (now() - p.created_at)) / 86400, 1
-    )) DESC,
-    p.created_at DESC
-  `,
-
-  /* Legacy — kept for back-compat, but prefer bestselling */
-  views       : "p.view_count DESC, p.created_at DESC",
-  saves       : "p.save_count DESC, p.created_at DESC",
+  newest    : "p.created_at DESC",
+  oldest    : "p.created_at ASC",
+  price_asc : "p.price ASC",
+  price_desc: "p.price DESC",
+  views     : "p.view_count DESC, p.created_at DESC",
+  saves     : "p.save_count DESC, p.created_at DESC",
+  trending  : "p.view_count DESC, p.save_count DESC, p.created_at DESC",
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -67,22 +43,18 @@ export const SORT_MAP = {
    - NO GROUP BY
    - correlated subqueries for child collections
    - uses "name" column on market.users (not "full_name")
-   - uses "verified" column on market.users
-   - includes seller_verified, location from JOIN
+   - uses "status" column on market.users (not "is_active")
 ══════════════════════════════════════════════════════════════ */
 export const FULL_PRODUCT_SELECT = `
   SELECT
     p.*,
 
-    /* ─── Seller info (from users JOIN) ─── */
     u.name          AS seller_name,
     u.email         AS seller_email,
     u.profile_image AS seller_avatar,
     u.phone_number  AS seller_phone,
     u.verified      AS seller_verified,
-    u.location      AS seller_location,
 
-    /* ─── Images ─── */
     COALESCE((
       SELECT json_agg(img.obj)
       FROM (
@@ -99,7 +71,6 @@ export const FULL_PRODUCT_SELECT = `
       ) img
     ), '[]'::json) AS images,
 
-    /* ─── Variants (with quantity for stock computation) ─── */
     COALESCE((
       SELECT json_agg(v.obj)
       FROM (
@@ -117,7 +88,6 @@ export const FULL_PRODUCT_SELECT = `
       ) v
     ), '[]'::json) AS variants,
 
-    /* ─── Key features ─── */
     COALESCE((
       SELECT json_agg(f.obj)
       FROM (
@@ -131,7 +101,6 @@ export const FULL_PRODUCT_SELECT = `
       ) f
     ), '[]'::json) AS key_features,
 
-    /* ─── Specifications ─── */
     COALESCE((
       SELECT json_agg(s.obj)
       FROM (
@@ -146,7 +115,6 @@ export const FULL_PRODUCT_SELECT = `
       ) s
     ), '[]'::json) AS specifications,
 
-    /* ─── What's in box ─── */
     COALESCE((
       SELECT json_agg(b.obj)
       FROM (
@@ -233,94 +201,11 @@ export const fail = (res, status, message) =>
   res.status(status).json({ success: false, message });
 
 /* ══════════════════════════════════════════════════════════════
-   VARIANT STOCK SUMMER
-   ─────────────────────────────────────────────────────────────
-   Computes total stock from an array of variants.
-   Used by addproduct + editproduct to keep products.stock
-   in sync with sum of variant quantities.
-══════════════════════════════════════════════════════════════ */
-export function sumVariantStock(variants) {
-  if (!Array.isArray(variants)) return 0;
-
-  return variants.reduce((total, v) => {
-    const qty = parseInt(v?.stock ?? v?.quantity ?? 0, 10);
-    return total + (isNaN(qty) || qty < 0 ? 0 : qty);
-  }, 0);
-}
-
-/* ══════════════════════════════════════════════════════════════
-   VALIDATE VARIANTS
-   ─────────────────────────────────────────────────────────────
-   Returns { error } if invalid, { totalStock } if valid.
-══════════════════════════════════════════════════════════════ */
-export function validateVariants(variants) {
-  if (!Array.isArray(variants) || variants.length === 0) {
-    return { error: "At least one variant with quantity is required" };
-  }
-
-  const skuSet = new Set();
-  let totalStock = 0;
-
-  for (const [idx, v] of variants.entries()) {
-    /* Name required */
-    const name = safeStr(v?.name);
-    if (!name) {
-      return { error: `Variant #${idx + 1}: name is required` };
-    }
-
-    /* Quantity check */
-    const qty = parseInt(v?.stock ?? v?.quantity ?? 0, 10);
-    if (isNaN(qty) || qty < 0) {
-      return {
-        error: `Variant "${name}": quantity must be a valid number (0 or more)`
-      };
-    }
-    totalStock += qty;
-
-    /* SKU duplicate check */
-    const sku = safeStr(String(v?.sku ?? ""))?.toUpperCase();
-    if (sku) {
-      if (skuSet.has(sku)) {
-        return {
-          error: `Duplicate SKU "${sku}". Each variant must have a unique SKU.`
-        };
-      }
-      skuSet.add(sku);
-    }
-  }
-
-  if (totalStock === 0) {
-    return {
-      error: "Total stock cannot be zero. At least one variant must have quantity > 0."
-    };
-  }
-
-  return { totalStock };
-}
-
-/* ══════════════════════════════════════════════════════════════
-   SYNC PRODUCT STOCK FROM VARIANTS
-   ─────────────────────────────────────────────────────────────
-   Recomputes products.stock from actual variant rows in DB.
-   Call after any variant insert/update/delete.
-══════════════════════════════════════════════════════════════ */
-export async function syncProductStock(client, productId) {
-  await client.query(
-    `UPDATE market.products
-     SET stock = COALESCE(
-       (SELECT SUM(stock) FROM market.product_variants WHERE product_id = $1),
-       0
-     )
-     WHERE id = $1`,
-    [productId]
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════
    CHILD TABLE HELPERS
    ─────────────────────────────────────────────────────────────
    insertList / replaceList try with "position" column first.
    If the column does not exist (42703) they retry without it.
+   This makes them resilient to schema variations across envs.
 ══════════════════════════════════════════════════════════════ */
 export async function insertList(client, table, column, productId, items) {
   if (!Array.isArray(items)) return;
@@ -330,6 +215,7 @@ export async function insertList(client, table, column, productId, items) {
     if (!val) continue;
 
     try {
+      /* Try with position column first */
       await client.query(
         `INSERT INTO market.${table} (product_id, ${column}, position)
          VALUES ($1, $2, $3)`,
@@ -337,6 +223,7 @@ export async function insertList(client, table, column, productId, items) {
       );
     } catch (err) {
       if (err.code === "42703") {
+        /* position column does not exist — insert without it */
         await client.query(
           `INSERT INTO market.${table} (product_id, ${column})
            VALUES ($1, $2)`,
@@ -359,6 +246,10 @@ export async function replaceList(client, table, column, productId, items) {
 
 /* ══════════════════════════════════════════════════════════════
    REPLACE SPECS
+   ─────────────────────────────────────────────────────────────
+   Tries spec_key / spec_value columns first (your current schema).
+   Falls back to label / value if those don't exist.
+   Also tries with / without position column.
 ══════════════════════════════════════════════════════════════ */
 export async function replaceSpecs(client, productId, specs) {
   await client.query(
@@ -369,6 +260,7 @@ export async function replaceSpecs(client, productId, specs) {
   if (!Array.isArray(specs) || !specs.length) return;
 
   for (let i = 0; i < specs.length; i++) {
+    /* Support both { key, value } and { label, value } shapes */
     const k = safeStr(specs[i]?.key   ?? specs[i]?.label);
     const v = safeStr(specs[i]?.value);
     if (!k || !v) continue;
@@ -384,6 +276,7 @@ export async function replaceSpecs(client, productId, specs) {
       continue;
     } catch (err) {
       if (err.code !== "42703") throw err;
+      /* column name mismatch — try alternatives below */
     }
 
     /* Try spec_key / spec_value without position */
@@ -424,9 +317,6 @@ export async function replaceSpecs(client, productId, specs) {
 
 /* ══════════════════════════════════════════════════════════════
    REPLACE VARIANTS
-   ─────────────────────────────────────────────────────────────
-   - SKU is now OPTIONAL (only name + stock required)
-   - Auto-syncs products.stock after replace
 ══════════════════════════════════════════════════════════════ */
 export async function replaceVariants(client, productId, rawVariants) {
   await client.query(
@@ -438,11 +328,7 @@ export async function replaceVariants(client, productId, rawVariants) {
     ? rawVariants
     : parseJSON(rawVariants, []);
 
-  if (!variants.length) {
-    /* Sync stock to 0 if no variants */
-    await syncProductStock(client, productId);
-    return;
-  }
+  if (!variants.length) return;
 
   const seen = new Set();
 
@@ -450,22 +336,17 @@ export async function replaceVariants(client, productId, rawVariants) {
     const sku  = safeStr(String(v?.sku ?? ""))?.toUpperCase();
     const name = safeStr(v?.name);
 
-    /* Name is required, SKU is optional */
-    if (!name) continue;
+    if (!sku || !name) continue;
 
-    /* Only check duplicate if SKU is provided */
-    if (sku) {
-      if (seen.has(sku)) {
-        const err = new Error(
-          `Duplicate variant SKU within this product: "${sku}". Each variant must have a unique SKU.`
-        );
-        err.status = 422;
-        throw err;
-      }
-      seen.add(sku);
+    if (seen.has(sku)) {
+      const err = new Error(
+        `Duplicate variant SKU within this product: "${sku}". Each variant must have a unique SKU.`
+      );
+      err.status = 422;
+      throw err;
     }
 
-    const stock = Math.max(0, parseInt(v?.stock ?? v?.quantity, 10) || 0);
+    seen.add(sku);
 
     await client.query(
       `INSERT INTO market.product_variants
@@ -475,43 +356,11 @@ export async function replaceVariants(client, productId, rawVariants) {
         productId,
         sku,
         name,
-        Math.max(0, parseFloat(v.price) || 0),
-        stock,
-        JSON.stringify(v.attributes || {}),
+        Math.max(0, parseFloat(v.price)   || 0),
+        Math.max(0, parseInt(v.stock, 10) || 0),
+        JSON.stringify(v.attributes       || {}),
       ]
     );
-  }
-
-  /* Sync total stock from variants */
-  await syncProductStock(client, productId);
-}
-
-/* ══════════════════════════════════════════════════════════════
-   INCREMENT SOLD COUNT
-   ─────────────────────────────────────────────────────────────
-   Call from order-completion webhook to update social proof.
-   Also decrements stock on both product + specific variant.
-══════════════════════════════════════════════════════════════ */
-export async function incrementSoldCount(client, productId, variantId, quantity = 1) {
-  /* Increment product-level sold_count */
-  await client.query(
-    `UPDATE market.products
-     SET sold_count = COALESCE(sold_count, 0) + $2
-     WHERE id = $1`,
-    [productId, quantity]
-  );
-
-  /* Decrement variant stock if variant specified */
-  if (variantId) {
-    await client.query(
-      `UPDATE market.product_variants
-       SET stock = GREATEST(stock - $2, 0)
-       WHERE id = $1`,
-      [variantId, quantity]
-    );
-
-    /* Re-sync product-level stock from all variants */
-    await syncProductStock(client, productId);
   }
 }
 
