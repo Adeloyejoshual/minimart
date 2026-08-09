@@ -1,6 +1,6 @@
 /**
+ * routes/market/helpers.js
  * Shared helpers for all market routes.
- * SQL queries, utilities, response formatting.
  */
 
 import { pool }                          from "../../config/db.js";
@@ -42,6 +42,8 @@ export const SORT_MAP = {
    Cockroach-safe:
    - NO GROUP BY
    - correlated subqueries for child collections
+   - uses "name" column on market.users (not "full_name")
+   - uses "status" column on market.users (not "is_active")
 ══════════════════════════════════════════════════════════════ */
 export const FULL_PRODUCT_SELECT = `
   SELECT
@@ -131,7 +133,6 @@ export const FULL_PRODUCT_SELECT = `
     ON u.id = p.user_id
 `;
 
-/* GROUP_BY kept as empty string for compatibility */
 export const GROUP_BY = "";
 
 /* ── Public visibility conditions ── */
@@ -143,7 +144,6 @@ export const PUBLIC_CONDITIONS = [
   "p.deleted_at IS NULL",
 ];
 
-/* ── Is public product ── */
 export function isPublicProduct(product) {
   return (
     (product.status === "approved" || product.status === "active") &&
@@ -170,7 +170,6 @@ export function paginationMeta(total, limit, offset) {
   return { total, page, limit, offset, totalPages, hasNext: page < totalPages };
 }
 
-/* ── Sort whitelist ── */
 export function safeSort(sort) {
   return SORT_MAP[sort] || SORT_MAP.newest;
 }
@@ -203,19 +202,37 @@ export const fail = (res, status, message) =>
 
 /* ══════════════════════════════════════════════════════════════
    CHILD TABLE HELPERS
+   ─────────────────────────────────────────────────────────────
+   insertList / replaceList try with "position" column first.
+   If the column does not exist (42703) they retry without it.
+   This makes them resilient to schema variations across envs.
 ══════════════════════════════════════════════════════════════ */
-
 export async function insertList(client, table, column, productId, items) {
   if (!Array.isArray(items)) return;
 
   for (let i = 0; i < items.length; i++) {
     const val = safeStr(String(items[i] ?? ""));
     if (!val) continue;
-    await client.query(
-      `INSERT INTO market.${table} (product_id, ${column}, position)
-       VALUES ($1, $2, $3)`,
-      [productId, val, i]
-    );
+
+    try {
+      /* Try with position column first */
+      await client.query(
+        `INSERT INTO market.${table} (product_id, ${column}, position)
+         VALUES ($1, $2, $3)`,
+        [productId, val, i]
+      );
+    } catch (err) {
+      if (err.code === "42703") {
+        /* position column does not exist — insert without it */
+        await client.query(
+          `INSERT INTO market.${table} (product_id, ${column})
+           VALUES ($1, $2)`,
+          [productId, val]
+        );
+      } else {
+        throw err;
+      }
+    }
   }
 }
 
@@ -227,36 +244,79 @@ export async function replaceList(client, table, column, productId, items) {
   await insertList(client, table, column, productId, items);
 }
 
+/* ══════════════════════════════════════════════════════════════
+   REPLACE SPECS
+   ─────────────────────────────────────────────────────────────
+   Tries spec_key / spec_value columns first (your current schema).
+   Falls back to label / value if those don't exist.
+   Also tries with / without position column.
+══════════════════════════════════════════════════════════════ */
 export async function replaceSpecs(client, productId, specs) {
   await client.query(
     "DELETE FROM market.product_specifications WHERE product_id = $1",
     [productId]
   );
 
-  if (!Array.isArray(specs)) return;
+  if (!Array.isArray(specs) || !specs.length) return;
 
   for (let i = 0; i < specs.length; i++) {
-    const k = safeStr(specs[i]?.key);
+    /* Support both { key, value } and { label, value } shapes */
+    const k = safeStr(specs[i]?.key   ?? specs[i]?.label);
     const v = safeStr(specs[i]?.value);
     if (!k || !v) continue;
+
+    /* Try spec_key / spec_value with position */
+    try {
+      await client.query(
+        `INSERT INTO market.product_specifications
+           (product_id, spec_key, spec_value, position)
+         VALUES ($1, $2, $3, $4)`,
+        [productId, k, v, i]
+      );
+      continue;
+    } catch (err) {
+      if (err.code !== "42703") throw err;
+      /* column name mismatch — try alternatives below */
+    }
+
+    /* Try spec_key / spec_value without position */
+    try {
+      await client.query(
+        `INSERT INTO market.product_specifications
+           (product_id, spec_key, spec_value)
+         VALUES ($1, $2, $3)`,
+        [productId, k, v]
+      );
+      continue;
+    } catch (err) {
+      if (err.code !== "42703") throw err;
+    }
+
+    /* Try label / value with position */
+    try {
+      await client.query(
+        `INSERT INTO market.product_specifications
+           (product_id, label, value, position)
+         VALUES ($1, $2, $3, $4)`,
+        [productId, k, v, i]
+      );
+      continue;
+    } catch (err) {
+      if (err.code !== "42703") throw err;
+    }
+
+    /* Try label / value without position */
     await client.query(
       `INSERT INTO market.product_specifications
-         (product_id, spec_key, spec_value, position)
-       VALUES ($1, $2, $3, $4)`,
-      [productId, k, v, i]
+         (product_id, label, value)
+       VALUES ($1, $2, $3)`,
+      [productId, k, v]
     );
   }
 }
 
 /* ══════════════════════════════════════════════════════════════
    REPLACE VARIANTS
-   
-   Changes vs old version:
-   - Accepts already-parsed array OR raw JSON string
-   - Deduplicates SKUs within the same product before inserting
-   - Throws a typed 422 error on duplicate SKU so the route
-     catch block can return a precise user-facing message
-   - Never throws a 23505 for SKUs — caught here first
 ══════════════════════════════════════════════════════════════ */
 export async function replaceVariants(client, productId, rawVariants) {
   await client.query(
@@ -264,24 +324,20 @@ export async function replaceVariants(client, productId, rawVariants) {
     [productId]
   );
 
-  /* Accept pre-parsed array or raw JSON string */
   const variants = Array.isArray(rawVariants)
     ? rawVariants
     : parseJSON(rawVariants, []);
 
   if (!variants.length) return;
 
-  /* Deduplicate SKUs within this product before touching the DB */
   const seen = new Set();
 
   for (const v of variants) {
     const sku  = safeStr(String(v?.sku ?? ""))?.toUpperCase();
     const name = safeStr(v?.name);
 
-    /* Skip incomplete variants silently */
     if (!sku || !name) continue;
 
-    /* Throw a typed error so the route catch block can give a clear message */
     if (seen.has(sku)) {
       const err = new Error(
         `Duplicate variant SKU within this product: "${sku}". Each variant must have a unique SKU.`
@@ -311,11 +367,6 @@ export async function replaceVariants(client, productId, rawVariants) {
 /* ══════════════════════════════════════════════════════════════
    R2 IMAGE HELPERS
 ══════════════════════════════════════════════════════════════ */
-
-/**
- * Delete a single file from R2 by storage key.
- * Silent on failure — always logs but never throws.
- */
 export async function deleteFromR2(key) {
   if (!key) return;
   try {
@@ -327,11 +378,6 @@ export async function deleteFromR2(key) {
   }
 }
 
-/**
- * Delete ALL R2 images linked to a product.
- * Reads storage_key from market.product_images.
- * Safe to call inside or outside a transaction.
- */
 export async function deleteProductImagesFromR2(client, productId) {
   const { rows } = await client.query(
     "SELECT storage_key FROM market.product_images WHERE product_id = $1",
@@ -349,12 +395,6 @@ export async function deleteProductImagesFromR2(client, productId) {
 /* ══════════════════════════════════════════════════════════════
    OWNERSHIP GUARD
 ══════════════════════════════════════════════════════════════ */
-
-/**
- * Checks that productId exists and belongs to userId.
- * Returns { row } on success or { error, message } on failure.
- * Never throws — always returns a result object.
- */
 export async function assertOwner(client, productId, userId) {
   const { rows } = await client.query(
     `SELECT user_id, status
