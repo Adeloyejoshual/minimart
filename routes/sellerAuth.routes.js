@@ -4,10 +4,20 @@
  * Seller authentication — operates on market.users ONLY.
  * Never reads or writes public.users or password_reset_otps.
  *
+ * market.users confirmed columns:
+ *   id, name, email, password_hash, phone_number,
+ *   country, city, profile_image, verified, status,
+ *   created_at, updated_at, is_verified,
+ *   verify_code, verify_expires, reset_code, reset_expires
+ *
+ * NOTE: column is "name"   NOT "full_name"
+ *       column is "status" NOT "is_active"
+ *       status values: 'active' | 'suspended' | 'banned'
+ *
  * Routes:
- *   GET  /health                → email + schema config check
- *   GET  /debug/:email          → DB state for one account   (dev)
- *   POST /debug/test-login      → live bcrypt breakdown      (dev)
+ *   GET  /health
+ *   GET  /debug/:email          (dev only)
+ *   POST /debug/test-login      (dev only)
  *   POST /register
  *   POST /verify-email
  *   POST /resend-verification
@@ -17,22 +27,18 @@
  *   POST /reset-password
  *   GET  /me
  *
- * KEY FIX: ensureOtpColumns() runs once at startup and creates
- * verify_code / verify_expires / reset_code / reset_expires if
- * they are missing.
- *
- * TOKEN KEY: the JWT is signed with { id, email } from market.users.
- * The frontend MUST store this token under "sellerToken" in
- * localStorage — NOT under "token" (which is the public.users JWT).
- * PostAds.jsx reads "sellerToken" and sends it to POST /api/products
- * which uses authenticateSeller, so req.user.id = market.users.id ✓
+ * TOKEN KEY:
+ *   JWT signed with { id, email } from market.users.
+ *   Frontend MUST store as localStorage.setItem("sellerToken", data.token)
+ *   PostAds.jsx reads "sellerToken" → sends to POST /api/products
+ *   → authenticateSeller → req.user.id = market.users.id ✓
  * ─────────────────────────────────────────────────────────────
  */
 
 import express  from "express";
 import bcrypt   from "bcrypt";
 import jwt      from "jsonwebtoken";
-import { pool } from "../server.js";
+import { pool } from "../config/db.js";
 import { generateOTP, hashCode } from "../utils/token.js";
 import {
   sendVerificationCode,
@@ -56,17 +62,12 @@ const IS_DEV            = process.env.NODE_ENV !== "production";
 
 /*
  * SELLER TOKEN STORAGE KEY
- * ─────────────────────────────────────────────────────────────
- * The frontend must store the seller JWT under this exact key.
- * PostAds.jsx getSellerToken() checks "sellerToken" first.
+ * Frontend must store the JWT under this exact key:
+ *   localStorage.setItem("sellerToken", data.token)
  *
- * In your seller login success handler on the frontend:
- *   localStorage.setItem("sellerToken", data.token)  ← correct
- *   localStorage.setItem("token", data.token)         ← WRONG
- *
- * Using "token" would overwrite the marketplace JWT and cause
- * public.users.id to be stored in market.products.user_id.
- * ─────────────────────────────────────────────────────────────
+ * Using "token" instead would overwrite the marketplace JWT
+ * and cause public.users.id to be stored in market.products.user_id
+ * — the seller's inventory would show 0 products.
  */
 const SELLER_TOKEN_KEY = "sellerToken";
 
@@ -74,7 +75,7 @@ const L = (scope) => `[seller-auth][${scope}]`;
 
 /* ════════════════════════════════════════════════════════════
    SCHEMA SELF-HEAL
-   Runs once on import. Adds OTP columns if missing.
+   Runs once on import. Creates OTP columns if missing.
 ════════════════════════════════════════════════════════════ */
 const REQUIRED_OTP_COLUMNS = [
   "verify_code",
@@ -105,8 +106,6 @@ async function ensureOtpColumns() {
 
     if (missing.length) {
       console.warn(`${L("schema")} ⚠️  MISSING columns:`, missing);
-      console.warn(`${L("schema")} Creating them now…`);
-
       await pool.query(`
         ALTER TABLE market.users
           ADD COLUMN IF NOT EXISTS verify_code    TEXT,
@@ -114,7 +113,6 @@ async function ensureOtpColumns() {
           ADD COLUMN IF NOT EXISTS reset_code     TEXT,
           ADD COLUMN IF NOT EXISTS reset_expires  TIMESTAMPTZ
       `);
-
       console.log(`${L("schema")} ✅ Columns created:`, missing);
     }
 
@@ -249,9 +247,7 @@ const authLimiter = (req, res, next) => {
     const retryAfter = Math.ceil(
       (RATE_WINDOW_MS - (now - rec.time)) / 1000
     );
-    console.warn(
-      `${L("rate-limit")} 429 for ip=${ip} count=${rec.count}`
-    );
+    console.warn(`${L("rate-limit")} 429 ip=${ip} count=${rec.count}`);
     return res.status(429).json({
       success    : false,
       message    : "Too many attempts. Please wait 15 minutes and try again.",
@@ -267,7 +263,6 @@ const clearRateLimit = (req) =>
 
 /* ════════════════════════════════════════════════════════════
    GET /health
-   Public config + schema check. Safe in production.
 ════════════════════════════════════════════════════════════ */
 router.get("/health", async (_req, res) => {
   const report = {
@@ -291,10 +286,6 @@ router.get("/health", async (_req, res) => {
       jwt_expires_in     : JWT_EXPIRES_IN,
       bcrypt_rounds      : BCRYPT_ROUNDS,
       node_env           : process.env.NODE_ENV ?? "(not set)",
-      /*
-       * Token storage key reminder — this is what the frontend
-       * must use to store the seller JWT in localStorage.
-       */
       frontend_token_key : SELLER_TOKEN_KEY,
     },
 
@@ -331,7 +322,6 @@ router.get("/health", async (_req, res) => {
 
 /* ════════════════════════════════════════════════════════════
    GET /debug/:email                               (dev only)
-   Full DB state for one account. Never returns the hash.
 ════════════════════════════════════════════════════════════ */
 router.get("/debug/:email", async (req, res) => {
   if (!IS_DEV) return res.status(404).json({ message: "Not found" });
@@ -341,7 +331,11 @@ router.get("/debug/:email", async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-         id, name, email, status, is_verified,
+         id,
+         name,
+         email,
+         status,
+         is_verified,
          LEFT(password_hash, 7)     AS hash_prefix,
          LENGTH(password_hash)      AS hash_length,
          verify_code   IS NOT NULL  AS has_verify_code,
@@ -391,15 +385,9 @@ router.get("/debug/:email", async (req, res) => {
         reset_code_still_valid : u.reset_code_still_valid,
       },
 
-      timestamps : { created_at: u.created_at },
-      schema     : schemaReport,
-
-      /*
-       * Token key reminder for debugging the PostAds auth flow.
-       * If the seller can log in but sees 401 on POST /api/products,
-       * check that the frontend saves the token under this key.
-       */
-      frontend_token_key: SELLER_TOKEN_KEY,
+      timestamps         : { created_at: u.created_at },
+      schema             : schemaReport,
+      frontend_token_key : SELLER_TOKEN_KEY,
     });
 
   } catch (err) {
@@ -415,7 +403,6 @@ router.get("/debug/:email", async (req, res) => {
 
 /* ════════════════════════════════════════════════════════════
    POST /debug/test-login                          (dev only)
-   Runs the exact login checks with a per-step breakdown.
 ════════════════════════════════════════════════════════════ */
 router.post("/debug/test-login", async (req, res) => {
   if (!IS_DEV) return res.status(404).json({ message: "Not found" });
@@ -441,6 +428,7 @@ router.post("/debug/test-login", async (req, res) => {
   };
 
   try {
+    /* Only query columns that exist in market.users */
     const { rows } = await pool.query(
       `SELECT id, name, email, password_hash, status, is_verified
        FROM market.users WHERE email = $1`,
@@ -457,6 +445,7 @@ router.post("/debug/test-login", async (req, res) => {
     out.step_2_db_lookup = {
       found       : true,
       id          : u.id,
+      name        : u.name,
       email_in_db : u.email,
       status      : u.status,
       is_verified : u.is_verified,
@@ -536,6 +525,7 @@ router.post("/register", authLimiter, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    /* Check existing */
     const { rows: existing } = await client.query(
       `SELECT id, is_verified FROM market.users WHERE email = $1`,
       [email_]
@@ -546,10 +536,10 @@ router.post("/register", authLimiter, async (req, res) => {
       await client.query("ROLLBACK");
 
       console.log(
-        `${L("register")} existing account id=${user.id} ` +
-        `verified=${user.is_verified}`
+        `${L("register")} existing id=${user.id} verified=${user.is_verified}`
       );
 
+      /* Resend OTP for unverified account */
       if (!user.is_verified) {
         const otp        = generateOTP();
         const hashedCode = hashCode(otp);
@@ -558,15 +548,10 @@ router.post("/register", authLimiter, async (req, res) => {
         const write = await persistOtp({
           userId: user.id, column: "verify", hashedCode, expires,
         });
-        console.log(`${L("register")} OTP write (resend):`, write);
+        console.log(`${L("register")} OTP resend write:`, write);
 
-        if (!write.ok) {
-          console.error(`${L("register")} ❌ OTP failed to persist`);
-          return fail(
-            res, 500,
-            "Could not generate verification code. Try again."
-          );
-        }
+        if (!write.ok)
+          return fail(res, 500, "Could not generate verification code. Try again.");
 
         const mail = await trySendMail("register/resend", sendVerificationCode, {
           to: email_, name: name.trim(), code: otp,
@@ -589,16 +574,21 @@ router.post("/register", authLimiter, async (req, res) => {
       });
     }
 
+    /* Create account */
     const password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const otp           = generateOTP();
     const hashedCode    = hashCode(otp);
     const expires       = new Date(Date.now() + OTP_TTL_MS);
 
+    /*
+     * INSERT uses "name" column (not "full_name")
+     * phone_number column exists in schema
+     */
     const { rows: [user] } = await client.query(
       `INSERT INTO market.users
          (name, email, password_hash, phone_number, status,
           is_verified, verify_code, verify_expires)
-       VALUES ($1,$2,$3,$4,'active',FALSE,$5,$6)
+       VALUES ($1, $2, $3, $4, 'active', FALSE, $5, $6)
        RETURNING id, name, email, created_at,
                  verify_code IS NOT NULL AS has_verify_code,
                  verify_expires`,
@@ -652,9 +642,7 @@ router.post("/register", authLimiter, async (req, res) => {
       return fail(res, 409, "A seller account with this email already exists.");
 
     if (err.code === "42703") {
-      console.error(
-        `${L("register")} ❌ undefined column — re-running schema heal`
-      );
+      console.error(`${L("register")} ❌ undefined column — re-running schema heal`);
       ensureOtpColumns();
       return fail(
         res, 500,
@@ -700,9 +688,7 @@ router.post("/verify-email", async (req, res) => {
     }
 
     if (!user.verify_code || !user.verify_expires) {
-      console.warn(
-        `${L("verify-email")} no stored code for ${maskEmail(email_)}`
-      );
+      console.warn(`${L("verify-email")} no stored code for ${maskEmail(email_)}`);
       return fail(
         res, 400,
         "No verification code found. Please tap Resend to get a new code.",
@@ -760,6 +746,7 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
   }
 
   try {
+    /* Only columns that exist: name, is_verified */
     const { rows } = await pool.query(
       `SELECT id, name, is_verified FROM market.users WHERE email = $1`,
       [email_]
@@ -786,9 +773,7 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
     console.log(`${L("resend")} OTP write:`, write);
 
     if (!write.ok) {
-      console.error(
-        `${L("resend")} ❌ OTP failed to persist for ${user.id}`
-      );
+      console.error(`${L("resend")} ❌ OTP failed to persist for ${user.id}`);
       return fail(res, 500, "Could not generate a new code. Please try again.");
     }
 
@@ -811,16 +796,14 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
 /* ════════════════════════════════════════════════════════════
    POST /login
    ─────────────────────────────────────────────────────────
-   Check order: suspended → unverified → password → token.
+   Check order: suspended/banned → unverified → password → token
 
-   IMPORTANT — token storage:
-   The JWT returned here MUST be saved as:
-     localStorage.setItem("sellerToken", data.token)
-
-   If saved as "token" instead, PostAds.jsx will send the wrong
-   JWT to POST /api/products, causing public.users.id to be
-   stored in market.products.user_id and the seller's inventory
-   to show 0 products.
+   CRITICAL — token storage:
+   Response includes tokenKey = "sellerToken".
+   Frontend MUST do:
+     localStorage.setItem(data.tokenKey, data.token)
+   NOT:
+     localStorage.setItem("token", data.token)  ← breaks inventory
 ════════════════════════════════════════════════════════════ */
 router.post("/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
@@ -830,6 +813,11 @@ router.post("/login", authLimiter, async (req, res) => {
     return fail(res, 400, "Email and password are required");
 
   try {
+    /*
+     * Only query columns confirmed in schema:
+     *   name, email, password_hash, status, is_verified
+     * NOT full_name, NOT is_active
+     */
     const { rows } = await pool.query(
       `SELECT id, name, email, password_hash, status, is_verified
        FROM market.users WHERE email = $1`,
@@ -846,11 +834,9 @@ router.post("/login", authLimiter, async (req, res) => {
 
     const user = rows[0];
 
-    /* 1. Suspended */
+    /* 1. Suspended / banned */
     if (user.status !== "active") {
-      console.log(
-        `${L("login")} blocked — status=${user.status} id=${user.id}`
-      );
+      console.log(`${L("login")} blocked status=${user.status} id=${user.id}`);
       return fail(res, 403, "Your seller account has been suspended.", {
         code: "ACCOUNT_SUSPENDED",
       });
@@ -858,7 +844,7 @@ router.post("/login", authLimiter, async (req, res) => {
 
     /* 2. Not verified — checked BEFORE bcrypt */
     if (!user.is_verified) {
-      console.log(`${L("login")} blocked — unverified id=${user.id}`);
+      console.log(`${L("login")} blocked unverified id=${user.id}`);
       return fail(res, 403, "Please verify your email before signing in.", {
         code  : "EMAIL_NOT_VERIFIED",
         email : user.email,
@@ -881,21 +867,16 @@ router.post("/login", authLimiter, async (req, res) => {
 
     console.log(`${L("login")} ✅ ${user.id}`);
 
-    /*
-     * The response includes tokenKey so the frontend knows
-     * exactly which localStorage key to use.
-     *
-     * Frontend handler should do:
-     *   localStorage.setItem(data.tokenKey, data.token)
-     *   // or explicitly:
-     *   localStorage.setItem("sellerToken", data.token)
-     */
     return res.json({
       success  : true,
       message  : "Login successful",
       token,
-      tokenKey : SELLER_TOKEN_KEY,    // "sellerToken"
-      user     : { id: user.id, name: user.name, email: user.email },
+      tokenKey : SELLER_TOKEN_KEY,   // "sellerToken" — frontend must use this
+      user     : {
+        id    : user.id,
+        name  : user.name,           // "name" column not "full_name"
+        email : user.email,
+      },
     });
 
   } catch (err) {
@@ -921,16 +902,14 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
   }
 
   try {
+    /* Only columns that exist: name, status */
     const { rows } = await pool.query(
       `SELECT id, name, status FROM market.users WHERE email = $1`,
       [email_]
     );
 
     if (rows.length && rows[0].status !== "active")
-      return fail(
-        res, 403,
-        "Your account has been suspended. Contact support."
-      );
+      return fail(res, 403, "Your account has been suspended. Contact support.");
 
     let debug = null;
 
@@ -946,13 +925,8 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       console.log(`${L("forgot-password")} OTP write:`, write);
 
       if (!write.ok) {
-        console.error(
-          `${L("forgot-password")} ❌ reset code failed to persist`
-        );
-        return fail(
-          res, 500,
-          "Could not generate reset code. Please try again."
-        );
+        console.error(`${L("forgot-password")} ❌ reset code failed to persist`);
+        return fail(res, 500, "Could not generate reset code. Please try again.");
       }
 
       const mail = await trySendMail(
@@ -963,9 +937,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       debug = { otp_persisted: write.ok, mail };
 
     } else {
-      console.log(
-        `${L("forgot-password")} no account ${maskEmail(email_)}`
-      );
+      console.log(`${L("forgot-password")} no account ${maskEmail(email_)}`);
     }
 
     return res.json({
@@ -982,7 +954,6 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 
 /* ════════════════════════════════════════════════════════════
    POST /verify-reset-code   (step 1 of 2)
-   Validates OTP without changing the password.
 ════════════════════════════════════════════════════════════ */
 router.post("/verify-reset-code", authLimiter, async (req, res) => {
   const { email, code } = req.body;
@@ -1026,7 +997,7 @@ router.post("/verify-reset-code", authLimiter, async (req, res) => {
         { code: "INVALID_CODE" }
       );
 
-    /* Deliberately do NOT clear the code — step 2 re-verifies it */
+    /* Do NOT clear — step 2 re-verifies */
     console.log(`${L("verify-reset-code")} ✅ ${user.id}`);
 
     return res.json({
@@ -1042,8 +1013,6 @@ router.post("/verify-reset-code", authLimiter, async (req, res) => {
 
 /* ════════════════════════════════════════════════════════════
    POST /reset-password      (step 2 of 2)
-   newPassword hashed WITHOUT trimming — login never trims.
-   Rate limit cleared on success so user can sign in immediately.
 ════════════════════════════════════════════════════════════ */
 router.post("/reset-password", authLimiter, async (req, res) => {
   const { email, code, newPassword } = req.body;
@@ -1081,20 +1050,21 @@ router.post("/reset-password", authLimiter, async (req, res) => {
     if (hashCode(code.trim()) !== user.reset_code)
       return fail(res, 400, "Invalid reset code.", { code: "INVALID_CODE" });
 
-    /* Hash the raw value — no trimming anywhere in the pipeline */
+    /* Hash raw value — no trimming anywhere in the pipeline */
     const password_hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
     const { rows: [updated] } = await pool.query(
       `UPDATE market.users
-       SET password_hash = $1, reset_code = NULL, reset_expires = NULL
+       SET password_hash = $1,
+           reset_code    = NULL,
+           reset_expires = NULL
        WHERE id = $2
        RETURNING id, LENGTH(password_hash) AS hash_length`,
       [password_hash, user.id]
     );
 
     console.log(
-      `${L("reset-password")} ✅ ${updated.id} ` +
-      `hash_length=${updated.hash_length}`
+      `${L("reset-password")} ✅ ${updated.id} hash_length=${updated.hash_length}`
     );
 
     clearRateLimit(req);
@@ -1112,6 +1082,7 @@ router.post("/reset-password", authLimiter, async (req, res) => {
 
 /* ════════════════════════════════════════════════════════════
    GET /me
+   Only queries columns confirmed in market.users schema.
 ════════════════════════════════════════════════════════════ */
 router.get("/me", async (req, res) => {
   const header = req.headers.authorization;
@@ -1123,9 +1094,25 @@ router.get("/me", async (req, res) => {
     const token   = header.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET);
 
+    /*
+     * Confirmed columns: id, name, email, phone_number,
+     * country, city, profile_image, status, is_verified, created_at
+     * NOT full_name, NOT is_active
+     */
     const { rows } = await pool.query(
-      `SELECT id, name, email, phone_number, status, is_verified, created_at
-       FROM market.users WHERE id = $1`,
+      `SELECT
+         id,
+         name,
+         email,
+         phone_number,
+         country,
+         city,
+         profile_image,
+         status,
+         is_verified,
+         created_at
+       FROM market.users
+       WHERE id = $1`,
       [decoded.id]
     );
 
