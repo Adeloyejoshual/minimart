@@ -1,20 +1,16 @@
 /**
  * src/pages/Checkout/CheckoutDebugPanel.jsx
  *
- * Floating debug panel for checkout troubleshooting.
- *
- * Shows:
- * - Config (API URL, token, login status)
- * - Address load status
- * - Cart load status
- * - Calculate response
- * - Last checkout request payload
- * - Last checkout response (or error)
- *
- * Toggle button appears bottom-right in dev mode.
+ * v2 — Always visible inline debug panel
+ * ─────────────────────────────────────────
+ * ✓ Shows AT THE TOP of the checkout page (not floating)
+ * ✓ Always visible — no toggle button
+ * ✓ Retry + Close buttons
+ * ✓ Works in production (removed DEV-only check)
+ * ✓ Same visual style as your cart debug panel
  */
 
-import { useState, useCallback, memo } from "react";
+import { useState, memo } from "react";
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -52,7 +48,7 @@ const statusBadge = (status) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   COMPONENT
+   COMPONENT — INLINE, ALWAYS VISIBLE
 ═══════════════════════════════════════════════════════════════ */
 const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
   apiBase,
@@ -64,63 +60,31 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
   cartLoading,
   calculation,
   paymentMethod,
-  lastRequest,       // { url, payload, time }
-  lastResponse,      // { status, data, time }
-  lastError,         // { status, message, debug, time }
+  lastRequest,
+  lastResponse,
+  lastError,
   onRetry,
 }) {
-  const [open, setOpen] = useState(false);
+  const [closed, setClosed] = useState(false);
 
-  /* Only show in dev mode */
-  if (!import.meta.env.DEV) return null;
+  /* User can close it, but it starts open */
+  if (closed) return null;
 
-  /* ── Toggle button (always visible) ── */
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        style={{
-          position     : "fixed",
-          bottom       : 20,
-          right        : 20,
-          width        : 52,
-          height       : 52,
-          borderRadius : "50%",
-          background   : "#111827",
-          color        : "#fff",
-          border       : "2px solid #10b981",
-          fontSize     : 22,
-          cursor       : "pointer",
-          zIndex       : 9999,
-          boxShadow    : "0 6px 20px rgba(0,0,0,0.3)",
-          display      : "flex",
-          alignItems   : "center",
-          justifyContent: "center",
-        }}
-        aria-label="Open debug panel"
-      >
-        🔍
-      </button>
-    );
-  }
-
-  /* ── Full panel ── */
   return (
     <div style={{
-      position        : "fixed",
-      inset           : 12,
-      background      : "#0f172a",
-      color           : "#e2e8f0",
-      border          : "3px solid #ff5722",
-      borderRadius    : 12,
-      zIndex          : 9999,
-      overflow        : "auto",
-      padding         : 16,
-      fontFamily      : "monospace",
-      fontSize        : 12,
-      lineHeight      : 1.5,
-      boxShadow       : "0 20px 60px rgba(0,0,0,0.5)",
+      /* ✅ INLINE — sits at top of page like your cart debug panel */
+      margin       : "12px",
+      background   : "#0f172a",
+      color        : "#e2e8f0",
+      border       : "3px solid #ff5722",
+      borderRadius : 12,
+      overflow     : "auto",
+      maxHeight    : "80vh",
+      padding      : 16,
+      fontFamily   : "monospace",
+      fontSize     : 12,
+      lineHeight   : 1.5,
+      boxShadow    : "0 8px 24px rgba(0,0,0,0.15)",
     }}>
 
       {/* Header */}
@@ -135,6 +99,7 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
         background     : "#0f172a",
         paddingBottom  : 8,
         borderBottom   : "1px solid #334155",
+        zIndex         : 1,
       }}>
         <h3 style={{
           margin     : 0,
@@ -166,7 +131,7 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
           )}
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={() => setClosed(true)}
             style={{
               padding      : "6px 12px",
               background   : "#ef4444",
@@ -200,11 +165,11 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
         <Row label="Selected" value={selectedAddress?.id ?? "❌ None"} />
         {selectedAddress && (
           <pre style={preStyle}>{jsonPretty({
-            id:            selectedAddress.id,
-            recipient:     selectedAddress.recipient_name,
-            phone:         selectedAddress.phone,
-            city:          selectedAddress.city,
-            state:         selectedAddress.state,
+            id        : selectedAddress.id,
+            recipient : selectedAddress.recipient_name,
+            phone     : selectedAddress.phone,
+            city      : selectedAddress.city,
+            state     : selectedAddress.state,
           })}</pre>
         )}
       </Section>
@@ -214,12 +179,12 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
         <Row label="Loading" value={cartLoading ? "⏳ Yes" : "✓ Done"} />
         <Row label="Items"   value={cartItems?.length ?? 0} />
         {cartItems?.length > 0 && (
-          <pre style={preStyle}>{jsonPretty(cartItems.map((i) => ({
-            id:         i.id,
-            product_id: i.product_id ?? i.productId,
-            name:       i.product_name ?? i.name,
-            qty:        i.qty,
-            price:      i.price,
+          <pre style={preStyle}>{jsonPretty(cartItems.slice(0, 3).map((i) => ({
+            id         : i.id,
+            product_id : i.product_id ?? i.productId,
+            name       : i.product_name ?? i.name,
+            qty        : i.qty,
+            price      : i.price,
           })))}</pre>
         )}
       </Section>
@@ -261,7 +226,7 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
         </Section>
       )}
 
-      {/* ── LAST ERROR ── */}
+      {/* ── LAST ERROR (BIG RED BLOCK) ── */}
       {lastError && (
         <Section title="❌ LAST ERROR" color="#ef4444">
           <Row label="Status"  value={<>{lastError.status ?? "Network"} {statusBadge(lastError.status)}</>} />
@@ -302,24 +267,26 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
         </Section>
       )}
 
-      {/* Footer */}
-      <div style={{
-        marginTop : 20,
-        padding   : 10,
-        background: "#1e293b",
-        borderRadius: 6,
-        color     : "#94a3b8",
-        fontSize  : 11,
-        textAlign : "center",
-      }}>
-        💡 Only visible in DEV mode. Won't appear in production.
-      </div>
+      {/* Empty state */}
+      {!lastRequest && !lastResponse && !lastError && (
+        <div style={{
+          padding    : 20,
+          textAlign  : "center",
+          background : "#1e293b",
+          borderRadius: 8,
+          color      : "#94a3b8",
+          fontSize   : 12,
+        }}>
+          💤 Waiting for you to click "Place Order"…<br />
+          After you click, all request/response details appear here.
+        </div>
+      )}
     </div>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   REUSABLE SUB-COMPONENTS
+   SUB-COMPONENTS
 ═══════════════════════════════════════════════════════════════ */
 const Section = memo(function Section({ title, color, children }) {
   return (
