@@ -3,9 +3,17 @@
  * Route: /shop/checkout
  *
  * Multi-step checkout flow:
- * Step 1 — Address
- * Step 2 — Review
- * Step 3 — Payment
+ *   Step 1 — Address
+ *   Step 2 — Review
+ *   Step 3 — Payment
+ *
+ * v2 — Single source of truth for order placement
+ * ─────────────────────────────────────────────────
+ * ✓ Parent owns loading + error state
+ * ✓ Parent owns handlePlaceOrder — PaymentStep just triggers it
+ * ✓ Parent guards for empty cart, missing address, missing payment
+ * ✓ Server-side cart is the source of truth; localStorage is fallback
+ * ✓ Redirects to /shop/cart if cart is empty at mount
  */
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
@@ -50,16 +58,17 @@ const STEPS = [
 export default function CheckoutPage({ user }) {
   const navigate = useNavigate();
 
-  // ── Redirect if not logged in ─────────────────────────────
+  /* ── Redirect if not logged in ──────────────────────────── */
   useEffect(() => {
     if (!user) navigate("/auth", { state: { from: "/shop/checkout" } });
   }, [user, navigate]);
 
-  // ── State ─────────────────────────────────────────────────
+  /* ── State ──────────────────────────────────────────────── */
   const [step,            setStep]            = useState(1);
   const [addresses,       setAddresses]       = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [cartItems,       setCartItems]       = useState([]);
+  const [cartLoading,     setCartLoading]     = useState(true);
   const [calculation,     setCalculation]     = useState(null);
   const [paymentMethod,   setPaymentMethod]   = useState(null);
   const [couponCode,      setCouponCode]      = useState("");
@@ -68,53 +77,111 @@ export default function CheckoutPage({ user }) {
   const [loading,         setLoading]         = useState(false);
   const [error,           setError]           = useState(null);
 
-  // ── Load saved addresses ──────────────────────────────────
+  /* ════════════════════════════════════════════════════════
+     LOAD SAVED ADDRESSES
+  ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!user) return;
+
+    let cancelled = false;
 
     axios
       .get(`${API}/checkout/address`, { headers: authHeaders() })
       .then(({ data }) => {
+        if (cancelled) return;
         const list = data.data ?? [];
         setAddresses(list);
 
-        // Auto-select default address
+        /* Auto-select default (or first) address */
         const def = list.find((a) => a.is_default) ?? list[0] ?? null;
         if (def) setSelectedAddress(def);
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[Checkout] address load failed:", err.message);
+      });
+
+    return () => { cancelled = true; };
   }, [user]);
 
-  // ── Load cart ─────────────────────────────────────────────
+  /* ════════════════════════════════════════════════════════
+     LOAD CART
+     ─────────────────────────────────────────────────────
+     Tries the server first (source of truth) then falls back
+     to localStorage. If BOTH are empty, redirects to /shop/cart.
+  ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!user) return;
+
+    let cancelled = false;
+    setCartLoading(true);
+
+    const readLocalCart = () => {
+      try {
+        return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+      } catch {
+        return [];
+      }
+    };
 
     axios
       .get(`${API}/cart`, { headers: authHeaders() })
       .then(({ data }) => {
-        setCartItems(data.data?.items ?? []);
-      })
-      .catch(() => {
-        // Fallback to localStorage cart
-        try {
-          setCartItems(
-            JSON.parse(localStorage.getItem(CART_KEY) || "[]")
-          );
-        } catch {
-          setCartItems([]);
+        if (cancelled) return;
+        const serverItems = data.data?.items ?? [];
+
+        if (serverItems.length) {
+          setCartItems(serverItems);
+        } else {
+          /* Server cart empty → try localStorage */
+          const local = readLocalCart();
+          setCartItems(local);
         }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[Checkout] server cart load failed:", err.message);
+        /* Fall back entirely to localStorage */
+        setCartItems(readLocalCart());
+      })
+      .finally(() => {
+        if (!cancelled) setCartLoading(false);
       });
+
+    return () => { cancelled = true; };
   }, [user]);
 
-  // ── Subtotal ──────────────────────────────────────────────
+  /* ════════════════════════════════════════════════════════
+     REDIRECT IF CART IS EMPTY AFTER LOAD
+  ════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    if (cartLoading) return;
+    if (!user) return;
+
+    if (!cartItems.length) {
+      console.warn("[Checkout] Cart is empty — redirecting to /shop/cart");
+      navigate("/shop/cart");
+    }
+  }, [cartLoading, cartItems.length, user, navigate]);
+
+  /* ════════════════════════════════════════════════════════
+     SUBTOTAL
+  ════════════════════════════════════════════════════════ */
   const subtotal = useMemo(
-    () => cartItems.reduce((sum, item) => sum + Number(item.price) * item.qty, 0),
+    () => cartItems.reduce(
+      (sum, item) => sum + Number(item.price) * Number(item.qty ?? 1),
+      0
+    ),
     [cartItems]
   );
 
-  // ── Calculate delivery + payment options ──────────────────
+  /* ════════════════════════════════════════════════════════
+     CALCULATE DELIVERY + PAYMENT OPTIONS
+  ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (subtotal <= 0) return;
+
+    let cancelled = false;
 
     axios
       .post(
@@ -123,26 +190,34 @@ export default function CheckoutPage({ user }) {
         { headers: authHeaders() }
       )
       .then(({ data }) => {
+        if (cancelled) return;
         setCalculation(data.data);
 
-        // Auto-select first payment option
+        /* Auto-select first payment option (or keep valid selection) */
         if (data.data.paymentOptions?.length) {
           setPaymentMethod((prev) =>
-            // Keep existing selection if still valid
             data.data.paymentOptions.some((o) => o.key === prev)
               ? prev
               : data.data.paymentOptions[0].key
           );
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[Checkout] calculation failed:", err.message);
+      });
+
+    return () => { cancelled = true; };
   }, [subtotal, discount]);
 
-  // ── Address handlers ──────────────────────────────────────
+  /* ════════════════════════════════════════════════════════
+     ADDRESS HANDLERS
+  ════════════════════════════════════════════════════════ */
 
   /** Called when a brand-new address is saved */
   const handleAddAddress = useCallback((addr) => {
     setAddresses((prev) => [addr, ...prev]);
+    setSelectedAddress(addr);
   }, []);
 
   /** Called when an existing address is updated */
@@ -150,7 +225,6 @@ export default function CheckoutPage({ user }) {
     setAddresses((prev) =>
       prev.map((a) => (a.id === id ? updated : a))
     );
-    // Keep selected address fresh if it was edited
     setSelectedAddress((prev) =>
       prev?.id === id ? updated : prev
     );
@@ -161,9 +235,35 @@ export default function CheckoutPage({ user }) {
     setSelectedAddress(addr);
   }, []);
 
-  // ── Place order ───────────────────────────────────────────
+  /* ════════════════════════════════════════════════════════
+     PLACE ORDER — SINGLE SOURCE OF TRUTH
+     ─────────────────────────────────────────────────────
+     Guards for every failure mode with a clear message.
+     PaymentStep just calls this via onPlaceOrder.
+  ════════════════════════════════════════════════════════ */
   const handlePlaceOrder = useCallback(async () => {
-    if (!selectedAddress || !paymentMethod) return;
+    /* ── Guards with actionable messages ── */
+    if (!selectedAddress) {
+      setError("Please select a delivery address.");
+      setStep(1);
+      return;
+    }
+
+    if (!paymentMethod) {
+      setError("Please select a payment method.");
+      return;
+    }
+
+    if (!cartItems.length) {
+      setError("Your cart is empty. Add items before checking out.");
+      setTimeout(() => navigate("/shop/cart"), 1500);
+      return;
+    }
+
+    if (!calculation) {
+      setError("Still calculating totals. Please wait a moment and try again.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -172,36 +272,64 @@ export default function CheckoutPage({ user }) {
       const { data } = await axios.post(
         `${API}/checkout`,
         {
-          addressId     : selectedAddress.id,
+          addressId  : selectedAddress.id,
           paymentMethod,
-          couponCode    : couponCode || undefined,
+          couponCode : couponCode || undefined,
           discount,
-          notes         : notes     || undefined,
+          notes      : notes      || undefined,
         },
-        { headers: authHeaders() }
+        { headers: authHeaders(), timeout: 30_000 }
       );
 
-      if (data.data.requiresPayment && data.data.paymentLink) {
-        // Online payment → redirect to Flutterwave
-        window.location.href = data.data.paymentLink;
-      } else {
-        // Cash on delivery → success page
-        navigate(`/shop/orders/${data.data.orderGroupId}`);
+      console.log("[Checkout] Order response:", data);
+
+      const orderData = data.data ?? data;
+
+      /* ── Online payment → redirect to Flutterwave ── */
+      if (orderData.requiresPayment && orderData.paymentLink) {
+        /* Clear local cart before redirect */
+        localStorage.removeItem(CART_KEY);
+        window.dispatchEvent(new Event("cart-updated"));
+        window.location.href = orderData.paymentLink;
+        return;
       }
+
+      /* ── Cash on delivery → success page ── */
+      if (orderData.orderGroupId) {
+        localStorage.removeItem(CART_KEY);
+        window.dispatchEvent(new Event("cart-updated"));
+        navigate(`/shop/orders/${orderData.orderGroupId}`);
+        return;
+      }
+
+      throw new Error("Unexpected response from server. Please try again.");
+
     } catch (err) {
-      setError(
+      console.error("[Checkout] Place order failed:", err);
+
+      const message =
         err.response?.data?.message ||
-        "Failed to place order. Please try again."
-      );
+        err.response?.data?.error   ||
+        err.message                 ||
+        "Failed to place order. Please try again.";
+
+      setError(message);
     } finally {
       setLoading(false);
     }
-  }, [selectedAddress, paymentMethod, couponCode, discount, notes, navigate]);
+  }, [
+    selectedAddress, paymentMethod, cartItems, calculation,
+    couponCode, discount, notes, navigate,
+  ]);
 
-  // ── Guard ─────────────────────────────────────────────────
+  /* ════════════════════════════════════════════════════════
+     GUARD
+  ════════════════════════════════════════════════════════ */
   if (!user) return null;
 
-  // ── Render ────────────────────────────────────────────────
+  /* ════════════════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════════════════ */
   return (
     <div className="ck-page">
 
@@ -226,7 +354,7 @@ export default function CheckoutPage({ user }) {
               className={[
                 "ck-step",
                 step === s.id ? "ck-step--active" : "",
-                step >  s.id ? "ck-step--done"   : "",
+                step >  s.id  ? "ck-step--done"   : "",
               ].join(" ").trim()}
             >
               <div className="ck-step-dot">
@@ -247,8 +375,8 @@ export default function CheckoutPage({ user }) {
         ))}
       </div>
 
-      {/* ── Global Error Banner ── */}
-      {error && (
+      {/* ── Global Error Banner (only shown on step 1 & 2) ── */}
+      {error && step !== 3 && (
         <div className="ck-error" role="alert">
           ⚠️ {error}
           <button
@@ -263,8 +391,16 @@ export default function CheckoutPage({ user }) {
       {/* ── Step Content ── */}
       <div className="ck-content">
 
+        {/* Loading state while cart fetches */}
+        {cartLoading && (
+          <div className="ck-loading" role="status" aria-live="polite">
+            <div className="ck-loading-spinner" />
+            <p>Loading your cart…</p>
+          </div>
+        )}
+
         {/* Step 1 — Address */}
-        {step === 1 && (
+        {!cartLoading && step === 1 && (
           <AddressStep
             addresses={addresses}
             selected={selectedAddress}
@@ -277,7 +413,7 @@ export default function CheckoutPage({ user }) {
         )}
 
         {/* Step 2 — Review */}
-        {step === 2 && (
+        {!cartLoading && step === 2 && (
           <ReviewStep
             cartItems={cartItems}
             calculation={calculation}
@@ -294,13 +430,14 @@ export default function CheckoutPage({ user }) {
         )}
 
         {/* Step 3 — Payment */}
-        {step === 3 && (
+        {!cartLoading && step === 3 && (
           <PaymentStep
             calculation={calculation}
             paymentMethod={paymentMethod}
             onSelectPayment={setPaymentMethod}
             loading={loading}
-            onBack={() => setStep(2)}
+            error={error}
+            onBack={() => { setError(null); setStep(2); }}
             onPlaceOrder={handlePlaceOrder}
           />
         )}
