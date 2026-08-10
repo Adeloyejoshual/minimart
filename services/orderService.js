@@ -1,15 +1,12 @@
 /**
  * services/orderService.js
  *
- * Core order creation logic.
- * Splits cart by seller and creates:
- *   order_group → orders → order_items
- *
- * v3 — Fixed user_id NOT NULL constraint
- * ───────────────────────────────────────
- * ✓ orders.user_id is now populated (was NULL before)
- * ✓ Column auto-detection for tracking_id, delivered_at, updated_at
- * ✓ Better error logging on rollback
+ * v4 — Auto-detects order_items columns
+ * ─────────────────────────────────────────
+ * ✓ Detects orders.user_id
+ * ✓ Detects order_items.variant_id / variant_name / sku / image
+ * ✓ Only INSERTs into columns that actually exist
+ * ✓ Won't crash regardless of schema state
  */
 
 import { pool }                 from "../config/db.js";
@@ -20,69 +17,79 @@ import { calculateDeliveryFee } from "./delivery.js";
 ════════════════════════════════════════════════════════════ */
 let ORDER_GROUP_COLS = null;
 let ORDER_COLS       = null;
+let ORDER_ITEM_COLS  = null;
 
 async function detectOrderGroupColumns() {
   if (ORDER_GROUP_COLS) return ORDER_GROUP_COLS;
-
   try {
     const { rows } = await pool.query(
       `SELECT column_name
        FROM information_schema.columns
-       WHERE table_schema = 'public'
-         AND table_name   = 'order_groups'`
+       WHERE table_schema = 'public' AND table_name = 'order_groups'`
     );
-
     const cols = new Set(rows.map((r) => r.column_name));
-
     ORDER_GROUP_COLS = {
       hasTrackingId:  cols.has("tracking_id"),
       hasDeliveredAt: cols.has("delivered_at"),
       hasUpdatedAt:   cols.has("updated_at"),
     };
-
-    console.log("[orderService] Detected order_groups columns:", ORDER_GROUP_COLS);
+    console.log("[orderService] order_groups cols:", ORDER_GROUP_COLS);
   } catch (err) {
-    console.warn("[orderService] Column detection failed:", err.message);
-    ORDER_GROUP_COLS = {
-      hasTrackingId:  true,
-      hasDeliveredAt: true,
-      hasUpdatedAt:   true,
-    };
+    console.warn("[orderService] order_groups detection failed:", err.message);
+    ORDER_GROUP_COLS = { hasTrackingId: true, hasDeliveredAt: true, hasUpdatedAt: true };
   }
-
   return ORDER_GROUP_COLS;
 }
 
 async function detectOrderColumns() {
   if (ORDER_COLS) return ORDER_COLS;
-
   try {
     const { rows } = await pool.query(
       `SELECT column_name
        FROM information_schema.columns
-       WHERE table_schema = 'public'
-         AND table_name   = 'orders'`
+       WHERE table_schema = 'public' AND table_name = 'orders'`
     );
-
     const cols = new Set(rows.map((r) => r.column_name));
-
     ORDER_COLS = {
       hasUserId:      cols.has("user_id"),
       hasDeliveredAt: cols.has("delivered_at"),
       hasUpdatedAt:   cols.has("updated_at"),
     };
-
-    console.log("[orderService] Detected orders columns:", ORDER_COLS);
+    console.log("[orderService] orders cols:", ORDER_COLS);
   } catch (err) {
-    console.warn("[orderService] Column detection failed:", err.message);
-    ORDER_COLS = {
-      hasUserId:      true,
-      hasDeliveredAt: true,
-      hasUpdatedAt:   true,
+    console.warn("[orderService] orders detection failed:", err.message);
+    ORDER_COLS = { hasUserId: true, hasDeliveredAt: true, hasUpdatedAt: true };
+  }
+  return ORDER_COLS;
+}
+
+/* ✅ NEW — detect order_items columns */
+async function detectOrderItemColumns() {
+  if (ORDER_ITEM_COLS) return ORDER_ITEM_COLS;
+  try {
+    const { rows } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'order_items'`
+    );
+    const cols = new Set(rows.map((r) => r.column_name));
+    ORDER_ITEM_COLS = {
+      hasVariantId:   cols.has("variant_id"),
+      hasVariantName: cols.has("variant_name"),
+      hasSku:         cols.has("sku"),
+      hasImage:       cols.has("image"),
+    };
+    console.log("[orderService] order_items cols:", ORDER_ITEM_COLS);
+  } catch (err) {
+    console.warn("[orderService] order_items detection failed:", err.message);
+    ORDER_ITEM_COLS = {
+      hasVariantId:   false,
+      hasVariantName: false,
+      hasSku:         false,
+      hasImage:       false,
     };
   }
-
-  return ORDER_COLS;
+  return ORDER_ITEM_COLS;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -90,6 +97,47 @@ async function detectOrderColumns() {
 ════════════════════════════════════════════════════════════ */
 function generateTrackingId(uuid) {
   return `ORD-${uuid.slice(0, 8).toUpperCase()}`;
+}
+
+/**
+ * Build a dynamic INSERT statement for order_items.
+ * Only includes columns that exist in the actual DB schema.
+ */
+function buildOrderItemInsert(itemCols, orderId, item) {
+  const columns = ["order_id", "product_id", "name", "qty", "unit_price", "subtotal"];
+  const values  = [
+    orderId,
+    item.productId,
+    item.name,
+    Number(item.qty),
+    Number(item.price),
+    Number(item.price) * Number(item.qty),
+  ];
+
+  /* Add optional columns only if they exist in schema */
+  if (itemCols.hasVariantId) {
+    columns.push("variant_id");
+    values.push(item.variant?.id ?? null);
+  }
+  if (itemCols.hasVariantName) {
+    columns.push("variant_name");
+    values.push(item.variant?.name ?? null);
+  }
+  if (itemCols.hasSku) {
+    columns.push("sku");
+    values.push(item.variant?.sku ?? null);
+  }
+  if (itemCols.hasImage) {
+    columns.push("image");
+    values.push(item.image ?? null);
+  }
+
+  const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
+
+  return {
+    sql: `INSERT INTO public.order_items (${columns.join(", ")}) VALUES (${placeholders})`,
+    params: values,
+  };
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -108,9 +156,10 @@ export async function createOrderGroup({
   const deliveryFee = calculateDeliveryFee(subtotal);
   const grandTotal  = subtotal + deliveryFee - discount;
 
-  const [groupCols, orderCols] = await Promise.all([
+  const [groupCols, orderCols, itemCols] = await Promise.all([
     detectOrderGroupColumns(),
     detectOrderColumns(),
+    detectOrderItemColumns(),
   ]);
 
   const client = await pool.connect();
@@ -129,30 +178,19 @@ export async function createOrderGroup({
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending','pending')
        RETURNING id`,
       [
-        userId,
-        addressId,
-        subtotal,
-        deliveryFee,
-        discount,
-        grandTotal,
-        paymentMethod,
-        couponCode,
-        notes,
+        userId, addressId, subtotal, deliveryFee, discount,
+        grandTotal, paymentMethod, couponCode, notes,
       ]
     );
 
     const orderGroupId = group.id;
     const trackingId   = generateTrackingId(orderGroupId);
 
-    /* ══════════════════════════════════════════════════
-       Save tracking ID (only if column exists)
-    ══════════════════════════════════════════════════ */
+    /* Save tracking ID if column exists */
     if (groupCols.hasTrackingId) {
       try {
         await client.query(
-          `UPDATE public.order_groups
-           SET tracking_id = $1
-           WHERE id = $2`,
+          `UPDATE public.order_groups SET tracking_id = $1 WHERE id = $2`,
           [trackingId, orderGroupId]
         );
       } catch (err) {
@@ -169,7 +207,6 @@ export async function createOrderGroup({
       if (!item.sellerId) {
         throw new Error(`Missing seller ID for product "${item.name}"`);
       }
-
       if (!sellerMap.has(item.sellerId)) {
         sellerMap.set(item.sellerId, {
           sellerName: item.sellerName ?? "Seller",
@@ -180,62 +217,43 @@ export async function createOrderGroup({
     }
 
     /* ══════════════════════════════════════════════════
-       3. Create one public.orders row per seller
-       ✅ FIX: user_id column is now populated
+       3. Create one orders row per seller
     ══════════════════════════════════════════════════ */
     const createdOrders = [];
 
     for (const [sellerId, sellerData] of sellerMap.entries()) {
       const { items: sellerItems, sellerName } = sellerData;
-
       const sellerSubtotal = sellerItems.reduce(
         (sum, i) => sum + Number(i.price) * Number(i.qty),
         0
       );
 
-      /* Dynamic INSERT — respects whether user_id column exists */
-      let insertSql, insertParams;
-
+      /* Dynamic INSERT for orders */
+      let orderSql, orderParams;
       if (orderCols.hasUserId) {
-        insertSql = `
+        orderSql = `
           INSERT INTO public.orders
             (order_group_id, user_id, seller_id, subtotal, status)
           VALUES ($1, $2, $3, $4, 'pending')
           RETURNING id
         `;
-        insertParams = [orderGroupId, userId, sellerId, sellerSubtotal];
+        orderParams = [orderGroupId, userId, sellerId, sellerSubtotal];
       } else {
-        insertSql = `
+        orderSql = `
           INSERT INTO public.orders
             (order_group_id, seller_id, subtotal, status)
           VALUES ($1, $2, $3, 'pending')
           RETURNING id
         `;
-        insertParams = [orderGroupId, sellerId, sellerSubtotal];
+        orderParams = [orderGroupId, sellerId, sellerSubtotal];
       }
 
-      const { rows: [order] } = await client.query(insertSql, insertParams);
+      const { rows: [order] } = await client.query(orderSql, orderParams);
 
-      /* Insert order items for this seller */
+      /* ✅ Dynamic INSERT for order_items — only uses columns that exist */
       for (const item of sellerItems) {
-        await client.query(
-          `INSERT INTO public.order_items
-             (order_id, product_id, variant_id, name, image,
-              sku, variant_name, qty, unit_price, subtotal)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-          [
-            order.id,
-            item.productId,
-            item.variant?.id   ?? null,
-            item.name,
-            item.image         ?? null,
-            item.variant?.sku  ?? null,
-            item.variant?.name ?? null,
-            Number(item.qty),
-            Number(item.price),
-            Number(item.price) * Number(item.qty),
-          ]
-        );
+        const insert = buildOrderItemInsert(itemCols, order.id, item);
+        await client.query(insert.sql, insert.params);
       }
 
       createdOrders.push({
@@ -253,14 +271,13 @@ export async function createOrderGroup({
     await client.query(
       `DELETE FROM market.cart_items ci
        USING market.carts c
-       WHERE ci.cart_id = c.id
-         AND c.user_id  = $1`,
+       WHERE ci.cart_id = c.id AND c.user_id = $1`,
       [userId]
     );
 
     await client.query("COMMIT");
 
-    console.log(`[orderService] ✅ Created order group ${orderGroupId} with ${createdOrders.length} sub-orders`);
+    console.log(`[orderService] ✅ Created order ${orderGroupId} with ${createdOrders.length} sub-orders`);
 
     return {
       orderGroupId,
@@ -296,7 +313,6 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   ]);
 
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
 
@@ -319,7 +335,7 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
     );
 
     await client.query("COMMIT");
-    console.log(`[orderService] ✅ Order ${orderGroupId} marked as paid`);
+    console.log(`[orderService] ✅ Order ${orderGroupId} marked paid`);
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[orderService] markOrderGroupPaid failed:", err.message);
@@ -339,36 +355,29 @@ export async function markOrderGroupDelivered(orderGroupId) {
   ]);
 
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
 
-    /* ── Update order_groups ── */
-    const groupSetClauses = ["status = 'delivered'"];
-    if (groupCols.hasDeliveredAt) groupSetClauses.push("delivered_at = now()");
-    if (groupCols.hasUpdatedAt)   groupSetClauses.push("updated_at   = now()");
+    const groupSet = ["status = 'delivered'"];
+    if (groupCols.hasDeliveredAt) groupSet.push("delivered_at = now()");
+    if (groupCols.hasUpdatedAt)   groupSet.push("updated_at   = now()");
 
     await client.query(
-      `UPDATE public.order_groups
-       SET ${groupSetClauses.join(", ")}
-       WHERE id = $1`,
+      `UPDATE public.order_groups SET ${groupSet.join(", ")} WHERE id = $1`,
       [orderGroupId]
     );
 
-    /* ── Update orders ── */
-    const orderSetClauses = ["status = 'delivered'"];
-    if (orderCols.hasDeliveredAt) orderSetClauses.push("delivered_at = now()");
-    if (orderCols.hasUpdatedAt)   orderSetClauses.push("updated_at   = now()");
+    const orderSet = ["status = 'delivered'"];
+    if (orderCols.hasDeliveredAt) orderSet.push("delivered_at = now()");
+    if (orderCols.hasUpdatedAt)   orderSet.push("updated_at   = now()");
 
     await client.query(
-      `UPDATE public.orders
-       SET ${orderSetClauses.join(", ")}
-       WHERE order_group_id = $1`,
+      `UPDATE public.orders SET ${orderSet.join(", ")} WHERE order_group_id = $1`,
       [orderGroupId]
     );
 
     await client.query("COMMIT");
-    console.log(`[orderService] ✅ Order ${orderGroupId} marked as delivered`);
+    console.log(`[orderService] ✅ Order ${orderGroupId} marked delivered`);
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[orderService] markOrderGroupDelivered failed:", err.message);
@@ -394,22 +403,17 @@ export async function getOrderGroup(orderGroupId, userId) {
        a.city,
        a.state
      FROM public.order_groups og
-     LEFT JOIN public.user_addresses a
-       ON a.id = og.address_id
-     WHERE og.id      = $1
-       AND og.user_id = $2`,
+     LEFT JOIN public.user_addresses a ON a.id = og.address_id
+     WHERE og.id = $1 AND og.user_id = $2`,
     [orderGroupId, userId]
   );
 
   if (!group) return null;
 
   const { rows: orders } = await pool.query(
-    `SELECT
-       o.*,
-       u.name AS seller_name
+    `SELECT o.*, u.name AS seller_name
      FROM public.orders o
-     LEFT JOIN market.users u
-       ON u.id = o.seller_id
+     LEFT JOIN market.users u ON u.id = o.seller_id
      WHERE o.order_group_id = $1
      ORDER BY o.created_at ASC`,
     [orderGroupId]
@@ -425,8 +429,5 @@ export async function getOrderGroup(orderGroupId, userId) {
     order.items = items;
   }
 
-  return {
-    ...group,
-    orders,
-  };
+  return { ...group, orders };
 }
