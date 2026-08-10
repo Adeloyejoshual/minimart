@@ -2,12 +2,19 @@
  * src/loemart/mobile/mobileHelpers.js
  *
  * Shared helpers, hooks, constants for all mobile sub-components.
+ *
+ * v3 — Emojis replaced with SVG icons (lucide-react)
+ * Better rendering across devices, no font-emoji issues,
+ * customizable size/color, professional look.
  */
 
 import { useState, useEffect, useRef } from "react";
 import {
   FiHome, FiGrid, FiShoppingCart, FiHeart, FiUser,
 } from "react-icons/fi";
+import {
+  Flame, Sparkles, ShieldCheck,
+} from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + KEYS
@@ -42,7 +49,7 @@ export const HERO_SLIDES = [
     cta    : "Shop Now",
     bg     : "linear-gradient(135deg,#0f0c29 0%,#302b63 100%)",
     accent : "#ff5722",
-    icon   : "🔥",
+    Icon   : Flame,           // ← SVG component (not string)
   },
   {
     id     : 2,
@@ -52,7 +59,7 @@ export const HERO_SLIDES = [
     cta    : "Explore",
     bg     : "linear-gradient(135deg,#134e5e 0%,#71b280 100%)",
     accent : "#10b981",
-    icon   : "✨",
+    Icon   : Sparkles,        // ← SVG component
   },
   {
     id     : 3,
@@ -62,20 +69,13 @@ export const HERO_SLIDES = [
     cta    : "Browse",
     bg     : "linear-gradient(135deg,#1a0533 0%,#11998e 100%)",
     accent : "#6366f1",
-    icon   : "🛡️",
+    Icon   : ShieldCheck,     // ← SVG component
   },
 ];
 
 export const TRENDING_SEARCHES = [
   "iPhone", "Laptop", "Sneakers", "PlayStation",
   "Fashion", "TV", "Watch", "Camera",
-];
-
-export const TRUST_BADGES = [
-  { icon: "🛡️", label: "Verified" },
-  { icon: "🔒", label: "Secure"   },
-  { icon: "🚚", label: "Delivery" },
-  { icon: "↩️", label: "Returns"  },
 ];
 
 export const BOTTOM_NAV = [
