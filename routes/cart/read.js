@@ -1,8 +1,14 @@
 /**
  * routes/cart/read.js
- * WITH STEP-BY-STEP DEBUG LOGGING
  *
  * GET /api/cart
+ *
+ * Reads user's active cart with snapshot pricing.
+ *
+ * Price snapshot rule:
+ *   - cart_items.price is set at add-time (locked in)
+ *   - Falls back to current variant/product price if snapshot missing
+ *   - This means seller price changes don't affect existing carts
  */
 
 import express                from "express";
@@ -10,6 +16,45 @@ import { authenticateBuyer }  from "../../middleware/auth.js";
 import { pool, ok, fail }     from "../market/helpers.js";
 
 const router = express.Router();
+
+/* ══════════════════════════════════════════════════════════════
+   COLUMN DETECTION (cached after first call)
+══════════════════════════════════════════════════════════════ */
+let COLUMNS_CACHED = null;
+
+async function detectCartItemsColumns() {
+  if (COLUMNS_CACHED) return COLUMNS_CACHED;
+
+  const { rows } = await pool.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'market'
+       AND table_name = 'cart_items'`
+  );
+
+  const cols = new Set(rows.map((r) => r.column_name));
+
+  COLUMNS_CACHED = {
+    hasPrice         : cols.has("price"),
+    hasOriginalPrice : cols.has("original_price"),
+    hasAddedAt       : cols.has("added_at"),
+    hasCreatedAt     : cols.has("created_at"),
+    hasUpdatedAt     : cols.has("updated_at"),
+
+    /* Best column to ORDER BY (added_at → created_at → id) */
+    orderColumn      : cols.has("added_at")   ? "added_at"
+                     : cols.has("created_at") ? "created_at"
+                     : "id",
+
+    /* Best timestamp column to SELECT AS added_at */
+    timestampCol     : cols.has("added_at")   ? "added_at"
+                     : cols.has("created_at") ? "created_at"
+                     : null,
+  };
+
+  console.log("[cart/read] Detected cart_items columns:", COLUMNS_CACHED);
+  return COLUMNS_CACHED;
+}
 
 /* ══════════════════════════════════════════════════════════════
    GET /
@@ -33,9 +78,14 @@ router.get("/", authenticateBuyer, async (req, res) => {
     }
 
     /* ═══════════════════════════════════════════
-       STEP 2: Find or create cart
+       STEP 2: Detect available columns
     ═══════════════════════════════════════════ */
-    console.log("[cart/read] STEP 2: Find active cart");
+    const cols = await detectCartItemsColumns();
+
+    /* ═══════════════════════════════════════════
+       STEP 3: Find or create cart
+    ═══════════════════════════════════════════ */
+    console.log("[cart/read] STEP 3: Find active cart");
     let cartId;
 
     try {
@@ -44,7 +94,7 @@ router.get("/", authenticateBuyer, async (req, res) => {
          FROM market.carts
          WHERE user_id = $1
            AND status = 'active'
-         ORDER BY created_at DESC
+         ORDER BY id DESC
          LIMIT 1`,
         [userId]
       );
@@ -71,9 +121,9 @@ router.get("/", authenticateBuyer, async (req, res) => {
     }
 
     /* ═══════════════════════════════════════════
-       STEP 3: Check if market.cart_items exists
+       STEP 4: Check if market.cart_items exists
     ═══════════════════════════════════════════ */
-    console.log("[cart/read] STEP 3: Check cart_items table");
+    console.log("[cart/read] STEP 4: Check cart_items table");
     try {
       await pool.query(`SELECT 1 FROM market.cart_items LIMIT 1`);
       console.log("[cart/read] ✓ market.cart_items exists");
@@ -83,27 +133,40 @@ router.get("/", authenticateBuyer, async (req, res) => {
     }
 
     /* ═══════════════════════════════════════════
-       STEP 4: Fetch items — SIMPLE query first
+       STEP 5: Fetch items (dynamic columns)
+       Selects snapshot price + original_price if columns exist
     ═══════════════════════════════════════════ */
-    console.log("[cart/read] STEP 4: Fetch cart items (simple)");
+    console.log(`[cart/read] STEP 5: Fetch items (ORDER BY ${cols.orderColumn})`);
     let simpleItems;
     try {
+      const selectCols = [
+        "id",
+        "product_id",
+        "variant_id",
+        "qty",
+        cols.hasPrice         ? "price"          : "NULL AS price",
+        cols.hasOriginalPrice ? "original_price" : "NULL AS original_price",
+        cols.timestampCol     ? `${cols.timestampCol} AS added_at`
+                              : "NOW() AS added_at",
+      ].join(", ");
+
       const { rows } = await pool.query(
-        `SELECT id, product_id, variant_id, qty, added_at
+        `SELECT ${selectCols}
          FROM market.cart_items
          WHERE cart_id = $1
-         ORDER BY added_at DESC`,
+         ORDER BY ${cols.orderColumn} DESC`,
         [cartId]
       );
       simpleItems = rows;
       console.log(`[cart/read] ✓ Found ${rows.length} raw items`);
     } catch (e) {
       console.error("[cart/read] ❌ Simple items query failed:", e.message);
+      console.error("[cart/read] ❌ Code:", e.code);
       return fail(res, 500, `Items query error: ${e.message}`);
     }
 
     /* ═══════════════════════════════════════════
-       STEP 5: If no items, return empty cart
+       STEP 6: If no items, return empty cart
     ═══════════════════════════════════════════ */
     if (simpleItems.length === 0) {
       console.log("[cart/read] ✓ Cart is empty — returning early");
@@ -120,10 +183,9 @@ router.get("/", authenticateBuyer, async (req, res) => {
     }
 
     /* ═══════════════════════════════════════════
-       STEP 6: Enrich items with product info
-       (Simple loop — no LATERAL join)
+       STEP 7: Enrich items with product info
     ═══════════════════════════════════════════ */
-    console.log("[cart/read] STEP 6: Enrich items");
+    console.log("[cart/read] STEP 7: Enrich items");
     const enriched = [];
 
     for (const item of simpleItems) {
@@ -176,9 +238,26 @@ router.get("/", authenticateBuyer, async (req, res) => {
           }
         }
 
-        /* Compose */
-        const price = Number(variant?.price ?? product.price ?? 0);
-        const originalPrice = Number(product.original_price ?? 0);
+        /* ═══════════════════════════════════════════
+           PRICING — Prefer snapshot from cart_items
+           Fallback chain:
+             1. cart_items.price (snapshot at add-time) ← preferred
+             2. variant.price (current)
+             3. product.price (current)
+        ═══════════════════════════════════════════ */
+        const price = Number(
+          item.price          ??
+          variant?.price      ??
+          product.price       ??
+          0
+        );
+
+        const originalPrice = Number(
+          item.original_price   ??
+          product.original_price ??
+          0
+        );
+
         const stock = variant
           ? Number(variant.stock ?? 0)
           : Number(product.stock ?? 0);
@@ -213,7 +292,7 @@ router.get("/", authenticateBuyer, async (req, res) => {
     console.log(`[cart/read] ✓ Enriched ${enriched.length} items`);
 
     /* ═══════════════════════════════════════════
-       STEP 7: Totals
+       STEP 8: Totals
     ═══════════════════════════════════════════ */
     const totals = enriched.reduce(
       (acc, item) => {
@@ -249,7 +328,7 @@ router.get("/", authenticateBuyer, async (req, res) => {
     console.error("[cart/read] Message:", err.message);
     console.error("[cart/read] Code:", err.code);
     console.error("[cart/read] Detail:", err.detail);
-    console.error("[cart/read] Stack:", err.stack);
+    console.error("[cart/read] Stack:", err.stack?.split("\n").slice(0, 5).join("\n"));
     console.error("═══════════════════════════════════════════");
     return fail(res, 500, `Cart error: ${err.message}`);
   }
