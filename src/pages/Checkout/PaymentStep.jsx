@@ -1,37 +1,15 @@
 // src/pages/Checkout/PaymentStep.jsx
 
-import React, { useState, useCallback, memo } from "react";
-import axios from "axios";
+import React, { memo } from "react";
 
-// ─────────────────────────────────────────────────────────────
-// API BASE URL
-// ─────────────────────────────────────────────────────────────
-const API =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
-  (typeof process !== "undefined" && process.env?.REACT_APP_API_URL)    ||
-  "";
-
-// ─────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
 const fmt = (n) =>
   `₦${Number(n || 0).toLocaleString("en-NG", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-
-function getToken() {
-  return (
-    localStorage.getItem("marketplace_token") ||
-    localStorage.getItem("token")             ||
-    null
-  );
-}
-
-function authHeaders() {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 function normaliseKey(key = "") {
   const k = key.toUpperCase().replace(/[\s\-_]/g, "_");
@@ -44,9 +22,9 @@ function normaliseKey(key = "") {
   return key;
 }
 
-// ─────────────────────────────────────────────────────────────
-// SPINNER
-// ─────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
+   SPINNER
+═══════════════════════════════════════════════════════════════ */
 function Spinner() {
   return (
     <span
@@ -65,160 +43,48 @@ function Spinner() {
   );
 }
 
-// ═════════════════════════════════════════════════════════════
-// PAYMENT STEP
-// All order logic lives here — no external hook import needed
-// ═════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   PAYMENT STEP
+   ─────────────────────────────────────────────────────────
+   All order placement is now delegated to the parent via
+   onPlaceOrder(). This component ONLY handles:
+     - Displaying payment options
+     - Letting user pick one
+     - Showing totals + contextual notes
+     - Triggering the parent's placement handler
+═══════════════════════════════════════════════════════════════ */
 const PaymentStep = memo(function PaymentStep({
-  // Cart / order data
   calculation,
-  cartItems,
-  shippingAddress,
-  userId,
-
-  // Payment method state (controlled by parent)
   paymentMethod,
   onSelectPayment,
-
-  // Navigation
+  loading = false,
+  error = null,
   onBack,
-
-  // Callbacks after order placed
-  onOrderSuccess,
-  onOrderError,
+  onPlaceOrder,
 }) {
-  // ── Local state ───────────────────────────────────────────
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState(null);
-
-  // ── Totals ────────────────────────────────────────────────
+  /* ── Totals ── */
   const grandTotal  = Number(calculation?.grandTotal  ?? 0);
   const deliveryFee = Number(calculation?.deliveryFee ?? 0);
   const subtotal    = Number(calculation?.subtotal    ?? 0);
 
-  // ── Normalise selected method ─────────────────────────────
+  /* ── Selected method ── */
   const normSelected = paymentMethod ? normaliseKey(paymentMethod) : null;
   const isCOD        = normSelected === "CASH_ON_DELIVERY";
   const isOnline     = normSelected === "ONLINE_PAYMENT";
 
-  // ── Payment options from calculation ─────────────────────
+  /* ── Payment options ── */
   const paymentOptions = calculation?.paymentOptions ?? [];
 
-  // ═══════════════════════════════════════════════════════════
-  // PLACE ORDER
-  // ═══════════════════════════════════════════════════════════
-  const handlePlaceOrder = useCallback(async () => {
-    if (loading) return;
-
-    // ── Guards ───────────────────────────────────────────
-    if (!cartItems?.length) {
-      setError("Your cart is empty.");
-      return;
-    }
-    if (!shippingAddress) {
-      setError("Please add a shipping address.");
-      return;
-    }
-    if (!normSelected) {
-      setError("Please select a payment method.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      // ── Create order on backend ─────────────────────────
-      const { data: order } = await axios.post(
-        `${API}/api/orders`,
-        {
-          cartItems,
-          shippingAddress,
-          paymentMethod: normSelected,
-          grandTotal,
-          userId,
-        },
-        {
-          withCredentials: true,
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders(),
-          },
-          timeout: 30000,
-        }
-      );
-
-      // ── Cash on Delivery ────────────────────────────────
-      if (
-        order.paymentMethod === "CASH_ON_DELIVERY" ||
-        normSelected        === "CASH_ON_DELIVERY"
-      ) {
-        onOrderSuccess?.({
-          orderId:       order.orderId,
-          paymentMethod: "CASH_ON_DELIVERY",
-        });
-        return;
-      }
-
-      // ── Online Payment ──────────────────────────────────
-      if (
-        order.paymentMethod === "ONLINE_PAYMENT" ||
-        normSelected        === "ONLINE_PAYMENT"
-      ) {
-        const paymentUrl =
-          order.paymentUrl  ||
-          order.payment_url ||
-          null;
-
-        if (!paymentUrl) {
-          throw new Error(
-            "Payment URL not received. Please try again."
-          );
-        }
-
-        // Redirect to Flutterwave hosted checkout
-        window.location.href = paymentUrl;
-        return;
-      }
-
-      throw new Error("Unknown payment method received from server.");
-
-    } catch (err) {
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error   ||
-        err?.message                 ||
-        "Something went wrong. Please try again.";
-
-      setError(message);
-      onOrderError?.(message);
-
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    loading, cartItems, shippingAddress,
-    normSelected, grandTotal, userId,
-    onOrderSuccess, onOrderError,
-  ]);
-
-  // ═══════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════
   return (
     <div className="ck-section">
 
-      {/* ── Keyframe ─────────────────────────────────────── */}
       <style>{`
-        @keyframes ck-spin {
-          to { transform: rotate(360deg); }
-        }
+        @keyframes ck-spin { to { transform: rotate(360deg); } }
       `}</style>
 
-      {/* ── Title ────────────────────────────────────────── */}
       <h2 className="ck-section-title">💳 Payment Method</h2>
 
-      {/* ── Payment option cards ─────────────────────────── */}
+      {/* ── Payment option cards ── */}
       <div
         className="ck-payment-options"
         role="radiogroup"
@@ -240,17 +106,12 @@ const PaymentStep = memo(function PaymentStep({
               className={`ck-payment-card ${
                 isSelected ? "ck-payment-card--selected" : ""
               }`}
-              onClick={() => {
-                if (!loading) onSelectPayment(opt.key);
-              }}
+              onClick={() => { if (!loading) onSelectPayment(opt.key); }}
               role="radio"
               aria-checked={isSelected}
               tabIndex={0}
               onKeyDown={(e) => {
-                if (
-                  (e.key === "Enter" || e.key === " ") &&
-                  !loading
-                ) {
+                if ((e.key === "Enter" || e.key === " ") && !loading) {
                   onSelectPayment(opt.key);
                 }
               }}
@@ -258,9 +119,7 @@ const PaymentStep = memo(function PaymentStep({
             >
               <div className="ck-radio-wrap">
                 <div
-                  className={`ck-radio ${
-                    isSelected ? "ck-radio--active" : ""
-                  }`}
+                  className={`ck-radio ${isSelected ? "ck-radio--active" : ""}`}
                   aria-hidden="true"
                 />
               </div>
@@ -276,7 +135,7 @@ const PaymentStep = memo(function PaymentStep({
         })}
       </div>
 
-      {/* ── Order summary ────────────────────────────────── */}
+      {/* ── Order summary ── */}
       {calculation && (
         <div className="ck-final-summary">
           <div className="ck-final-row">
@@ -285,9 +144,7 @@ const PaymentStep = memo(function PaymentStep({
           </div>
           <div className="ck-final-row">
             <span>Delivery Fee</span>
-            <span>
-              {deliveryFee === 0 ? "Free" : fmt(deliveryFee)}
-            </span>
+            <span>{deliveryFee === 0 ? "Free" : fmt(deliveryFee)}</span>
           </div>
           <div className="ck-final-divider" />
           <div className="ck-final-row ck-final-row--total">
@@ -297,18 +154,16 @@ const PaymentStep = memo(function PaymentStep({
         </div>
       )}
 
-      {/* ── Contextual notes ─────────────────────────────── */}
+      {/* ── Contextual notes ── */}
       {isCOD && (
         <div className="ck-cod-note" role="note">
-          💵 Have exact change ready —{" "}
-          <strong>{fmt(grandTotal)}</strong>
+          💵 Have exact change ready — <strong>{fmt(grandTotal)}</strong>
         </div>
       )}
 
       {isOnline && (
         <div className="ck-online-note" role="note">
-          🔒 You'll be redirected to Flutterwave to complete
-          payment securely.
+          🔒 You'll be redirected to Flutterwave to complete payment securely.
         </div>
       )}
 
@@ -318,38 +173,16 @@ const PaymentStep = memo(function PaymentStep({
         </div>
       )}
 
-      {/* ── Error ────────────────────────────────────────── */}
+      {/* ── Error from parent ── */}
       {error && (
-        <div
-          className="ck-payment-error"
-          role="alert"
-          aria-live="assertive"
-        >
+        <div className="ck-payment-error" role="alert" aria-live="assertive">
           <span aria-hidden="true">⚠️</span>
           <span>{error}</span>
-          <button
-            onClick={() => setError(null)}
-            aria-label="Dismiss error"
-            style={{
-              background: "none",
-              border:     "none",
-              cursor:     "pointer",
-              color:      "inherit",
-              opacity:    0.6,
-              marginLeft: "auto",
-              fontSize:   "1rem",
-              lineHeight: 1,
-              padding:    "0.1rem",
-            }}
-          >
-            ✕
-          </button>
         </div>
       )}
 
-      {/* ── Navigation ───────────────────────────────────── */}
+      {/* ── Navigation ── */}
       <div className="ck-nav-btns">
-
         <button
           className="ck-btn-back"
           onClick={onBack}
@@ -363,19 +196,17 @@ const PaymentStep = memo(function PaymentStep({
           className={`ck-place-order-btn ${
             loading ? "ck-place-order-btn--loading" : ""
           }`}
-          onClick={handlePlaceOrder}
+          onClick={onPlaceOrder}
           disabled={!paymentMethod || loading}
           aria-busy={loading}
         >
           {loading ? (
-            <span
-              style={{
-                display:        "flex",
-                alignItems:     "center",
-                gap:            "0.6rem",
-                justifyContent: "center",
-              }}
-            >
+            <span style={{
+              display:        "flex",
+              alignItems:     "center",
+              gap:            "0.6rem",
+              justifyContent: "center",
+            }}>
               <Spinner />
               Placing Order…
             </span>
@@ -387,7 +218,6 @@ const PaymentStep = memo(function PaymentStep({
             "Place Order"
           )}
         </button>
-
       </div>
     </div>
   );
