@@ -1,6 +1,14 @@
 /**
  * src/pages/CheckoutPage.jsx
- * v4 — With floating debug panel
+ * Route: /shop/checkout
+ *
+ * v5 — INLINE debug panel at top of page
+ * ────────────────────────────────────────
+ * ✓ Debug panel visible ALWAYS at top (like your cart debug panel)
+ * ✓ Shows config, cart, addresses, calculation, last request, last error
+ * ✓ Red SQL error block appears immediately after failed order
+ * ✓ Retry button in panel triggers place order
+ * ✓ User can close panel with ✕
  */
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
@@ -10,7 +18,7 @@ import axios from "axios";
 import AddressStep         from "./Checkout/AddressStep";
 import ReviewStep          from "./Checkout/ReviewStep";
 import PaymentStep         from "./Checkout/PaymentStep";
-import CheckoutDebugPanel  from "./Checkout/CheckoutDebugPanel";   /* ✅ NEW */
+import CheckoutDebugPanel  from "./Checkout/CheckoutDebugPanel";
 
 import "../styles/Checkout.css";
 
@@ -59,12 +67,14 @@ export default function CheckoutPage({ user }) {
   const [error,           setError]           = useState(null);
   const [errorDebug,      setErrorDebug]      = useState(null);
 
-  /* ✅ NEW: Debug state */
+  /* ── Debug state ── */
   const [lastRequest,  setLastRequest]  = useState(null);
   const [lastResponse, setLastResponse] = useState(null);
   const [lastError,    setLastError]    = useState(null);
 
-  /* ────── LOAD ADDRESSES ────── */
+  /* ════════════════════════════════════════════════════
+     LOAD ADDRESSES
+  ════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -86,16 +96,17 @@ export default function CheckoutPage({ user }) {
     return () => { cancelled = true; };
   }, [user]);
 
-  /* ────── LOAD CART ────── */
+  /* ════════════════════════════════════════════════════
+     LOAD CART
+  ════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
     setCartLoading(true);
 
     const readLocalCart = () => {
-      try {
-        return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-      } catch { return []; }
+      try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); }
+      catch { return []; }
     };
 
     axios
@@ -115,7 +126,9 @@ export default function CheckoutPage({ user }) {
     return () => { cancelled = true; };
   }, [user]);
 
-  /* ────── REDIRECT IF EMPTY ────── */
+  /* ════════════════════════════════════════════════════
+     REDIRECT IF EMPTY
+  ════════════════════════════════════════════════════ */
   useEffect(() => {
     if (cartLoading || !user) return;
     if (!cartItems.length) {
@@ -124,7 +137,9 @@ export default function CheckoutPage({ user }) {
     }
   }, [cartLoading, cartItems.length, user, navigate]);
 
-  /* ────── SUBTOTAL ────── */
+  /* ════════════════════════════════════════════════════
+     SUBTOTAL
+  ════════════════════════════════════════════════════ */
   const subtotal = useMemo(
     () => cartItems.reduce(
       (sum, item) => sum + Number(item.price) * Number(item.qty ?? 1),
@@ -133,7 +148,9 @@ export default function CheckoutPage({ user }) {
     [cartItems]
   );
 
-  /* ────── CALCULATE ────── */
+  /* ════════════════════════════════════════════════════
+     CALCULATE
+  ════════════════════════════════════════════════════ */
   useEffect(() => {
     if (subtotal <= 0) return;
     let cancelled = false;
@@ -163,7 +180,9 @@ export default function CheckoutPage({ user }) {
     return () => { cancelled = true; };
   }, [subtotal, discount]);
 
-  /* ────── ADDRESS HANDLERS ────── */
+  /* ════════════════════════════════════════════════════
+     ADDRESS HANDLERS
+  ════════════════════════════════════════════════════ */
   const handleAddAddress = useCallback((addr) => {
     setAddresses((prev) => [addr, ...prev]);
     setSelectedAddress(addr);
@@ -178,9 +197,9 @@ export default function CheckoutPage({ user }) {
     setSelectedAddress(addr);
   }, []);
 
-  /* ═══════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════
      PLACE ORDER — with debug capture
-  ═══════════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════ */
   const handlePlaceOrder = useCallback(async () => {
     setError(null);
     setErrorDebug(null);
@@ -216,11 +235,11 @@ export default function CheckoutPage({ user }) {
       notes     : notes || undefined,
     };
 
-    /* ✅ Capture request */
+    /* Capture request for debug panel */
     const requestSnapshot = {
-      url:     `${API}/checkout`,
+      url    : `${API}/checkout`,
       payload,
-      time:    new Date().toISOString(),
+      time   : new Date().toISOString(),
     };
     setLastRequest(requestSnapshot);
 
@@ -236,7 +255,7 @@ export default function CheckoutPage({ user }) {
         { headers: authHeaders(), timeout: 30_000 }
       );
 
-      /* ✅ Capture success response */
+      /* Capture success for debug panel */
       setLastResponse({
         status,
         data,
@@ -247,6 +266,7 @@ export default function CheckoutPage({ user }) {
 
       const orderData = data.data ?? data;
 
+      /* Online payment → redirect to Flutterwave */
       if (orderData.requiresPayment && orderData.paymentLink) {
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
@@ -254,6 +274,7 @@ export default function CheckoutPage({ user }) {
         return;
       }
 
+      /* Online payment but Flutterwave failed */
       if (orderData.requiresPayment && !orderData.paymentLink) {
         setError("Order created but payment link failed. Visit your orders to retry.");
         setErrorDebug(orderData);
@@ -263,6 +284,7 @@ export default function CheckoutPage({ user }) {
         return;
       }
 
+      /* Cash on delivery → order page */
       if (orderData.orderGroupId) {
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
@@ -273,13 +295,13 @@ export default function CheckoutPage({ user }) {
       throw new Error("Unexpected response from server.");
 
     } catch (err) {
-      /* ✅ Capture full error */
+      /* Capture full error for debug panel */
       const errorSnapshot = {
-        status:       err.response?.status,
-        message:      err.response?.data?.message || err.message,
-        debug:        err.response?.data?.debug,
+        status      : err.response?.status,
+        message     : err.response?.data?.message || err.message,
+        debug       : err.response?.data?.debug,
         fullResponse: err.response?.data,
-        time:         new Date().toISOString(),
+        time        : new Date().toISOString(),
       };
       setLastError(errorSnapshot);
 
@@ -308,6 +330,9 @@ export default function CheckoutPage({ user }) {
 
   if (!user) return null;
 
+  /* ════════════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════════════ */
   return (
     <div className="ck-page">
 
@@ -323,6 +348,26 @@ export default function CheckoutPage({ user }) {
         <h1 className="ck-topbar-title">Checkout</h1>
         <div />
       </div>
+
+      {/* ══════════════════════════════════════════════════
+          ✅ DEBUG PANEL — ALWAYS VISIBLE AT TOP
+          Like your cart debug panel
+      ══════════════════════════════════════════════════ */}
+      <CheckoutDebugPanel
+        apiBase={`${API}/checkout`}
+        token={getToken()}
+        user={user}
+        addresses={addresses}
+        selectedAddress={selectedAddress}
+        cartItems={cartItems}
+        cartLoading={cartLoading}
+        calculation={calculation}
+        paymentMethod={paymentMethod}
+        lastRequest={lastRequest}
+        lastResponse={lastResponse}
+        lastError={lastError}
+        onRetry={handlePlaceOrder}
+      />
 
       {/* ── Step Indicator ── */}
       <div className="ck-steps">
@@ -349,7 +394,7 @@ export default function CheckoutPage({ user }) {
         ))}
       </div>
 
-      {/* ── Global Error Banner ── */}
+      {/* ── Global Error Banner (steps 1 & 2 only) ── */}
       {error && step !== 3 && (
         <div className="ck-error" role="alert">
           ⚠️ {error}
@@ -421,24 +466,6 @@ export default function CheckoutPage({ user }) {
         )}
       </div>
 
-      {/* ═════════════════════════════════════
-          ✅ FLOATING DEBUG PANEL
-      ═════════════════════════════════════ */}
-      <CheckoutDebugPanel
-        apiBase={`${API}/checkout`}
-        token={getToken()}
-        user={user}
-        addresses={addresses}
-        selectedAddress={selectedAddress}
-        cartItems={cartItems}
-        cartLoading={cartLoading}
-        calculation={calculation}
-        paymentMethod={paymentMethod}
-        lastRequest={lastRequest}
-        lastResponse={lastResponse}
-        lastError={lastError}
-        onRetry={handlePlaceOrder}
-      />
     </div>
   );
 }
