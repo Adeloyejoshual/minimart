@@ -7,13 +7,12 @@
  *   Step 2 — Review
  *   Step 3 — Payment
  *
- * v2 — Single source of truth for order placement
- * ─────────────────────────────────────────────────
- * ✓ Parent owns loading + error state
- * ✓ Parent owns handlePlaceOrder — PaymentStep just triggers it
- * ✓ Parent guards for empty cart, missing address, missing payment
- * ✓ Server-side cart is the source of truth; localStorage is fallback
- * ✓ Redirects to /shop/cart if cart is empty at mount
+ * v3 — LIVE DEBUG for order placement failures
+ * ─────────────────────────────────────────────
+ * ✓ Full error object captured and forwarded to PaymentStep
+ * ✓ Console groups for every submit attempt
+ * ✓ Preserves entire err.response.data.debug (SQL details)
+ * ✓ Backward compatible with all existing steps
  */
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
@@ -76,6 +75,7 @@ export default function CheckoutPage({ user }) {
   const [notes,           setNotes]           = useState("");
   const [loading,         setLoading]         = useState(false);
   const [error,           setError]           = useState(null);
+  const [errorDebug,      setErrorDebug]      = useState(null);   // ✅ NEW
 
   /* ════════════════════════════════════════════════════════
      LOAD SAVED ADDRESSES
@@ -92,7 +92,6 @@ export default function CheckoutPage({ user }) {
         const list = data.data ?? [];
         setAddresses(list);
 
-        /* Auto-select default (or first) address */
         const def = list.find((a) => a.is_default) ?? list[0] ?? null;
         if (def) setSelectedAddress(def);
       })
@@ -106,9 +105,6 @@ export default function CheckoutPage({ user }) {
 
   /* ════════════════════════════════════════════════════════
      LOAD CART
-     ─────────────────────────────────────────────────────
-     Tries the server first (source of truth) then falls back
-     to localStorage. If BOTH are empty, redirects to /shop/cart.
   ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!user) return;
@@ -133,7 +129,6 @@ export default function CheckoutPage({ user }) {
         if (serverItems.length) {
           setCartItems(serverItems);
         } else {
-          /* Server cart empty → try localStorage */
           const local = readLocalCart();
           setCartItems(local);
         }
@@ -141,7 +136,6 @@ export default function CheckoutPage({ user }) {
       .catch((err) => {
         if (cancelled) return;
         console.warn("[Checkout] server cart load failed:", err.message);
-        /* Fall back entirely to localStorage */
         setCartItems(readLocalCart());
       })
       .finally(() => {
@@ -193,7 +187,6 @@ export default function CheckoutPage({ user }) {
         if (cancelled) return;
         setCalculation(data.data);
 
-        /* Auto-select first payment option (or keep valid selection) */
         if (data.data.paymentOptions?.length) {
           setPaymentMethod((prev) =>
             data.data.paymentOptions.some((o) => o.key === prev)
@@ -213,89 +206,114 @@ export default function CheckoutPage({ user }) {
   /* ════════════════════════════════════════════════════════
      ADDRESS HANDLERS
   ════════════════════════════════════════════════════════ */
-
-  /** Called when a brand-new address is saved */
   const handleAddAddress = useCallback((addr) => {
     setAddresses((prev) => [addr, ...prev]);
     setSelectedAddress(addr);
   }, []);
 
-  /** Called when an existing address is updated */
   const handleEditAddress = useCallback((id, updated) => {
-    setAddresses((prev) =>
-      prev.map((a) => (a.id === id ? updated : a))
-    );
-    setSelectedAddress((prev) =>
-      prev?.id === id ? updated : prev
-    );
+    setAddresses((prev) => prev.map((a) => (a.id === id ? updated : a)));
+    setSelectedAddress((prev) => (prev?.id === id ? updated : prev));
   }, []);
 
-  /** Called when user selects an address card */
   const handleSelectAddress = useCallback((addr) => {
     setSelectedAddress(addr);
   }, []);
 
   /* ════════════════════════════════════════════════════════
-     PLACE ORDER — SINGLE SOURCE OF TRUTH
-     ─────────────────────────────────────────────────────
-     Guards for every failure mode with a clear message.
-     PaymentStep just calls this via onPlaceOrder.
+     PLACE ORDER — WITH LIVE DEBUG
   ════════════════════════════════════════════════════════ */
   const handlePlaceOrder = useCallback(async () => {
-    /* ── Guards with actionable messages ── */
+    /* ── Reset previous errors ── */
+    setError(null);
+    setErrorDebug(null);
+
+    /* ── Guards ── */
     if (!selectedAddress) {
       setError("Please select a delivery address.");
       setStep(1);
       return;
     }
-
     if (!paymentMethod) {
       setError("Please select a payment method.");
       return;
     }
-
     if (!cartItems.length) {
       setError("Your cart is empty. Add items before checking out.");
       setTimeout(() => navigate("/shop/cart"), 1500);
       return;
     }
-
     if (!calculation) {
       setError("Still calculating totals. Please wait a moment and try again.");
       return;
     }
 
     setLoading(true);
-    setError(null);
+
+    /* ═══════════════════════════════════════════════════
+       LIVE DEBUG — request payload
+    ═══════════════════════════════════════════════════ */
+    const payload = {
+      addressId : selectedAddress.id,
+      paymentMethod,
+      couponCode: couponCode || undefined,
+      discount,
+      notes     : notes || undefined,
+    };
+
+    console.group("🛒 [Checkout] Place Order Request");
+    console.log("URL:      ", `${API}/checkout`);
+    console.log("Payload:  ", payload);
+    console.log("Address:  ", selectedAddress);
+    console.log("Cart items:", cartItems.length);
+    console.log("Subtotal: ", subtotal);
+    console.log("Grand tot:", calculation.grandTotal);
+    console.groupEnd();
 
     try {
       const { data } = await axios.post(
         `${API}/checkout`,
-        {
-          addressId  : selectedAddress.id,
-          paymentMethod,
-          couponCode : couponCode || undefined,
-          discount,
-          notes      : notes      || undefined,
-        },
+        payload,
         { headers: authHeaders(), timeout: 30_000 }
       );
 
-      console.log("[Checkout] Order response:", data);
+      /* ═══════════════════════════════════════════════
+         LIVE DEBUG — success response
+      ═══════════════════════════════════════════════ */
+      console.group("✅ [Checkout] Order Response");
+      console.log("Full response:", data);
+      console.groupEnd();
 
       const orderData = data.data ?? data;
 
       /* ── Online payment → redirect to Flutterwave ── */
       if (orderData.requiresPayment && orderData.paymentLink) {
-        /* Clear local cart before redirect */
+        console.log("→ Redirecting to Flutterwave:", orderData.paymentLink);
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
         window.location.href = orderData.paymentLink;
         return;
       }
 
+      /* ── Online payment with NO payment link (Flutterwave failed backend-side) ── */
+      if (orderData.requiresPayment && !orderData.paymentLink) {
+        console.warn("→ Order created but no payment link:", orderData);
+        setError(
+          "Order created, but payment could not be initiated. " +
+          "Please visit your orders page to retry payment."
+        );
+        setErrorDebug(orderData);
+        localStorage.removeItem(CART_KEY);
+        window.dispatchEvent(new Event("cart-updated"));
+        setTimeout(() => {
+          navigate(`/shop/orders/${orderData.orderGroupId}`);
+        }, 3000);
+        return;
+      }
+
       /* ── Cash on delivery → success page ── */
       if (orderData.orderGroupId) {
+        console.log("→ COD success, navigating to order page");
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
         navigate(`/shop/orders/${orderData.orderGroupId}`);
@@ -305,21 +323,38 @@ export default function CheckoutPage({ user }) {
       throw new Error("Unexpected response from server. Please try again.");
 
     } catch (err) {
-      console.error("[Checkout] Place order failed:", err);
+      /* ═══════════════════════════════════════════════
+         LIVE DEBUG — full error dump
+      ═══════════════════════════════════════════════ */
+      console.group("❌ [Checkout] Order Failed");
+      console.log("Status:          ", err.response?.status);
+      console.log("Status text:     ", err.response?.statusText);
+      console.log("Message:         ", err.response?.data?.message);
+      console.log("Debug object:    ", err.response?.data?.debug);
+      console.log("Full data:       ", err.response?.data);
+      console.log("Request payload: ", payload);
+      console.log("Error object:    ", err);
+      console.groupEnd();
 
-      const message =
-        err.response?.data?.message ||
-        err.response?.data?.error   ||
-        err.message                 ||
-        "Failed to place order. Please try again.";
+      /* Show the most detailed error we can find */
+      const backendMessage = err.response?.data?.message;
+      const sqlMessage     = err.response?.data?.debug?.message;
+      const genericMessage = err.message;
 
-      setError(message);
+      const displayMessage =
+        sqlMessage
+          ? `${backendMessage} (${sqlMessage})`
+          : backendMessage || genericMessage || "Failed to place order. Please try again.";
+
+      setError(displayMessage);
+      setErrorDebug(err.response?.data?.debug ?? err.response?.data ?? null);
+
     } finally {
       setLoading(false);
     }
   }, [
     selectedAddress, paymentMethod, cartItems, calculation,
-    couponCode, discount, notes, navigate,
+    couponCode, discount, notes, subtotal, navigate,
   ]);
 
   /* ════════════════════════════════════════════════════════
@@ -380,7 +415,7 @@ export default function CheckoutPage({ user }) {
         <div className="ck-error" role="alert">
           ⚠️ {error}
           <button
-            onClick={() => setError(null)}
+            onClick={() => { setError(null); setErrorDebug(null); }}
             aria-label="Dismiss error"
           >
             ✕
@@ -391,7 +426,6 @@ export default function CheckoutPage({ user }) {
       {/* ── Step Content ── */}
       <div className="ck-content">
 
-        {/* Loading state while cart fetches */}
         {cartLoading && (
           <div className="ck-loading" role="status" aria-live="polite">
             <div className="ck-loading-spinner" />
@@ -399,7 +433,6 @@ export default function CheckoutPage({ user }) {
           </div>
         )}
 
-        {/* Step 1 — Address */}
         {!cartLoading && step === 1 && (
           <AddressStep
             addresses={addresses}
@@ -412,7 +445,6 @@ export default function CheckoutPage({ user }) {
           />
         )}
 
-        {/* Step 2 — Review */}
         {!cartLoading && step === 2 && (
           <ReviewStep
             cartItems={cartItems}
@@ -429,7 +461,6 @@ export default function CheckoutPage({ user }) {
           />
         )}
 
-        {/* Step 3 — Payment */}
         {!cartLoading && step === 3 && (
           <PaymentStep
             calculation={calculation}
@@ -437,7 +468,16 @@ export default function CheckoutPage({ user }) {
             onSelectPayment={setPaymentMethod}
             loading={loading}
             error={error}
-            onBack={() => { setError(null); setStep(2); }}
+            errorDebug={errorDebug}           /* ✅ NEW */
+            onDismissError={() => {
+              setError(null);
+              setErrorDebug(null);
+            }}
+            onBack={() => {
+              setError(null);
+              setErrorDebug(null);
+              setStep(2);
+            }}
             onPlaceOrder={handlePlaceOrder}
           />
         )}
