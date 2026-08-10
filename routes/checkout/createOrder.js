@@ -1,12 +1,17 @@
 /**
  * services/orderService.js
  *
- * v5 — Fully adaptive column detection
- * ─────────────────────────────────────
- * ✓ Detects orders.user_id
- * ✓ Detects order_items real column names (name vs product_name)
- * ✓ Detects optional columns (variant_id, sku, image, etc.)
- * ✓ Only INSERTs into columns that exist
+ * v6 — Handles your actual public.order_items schema
+ * ────────────────────────────────────────────────────
+ * Your schema:
+ *   order_id, product_id, seller_id (NOT NULL),
+ *   quantity, price, variant_id, variant_name, sku, image
+ *
+ * ✓ Auto-detects all column names (name/product_name/etc.)
+ * ✓ Uses "quantity" instead of "qty" if that's the real column
+ * ✓ Uses "price" instead of "unit_price" if that's the real column
+ * ✓ Includes seller_id in order_items INSERT (required by your schema)
+ * ✓ Skips subtotal/name if they don't exist
  * ✓ Works with any schema variant
  */
 
@@ -14,7 +19,7 @@ import { pool }                 from "../config/db.js";
 import { calculateDeliveryFee } from "./delivery.js";
 
 /* ════════════════════════════════════════════════════════════
-   COLUMN DETECTION
+   COLUMN DETECTION (cached)
 ════════════════════════════════════════════════════════════ */
 let ORDER_GROUP_COLS = null;
 let ORDER_COLS       = null;
@@ -62,10 +67,15 @@ async function detectOrderColumns() {
   return ORDER_COLS;
 }
 
-/*
- * ✅ DETECTS ALL order_items COLUMNS
- * Figures out the actual column name for product name/title
- * and which optional columns exist.
+/**
+ * Detects order_items columns and figures out real column names.
+ *
+ * Your schema:
+ * - order_id, product_id, seller_id → all REQUIRED
+ * - quantity (not "qty"), price (not "unit_price")
+ * - variant_id, variant_name, sku, image → optional
+ * - NO "name" column
+ * - NO "subtotal" column
  */
 async function detectOrderItemColumns() {
   if (ORDER_ITEM_COLS) return ORDER_ITEM_COLS;
@@ -76,24 +86,24 @@ async function detectOrderItemColumns() {
     );
     const cols = new Set(rows.map((r) => r.column_name));
 
-    /* Figure out what the "name" column is called */
+    /* Figure out qty column */
+    let qtyColumn = null;
+    if      (cols.has("quantity")) qtyColumn = "quantity";
+    else if (cols.has("qty"))      qtyColumn = "qty";
+
+    /* Figure out price column */
+    let priceColumn = null;
+    if      (cols.has("price"))      priceColumn = "price";
+    else if (cols.has("unit_price")) priceColumn = "unit_price";
+
+    /* Figure out name column (optional in your schema) */
     let nameColumn = null;
     if      (cols.has("name"))         nameColumn = "name";
     else if (cols.has("product_name")) nameColumn = "product_name";
     else if (cols.has("item_name"))    nameColumn = "item_name";
     else if (cols.has("title"))        nameColumn = "title";
 
-    /* Figure out price column name */
-    let priceColumn = null;
-    if      (cols.has("unit_price")) priceColumn = "unit_price";
-    else if (cols.has("price"))      priceColumn = "price";
-
-    /* Figure out qty column name */
-    let qtyColumn = null;
-    if      (cols.has("qty"))      qtyColumn = "qty";
-    else if (cols.has("quantity")) qtyColumn = "quantity";
-
-    /* Figure out subtotal column name */
+    /* Figure out subtotal column (optional in your schema) */
     let subtotalColumn = null;
     if      (cols.has("subtotal"))    subtotalColumn = "subtotal";
     else if (cols.has("total_price")) subtotalColumn = "total_price";
@@ -101,11 +111,13 @@ async function detectOrderItemColumns() {
 
     ORDER_ITEM_COLS = {
       allColumns:     [...cols],
-      nameColumn,
-      priceColumn,
       qtyColumn,
-      subtotalColumn,
+      priceColumn,
+      nameColumn,           /* Will be null in your case */
+      subtotalColumn,       /* Will be null in your case */
       hasProductId:   cols.has("product_id"),
+      hasSellerId:    cols.has("seller_id"),
+      hasVendorId:    cols.has("vendor_id"),
       hasVariantId:   cols.has("variant_id"),
       hasVariantName: cols.has("variant_name"),
       hasSku:         cols.has("sku"),
@@ -113,31 +125,36 @@ async function detectOrderItemColumns() {
       hasImageUrl:    cols.has("image_url"),
     };
 
-    console.log("[orderService] order_items cols:", ORDER_ITEM_COLS);
+    console.log("[orderService] order_items cols detected:");
+    console.log("  All columns:", ORDER_ITEM_COLS.allColumns);
+    console.log("  Qty col:    ", qtyColumn);
+    console.log("  Price col:  ", priceColumn);
+    console.log("  Name col:   ", nameColumn ?? "(none — will skip)");
+    console.log("  Subtotal:   ", subtotalColumn ?? "(none — will skip)");
+    console.log("  Has seller_id:", ORDER_ITEM_COLS.hasSellerId);
 
-    if (!nameColumn) {
-      console.error("[orderService] ⚠ order_items has NO name/product_name/title column!");
+    if (!qtyColumn) {
+      console.error("[orderService] ⚠ No qty/quantity column found!");
     }
     if (!priceColumn) {
-      console.error("[orderService] ⚠ order_items has NO unit_price/price column!");
-    }
-    if (!qtyColumn) {
-      console.error("[orderService] ⚠ order_items has NO qty/quantity column!");
+      console.error("[orderService] ⚠ No price/unit_price column found!");
     }
 
   } catch (err) {
     console.warn("[orderService] order_items detection failed:", err.message);
     ORDER_ITEM_COLS = {
       allColumns:     [],
-      nameColumn:     "name",
-      priceColumn:    "unit_price",
-      qtyColumn:      "qty",
-      subtotalColumn: "subtotal",
+      qtyColumn:      "quantity",
+      priceColumn:    "price",
+      nameColumn:     null,
+      subtotalColumn: null,
       hasProductId:   true,
-      hasVariantId:   false,
-      hasVariantName: false,
-      hasSku:         false,
-      hasImage:       false,
+      hasSellerId:    true,
+      hasVendorId:    false,
+      hasVariantId:   true,
+      hasVariantName: true,
+      hasSku:         true,
+      hasImage:       true,
       hasImageUrl:    false,
     };
   }
@@ -152,9 +169,10 @@ function generateTrackingId(uuid) {
 }
 
 /**
- * Build a dynamic INSERT for order_items based on the real schema.
+ * Build a dynamic INSERT for order_items using ONLY columns that exist.
+ * Ensures seller_id is always included (it's NOT NULL in your schema).
  */
-function buildOrderItemInsert(itemCols, orderId, item) {
+function buildOrderItemInsert(itemCols, orderId, sellerId, item) {
   const columns = ["order_id"];
   const values  = [orderId];
 
@@ -163,9 +181,16 @@ function buildOrderItemInsert(itemCols, orderId, item) {
     values.push(item.productId);
   }
 
-  if (itemCols.nameColumn) {
-    columns.push(itemCols.nameColumn);
-    values.push(item.name);
+  /* ✅ CRITICAL: seller_id is NOT NULL in your schema */
+  if (itemCols.hasSellerId) {
+    columns.push("seller_id");
+    values.push(sellerId);
+  }
+
+  /* ✅ Vendor_id (optional alias) */
+  if (itemCols.hasVendorId) {
+    columns.push("vendor_id");
+    values.push(sellerId);
   }
 
   if (itemCols.qtyColumn) {
@@ -176,6 +201,11 @@ function buildOrderItemInsert(itemCols, orderId, item) {
   if (itemCols.priceColumn) {
     columns.push(itemCols.priceColumn);
     values.push(Number(item.price));
+  }
+
+  if (itemCols.nameColumn) {
+    columns.push(itemCols.nameColumn);
+    values.push(item.name);
   }
 
   if (itemCols.subtotalColumn) {
@@ -207,7 +237,7 @@ function buildOrderItemInsert(itemCols, orderId, item) {
   const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
 
   return {
-    sql: `INSERT INTO public.order_items (${columns.join(", ")}) VALUES (${placeholders})`,
+    sql:    `INSERT INTO public.order_items (${columns.join(", ")}) VALUES (${placeholders})`,
     params: values,
   };
 }
@@ -239,7 +269,9 @@ export async function createOrderGroup({
   try {
     await client.query("BEGIN");
 
-    /* 1. Create master order group */
+    /* ══════════════════════════════════════════════════
+       1. Create master order group
+    ══════════════════════════════════════════════════ */
     const { rows: [group] } = await client.query(
       `INSERT INTO public.order_groups
          (user_id, address_id, total_amount, delivery_fee,
@@ -256,6 +288,7 @@ export async function createOrderGroup({
     const orderGroupId = group.id;
     const trackingId   = generateTrackingId(orderGroupId);
 
+    /* Save tracking ID if column exists */
     if (groupCols.hasTrackingId) {
       try {
         await client.query(
@@ -267,7 +300,9 @@ export async function createOrderGroup({
       }
     }
 
-    /* 2. Group items by seller */
+    /* ══════════════════════════════════════════════════
+       2. Group items by seller
+    ══════════════════════════════════════════════════ */
     const sellerMap = new Map();
     for (const item of items) {
       if (!item.sellerId) {
@@ -282,7 +317,9 @@ export async function createOrderGroup({
       sellerMap.get(item.sellerId).items.push(item);
     }
 
-    /* 3. Create one orders row per seller */
+    /* ══════════════════════════════════════════════════
+       3. Create one orders row per seller
+    ══════════════════════════════════════════════════ */
     const createdOrders = [];
 
     for (const [sellerId, sellerData] of sellerMap.entries()) {
@@ -313,11 +350,13 @@ export async function createOrderGroup({
       }
 
       const { rows: [order] } = await client.query(orderSql, orderParams);
+      console.log(`[orderService] ✓ Created order ${order.id} for seller ${sellerId}`);
 
-      /* ✅ Dynamic INSERT for order_items using real column names */
+      /* ✅ Insert each order_item — WITH seller_id */
       for (const item of sellerItems) {
-        const insert = buildOrderItemInsert(itemCols, order.id, item);
-        console.log(`[orderService] Inserting item: ${insert.sql}`);
+        const insert = buildOrderItemInsert(itemCols, order.id, sellerId, item);
+        console.log(`[orderService] SQL: ${insert.sql}`);
+        console.log(`[orderService] Params:`, insert.params);
         await client.query(insert.sql, insert.params);
       }
 
@@ -330,7 +369,9 @@ export async function createOrderGroup({
       });
     }
 
-    /* 4. Clear buyer cart */
+    /* ══════════════════════════════════════════════════
+       4. Clear buyer cart
+    ══════════════════════════════════════════════════ */
     await client.query(
       `DELETE FROM market.cart_items ci
        USING market.carts c
@@ -340,7 +381,7 @@ export async function createOrderGroup({
 
     await client.query("COMMIT");
 
-    console.log(`[orderService] ✅ Created order ${orderGroupId} with ${createdOrders.length} sub-orders`);
+    console.log(`[orderService] ✅ Created order group ${orderGroupId} with ${createdOrders.length} sub-orders`);
 
     return {
       orderGroupId,
@@ -482,11 +523,16 @@ export async function getOrderGroup(orderGroupId, userId) {
     [orderGroupId]
   );
 
+  /* Enrich items with product name from market.products since order_items has no name */
   for (const order of orders) {
     const { rows: items } = await pool.query(
-      `SELECT * FROM public.order_items
-       WHERE order_id = $1
-       ORDER BY id`,
+      `SELECT
+         oi.*,
+         p.name AS product_name
+       FROM public.order_items oi
+       LEFT JOIN market.products p ON p.id = oi.product_id
+       WHERE oi.order_id = $1
+       ORDER BY oi.id`,
       [order.id]
     );
     order.items = items;
