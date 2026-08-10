@@ -1,8 +1,9 @@
 /**
  * src/pages/Checkout/CheckoutDebugPanel.jsx
  *
- * Always-visible inline debug panel for checkout troubleshooting.
- * Shows exactly what the frontend sent + what backend responded with.
+ * Always-visible inline debug panel for checkout.
+ * Shows: config, addresses, cart, calculation,
+ *        last request, last response, last error.
  */
 
 import { useState, memo } from "react";
@@ -43,6 +44,65 @@ const statusBadge = (status) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENTS
+═══════════════════════════════════════════════════════════════ */
+const Section = memo(function Section({ title, color, children }) {
+  return (
+    <div style={{
+      marginBottom : 14,
+      padding      : 12,
+      background   : "#1e293b",
+      borderRadius : 8,
+      borderLeft   : `3px solid ${color}`,
+    }}>
+      <div style={{
+        color       : color,
+        fontWeight  : 800,
+        fontSize    : 13,
+        marginBottom: 8,
+      }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+});
+
+const Row = memo(function Row({ label, value }) {
+  return (
+    <div style={{
+      display      : "flex",
+      gap          : 8,
+      marginBottom : 3,
+      flexWrap     : "wrap",
+    }}>
+      <span style={{ color: "#64748b", minWidth: 90 }}>{label}:</span>
+      <span style={{
+        color     : "#e2e8f0",
+        wordBreak : "break-all",
+        flex      : 1,
+      }}>
+        {value ?? <em style={{ color: "#64748b" }}>—</em>}
+      </span>
+    </div>
+  );
+});
+
+const preStyle = {
+  marginTop    : 8,
+  padding      : 10,
+  background   : "#0f172a",
+  border       : "1px solid #334155",
+  borderRadius : 6,
+  fontSize     : 11,
+  color        : "#67e8f9",
+  overflow     : "auto",
+  maxHeight    : 250,
+  whiteSpace   : "pre-wrap",
+  wordBreak    : "break-all",
+};
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
@@ -62,26 +122,31 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
 }) {
   const [closed, setClosed] = useState(false);
 
+  /* ── Collapsed state: small toggle bar ── */
   if (closed) {
     return (
-      <div style={{
-        margin       : "8px 12px",
-        padding      : "6px 12px",
-        background   : "#0f172a",
-        color        : "#fbbf24",
-        borderRadius : 6,
-        fontSize     : 11,
-        textAlign    : "center",
-        cursor       : "pointer",
-        fontFamily   : "monospace",
-      }}
+      <div
         onClick={() => setClosed(false)}
+        style={{
+          margin       : "8px 12px",
+          padding      : "8px 12px",
+          background   : "#0f172a",
+          color        : "#fbbf24",
+          borderRadius : 6,
+          fontSize     : 12,
+          fontWeight   : 700,
+          textAlign    : "center",
+          cursor       : "pointer",
+          fontFamily   : "monospace",
+          border       : "1px dashed #ff5722",
+        }}
       >
         🔍 Show Debug Panel
       </div>
     );
   }
 
+  /* ── Expanded panel ── */
   return (
     <div style={{
       margin       : "12px",
@@ -228,7 +293,7 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
         </Section>
       )}
 
-      {/* LAST RESPONSE */}
+      {/* LAST RESPONSE (SUCCESS) */}
       {lastResponse && !lastError && (
         <Section title="📥 LAST RESPONSE" color="#10b981">
           <Row label="Status" value={<>OK {statusBadge(lastResponse.status)}</>} />
@@ -295,64 +360,5 @@ const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
     </div>
   );
 });
-
-/* ═══════════════════════════════════════════════════════════════
-   SUB-COMPONENTS
-═══════════════════════════════════════════════════════════════ */
-const Section = memo(function Section({ title, color, children }) {
-  return (
-    <div style={{
-      marginBottom : 14,
-      padding      : 12,
-      background   : "#1e293b",
-      borderRadius : 8,
-      borderLeft   : `3px solid ${color}`,
-    }}>
-      <div style={{
-        color       : color,
-        fontWeight  : 800,
-        fontSize    : 13,
-        marginBottom: 8,
-      }}>
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-});
-
-const Row = memo(function Row({ label, value }) {
-  return (
-    <div style={{
-      display      : "flex",
-      gap          : 8,
-      marginBottom : 3,
-      flexWrap     : "wrap",
-    }}>
-      <span style={{ color: "#64748b", minWidth: 90 }}>{label}:</span>
-      <span style={{
-        color     : "#e2e8f0",
-        wordBreak : "break-all",
-        flex      : 1,
-      }}>
-        {value ?? <em style={{ color: "#64748b" }}>—</em>}
-      </span>
-    </div>
-  );
-});
-
-const preStyle = {
-  marginTop    : 8,
-  padding      : 10,
-  background   : "#0f172a",
-  border       : "1px solid #334155",
-  borderRadius : 6,
-  fontSize     : 11,
-  color        : "#67e8f9",
-  overflow     : "auto",
-  maxHeight    : 250,
-  whiteSpace   : "pre-wrap",
-  wordBreak    : "break-all",
-};
 
 export default CheckoutDebugPanel;
