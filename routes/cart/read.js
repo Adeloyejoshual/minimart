@@ -1,23 +1,8 @@
 /**
  * routes/cart/read.js
+ * WITH STEP-BY-STEP DEBUG LOGGING
  *
  * GET /api/cart
- * Fetch the current buyer's cart with all items + product details.
- *
- * Auth: authenticateBuyer — public.users JWT
- *
- * Response shape:
- * {
- *   success: true,
- *   data: {
- *     cart_id       : "uuid",
- *     items         : [ { id, product_id, name, image_url, price, ... } ],
- *     item_count    : 3,
- *     total_qty     : 5,
- *     subtotal      : 12500,
- *     total_savings : 2500
- *   }
- * }
  */
 
 import express                from "express";
@@ -28,124 +13,214 @@ const router = express.Router();
 
 /* ══════════════════════════════════════════════════════════════
    GET /
-   Fetch active cart for the logged-in buyer
 ══════════════════════════════════════════════════════════════ */
 router.get("/", authenticateBuyer, async (req, res) => {
   const userId = req.user.id;
+  console.log("═══════════════════════════════════════════");
+  console.log("[cart/read] START | user:", userId);
 
   try {
-    /* ── Find or create the buyer's active cart ── */
-    let { rows: cartRows } = await pool.query(
-      `SELECT id
-       FROM market.carts
-       WHERE user_id = $1
-         AND status = 'active'
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [userId]
-    );
-
-    let cartId;
-
-    if (cartRows.length === 0) {
-      /* No cart yet — create one on demand */
-      const { rows: newCart } = await pool.query(
-        `INSERT INTO market.carts (user_id, status)
-         VALUES ($1, 'active')
-         RETURNING id`,
-        [userId]
-      );
-      cartId = newCart[0].id;
-    } else {
-      cartId = cartRows[0].id;
+    /* ═══════════════════════════════════════════
+       STEP 1: Check if market.carts table exists
+    ═══════════════════════════════════════════ */
+    console.log("[cart/read] STEP 1: Check table exists");
+    try {
+      await pool.query(`SELECT 1 FROM market.carts LIMIT 1`);
+      console.log("[cart/read] ✓ market.carts exists");
+    } catch (e) {
+      console.error("[cart/read] ❌ market.carts MISSING:", e.message);
+      return fail(res, 500, "Cart system not initialized. Run migrations.");
     }
 
-    /* ── Fetch items + product info via JOIN ── */
-    const { rows: items } = await pool.query(
-      `SELECT
-         ci.id,
-         ci.product_id,
-         ci.variant_id,
-         ci.qty,
-         ci.added_at,
+    /* ═══════════════════════════════════════════
+       STEP 2: Find or create cart
+    ═══════════════════════════════════════════ */
+    console.log("[cart/read] STEP 2: Find active cart");
+    let cartId;
 
-         p.name          AS product_name,
-         p.slug,
-         p.price         AS current_price,
-         p.original_price,
-         p.stock         AS product_stock,
-         p.is_active,
-         p.status,
-         p.has_delivery,
+    try {
+      const { rows } = await pool.query(
+        `SELECT id
+         FROM market.carts
+         WHERE user_id = $1
+           AND status = 'active'
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId]
+      );
 
-         pi.image_url,
-         pi.storage_key,
+      if (rows.length === 0) {
+        console.log("[cart/read] No cart — creating new");
+        const { rows: newCart } = await pool.query(
+          `INSERT INTO market.carts (user_id, status)
+           VALUES ($1, 'active')
+           RETURNING id`,
+          [userId]
+        );
+        cartId = newCart[0].id;
+        console.log("[cart/read] ✓ Cart created:", cartId);
+      } else {
+        cartId = rows[0].id;
+        console.log("[cart/read] ✓ Cart found:", cartId);
+      }
+    } catch (e) {
+      console.error("[cart/read] ❌ Cart find/create failed:", e.message);
+      console.error("[cart/read] ❌ Code:", e.code);
+      console.error("[cart/read] ❌ Detail:", e.detail);
+      return fail(res, 500, `Cart error: ${e.message}`);
+    }
 
-         pv.name  AS variant_name,
-         pv.sku   AS variant_sku,
-         pv.price AS variant_price,
-         pv.stock AS variant_stock
+    /* ═══════════════════════════════════════════
+       STEP 3: Check if market.cart_items exists
+    ═══════════════════════════════════════════ */
+    console.log("[cart/read] STEP 3: Check cart_items table");
+    try {
+      await pool.query(`SELECT 1 FROM market.cart_items LIMIT 1`);
+      console.log("[cart/read] ✓ market.cart_items exists");
+    } catch (e) {
+      console.error("[cart/read] ❌ market.cart_items MISSING:", e.message);
+      return fail(res, 500, "Cart items table missing. Run migrations.");
+    }
 
-       FROM market.cart_items ci
-       LEFT JOIN market.products p
-         ON p.id = ci.product_id
-       LEFT JOIN market.product_variants pv
-         ON pv.id = ci.variant_id
-       LEFT JOIN LATERAL (
-         SELECT image_url, storage_key
-         FROM market.product_images
-         WHERE product_id = ci.product_id
-         ORDER BY is_primary DESC, sort_order ASC
-         LIMIT 1
-       ) pi ON true
+    /* ═══════════════════════════════════════════
+       STEP 4: Fetch items — SIMPLE query first
+    ═══════════════════════════════════════════ */
+    console.log("[cart/read] STEP 4: Fetch cart items (simple)");
+    let simpleItems;
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, product_id, variant_id, qty, added_at
+         FROM market.cart_items
+         WHERE cart_id = $1
+         ORDER BY added_at DESC`,
+        [cartId]
+      );
+      simpleItems = rows;
+      console.log(`[cart/read] ✓ Found ${rows.length} raw items`);
+    } catch (e) {
+      console.error("[cart/read] ❌ Simple items query failed:", e.message);
+      return fail(res, 500, `Items query error: ${e.message}`);
+    }
 
-       WHERE ci.cart_id = $1
-       ORDER BY ci.added_at DESC`,
-      [cartId]
-    );
+    /* ═══════════════════════════════════════════
+       STEP 5: If no items, return empty cart
+    ═══════════════════════════════════════════ */
+    if (simpleItems.length === 0) {
+      console.log("[cart/read] ✓ Cart is empty — returning early");
+      return ok(res, {
+        data: {
+          cart_id       : cartId,
+          items         : [],
+          item_count    : 0,
+          total_qty     : 0,
+          subtotal      : 0,
+          total_savings : 0,
+        },
+      });
+    }
 
-    /* ── Normalize items for frontend ── */
-    const normalized = items.map((row) => {
-      const price          = Number(row.variant_price ?? row.current_price ?? 0);
-      const originalPrice  = Number(row.original_price ?? 0);
-      const stock          = row.variant_id
-        ? Number(row.variant_stock ?? 0)
-        : Number(row.product_stock ?? 0);
+    /* ═══════════════════════════════════════════
+       STEP 6: Enrich items with product info
+       (Simple loop — no LATERAL join)
+    ═══════════════════════════════════════════ */
+    console.log("[cart/read] STEP 6: Enrich items");
+    const enriched = [];
 
-      return {
-        id             : row.id,
-        product_id     : row.product_id,
-        variant_id     : row.variant_id,
-        product_name   : row.product_name,
-        name           : row.product_name,   // alias for frontend
-        slug           : row.slug,
-        image_url      : row.image_url,
-        image          : row.image_url,      // alias
-        price          : price,
-        original_price : originalPrice,
-        stock          : stock,
-        qty            : Number(row.qty),
-        variant_name   : row.variant_name,
-        variant_sku    : row.variant_sku,
-        has_delivery   : row.has_delivery,
-        added_at       : row.added_at,
+    for (const item of simpleItems) {
+      try {
+        /* Product */
+        const { rows: prodRows } = await pool.query(
+          `SELECT
+             id, name, slug, price, original_price, stock,
+             is_active, status, has_delivery
+           FROM market.products
+           WHERE id = $1`,
+          [item.product_id]
+        );
 
-        /* Availability flags */
-        is_available   : row.is_active
-                       && ["approved", "active"].includes(row.status)
-                       && stock > 0,
-        is_out_of_stock: stock === 0,
-      };
-    });
+        if (prodRows.length === 0) {
+          console.warn(`[cart/read] ⚠ Product ${item.product_id} not found — skipping`);
+          continue;
+        }
+        const product = prodRows[0];
 
-    /* ── Aggregate totals ── */
-    const totals = normalized.reduce(
+        /* Primary image */
+        let imageUrl = null;
+        try {
+          const { rows: imgRows } = await pool.query(
+            `SELECT image_url
+             FROM market.product_images
+             WHERE product_id = $1
+             ORDER BY is_primary DESC NULLS LAST, sort_order ASC NULLS LAST
+             LIMIT 1`,
+            [item.product_id]
+          );
+          imageUrl = imgRows[0]?.image_url ?? null;
+        } catch (e) {
+          console.warn("[cart/read] ⚠ Image fetch failed:", e.message);
+        }
+
+        /* Variant (if any) */
+        let variant = null;
+        if (item.variant_id) {
+          try {
+            const { rows: varRows } = await pool.query(
+              `SELECT id, name, sku, price, stock
+               FROM market.product_variants
+               WHERE id = $1`,
+              [item.variant_id]
+            );
+            variant = varRows[0] ?? null;
+          } catch (e) {
+            console.warn("[cart/read] ⚠ Variant fetch failed:", e.message);
+          }
+        }
+
+        /* Compose */
+        const price = Number(variant?.price ?? product.price ?? 0);
+        const originalPrice = Number(product.original_price ?? 0);
+        const stock = variant
+          ? Number(variant.stock ?? 0)
+          : Number(product.stock ?? 0);
+
+        enriched.push({
+          id             : item.id,
+          product_id     : item.product_id,
+          variant_id     : item.variant_id,
+          product_name   : product.name,
+          name           : product.name,
+          slug           : product.slug,
+          image_url      : imageUrl,
+          image          : imageUrl,
+          price,
+          original_price : originalPrice,
+          stock,
+          qty            : Number(item.qty),
+          variant_name   : variant?.name ?? null,
+          variant_sku    : variant?.sku ?? null,
+          has_delivery   : product.has_delivery,
+          added_at       : item.added_at,
+          is_available   : product.is_active
+                         && ["approved", "active"].includes(product.status)
+                         && stock > 0,
+          is_out_of_stock: stock === 0,
+        });
+      } catch (e) {
+        console.error(`[cart/read] ❌ Enrich failed for item ${item.id}:`, e.message);
+      }
+    }
+
+    console.log(`[cart/read] ✓ Enriched ${enriched.length} items`);
+
+    /* ═══════════════════════════════════════════
+       STEP 7: Totals
+    ═══════════════════════════════════════════ */
+    const totals = enriched.reduce(
       (acc, item) => {
-        const line     = item.price * item.qty;
-        const savings  = item.original_price > item.price
+        const line = item.price * item.qty;
+        const savings = item.original_price > item.price
           ? (item.original_price - item.price) * item.qty
           : 0;
-
         acc.subtotal      += line;
         acc.total_savings += savings;
         acc.total_qty     += item.qty;
@@ -154,11 +229,14 @@ router.get("/", authenticateBuyer, async (req, res) => {
       { subtotal: 0, total_savings: 0, total_qty: 0 }
     );
 
+    console.log("[cart/read] ✓ SUCCESS | items:", enriched.length, "| total:", totals.subtotal);
+    console.log("═══════════════════════════════════════════");
+
     return ok(res, {
       data: {
         cart_id       : cartId,
-        items         : normalized,
-        item_count    : normalized.length,
+        items         : enriched,
+        item_count    : enriched.length,
         total_qty     : totals.total_qty,
         subtotal      : totals.subtotal,
         total_savings : totals.total_savings,
@@ -166,10 +244,14 @@ router.get("/", authenticateBuyer, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[cart/read] error:", err.message);
-    console.error("[cart/read] code:", err.code);
-    console.error("[cart/read] detail:", err.detail ?? "—");
-    return fail(res, 500, "Failed to fetch cart");
+    console.error("═══════════════════════════════════════════");
+    console.error("[cart/read] ❌ UNCAUGHT ERROR");
+    console.error("[cart/read] Message:", err.message);
+    console.error("[cart/read] Code:", err.code);
+    console.error("[cart/read] Detail:", err.detail);
+    console.error("[cart/read] Stack:", err.stack);
+    console.error("═══════════════════════════════════════════");
+    return fail(res, 500, `Cart error: ${err.message}`);
   }
 });
 
