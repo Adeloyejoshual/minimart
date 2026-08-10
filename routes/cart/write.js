@@ -2,17 +2,19 @@
  * routes/cart/write.js
  *
  * Mutation endpoints for cart:
- *   POST   /api/cart/items         → add item (or increment if exists)
+ *   POST   /api/cart/items         → add item (with price snapshot)
  *   PATCH  /api/cart/items/:id     → update quantity
  *   DELETE /api/cart/items/:id     → remove single item
  *   DELETE /api/cart               → clear entire cart
  *
  * Auth: authenticateBuyer — public.users JWT (buyers only)
  *
- * Stock validation:
- *   - Cannot add more than product/variant stock
- *   - Cannot update to qty > stock
- *   - Rejects if product inactive/unapproved
+ * Price snapshot rule:
+ *   When adding to cart, we lock in the CURRENT price of the
+ *   product/variant. This means:
+ *   - Seller can change price later — cart still shows old price
+ *   - Protects buyer from surprise price hikes at checkout
+ *   - Amazon/Jumia/Shopee all do this
  */
 
 import express                from "express";
@@ -30,7 +32,7 @@ async function getOrCreateCart(client, userId) {
      FROM market.carts
      WHERE user_id = $1
        AND status = 'active'
-     ORDER BY created_at DESC
+     ORDER BY id DESC
      LIMIT 1`,
     [userId]
   );
@@ -47,15 +49,17 @@ async function getOrCreateCart(client, userId) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   HELPER — Validate product + stock
+   HELPER — Validate product + stock + get current price
+   Returns { product, variant, availableStock, price, originalPrice }
 ══════════════════════════════════════════════════════════════ */
-async function validateProductStock(client, productId, variantId, requestedQty) {
+async function validateAndGetPricing(client, productId, variantId, requestedQty) {
   /* Check product exists & is buyable */
   const { rows: prodRows } = await client.query(
     `SELECT
        p.id,
        p.name,
        p.price,
+       p.original_price,
        p.stock          AS product_stock,
        p.is_active,
        p.status,
@@ -79,8 +83,11 @@ async function validateProductStock(client, productId, variantId, requestedQty) 
     return { error: "Product is not available for purchase", status: 400 };
   }
 
-  /* If variant specified, use variant stock; else product stock */
+  /* Determine stock + price:
+     - If variant selected → use variant stock & price
+     - Otherwise → use product stock & price */
   let availableStock = Number(product.product_stock ?? 0);
+  let price          = Number(product.price ?? 0);
   let variant        = null;
 
   if (variantId) {
@@ -98,6 +105,12 @@ async function validateProductStock(client, productId, variantId, requestedQty) 
 
     variant        = varRows[0];
     availableStock = Number(variant.stock ?? 0);
+    /* Variant price overrides product price (fallback to product price if null) */
+    price          = Number(variant.price ?? product.price ?? 0);
+  }
+
+  if (price <= 0) {
+    return { error: "Product price not set. Contact seller.", status: 400 };
   }
 
   if (availableStock === 0) {
@@ -111,7 +124,41 @@ async function validateProductStock(client, productId, variantId, requestedQty) 
     };
   }
 
-  return { product, variant, availableStock };
+  return {
+    product,
+    variant,
+    availableStock,
+    price,
+    originalPrice: Number(product.original_price ?? 0),
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   COLUMN DETECTION (cache which columns cart_items has)
+══════════════════════════════════════════════════════════════ */
+let CART_ITEMS_COLS = null;
+
+async function detectColumns() {
+  if (CART_ITEMS_COLS) return CART_ITEMS_COLS;
+
+  const { rows } = await pool.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'market'
+       AND table_name = 'cart_items'`
+  );
+
+  const cols = new Set(rows.map((r) => r.column_name));
+
+  CART_ITEMS_COLS = {
+    hasPrice          : cols.has("price"),
+    hasOriginalPrice  : cols.has("original_price"),
+    hasUpdatedAt      : cols.has("updated_at"),
+    hasAddedAt        : cols.has("added_at"),
+  };
+
+  console.log("[cart/write] Detected cart_items columns:", CART_ITEMS_COLS);
+  return CART_ITEMS_COLS;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -121,6 +168,8 @@ async function validateProductStock(client, productId, variantId, requestedQty) 
 router.post("/items", authenticateBuyer, async (req, res) => {
   const userId = req.user.id;
   const { product_id, variant_id, qty } = req.body;
+
+  console.log("[cart/write POST] user:", userId, "| product:", product_id, "| qty:", qty);
 
   /* ── Validate input ── */
   if (!product_id) return fail(res, 400, "product_id is required");
@@ -134,7 +183,12 @@ router.post("/items", authenticateBuyer, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    /* ── Detect available columns ── */
+    const cols = await detectColumns();
+
+    /* ── Get or create cart ── */
     const cartId = await getOrCreateCart(client, userId);
+    console.log("[cart/write POST] Using cart:", cartId);
 
     /* ── Check if item already in cart ── */
     const { rows: existing } = await client.query(
@@ -149,30 +203,71 @@ router.post("/items", authenticateBuyer, async (req, res) => {
     const currentQty = existing.length > 0 ? Number(existing[0].qty) : 0;
     const newQty     = currentQty + requestedQty;
 
-    /* ── Validate stock against NEW total qty ── */
-    const check = await validateProductStock(
+    /* ── Validate stock + get pricing ── */
+    const check = await validateAndGetPricing(
       client, product_id, variant_id ?? null, newQty
     );
     if (check.error) {
       await client.query("ROLLBACK");
+      console.warn("[cart/write POST] Validation failed:", check.error);
       return fail(res, check.status, check.error);
     }
 
+    console.log("[cart/write POST] Price snapshot:", check.price, "| Stock:", check.availableStock);
+
     /* ── Upsert cart item ── */
     if (existing.length > 0) {
+      /* Update qty AND refresh price (in case it changed since first add) */
+      const updateFields = ["qty = $1"];
+      const updateVals   = [newQty];
+      let idx = 2;
+
+      if (cols.hasPrice) {
+        updateFields.push(`price = $${idx++}`);
+        updateVals.push(check.price);
+      }
+      if (cols.hasOriginalPrice) {
+        updateFields.push(`original_price = $${idx++}`);
+        updateVals.push(check.originalPrice);
+      }
+      if (cols.hasUpdatedAt) {
+        updateFields.push(`updated_at = now()`);
+      }
+
+      updateVals.push(existing[0].id);
+
       await client.query(
         `UPDATE market.cart_items
-         SET qty = $1, updated_at = now()
-         WHERE id = $2`,
-        [newQty, existing[0].id]
+         SET ${updateFields.join(", ")}
+         WHERE id = $${idx}`,
+        updateVals
       );
+
+      console.log("[cart/write POST] ✓ Updated existing item to qty:", newQty);
+
     } else {
+      /* Insert new item — build INSERT dynamically based on columns */
+      const insertCols = ["cart_id", "product_id", "variant_id", "qty"];
+      const insertVals = [cartId, product_id, variant_id ?? null, requestedQty];
+
+      if (cols.hasPrice) {
+        insertCols.push("price");
+        insertVals.push(check.price);
+      }
+      if (cols.hasOriginalPrice) {
+        insertCols.push("original_price");
+        insertVals.push(check.originalPrice);
+      }
+
+      const placeholders = insertVals.map((_, i) => `$${i + 1}`).join(", ");
+
       await client.query(
-        `INSERT INTO market.cart_items
-           (cart_id, product_id, variant_id, qty)
-         VALUES ($1, $2, $3, $4)`,
-        [cartId, product_id, variant_id ?? null, requestedQty]
+        `INSERT INTO market.cart_items (${insertCols.join(", ")})
+         VALUES (${placeholders})`,
+        insertVals
       );
+
+      console.log("[cart/write POST] ✓ Inserted new item with price:", check.price);
     }
 
     /* ── Touch cart updated_at ── */
@@ -183,6 +278,8 @@ router.post("/items", authenticateBuyer, async (req, res) => {
 
     await client.query("COMMIT");
 
+    console.log("[cart/write POST] ✅ SUCCESS");
+
     return ok(res, {
       message: existing.length > 0
         ? "Cart item quantity updated"
@@ -191,15 +288,17 @@ router.post("/items", authenticateBuyer, async (req, res) => {
         cart_id  : cartId,
         added_qty: requestedQty,
         total_qty: newQty,
+        price    : check.price,
       },
     }, existing.length > 0 ? 200 : 201);
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[cart/write POST] error:", err.message);
+    console.error("[cart/write POST] ❌ error:", err.message);
     console.error("[cart/write POST] code:", err.code);
     console.error("[cart/write POST] detail:", err.detail ?? "—");
-    return fail(res, 500, "Failed to add item to cart");
+    console.error("[cart/write POST] stack:", err.stack?.split("\n").slice(0, 5).join("\n"));
+    return fail(res, 500, `Failed to add item: ${err.message}`);
   } finally {
     client.release();
   }
@@ -223,6 +322,8 @@ router.patch("/items/:id", authenticateBuyer, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    const cols = await detectColumns();
+
     /* ── Fetch item + verify ownership ── */
     const { rows } = await client.query(
       `SELECT ci.id, ci.cart_id, ci.product_id, ci.variant_id, c.user_id
@@ -243,7 +344,7 @@ router.patch("/items/:id", authenticateBuyer, async (req, res) => {
     }
 
     /* ── Validate stock for new qty ── */
-    const check = await validateProductStock(
+    const check = await validateAndGetPricing(
       client, rows[0].product_id, rows[0].variant_id, newQty
     );
     if (check.error) {
@@ -252,17 +353,22 @@ router.patch("/items/:id", authenticateBuyer, async (req, res) => {
     }
 
     /* ── Update qty ── */
+    const updateFields = ["qty = $1"];
+    if (cols.hasUpdatedAt) updateFields.push("updated_at = now()");
+
     await client.query(
       `UPDATE market.cart_items
-       SET qty = $1, updated_at = now()
+       SET ${updateFields.join(", ")}
        WHERE id = $2`,
       [newQty, itemId]
     );
 
-    await client.query(
-      `UPDATE market.carts SET updated_at = now() WHERE id = $1`,
-      [rows[0].cart_id]
-    );
+    if (cols.hasUpdatedAt) {
+      await client.query(
+        `UPDATE market.carts SET updated_at = now() WHERE id = $1`,
+        [rows[0].cart_id]
+      );
+    }
 
     await client.query("COMMIT");
 
@@ -290,7 +396,6 @@ router.delete("/items/:id", authenticateBuyer, async (req, res) => {
   const itemId = req.params.id;
 
   try {
-    /* ── Verify ownership + delete in one query ── */
     const { rowCount } = await pool.query(
       `DELETE FROM market.cart_items ci
        USING market.carts c
@@ -311,7 +416,6 @@ router.delete("/items/:id", authenticateBuyer, async (req, res) => {
 
   } catch (err) {
     console.error("[cart/write DELETE item] error:", err.message);
-    console.error("[cart/write DELETE item] code:", err.code);
     return fail(res, 500, "Failed to remove item");
   }
 });
@@ -340,7 +444,6 @@ router.delete("/", authenticateBuyer, async (req, res) => {
 
   } catch (err) {
     console.error("[cart/write DELETE all] error:", err.message);
-    console.error("[cart/write DELETE all] code:", err.code);
     return fail(res, 500, "Failed to clear cart");
   }
 });
