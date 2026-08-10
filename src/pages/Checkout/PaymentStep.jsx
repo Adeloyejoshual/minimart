@@ -1,4 +1,13 @@
-// src/pages/Checkout/PaymentStep.jsx
+/**
+ * src/pages/Checkout/PaymentStep.jsx
+ *
+ * v3 — LIVE DEBUG error display
+ * ─────────────────────────────────
+ * ✓ Shows full debug object (SQL error details) in dev mode
+ * ✓ Dismiss button clears error
+ * ✓ Expandable "Debug details" panel
+ * ✓ Only display component — order logic lives in parent
+ */
 
 import React, { memo } from "react";
 
@@ -29,14 +38,14 @@ function Spinner() {
   return (
     <span
       style={{
-        display:      "inline-block",
-        width:        "16px",
-        height:       "16px",
-        border:       "2px solid rgba(255,255,255,0.35)",
-        borderTop:    "2px solid white",
-        borderRadius: "50%",
-        animation:    "ck-spin 0.7s linear infinite",
-        flexShrink:   0,
+        display      : "inline-block",
+        width        : "16px",
+        height       : "16px",
+        border       : "2px solid rgba(255,255,255,0.35)",
+        borderTop    : "2px solid white",
+        borderRadius : "50%",
+        animation    : "ck-spin 0.7s linear infinite",
+        flexShrink   : 0,
       }}
       aria-hidden="true"
     />
@@ -44,14 +53,98 @@ function Spinner() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   ERROR DISPLAY — with expandable debug details
+═══════════════════════════════════════════════════════════════ */
+function ErrorBanner({ error, errorDebug, onDismiss }) {
+  if (!error) return null;
+
+  const isDev = import.meta.env.DEV;
+
+  return (
+    <div className="ck-payment-error" role="alert" aria-live="assertive">
+      <div style={{
+        display   : "flex",
+        alignItems: "flex-start",
+        gap       : "0.5rem",
+        width     : "100%",
+      }}>
+        <span aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }}>
+          ⚠️
+        </span>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Main error message */}
+          <div style={{
+            fontWeight  : 600,
+            lineHeight  : 1.4,
+            wordBreak   : "break-word",
+          }}>
+            {error}
+          </div>
+
+          {/* Expandable debug details */}
+          {errorDebug && isDev && (
+            <details style={{
+              marginTop: 10,
+              fontSize : 11,
+              opacity  : 0.85,
+            }}>
+              <summary style={{
+                cursor    : "pointer",
+                fontWeight: 600,
+                padding   : "2px 0",
+                userSelect: "none",
+              }}>
+                🔍 Debug Details
+              </summary>
+              <pre style={{
+                marginTop   : 6,
+                padding     : "8px 10px",
+                background  : "rgba(0,0,0,0.06)",
+                borderRadius: 6,
+                fontSize    : 10,
+                lineHeight  : 1.5,
+                overflow    : "auto",
+                whiteSpace  : "pre-wrap",
+                wordBreak   : "break-word",
+                maxHeight   : 200,
+                fontFamily  : "monospace",
+              }}>
+                {JSON.stringify(errorDebug, null, 2)}
+              </pre>
+            </details>
+          )}
+        </div>
+
+        {/* Dismiss button */}
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss error"
+            style={{
+              background : "none",
+              border     : "none",
+              cursor     : "pointer",
+              color      : "inherit",
+              opacity    : 0.6,
+              fontSize   : "1rem",
+              lineHeight : 1,
+              padding    : "0.1rem 0.3rem",
+              flexShrink : 0,
+              marginLeft : "auto",
+            }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    PAYMENT STEP
-   ─────────────────────────────────────────────────────────
-   All order placement is now delegated to the parent via
-   onPlaceOrder(). This component ONLY handles:
-     - Displaying payment options
-     - Letting user pick one
-     - Showing totals + contextual notes
-     - Triggering the parent's placement handler
 ═══════════════════════════════════════════════════════════════ */
 const PaymentStep = memo(function PaymentStep({
   calculation,
@@ -59,6 +152,8 @@ const PaymentStep = memo(function PaymentStep({
   onSelectPayment,
   loading = false,
   error = null,
+  errorDebug = null,           /* ✅ NEW */
+  onDismissError,              /* ✅ NEW */
   onBack,
   onPlaceOrder,
 }) {
@@ -173,13 +268,12 @@ const PaymentStep = memo(function PaymentStep({
         </div>
       )}
 
-      {/* ── Error from parent ── */}
-      {error && (
-        <div className="ck-payment-error" role="alert" aria-live="assertive">
-          <span aria-hidden="true">⚠️</span>
-          <span>{error}</span>
-        </div>
-      )}
+      {/* ── Error banner with debug details ── */}
+      <ErrorBanner
+        error={error}
+        errorDebug={errorDebug}
+        onDismiss={onDismissError}
+      />
 
       {/* ── Navigation ── */}
       <div className="ck-nav-btns">
@@ -202,10 +296,10 @@ const PaymentStep = memo(function PaymentStep({
         >
           {loading ? (
             <span style={{
-              display:        "flex",
-              alignItems:     "center",
-              gap:            "0.6rem",
-              justifyContent: "center",
+              display        : "flex",
+              alignItems     : "center",
+              gap            : "0.6rem",
+              justifyContent : "center",
             }}>
               <Spinner />
               Placing Order…
