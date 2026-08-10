@@ -5,11 +5,11 @@
  * Splits cart by seller and creates:
  *   order_group → orders → order_items
  *
- * v2 — Robust column detection
- * ────────────────────────────────
- * ✓ Auto-detects if tracking_id column exists (won't crash if missing)
- * ✓ Preserves seller names properly
- * ✓ Better error messages
+ * v3 — Fixed user_id NOT NULL constraint
+ * ───────────────────────────────────────
+ * ✓ orders.user_id is now populated (was NULL before)
+ * ✓ Column auto-detection for tracking_id, delivered_at, updated_at
+ * ✓ Better error logging on rollback
  */
 
 import { pool }                 from "../config/db.js";
@@ -19,6 +19,7 @@ import { calculateDeliveryFee } from "./delivery.js";
    COLUMN DETECTION (cached — runs once per server lifetime)
 ════════════════════════════════════════════════════════════ */
 let ORDER_GROUP_COLS = null;
+let ORDER_COLS       = null;
 
 async function detectOrderGroupColumns() {
   if (ORDER_GROUP_COLS) return ORDER_GROUP_COLS;
@@ -52,6 +53,38 @@ async function detectOrderGroupColumns() {
   return ORDER_GROUP_COLS;
 }
 
+async function detectOrderColumns() {
+  if (ORDER_COLS) return ORDER_COLS;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'orders'`
+    );
+
+    const cols = new Set(rows.map((r) => r.column_name));
+
+    ORDER_COLS = {
+      hasUserId:      cols.has("user_id"),
+      hasDeliveredAt: cols.has("delivered_at"),
+      hasUpdatedAt:   cols.has("updated_at"),
+    };
+
+    console.log("[orderService] Detected orders columns:", ORDER_COLS);
+  } catch (err) {
+    console.warn("[orderService] Column detection failed:", err.message);
+    ORDER_COLS = {
+      hasUserId:      true,
+      hasDeliveredAt: true,
+      hasUpdatedAt:   true,
+    };
+  }
+
+  return ORDER_COLS;
+}
+
 /* ════════════════════════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════════════════════════ */
@@ -75,7 +108,11 @@ export async function createOrderGroup({
   const deliveryFee = calculateDeliveryFee(subtotal);
   const grandTotal  = subtotal + deliveryFee - discount;
 
-  const cols   = await detectOrderGroupColumns();
+  const [groupCols, orderCols] = await Promise.all([
+    detectOrderGroupColumns(),
+    detectOrderColumns(),
+  ]);
+
   const client = await pool.connect();
 
   try {
@@ -110,7 +147,7 @@ export async function createOrderGroup({
     /* ══════════════════════════════════════════════════
        Save tracking ID (only if column exists)
     ══════════════════════════════════════════════════ */
-    if (cols.hasTrackingId) {
+    if (groupCols.hasTrackingId) {
       try {
         await client.query(
           `UPDATE public.order_groups
@@ -144,6 +181,7 @@ export async function createOrderGroup({
 
     /* ══════════════════════════════════════════════════
        3. Create one public.orders row per seller
+       ✅ FIX: user_id column is now populated
     ══════════════════════════════════════════════════ */
     const createdOrders = [];
 
@@ -155,14 +193,30 @@ export async function createOrderGroup({
         0
       );
 
-      const { rows: [order] } = await client.query(
-        `INSERT INTO public.orders
-           (order_group_id, seller_id, subtotal, status)
-         VALUES ($1,$2,$3,'pending')
-         RETURNING id`,
-        [orderGroupId, sellerId, sellerSubtotal]
-      );
+      /* Dynamic INSERT — respects whether user_id column exists */
+      let insertSql, insertParams;
 
+      if (orderCols.hasUserId) {
+        insertSql = `
+          INSERT INTO public.orders
+            (order_group_id, user_id, seller_id, subtotal, status)
+          VALUES ($1, $2, $3, $4, 'pending')
+          RETURNING id
+        `;
+        insertParams = [orderGroupId, userId, sellerId, sellerSubtotal];
+      } else {
+        insertSql = `
+          INSERT INTO public.orders
+            (order_group_id, seller_id, subtotal, status)
+          VALUES ($1, $2, $3, 'pending')
+          RETURNING id
+        `;
+        insertParams = [orderGroupId, sellerId, sellerSubtotal];
+      }
+
+      const { rows: [order] } = await client.query(insertSql, insertParams);
+
+      /* Insert order items for this seller */
       for (const item of sellerItems) {
         await client.query(
           `INSERT INTO public.order_items
@@ -206,6 +260,8 @@ export async function createOrderGroup({
 
     await client.query("COMMIT");
 
+    console.log(`[orderService] ✅ Created order group ${orderGroupId} with ${createdOrders.length} sub-orders`);
+
     return {
       orderGroupId,
       trackingId,
@@ -216,7 +272,6 @@ export async function createOrderGroup({
 
   } catch (err) {
     await client.query("ROLLBACK");
-    /* Log the SQL error before rethrowing so the route can see it */
     console.error("[orderService] createOrderGroup rolled back:", {
       message:    err.message,
       code:       err.code,
@@ -235,37 +290,39 @@ export async function createOrderGroup({
    MARK ORDER GROUP PAID
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupPaid(orderGroupId, paymentRef) {
-  const cols   = await detectOrderGroupColumns();
+  const [groupCols, orderCols] = await Promise.all([
+    detectOrderGroupColumns(),
+    detectOrderColumns(),
+  ]);
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-
-    const updateClause = cols.hasUpdatedAt
-      ? `updated_at = now(),`
-      : "";
 
     await client.query(
       `UPDATE public.order_groups
        SET payment_status = 'paid',
            payment_ref    = $2,
            status         = 'confirmed'
-           ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
+           ${groupCols.hasUpdatedAt ? ", updated_at = now()" : ""}
        WHERE id = $1`,
       [orderGroupId, paymentRef]
     );
 
     await client.query(
       `UPDATE public.orders
-       SET status     = 'confirmed'
-           ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
+       SET status = 'confirmed'
+           ${orderCols.hasUpdatedAt ? ", updated_at = now()" : ""}
        WHERE order_group_id = $1`,
       [orderGroupId]
     );
 
     await client.query("COMMIT");
+    console.log(`[orderService] ✅ Order ${orderGroupId} marked as paid`);
   } catch (err) {
     await client.query("ROLLBACK");
+    console.error("[orderService] markOrderGroupPaid failed:", err.message);
     throw err;
   } finally {
     client.release();
@@ -276,51 +333,45 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
    MARK ORDER GROUP DELIVERED
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupDelivered(orderGroupId) {
-  const cols   = await detectOrderGroupColumns();
+  const [groupCols, orderCols] = await Promise.all([
+    detectOrderGroupColumns(),
+    detectOrderColumns(),
+  ]);
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    if (cols.hasDeliveredAt) {
-      await client.query(
-        `UPDATE public.order_groups
-         SET status       = 'delivered',
-             delivered_at = now()
-             ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
-         WHERE id = $1`,
-        [orderGroupId]
-      );
+    /* ── Update order_groups ── */
+    const groupSetClauses = ["status = 'delivered'"];
+    if (groupCols.hasDeliveredAt) groupSetClauses.push("delivered_at = now()");
+    if (groupCols.hasUpdatedAt)   groupSetClauses.push("updated_at   = now()");
 
-      await client.query(
-        `UPDATE public.orders
-         SET status       = 'delivered',
-             delivered_at = now()
-             ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
-         WHERE order_group_id = $1`,
-        [orderGroupId]
-      );
-    } else {
-      await client.query(
-        `UPDATE public.order_groups
-         SET status = 'delivered'
-             ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
-         WHERE id = $1`,
-        [orderGroupId]
-      );
+    await client.query(
+      `UPDATE public.order_groups
+       SET ${groupSetClauses.join(", ")}
+       WHERE id = $1`,
+      [orderGroupId]
+    );
 
-      await client.query(
-        `UPDATE public.orders
-         SET status = 'delivered'
-             ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
-         WHERE order_group_id = $1`,
-        [orderGroupId]
-      );
-    }
+    /* ── Update orders ── */
+    const orderSetClauses = ["status = 'delivered'"];
+    if (orderCols.hasDeliveredAt) orderSetClauses.push("delivered_at = now()");
+    if (orderCols.hasUpdatedAt)   orderSetClauses.push("updated_at   = now()");
+
+    await client.query(
+      `UPDATE public.orders
+       SET ${orderSetClauses.join(", ")}
+       WHERE order_group_id = $1`,
+      [orderGroupId]
+    );
 
     await client.query("COMMIT");
+    console.log(`[orderService] ✅ Order ${orderGroupId} marked as delivered`);
   } catch (err) {
     await client.query("ROLLBACK");
+    console.error("[orderService] markOrderGroupDelivered failed:", err.message);
     throw err;
   } finally {
     client.release();
