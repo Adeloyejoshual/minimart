@@ -4,6 +4,15 @@
  * POST /api/products
  * Create a new seller listing.
  *
+ * v2 — Hierarchical category support
+ * ─────────────────────────────────────
+ * ✓ Accepts category_id (UUID from market.categories tree)
+ * ✓ Auto-fills category text name from tree lookup
+ * ✓ Validates category exists in tree
+ * ✓ Backward compatible: still accepts legacy text `category` field
+ * ✓ Auto-detects if category_id column exists (safe deploy)
+ * ✓ Removed delivery_options storage (delivery agent controlled)
+ *
  * Auth: authenticateSeller — market.users JWT
  *       req.user.id === market.users.id === market.products.user_id ✓
  *
@@ -52,6 +61,134 @@ function generateSlug(name, id) {
    ALLOWED VALUES
 ══════════════════════════════════════════════════════════════ */
 const ALLOWED_CONDITIONS = new Set(["new", "used", "refurbished"]);
+
+/* ══════════════════════════════════════════════════════════════
+   UUID VALIDATOR
+══════════════════════════════════════════════════════════════ */
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const isValidUUID = (str) => typeof str === "string" && UUID_REGEX.test(str);
+
+/* ══════════════════════════════════════════════════════════════
+   COLUMN DETECTION (cached — runs once per server lifetime)
+══════════════════════════════════════════════════════════════ */
+let PRODUCT_COLS = null;
+
+async function detectProductColumns() {
+  if (PRODUCT_COLS) return PRODUCT_COLS;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'market'
+         AND table_name = 'products'`
+    );
+
+    const cols = new Set(rows.map((r) => r.column_name));
+
+    PRODUCT_COLS = {
+      hasCategoryId      : cols.has("category_id"),
+      hasDeliveryOptions : cols.has("delivery_options"),
+    };
+
+    console.log("[addproduct] Detected product columns:", PRODUCT_COLS);
+  } catch (err) {
+    console.warn("[addproduct] Column detection failed:", err.message);
+    PRODUCT_COLS = { hasCategoryId: false, hasDeliveryOptions: true };
+  }
+
+  return PRODUCT_COLS;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RESOLVE CATEGORY
+   ─────────────────────────────────────────────────────────
+   Accepts EITHER:
+     - category_id (UUID)  ← preferred, links to hierarchy tree
+     - category (string)   ← legacy, plain text name OR UUID
+     - both                ← category_id takes priority
+
+   Returns:
+     { categoryId, categoryName }   on success
+     { error }                       on failure
+══════════════════════════════════════════════════════════════ */
+async function resolveCategory(client, categoryInput, categoryIdInput) {
+  /* ── Attempt 1: Use category_id if valid UUID ── */
+  const idCandidate = categoryIdInput ?? (isValidUUID(categoryInput) ? categoryInput : null);
+
+  if (idCandidate && isValidUUID(idCandidate)) {
+    try {
+      const { rows } = await client.query(
+        `SELECT id, name, slug, level
+         FROM market.categories
+         WHERE id = $1 AND is_active = true`,
+        [idCandidate]
+      );
+
+      if (rows.length > 0) {
+        console.log(
+          `[addproduct] ✓ Category resolved by ID: "${rows[0].name}" (level ${rows[0].level})`
+        );
+        return {
+          categoryId  : rows[0].id,
+          categoryName: rows[0].name,
+        };
+      } else {
+        return { error: "Category not found. Please select a valid category." };
+      }
+    } catch (err) {
+      /* Categories table may not exist yet (before migration) */
+      if (err.code !== "42P01") {
+        console.error("[addproduct] Category lookup error:", err.message);
+      }
+      /* Silently fall through to text fallback */
+    }
+  }
+
+  /* ── Attempt 2: Use text category (legacy path) ── */
+  const textCategory = safeStr(categoryInput, 100);
+
+  if (textCategory) {
+    /* Try to find matching category by name or slug (case-insensitive) */
+    try {
+      const { rows } = await client.query(
+        `SELECT id, name
+         FROM market.categories
+         WHERE is_active = true
+           AND (
+             LOWER(name) = LOWER($1)
+             OR LOWER(slug) = LOWER($1)
+           )
+         LIMIT 1`,
+        [textCategory]
+      );
+
+      if (rows.length > 0) {
+        console.log(`[addproduct] ✓ Category matched by text: "${rows[0].name}"`);
+        return {
+          categoryId  : rows[0].id,
+          categoryName: rows[0].name,
+        };
+      }
+    } catch (err) {
+      /* Categories table missing — that's fine, use plain text */
+      if (err.code !== "42P01") {
+        console.warn("[addproduct] Category text match failed:", err.message);
+      }
+    }
+
+    /* No match found — accept as plain text (legacy behavior) */
+    console.log(`[addproduct] ⚠ Using plain text category: "${textCategory}"`);
+    return {
+      categoryId  : null,
+      categoryName: textCategory,
+    };
+  }
+
+  return { error: "Category is required" };
+}
 
 /* ══════════════════════════════════════════════════════════════
    DOUBLE-SUBMIT GUARD
@@ -105,7 +242,8 @@ router.post(
       name,
       description,
       short_description,
-      category,
+      category,           // Legacy: text name OR UUID (accepted)
+      category_id,        // NEW: explicit UUID from category tree
       basePrice,
       originalPrice,
       brand,
@@ -117,25 +255,22 @@ router.post(
       whatsInBox,
       weight_kg,
       dimensions,
-      delivery_options,
+      delivery_options,   // Received but ignored (delivery agent controls)
       return_policy,
       warranty,
     } = req.body;
 
-    /* ── Required ── */
+    /* ── Required: name ── */
     const cleanName = safeStr(name, 200);
     if (!cleanName)
       return fail(res, 422, "Product name is required");
 
-    const cleanCategory = safeStr(category, 100);
-    if (!cleanCategory)
-      return fail(res, 422, "Category is required");
-
+    /* ── Required: price ── */
     const price = parseInt(basePrice, 10);
     if (isNaN(price) || price <= 0)
       return fail(res, 422, "A valid base price is required");
 
-    /* ── Optional numeric ── */
+    /* ── Optional: original price ── */
     const parsedOriginalPrice = originalPrice
       ? parseInt(originalPrice, 10) : null;
 
@@ -146,23 +281,24 @@ router.post(
       return fail(res, 422,
         "Original price must be greater than or equal to base price");
 
+    /* ── Condition ── */
     const cleanCondition = ALLOWED_CONDITIONS.has(condition)
       ? condition : "new";
 
+    /* ── Weight ── */
     const parsedWeight = weight_kg ? parseFloat(weight_kg) : null;
     if (parsedWeight !== null && isNaN(parsedWeight))
       return fail(res, 422, "Weight must be a valid number");
 
     /* ── JSON fields ── */
-    const parsedTags     = parseJSON(tags,             []);
-    const parsedDims     = parseJSON(dimensions,       null);
-    const parsedDelivery = parseJSON(delivery_options, null);
-    const parsedVariants = parseJSON(variants,         []);
-    const parsedFeatures = parseJSON(keyFeatures,      []);
-    const parsedBox      = parseJSON(whatsInBox,       []);
-    const parsedSpecs    = parseJSON(specifications,   []);
+    const parsedTags     = parseJSON(tags,           []);
+    const parsedDims     = parseJSON(dimensions,     null);
+    const parsedVariants = parseJSON(variants,       []);
+    const parsedFeatures = parseJSON(keyFeatures,    []);
+    const parsedBox      = parseJSON(whatsInBox,     []);
+    const parsedSpecs    = parseJSON(specifications, []);
 
-    /* ── Duplicate SKU check (client-side — server-side in replaceVariants) ── */
+    /* ── Duplicate SKU pre-check ── */
     if (parsedVariants.length > 0) {
       const skuSet = new Set();
       for (const v of parsedVariants) {
@@ -191,54 +327,67 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      /* Insert product row */
+      /* Detect available product columns */
+      const cols = await detectProductColumns();
+
+      /* Resolve category (validates + auto-fills name) */
+      const categoryResult = await resolveCategory(client, category, category_id);
+
+      if (categoryResult.error) {
+        await client.query("ROLLBACK");
+        await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
+        return fail(res, 422, categoryResult.error);
+      }
+
+      const finalCategoryName = categoryResult.categoryName;
+      const finalCategoryId   = categoryResult.categoryId;
+
+      /* ── Build dynamic INSERT ── */
+      const insertCols = [
+        "user_id", "name", "description", "short_description",
+        "category", "condition", "price", "original_price",
+        "brand", "tags", "weight_kg", "dimensions",
+        "return_policy", "warranty", "status", "is_active",
+      ];
+
+      const insertVals = [
+        userId,
+        cleanName,
+        safeStr(description,       2000),
+        safeStr(short_description,  300),
+        finalCategoryName,
+        cleanCondition,
+        price,
+        parsedOriginalPrice,
+        safeStr(brand, 100),
+        parsedTags.length ? parsedTags : null,
+        parsedWeight,
+        parsedDims ? JSON.stringify(parsedDims) : null,
+        safeStr(return_policy, 1000),
+        safeStr(warranty,       500),
+        "pending",
+        false,
+      ];
+
+      /* Add category_id if column exists AND we resolved to a tree entry */
+      if (cols.hasCategoryId && finalCategoryId) {
+        insertCols.push("category_id");
+        insertVals.push(finalCategoryId);
+      }
+
+      /* Keep delivery_options=null if column still exists (back-compat) */
+      if (cols.hasDeliveryOptions) {
+        insertCols.push("delivery_options");
+        insertVals.push(null);
+      }
+
+      const placeholders = insertVals.map((_, i) => `$${i + 1}`).join(", ");
+
       const { rows: [{ id: productId }] } = await client.query(
-        `INSERT INTO market.products (
-           user_id,
-           name,
-           description,
-           short_description,
-           category,
-           condition,
-           price,
-           original_price,
-           brand,
-           tags,
-           weight_kg,
-           dimensions,
-           delivery_options,
-           return_policy,
-           warranty,
-           status,
-           is_active
-         )
-         VALUES (
-           $1,  $2,  $3,  $4,
-           $5,  $6,
-           $7,  $8,
-           $9,  $10,
-           $11, $12, $13,
-           $14, $15,
-           'pending', false
-         )
+        `INSERT INTO market.products (${insertCols.join(", ")})
+         VALUES (${placeholders})
          RETURNING id`,
-        [
-          userId,
-          cleanName,
-          safeStr(description,       2000),
-          safeStr(short_description,  300),
-          cleanCategory,
-          cleanCondition,
-          price,
-          parsedOriginalPrice,
-          safeStr(brand, 100),
-          parsedTags.length ? parsedTags : null,
-          parsedWeight,
-          parsedDims     ? JSON.stringify(parsedDims)     : null,
-          parsedDelivery ? JSON.stringify(parsedDelivery) : null,
-          safeStr(return_policy, 1000),
-          safeStr(warranty,       500),
-        ]
+        insertVals
       );
 
       /* Generate + set slug */
@@ -268,11 +417,20 @@ router.post(
 
       await client.query("COMMIT");
 
-      console.log(`[addproduct] ✅ created | id=${productId} | user=${userId}`);
+      console.log(
+        `[addproduct] ✅ created | id=${productId} | user=${userId} | ` +
+        `category="${finalCategoryName}"${finalCategoryId ? ` (id=${finalCategoryId})` : " (text-only)"}`
+      );
 
       return ok(res, {
         message : "Listing submitted for review. You will be notified once approved.",
-        data    : { productId, slug, status: "pending" },
+        data    : {
+          productId,
+          slug,
+          status      : "pending",
+          category    : finalCategoryName,
+          category_id : finalCategoryId,
+        },
       }, 201);
 
     } catch (dbErr) {
