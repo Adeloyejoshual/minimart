@@ -1,380 +1,320 @@
 /**
- * src/pages/Checkout/CheckoutDebugPanel.jsx
+ * src/pages/Checkout/PaymentStep.jsx
  *
- * Floating debug panel for checkout troubleshooting.
- *
- * Shows:
- * - Config (API URL, token, login status)
- * - Address load status
- * - Cart load status
- * - Calculate response
- * - Last checkout request payload
- * - Last checkout response (or error)
- *
- * Toggle button appears bottom-right in dev mode.
+ * v3 — LIVE DEBUG error display
+ * ─────────────────────────────────
+ * ✓ Shows full debug object (SQL error details) in dev mode
+ * ✓ Dismiss button clears error
+ * ✓ Expandable "Debug details" panel
+ * ✓ Only display component — order logic lives in parent
  */
 
-import { useState, useCallback, memo } from "react";
+import React, { memo } from "react";
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
-const truncateToken = (t) => {
-  if (!t) return "❌ Missing";
-  return `✓ Present (${t.slice(0, 20)}…)`;
-};
+const fmt = (n) =>
+  `₦${Number(n || 0).toLocaleString("en-NG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
-const jsonPretty = (obj) => {
-  try {
-    return JSON.stringify(obj, null, 2);
-  } catch {
-    return String(obj);
+function normaliseKey(key = "") {
+  const k = key.toUpperCase().replace(/[\s\-_]/g, "_");
+  if (k.includes("CASH") || k.includes("COD") || k.includes("DELIVERY")) {
+    return "CASH_ON_DELIVERY";
   }
-};
-
-const statusBadge = (status) => {
-  if (!status) return null;
-  const isOk = status >= 200 && status < 300;
-  return (
-    <span style={{
-      display        : "inline-block",
-      padding        : "2px 8px",
-      borderRadius   : 999,
-      fontSize       : 11,
-      fontWeight     : 700,
-      background     : isOk ? "#10b981" : "#ef4444",
-      color          : "#fff",
-      marginLeft     : 6,
-    }}>
-      {status}
-    </span>
-  );
-};
+  if (k.includes("ONLINE") || k.includes("CARD") || k.includes("PAY")) {
+    return "ONLINE_PAYMENT";
+  }
+  return key;
+}
 
 /* ═══════════════════════════════════════════════════════════════
-   COMPONENT
+   SPINNER
 ═══════════════════════════════════════════════════════════════ */
-const CheckoutDebugPanel = memo(function CheckoutDebugPanel({
-  apiBase,
-  token,
-  user,
-  addresses,
-  selectedAddress,
-  cartItems,
-  cartLoading,
-  calculation,
-  paymentMethod,
-  lastRequest,       // { url, payload, time }
-  lastResponse,      // { status, data, time }
-  lastError,         // { status, message, debug, time }
-  onRetry,
-}) {
-  const [open, setOpen] = useState(false);
-
-  /* Only show in dev mode */
-  if (!import.meta.env.DEV) return null;
-
-  /* ── Toggle button (always visible) ── */
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        style={{
-          position     : "fixed",
-          bottom       : 20,
-          right        : 20,
-          width        : 52,
-          height       : 52,
-          borderRadius : "50%",
-          background   : "#111827",
-          color        : "#fff",
-          border       : "2px solid #10b981",
-          fontSize     : 22,
-          cursor       : "pointer",
-          zIndex       : 9999,
-          boxShadow    : "0 6px 20px rgba(0,0,0,0.3)",
-          display      : "flex",
-          alignItems   : "center",
-          justifyContent: "center",
-        }}
-        aria-label="Open debug panel"
-      >
-        🔍
-      </button>
-    );
-  }
-
-  /* ── Full panel ── */
+function Spinner() {
   return (
-    <div style={{
-      position        : "fixed",
-      inset           : 12,
-      background      : "#0f172a",
-      color           : "#e2e8f0",
-      border          : "3px solid #ff5722",
-      borderRadius    : 12,
-      zIndex          : 9999,
-      overflow        : "auto",
-      padding         : 16,
-      fontFamily      : "monospace",
-      fontSize        : 12,
-      lineHeight      : 1.5,
-      boxShadow       : "0 20px 60px rgba(0,0,0,0.5)",
-    }}>
+    <span
+      style={{
+        display      : "inline-block",
+        width        : "16px",
+        height       : "16px",
+        border       : "2px solid rgba(255,255,255,0.35)",
+        borderTop    : "2px solid white",
+        borderRadius : "50%",
+        animation    : "ck-spin 0.7s linear infinite",
+        flexShrink   : 0,
+      }}
+      aria-hidden="true"
+    />
+  );
+}
 
-      {/* Header */}
+/* ═══════════════════════════════════════════════════════════════
+   ERROR DISPLAY — with expandable debug details
+═══════════════════════════════════════════════════════════════ */
+function ErrorBanner({ error, errorDebug, onDismiss }) {
+  if (!error) return null;
+
+  const isDev = import.meta.env.DEV;
+
+  return (
+    <div className="ck-payment-error" role="alert" aria-live="assertive">
       <div style={{
-        display        : "flex",
-        alignItems     : "center",
-        justifyContent : "space-between",
-        marginBottom   : 12,
-        gap            : 8,
-        position       : "sticky",
-        top            : 0,
-        background     : "#0f172a",
-        paddingBottom  : 8,
-        borderBottom   : "1px solid #334155",
+        display   : "flex",
+        alignItems: "flex-start",
+        gap       : "0.5rem",
+        width     : "100%",
       }}>
-        <h3 style={{
-          margin     : 0,
-          color      : "#fbbf24",
-          fontSize   : 15,
-          fontWeight : 800,
-        }}>
-          🔍 CHECKOUT DEBUG PANEL
-        </h3>
+        <span aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }}>
+          ⚠️
+        </span>
 
-        <div style={{ display: "flex", gap: 6 }}>
-          {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
-              style={{
-                padding      : "6px 12px",
-                background   : "#10b981",
-                color        : "#fff",
-                border       : "none",
-                borderRadius : 6,
-                fontWeight   : 700,
-                cursor       : "pointer",
-                fontSize     : 12,
-              }}
-            >
-              🔄 Retry
-            </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Main error message */}
+          <div style={{
+            fontWeight  : 600,
+            lineHeight  : 1.4,
+            wordBreak   : "break-word",
+          }}>
+            {error}
+          </div>
+
+          {/* Expandable debug details */}
+          {errorDebug && isDev && (
+            <details style={{
+              marginTop: 10,
+              fontSize : 11,
+              opacity  : 0.85,
+            }}>
+              <summary style={{
+                cursor    : "pointer",
+                fontWeight: 600,
+                padding   : "2px 0",
+                userSelect: "none",
+              }}>
+                🔍 Debug Details
+              </summary>
+              <pre style={{
+                marginTop   : 6,
+                padding     : "8px 10px",
+                background  : "rgba(0,0,0,0.06)",
+                borderRadius: 6,
+                fontSize    : 10,
+                lineHeight  : 1.5,
+                overflow    : "auto",
+                whiteSpace  : "pre-wrap",
+                wordBreak   : "break-word",
+                maxHeight   : 200,
+                fontFamily  : "monospace",
+              }}>
+                {JSON.stringify(errorDebug, null, 2)}
+              </pre>
+            </details>
           )}
+        </div>
+
+        {/* Dismiss button */}
+        {onDismiss && (
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={onDismiss}
+            aria-label="Dismiss error"
             style={{
-              padding      : "6px 12px",
-              background   : "#ef4444",
-              color        : "#fff",
-              border       : "none",
-              borderRadius : 6,
-              fontWeight   : 700,
-              cursor       : "pointer",
-              fontSize     : 14,
+              background : "none",
+              border     : "none",
+              cursor     : "pointer",
+              color      : "inherit",
+              opacity    : 0.6,
+              fontSize   : "1rem",
+              lineHeight : 1,
+              padding    : "0.1rem 0.3rem",
+              flexShrink : 0,
+              marginLeft : "auto",
             }}
-            aria-label="Close debug panel"
           >
             ✕
           </button>
-        </div>
-      </div>
-
-      {/* ── CONFIG ── */}
-      <Section title="📡 CONFIG" color="#fbbf24">
-        <Row label="API"       value={apiBase} />
-        <Row label="Token"     value={truncateToken(token)} />
-        <Row label="Logged in" value={user ? "✓ Yes" : "❌ No"} />
-        <Row label="User ID"   value={user?.id} />
-        <Row label="Email"     value={user?.email} />
-        <Row label="Name"      value={user?.name} />
-      </Section>
-
-      {/* ── ADDRESSES ── */}
-      <Section title="📍 ADDRESSES" color="#60a5fa">
-        <Row label="Loaded"   value={`${addresses?.length ?? 0} saved`} />
-        <Row label="Selected" value={selectedAddress?.id ?? "❌ None"} />
-        {selectedAddress && (
-          <pre style={preStyle}>{jsonPretty({
-            id:            selectedAddress.id,
-            recipient:     selectedAddress.recipient_name,
-            phone:         selectedAddress.phone,
-            city:          selectedAddress.city,
-            state:         selectedAddress.state,
-          })}</pre>
         )}
-      </Section>
-
-      {/* ── CART ── */}
-      <Section title="🛒 CART" color="#10b981">
-        <Row label="Loading" value={cartLoading ? "⏳ Yes" : "✓ Done"} />
-        <Row label="Items"   value={cartItems?.length ?? 0} />
-        {cartItems?.length > 0 && (
-          <pre style={preStyle}>{jsonPretty(cartItems.map((i) => ({
-            id:         i.id,
-            product_id: i.product_id ?? i.productId,
-            name:       i.product_name ?? i.name,
-            qty:        i.qty,
-            price:      i.price,
-          })))}</pre>
-        )}
-      </Section>
-
-      {/* ── CALCULATION ── */}
-      <Section title="💰 CALCULATION" color="#a78bfa">
-        {calculation ? (
-          <>
-            <Row label="Subtotal"    value={`₦${calculation.subtotal}`} />
-            <Row label="Delivery"    value={`₦${calculation.deliveryFee}`} />
-            <Row label="Discount"    value={`₦${calculation.discount ?? 0}`} />
-            <Row label="Grand total" value={`₦${calculation.grandTotal}`} />
-            <Row label="Options"     value={
-              calculation.paymentOptions?.map((o) => o.key).join(", ") ?? "none"
-            } />
-            <Row label="Selected"    value={paymentMethod ?? "❌ None"} />
-          </>
-        ) : (
-          <div style={{ color: "#fca5a5" }}>❌ No calculation yet</div>
-        )}
-      </Section>
-
-      {/* ── LAST REQUEST ── */}
-      {lastRequest && (
-        <Section title="📤 LAST REQUEST" color="#fbbf24">
-          <Row label="URL"    value={lastRequest.url} />
-          <Row label="Method" value="POST" />
-          <Row label="Time"   value={lastRequest.time} />
-          <pre style={preStyle}>{jsonPretty(lastRequest.payload)}</pre>
-        </Section>
-      )}
-
-      {/* ── LAST RESPONSE (SUCCESS) ── */}
-      {lastResponse && !lastError && (
-        <Section title="📥 LAST RESPONSE" color="#10b981">
-          <Row label="Status" value={<>OK {statusBadge(lastResponse.status)}</>} />
-          <Row label="Time"   value={lastResponse.time} />
-          <pre style={preStyle}>{jsonPretty(lastResponse.data)}</pre>
-        </Section>
-      )}
-
-      {/* ── LAST ERROR ── */}
-      {lastError && (
-        <Section title="❌ LAST ERROR" color="#ef4444">
-          <Row label="Status"  value={<>{lastError.status ?? "Network"} {statusBadge(lastError.status)}</>} />
-          <Row label="Message" value={lastError.message} />
-          <Row label="Time"    value={lastError.time} />
-
-          {lastError.debug && (
-            <>
-              <div style={{
-                marginTop  : 10,
-                marginBottom: 4,
-                color      : "#fca5a5",
-                fontWeight : 700,
-              }}>
-                🐛 SQL / Backend Debug:
-              </div>
-              <pre style={{ ...preStyle, background: "#450a0a", color: "#fecaca" }}>
-                {jsonPretty(lastError.debug)}
-              </pre>
-            </>
-          )}
-
-          {lastError.fullResponse && (
-            <>
-              <div style={{
-                marginTop  : 10,
-                marginBottom: 4,
-                color      : "#fca5a5",
-                fontWeight : 700,
-              }}>
-                📥 Full Response Body:
-              </div>
-              <pre style={{ ...preStyle, background: "#450a0a", color: "#fecaca" }}>
-                {jsonPretty(lastError.fullResponse)}
-              </pre>
-            </>
-          )}
-        </Section>
-      )}
-
-      {/* Footer */}
-      <div style={{
-        marginTop : 20,
-        padding   : 10,
-        background: "#1e293b",
-        borderRadius: 6,
-        color     : "#94a3b8",
-        fontSize  : 11,
-        textAlign : "center",
-      }}>
-        💡 Only visible in DEV mode. Won't appear in production.
       </div>
     </div>
   );
-});
+}
 
 /* ═══════════════════════════════════════════════════════════════
-   REUSABLE SUB-COMPONENTS
+   PAYMENT STEP
 ═══════════════════════════════════════════════════════════════ */
-const Section = memo(function Section({ title, color, children }) {
+const PaymentStep = memo(function PaymentStep({
+  calculation,
+  paymentMethod,
+  onSelectPayment,
+  loading = false,
+  error = null,
+  errorDebug = null,           /* ✅ NEW */
+  onDismissError,              /* ✅ NEW */
+  onBack,
+  onPlaceOrder,
+}) {
+  /* ── Totals ── */
+  const grandTotal  = Number(calculation?.grandTotal  ?? 0);
+  const deliveryFee = Number(calculation?.deliveryFee ?? 0);
+  const subtotal    = Number(calculation?.subtotal    ?? 0);
+
+  /* ── Selected method ── */
+  const normSelected = paymentMethod ? normaliseKey(paymentMethod) : null;
+  const isCOD        = normSelected === "CASH_ON_DELIVERY";
+  const isOnline     = normSelected === "ONLINE_PAYMENT";
+
+  /* ── Payment options ── */
+  const paymentOptions = calculation?.paymentOptions ?? [];
+
   return (
-    <div style={{
-      marginBottom : 14,
-      padding      : 12,
-      background   : "#1e293b",
-      borderRadius : 8,
-      borderLeft   : `3px solid ${color}`,
-    }}>
-      <div style={{
-        color       : color,
-        fontWeight  : 800,
-        fontSize    : 13,
-        marginBottom: 8,
-      }}>
-        {title}
+    <div className="ck-section">
+
+      <style>{`
+        @keyframes ck-spin { to { transform: rotate(360deg); } }
+      `}</style>
+
+      <h2 className="ck-section-title">💳 Payment Method</h2>
+
+      {/* ── Payment option cards ── */}
+      <div
+        className="ck-payment-options"
+        role="radiogroup"
+        aria-label="Payment method"
+      >
+        {paymentOptions.length === 0 && (
+          <p className="ck-payment-empty">
+            Loading payment options…
+          </p>
+        )}
+
+        {paymentOptions.map((opt) => {
+          const normKey    = normaliseKey(opt.key);
+          const isSelected = normSelected === normKey;
+
+          return (
+            <div
+              key={opt.key}
+              className={`ck-payment-card ${
+                isSelected ? "ck-payment-card--selected" : ""
+              }`}
+              onClick={() => { if (!loading) onSelectPayment(opt.key); }}
+              role="radio"
+              aria-checked={isSelected}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" || e.key === " ") && !loading) {
+                  onSelectPayment(opt.key);
+                }
+              }}
+              aria-label={opt.label}
+            >
+              <div className="ck-radio-wrap">
+                <div
+                  className={`ck-radio ${isSelected ? "ck-radio--active" : ""}`}
+                  aria-hidden="true"
+                />
+              </div>
+              <div className="ck-payment-icon" aria-hidden="true">
+                {opt.icon}
+              </div>
+              <div className="ck-payment-info">
+                <p className="ck-payment-label">{opt.label}</p>
+                <p className="ck-payment-desc">{opt.desc}</p>
+              </div>
+            </div>
+          );
+        })}
       </div>
-      {children}
+
+      {/* ── Order summary ── */}
+      {calculation && (
+        <div className="ck-final-summary">
+          <div className="ck-final-row">
+            <span>Subtotal</span>
+            <span>{fmt(subtotal)}</span>
+          </div>
+          <div className="ck-final-row">
+            <span>Delivery Fee</span>
+            <span>{deliveryFee === 0 ? "Free" : fmt(deliveryFee)}</span>
+          </div>
+          <div className="ck-final-divider" />
+          <div className="ck-final-row ck-final-row--total">
+            <span>Total to Pay</span>
+            <strong>{fmt(grandTotal)}</strong>
+          </div>
+        </div>
+      )}
+
+      {/* ── Contextual notes ── */}
+      {isCOD && (
+        <div className="ck-cod-note" role="note">
+          💵 Have exact change ready — <strong>{fmt(grandTotal)}</strong>
+        </div>
+      )}
+
+      {isOnline && (
+        <div className="ck-online-note" role="note">
+          🔒 You'll be redirected to Flutterwave to complete payment securely.
+        </div>
+      )}
+
+      {!normSelected && (
+        <div className="ck-payment-hint" role="status">
+          👆 Please select a payment method above
+        </div>
+      )}
+
+      {/* ── Error banner with debug details ── */}
+      <ErrorBanner
+        error={error}
+        errorDebug={errorDebug}
+        onDismiss={onDismissError}
+      />
+
+      {/* ── Navigation ── */}
+      <div className="ck-nav-btns">
+        <button
+          className="ck-btn-back"
+          onClick={onBack}
+          disabled={loading}
+          aria-label="Go back"
+        >
+          ← Back
+        </button>
+
+        <button
+          className={`ck-place-order-btn ${
+            loading ? "ck-place-order-btn--loading" : ""
+          }`}
+          onClick={onPlaceOrder}
+          disabled={!paymentMethod || loading}
+          aria-busy={loading}
+        >
+          {loading ? (
+            <span style={{
+              display        : "flex",
+              alignItems     : "center",
+              gap            : "0.6rem",
+              justifyContent : "center",
+            }}>
+              <Spinner />
+              Placing Order…
+            </span>
+          ) : isCOD ? (
+            "Place Order — Pay on Delivery"
+          ) : isOnline ? (
+            `Pay ${fmt(grandTotal)} →`
+          ) : (
+            "Place Order"
+          )}
+        </button>
+      </div>
     </div>
   );
 });
 
-const Row = memo(function Row({ label, value }) {
-  return (
-    <div style={{
-      display      : "flex",
-      gap          : 8,
-      marginBottom : 3,
-      flexWrap     : "wrap",
-    }}>
-      <span style={{ color: "#64748b", minWidth: 90 }}>{label}:</span>
-      <span style={{
-        color     : "#e2e8f0",
-        wordBreak : "break-all",
-        flex      : 1,
-      }}>
-        {value ?? <em style={{ color: "#64748b" }}>—</em>}
-      </span>
-    </div>
-  );
-});
-
-const preStyle = {
-  marginTop    : 8,
-  padding      : 10,
-  background   : "#0f172a",
-  border       : "1px solid #334155",
-  borderRadius : 6,
-  fontSize     : 11,
-  color        : "#67e8f9",
-  overflow     : "auto",
-  maxHeight    : 250,
-  whiteSpace   : "pre-wrap",
-  wordBreak    : "break-all",
-};
-
-export default CheckoutDebugPanel;
+export default PaymentStep;
