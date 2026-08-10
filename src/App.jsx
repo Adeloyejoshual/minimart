@@ -154,6 +154,7 @@ import FAQ                from "./pages/FAQ";
 import Invitation         from "./pages/Invitation";
 import PostAds            from "./pages/PostAds";
 import PaymentSuccess     from "./pages/PaymentSuccess";
+import CartPage           from "./pages/CartPage";
 import CheckoutPage       from "./pages/CheckoutPage";
 import OrderSuccess       from "./pages/OrderSuccess";
 import OrderHistory       from "./pages/OrderHistory";
@@ -202,7 +203,6 @@ import SupportDashboard   from "./page/admin/Support/SupportDashboard";
 /* ════════════════════════════════════════════════════════════
    COMPONENTS
 ════════════════════════════════════════════════════════════ */
-import CartPage      from "./components/Cart/CartPage";
 import DesktopHeader from "./components/DesktopHeader";
 
 /* ════════════════════════════════════════════════════════════
@@ -1030,7 +1030,7 @@ function AppInner() {
 
         {/* ── CART / CHECKOUT / ORDERS ── */}
         <Route path="/shop/cart"
-          element={<CartPage />} />
+          element={<CartPage user={user} />} />
         <Route path="/payment/success"
           element={<PaymentSuccess />} />
         <Route path="/shop/checkout"
