@@ -1,562 +1,496 @@
 /**
- * routes/checkout/createOrder.js
- * POST /api/checkout
+ * services/orderService.js
  *
- * Create order from cart.
- * Validates cart, calculates fees, splits by seller.
- *
- * v4 — Debug always visible
- * ─────────────────────────────────
- * ✓ Debug details ALWAYS returned in error responses (no NODE_ENV check)
- * ✓ Every step logged so Render logs show progression
- * ✓ Response includes debug info AND stack trace on 500 errors
- * ✓ Flutterwave errors also include debug field
- * ✓ Same fallbacks, guards, and cart/stock logic as before
+ * v5 — Fully adaptive column detection
+ * ─────────────────────────────────────
+ * ✓ Detects orders.user_id
+ * ✓ Detects order_items real column names (name vs product_name)
+ * ✓ Detects optional columns (variant_id, sku, image, etc.)
+ * ✓ Only INSERTs into columns that exist
+ * ✓ Works with any schema variant
  */
 
-import express from "express";
-import { pool } from "../../config/db.js";
-import { calculateDeliveryFee }    from "../../services/delivery.js";
-import { isPaymentMethodAllowed }  from "../../services/paymentRules.js";
-import { createOrderGroup, getOrderGroup } from "../../services/orderService.js";
-
-const router = express.Router();
+import { pool }                 from "../config/db.js";
+import { calculateDeliveryFee } from "./delivery.js";
 
 /* ════════════════════════════════════════════════════════════
-   AUTH GUARD
+   COLUMN DETECTION
 ════════════════════════════════════════════════════════════ */
-router.use((req, res, next) => {
-  if (!req.user?.id) {
-    console.error("[checkout] ❌ req.user missing — auth middleware not attached");
-    return res.status(401).json({
-      success: false,
-      message: "Authentication required",
-      debug: { reason: "req.user is undefined — check auth middleware order" },
-    });
-  }
-  next();
-});
+let ORDER_GROUP_COLS = null;
+let ORDER_COLS       = null;
+let ORDER_ITEM_COLS  = null;
 
-/* ════════════════════════════════════════════════════════════
-   GET /api/checkout/orders — order history
-════════════════════════════════════════════════════════════ */
-router.get("/orders", async (req, res) => {
+async function detectOrderGroupColumns() {
+  if (ORDER_GROUP_COLS) return ORDER_GROUP_COLS;
   try {
     const { rows } = await pool.query(
-      `SELECT og.id, og.tracking_id, og.grand_total, og.payment_method,
-              og.payment_status, og.status, og.created_at,
-              COUNT(o.id)::int AS order_count,
-              a.city, a.state
-       FROM public.order_groups og
-       LEFT JOIN public.orders o ON o.order_group_id = og.id
-       LEFT JOIN public.user_addresses a ON a.id = og.address_id
-       WHERE og.user_id = $1
-       GROUP BY og.id, a.city, a.state
-       ORDER BY og.created_at DESC`,
-      [req.user.id]
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'order_groups'`
     );
-    res.json({ success: true, data: rows });
+    const cols = new Set(rows.map((r) => r.column_name));
+    ORDER_GROUP_COLS = {
+      hasTrackingId:  cols.has("tracking_id"),
+      hasDeliveredAt: cols.has("delivered_at"),
+      hasUpdatedAt:   cols.has("updated_at"),
+    };
+    console.log("[orderService] order_groups cols:", ORDER_GROUP_COLS);
   } catch (err) {
-    console.error("[GET /api/checkout/orders]", err.message);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch orders",
-      debug: { message: err.message, code: err.code },
-    });
+    console.warn("[orderService] order_groups detection failed:", err.message);
+    ORDER_GROUP_COLS = { hasTrackingId: true, hasDeliveredAt: true, hasUpdatedAt: true };
   }
-});
+  return ORDER_GROUP_COLS;
+}
 
-/* ════════════════════════════════════════════════════════════
-   GET /api/checkout/orders/:groupId
-════════════════════════════════════════════════════════════ */
-router.get("/orders/:groupId", async (req, res) => {
+async function detectOrderColumns() {
+  if (ORDER_COLS) return ORDER_COLS;
   try {
-    const group = await getOrderGroup(req.params.groupId, req.user.id);
-    if (!group) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found",
-      });
-    }
-    res.json({ success: true, data: group });
-  } catch (err) {
-    console.error("[GET /api/checkout/orders/:groupId]", err.message);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch order",
-      debug: { message: err.message, code: err.code },
-    });
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   HELPER — enrich req.user with email/name from DB
-════════════════════════════════════════════════════════════ */
-async function enrichUser(user) {
-  if (user.email && user.name) return user;
-
-  try {
-    const { rows: [full] } = await pool.query(
-      `SELECT id, email, name FROM market.users WHERE id = $1`,
-      [user.id]
+    const { rows } = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'orders'`
     );
-
-    if (full) {
-      return {
-        ...user,
-        email: user.email ?? full.email,
-        name:  user.name  ?? full.name,
-      };
-    }
+    const cols = new Set(rows.map((r) => r.column_name));
+    ORDER_COLS = {
+      hasUserId:      cols.has("user_id"),
+      hasDeliveredAt: cols.has("delivered_at"),
+      hasUpdatedAt:   cols.has("updated_at"),
+    };
+    console.log("[orderService] orders cols:", ORDER_COLS);
   } catch (err) {
-    console.warn("[checkout] user enrichment failed:", err.message);
+    console.warn("[orderService] orders detection failed:", err.message);
+    ORDER_COLS = { hasUserId: true, hasDeliveredAt: true, hasUpdatedAt: true };
   }
+  return ORDER_COLS;
+}
 
-  return user;
+/*
+ * ✅ DETECTS ALL order_items COLUMNS
+ * Figures out the actual column name for product name/title
+ * and which optional columns exist.
+ */
+async function detectOrderItemColumns() {
+  if (ORDER_ITEM_COLS) return ORDER_ITEM_COLS;
+  try {
+    const { rows } = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'order_items'`
+    );
+    const cols = new Set(rows.map((r) => r.column_name));
+
+    /* Figure out what the "name" column is called */
+    let nameColumn = null;
+    if      (cols.has("name"))         nameColumn = "name";
+    else if (cols.has("product_name")) nameColumn = "product_name";
+    else if (cols.has("item_name"))    nameColumn = "item_name";
+    else if (cols.has("title"))        nameColumn = "title";
+
+    /* Figure out price column name */
+    let priceColumn = null;
+    if      (cols.has("unit_price")) priceColumn = "unit_price";
+    else if (cols.has("price"))      priceColumn = "price";
+
+    /* Figure out qty column name */
+    let qtyColumn = null;
+    if      (cols.has("qty"))      qtyColumn = "qty";
+    else if (cols.has("quantity")) qtyColumn = "quantity";
+
+    /* Figure out subtotal column name */
+    let subtotalColumn = null;
+    if      (cols.has("subtotal"))    subtotalColumn = "subtotal";
+    else if (cols.has("total_price")) subtotalColumn = "total_price";
+    else if (cols.has("total"))       subtotalColumn = "total";
+
+    ORDER_ITEM_COLS = {
+      allColumns:     [...cols],
+      nameColumn,
+      priceColumn,
+      qtyColumn,
+      subtotalColumn,
+      hasProductId:   cols.has("product_id"),
+      hasVariantId:   cols.has("variant_id"),
+      hasVariantName: cols.has("variant_name"),
+      hasSku:         cols.has("sku"),
+      hasImage:       cols.has("image"),
+      hasImageUrl:    cols.has("image_url"),
+    };
+
+    console.log("[orderService] order_items cols:", ORDER_ITEM_COLS);
+
+    if (!nameColumn) {
+      console.error("[orderService] ⚠ order_items has NO name/product_name/title column!");
+    }
+    if (!priceColumn) {
+      console.error("[orderService] ⚠ order_items has NO unit_price/price column!");
+    }
+    if (!qtyColumn) {
+      console.error("[orderService] ⚠ order_items has NO qty/quantity column!");
+    }
+
+  } catch (err) {
+    console.warn("[orderService] order_items detection failed:", err.message);
+    ORDER_ITEM_COLS = {
+      allColumns:     [],
+      nameColumn:     "name",
+      priceColumn:    "unit_price",
+      qtyColumn:      "qty",
+      subtotalColumn: "subtotal",
+      hasProductId:   true,
+      hasVariantId:   false,
+      hasVariantName: false,
+      hasSku:         false,
+      hasImage:       false,
+      hasImageUrl:    false,
+    };
+  }
+  return ORDER_ITEM_COLS;
 }
 
 /* ════════════════════════════════════════════════════════════
-   POST /api/checkout — CREATE ORDER
+   HELPERS
 ════════════════════════════════════════════════════════════ */
-router.post("/", async (req, res) => {
-  const {
-    addressId,
-    paymentMethod,
-    couponCode,
-    discount = 0,
-    notes,
-  } = req.body;
+function generateTrackingId(uuid) {
+  return `ORD-${uuid.slice(0, 8).toUpperCase()}`;
+}
 
-  /* Track which step failed for debug */
-  let currentStep = "init";
+/**
+ * Build a dynamic INSERT for order_items based on the real schema.
+ */
+function buildOrderItemInsert(itemCols, orderId, item) {
+  const columns = ["order_id"];
+  const values  = [orderId];
 
-  /* ── Input validation ── */
-  if (!addressId) {
-    return res.status(422).json({
-      success: false,
-      message: "Delivery address is required",
-    });
+  if (itemCols.hasProductId) {
+    columns.push("product_id");
+    values.push(item.productId);
   }
 
-  if (!paymentMethod) {
-    return res.status(422).json({
-      success: false,
-      message: "Payment method is required",
-    });
+  if (itemCols.nameColumn) {
+    columns.push(itemCols.nameColumn);
+    values.push(item.name);
   }
 
-  try {
-    /* ══════════════════════════════════════════════════
-       STEP 1: Enrich user
-    ══════════════════════════════════════════════════ */
-    currentStep = "enrichUser";
-    console.log(`[checkout] STEP 1: Enriching user ${req.user.id}`);
-    const user = await enrichUser(req.user);
-
-    /* ══════════════════════════════════════════════════
-       STEP 2: Validate address
-    ══════════════════════════════════════════════════ */
-    currentStep = "validateAddress";
-    console.log(`[checkout] STEP 2: Validating address ${addressId}`);
-
-    const { rows: [address] } = await pool.query(
-      `SELECT id FROM public.user_addresses
-       WHERE id = $1 AND user_id = $2`,
-      [addressId, user.id]
-    );
-
-    if (!address) {
-      console.warn(`[checkout] Address ${addressId} not found`);
-      return res.status(404).json({
-        success: false,
-        message: "Address not found. Please add a new address.",
-      });
-    }
-
-    /* ══════════════════════════════════════════════════
-       STEP 3: Fetch cart
-    ══════════════════════════════════════════════════ */
-    currentStep = "fetchCart";
-    console.log(`[checkout] STEP 3: Fetching cart for user ${user.id}`);
-
-    const { rows: cartItems } = await pool.query(
-      `SELECT
-         ci.id            AS item_id,
-         ci.qty,
-
-         p.id             AS product_id,
-         p.user_id        AS seller_id,
-         p.name,
-         p.category,
-         p.status,
-         p.is_active,
-         p.deleted_at,
-
-         COALESCE(u.name, 'Unknown Seller') AS seller_name,
-
-         pv.id            AS variant_id,
-         pv.name          AS variant_name,
-         pv.sku,
-         pv.attributes,
-         pv.stock         AS variant_stock,
-
-         COALESCE(pv.price::numeric, p.price::numeric) AS live_price,
-
-         (
-           SELECT pi.image_url
-           FROM market.product_images pi
-           WHERE pi.product_id = p.id AND pi.is_primary = true
-           LIMIT 1
-         ) AS image
-
-       FROM market.cart_items ci
-       JOIN market.carts c      ON c.id = ci.cart_id
-       JOIN market.products p   ON p.id = ci.product_id
-       LEFT JOIN market.product_variants pv ON pv.id = ci.variant_id
-       LEFT JOIN market.users u ON u.id = p.user_id
-       WHERE c.user_id = $1`,
-      [user.id]
-    );
-
-    if (!cartItems.length) {
-      console.warn(`[checkout] Cart empty for user ${user.id}`);
-      return res.status(400).json({
-        success: false,
-        message: "Your cart is empty. Add items before checking out.",
-      });
-    }
-
-    console.log(`[checkout] ✓ Loaded ${cartItems.length} cart items`);
-
-    /* ══════════════════════════════════════════════════
-       STEP 4: Validate availability
-    ══════════════════════════════════════════════════ */
-    currentStep = "validateAvailability";
-    console.log(`[checkout] STEP 4: Validating item availability`);
-
-    const unavailable = cartItems.filter((i) =>
-      i.deleted_at || !i.is_active || !["active", "approved"].includes(i.status)
-    );
-
-    if (unavailable.length) {
-      console.warn(`[checkout] ${unavailable.length} unavailable items:`,
-        unavailable.map((i) => ({ name: i.name, status: i.status, active: i.is_active }))
-      );
-      return res.status(400).json({
-        success: false,
-        message: `${unavailable.length} item(s) are no longer available. Please update your cart.`,
-        data: { unavailableIds: unavailable.map((i) => i.item_id) },
-      });
-    }
-
-    /* ══════════════════════════════════════════════════
-       STEP 5: Smart stock validation
-    ══════════════════════════════════════════════════ */
-    currentStep = "validateStock";
-
-    const outOfStock = cartItems.filter((i) => {
-      if (!i.variant_id) return false;
-      if (i.variant_stock === null || i.variant_stock === undefined) return false;
-      const stock = Number(i.variant_stock);
-      return isNaN(stock) || stock <= 0;
-    });
-
-    if (outOfStock.length) {
-      console.warn(`[checkout] ${outOfStock.length} out-of-stock items`);
-      return res.status(400).json({
-        success: false,
-        message: `${outOfStock.length} item(s) are out of stock.`,
-        data: {
-          outOfStockIds: outOfStock.map((i) => i.item_id),
-          details:       outOfStock.map((i) => ({
-            name:  i.name,
-            stock: i.variant_stock,
-          })),
-        },
-      });
-    }
-
-    const insufficient = cartItems.filter((i) => {
-      if (!i.variant_id) return false;
-      if (i.variant_stock === null || i.variant_stock === undefined) return false;
-      const stock = Number(i.variant_stock);
-      return stock > 0 && Number(i.qty) > stock;
-    });
-
-    if (insufficient.length) {
-      return res.status(400).json({
-        success: false,
-        message: `Some items exceed available stock. Please reduce quantities.`,
-        data: {
-          insufficient: insufficient.map((i) => ({
-            itemId:    i.item_id,
-            name:      i.name,
-            wanted:    i.qty,
-            available: i.variant_stock,
-          })),
-        },
-      });
-    }
-
-    /* ══════════════════════════════════════════════════
-       STEP 6: Validate sellers
-    ══════════════════════════════════════════════════ */
-    currentStep = "validateSellers";
-    const badSeller = cartItems.find((i) => !i.seller_id);
-    if (badSeller) {
-      return res.status(400).json({
-        success: false,
-        message: `A product is missing seller info: "${badSeller.name}". Please remove it.`,
-      });
-    }
-
-    /* ══════════════════════════════════════════════════
-       STEP 7: Calculate totals
-    ══════════════════════════════════════════════════ */
-    currentStep = "calculateTotals";
-    const subtotal    = cartItems.reduce(
-      (s, i) => s + (Number(i.live_price) * Number(i.qty)),
-      0
-    );
-    const deliveryFee = calculateDeliveryFee(subtotal);
-    const discountAmt = Math.min(Number(discount) || 0, subtotal);
-    const grandTotal  = subtotal + deliveryFee - discountAmt;
-
-    console.log(`[checkout] Totals — subtotal: ₦${subtotal} | delivery: ₦${deliveryFee} | grand: ₦${grandTotal}`);
-
-    /* ══════════════════════════════════════════════════
-       STEP 8: Validate payment method
-    ══════════════════════════════════════════════════ */
-    currentStep = "validatePaymentMethod";
-    if (!isPaymentMethodAllowed(paymentMethod, grandTotal)) {
-      return res.status(400).json({
-        success: false,
-        message: `${paymentMethod} is not available for this order total.`,
-      });
-    }
-
-    /* ══════════════════════════════════════════════════
-       STEP 9: Format items
-    ══════════════════════════════════════════════════ */
-    currentStep = "formatItems";
-    const formattedItems = cartItems.map((i) => ({
-      productId:  i.product_id,
-      sellerId:   i.seller_id,
-      sellerName: i.seller_name,
-      name:       i.name,
-      image:      i.image,
-      qty:        Number(i.qty),
-      price:      Number(i.live_price),
-      category:   i.category,
-      variant: i.variant_id ? {
-        id:         i.variant_id,
-        name:       i.variant_name,
-        sku:        i.sku,
-        attributes: i.attributes,
-      } : null,
-    }));
-
-    /* ══════════════════════════════════════════════════
-       STEP 10: Create order group
-    ══════════════════════════════════════════════════ */
-    currentStep = "createOrderGroup";
-    console.log(`[checkout] STEP 10: Creating order for user ${user.id}`);
-
-    const result = await createOrderGroup({
-      userId:        user.id,
-      addressId,
-      items:         formattedItems,
-      subtotal,
-      paymentMethod,
-      couponCode:    couponCode ?? null,
-      discount:      discountAmt,
-      notes:         notes ?? null,
-    });
-
-    console.log(`[checkout] ✅ Order group ${result.orderGroupId} created`);
-
-    /* ══════════════════════════════════════════════════
-       STEP 11a: CASH ON DELIVERY — done
-    ══════════════════════════════════════════════════ */
-    if (paymentMethod === "CASH_ON_DELIVERY") {
-      return res.status(201).json({
-        success: true,
-        message: "Order placed successfully",
-        data: {
-          orderGroupId:    result.orderGroupId,
-          trackingId:      result.trackingId,
-          grandTotal:      result.grandTotal,
-          deliveryFee:     result.deliveryFee,
-          paymentMethod,
-          requiresPayment: false,
-        },
-      });
-    }
-
-    /* ══════════════════════════════════════════════════
-       STEP 11b: ONLINE PAYMENT — Flutterwave
-    ══════════════════════════════════════════════════ */
-    currentStep = "flutterwave";
-
-    try {
-      if (!process.env.FLW_SECRET_KEY) {
-        throw new Error("FLW_SECRET_KEY environment variable is not set on Render");
-      }
-      if (!process.env.CLIENT_ORIGIN) {
-        throw new Error("CLIENT_ORIGIN environment variable is not set on Render");
-      }
-      if (!user.email) {
-        throw new Error("User email is required for online payment");
-      }
-
-      const flw = await initializeFlutterwavePayment({
-        orderGroupId: result.orderGroupId,
-        amount:       result.grandTotal,
-        email:        user.email,
-        name:         user.name ?? "Customer",
-      });
-
-      console.log(`[checkout] ✅ Flutterwave link generated`);
-
-      return res.status(201).json({
-        success: true,
-        message: "Order created — complete payment to confirm",
-        data: {
-          orderGroupId:    result.orderGroupId,
-          trackingId:      result.trackingId,
-          grandTotal:      result.grandTotal,
-          deliveryFee:     result.deliveryFee,
-          paymentMethod,
-          requiresPayment: true,
-          paymentLink:     flw.link,
-          paymentRef:      flw.ref,
-        },
-      });
-
-    } catch (flwErr) {
-      console.error("═══════════════════════════════════════");
-      console.error("[checkout] ❌ Flutterwave init failed");
-      console.error("Message:  ", flwErr.message);
-      console.error("Response: ", flwErr.response?.data);
-      console.error("Status:   ", flwErr.response?.status);
-      console.error("═══════════════════════════════════════");
-
-      /* Order is saved — return success with a note + debug info */
-      return res.status(201).json({
-        success: true,
-        message: "Order created but payment link failed. Please try paying from your orders page.",
-        data: {
-          orderGroupId:    result.orderGroupId,
-          trackingId:      result.trackingId,
-          grandTotal:      result.grandTotal,
-          deliveryFee:     result.deliveryFee,
-          paymentMethod,
-          requiresPayment: true,
-          paymentLink:     null,
-        },
-        /* ✅ ALWAYS include Flutterwave debug — no NODE_ENV check */
-        debug: {
-          source:      "flutterwave",
-          message:     flwErr.message,
-          status:      flwErr.response?.status,
-          response:    flwErr.response?.data,
-          hint:        !process.env.FLW_SECRET_KEY
-            ? "Missing FLW_SECRET_KEY env var on Render"
-            : !process.env.CLIENT_ORIGIN
-              ? "Missing CLIENT_ORIGIN env var on Render"
-              : "Flutterwave API error — check secret key validity",
-        },
-      });
-    }
-
-  } catch (err) {
-    /* ════════════════════════════════════════════════
-       COMPREHENSIVE ERROR LOGGING
-    ════════════════════════════════════════════════ */
-    console.error("═══════════════════════════════════════════════");
-    console.error("[POST /api/checkout] ORDER CREATION FAILED");
-    console.error("Failed at step:", currentStep);
-    console.error("User ID:      ", req.user?.id);
-    console.error("User email:   ", req.user?.email);
-    console.error("Address ID:   ", addressId);
-    console.error("Payment:      ", paymentMethod);
-    console.error("─── SQL Error ─────────────────────────────────");
-    console.error("Message:      ", err.message);
-    console.error("Code:         ", err.code);
-    console.error("Detail:       ", err.detail);
-    console.error("Constraint:   ", err.constraint);
-    console.error("Table:        ", err.table);
-    console.error("Column:       ", err.column);
-    console.error("─── Stack ─────────────────────────────────────");
-    console.error(err.stack);
-    console.error("═══════════════════════════════════════════════");
-
-    /* ✅ ALWAYS return debug info — no NODE_ENV check */
-    res.status(500).json({
-      success: false,
-      message: "Failed to create order",
-      debug: {
-        failedAt:   currentStep,
-        message:    err.message,
-        code:       err.code,
-        detail:     err.detail,
-        constraint: err.constraint,
-        table:      err.table,
-        column:     err.column,
-        stack:      err.stack?.split("\n").slice(0, 5).join("\n"),
-      },
-    });
+  if (itemCols.qtyColumn) {
+    columns.push(itemCols.qtyColumn);
+    values.push(Number(item.qty));
   }
-});
+
+  if (itemCols.priceColumn) {
+    columns.push(itemCols.priceColumn);
+    values.push(Number(item.price));
+  }
+
+  if (itemCols.subtotalColumn) {
+    columns.push(itemCols.subtotalColumn);
+    values.push(Number(item.price) * Number(item.qty));
+  }
+
+  if (itemCols.hasVariantId) {
+    columns.push("variant_id");
+    values.push(item.variant?.id ?? null);
+  }
+  if (itemCols.hasVariantName) {
+    columns.push("variant_name");
+    values.push(item.variant?.name ?? null);
+  }
+  if (itemCols.hasSku) {
+    columns.push("sku");
+    values.push(item.variant?.sku ?? null);
+  }
+  if (itemCols.hasImage) {
+    columns.push("image");
+    values.push(item.image ?? null);
+  }
+  if (itemCols.hasImageUrl) {
+    columns.push("image_url");
+    values.push(item.image ?? null);
+  }
+
+  const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
+
+  return {
+    sql: `INSERT INTO public.order_items (${columns.join(", ")}) VALUES (${placeholders})`,
+    params: values,
+  };
+}
 
 /* ════════════════════════════════════════════════════════════
-   FLUTTERWAVE PAYMENT INITIALIZER
+   CREATE ORDER GROUP
 ════════════════════════════════════════════════════════════ */
-async function initializeFlutterwavePayment({
-  orderGroupId,
-  amount,
-  email,
-  name,
+export async function createOrderGroup({
+  userId,
+  addressId,
+  items,
+  subtotal,
+  paymentMethod,
+  couponCode = null,
+  discount   = 0,
+  notes      = null,
 }) {
-  const axios = (await import("axios")).default;
-  const ref   = `MINIMART-${orderGroupId.slice(0, 8).toUpperCase()}-${Date.now()}`;
+  const deliveryFee = calculateDeliveryFee(subtotal);
+  const grandTotal  = subtotal + deliveryFee - discount;
 
-  console.log(`[flutterwave] Initializing payment for ${orderGroupId} — ₦${amount}`);
-  console.log(`[flutterwave] Using key prefix: ${process.env.FLW_SECRET_KEY?.slice(0, 20)}…`);
+  const [groupCols, orderCols, itemCols] = await Promise.all([
+    detectOrderGroupColumns(),
+    detectOrderColumns(),
+    detectOrderItemColumns(),
+  ]);
 
-  const { data } = await axios.post(
-    "https://api.flutterwave.com/v3/payments",
-    {
-      tx_ref:       ref,
-      amount,
-      currency:     "NGN",
-      redirect_url: `${process.env.CLIENT_ORIGIN}/shop/orders/${orderGroupId}?verify=true`,
-      customer:     { email, name },
-      customizations: {
-        title:       "Loemart Checkout",
-        description: `Order ${orderGroupId.slice(0, 8).toUpperCase()}`,
-        logo:        `${process.env.CLIENT_ORIGIN}/logo.png`,
-      },
-      meta: {
-        order_group_id: orderGroupId,
-      },
-    },
-    {
-      headers: {
-        Authorization:  `Bearer ${process.env.FLW_SECRET_KEY}`,
-        "Content-Type": "application/json",
-      },
-      timeout: 15_000,
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    /* 1. Create master order group */
+    const { rows: [group] } = await client.query(
+      `INSERT INTO public.order_groups
+         (user_id, address_id, total_amount, delivery_fee,
+          discount, grand_total, payment_method, coupon_code,
+          notes, payment_status, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending','pending')
+       RETURNING id`,
+      [
+        userId, addressId, subtotal, deliveryFee, discount,
+        grandTotal, paymentMethod, couponCode, notes,
+      ]
+    );
+
+    const orderGroupId = group.id;
+    const trackingId   = generateTrackingId(orderGroupId);
+
+    if (groupCols.hasTrackingId) {
+      try {
+        await client.query(
+          `UPDATE public.order_groups SET tracking_id = $1 WHERE id = $2`,
+          [trackingId, orderGroupId]
+        );
+      } catch (err) {
+        console.warn("[orderService] tracking_id update failed:", err.message);
+      }
     }
+
+    /* 2. Group items by seller */
+    const sellerMap = new Map();
+    for (const item of items) {
+      if (!item.sellerId) {
+        throw new Error(`Missing seller ID for product "${item.name}"`);
+      }
+      if (!sellerMap.has(item.sellerId)) {
+        sellerMap.set(item.sellerId, {
+          sellerName: item.sellerName ?? "Seller",
+          items:      [],
+        });
+      }
+      sellerMap.get(item.sellerId).items.push(item);
+    }
+
+    /* 3. Create one orders row per seller */
+    const createdOrders = [];
+
+    for (const [sellerId, sellerData] of sellerMap.entries()) {
+      const { items: sellerItems, sellerName } = sellerData;
+      const sellerSubtotal = sellerItems.reduce(
+        (sum, i) => sum + Number(i.price) * Number(i.qty),
+        0
+      );
+
+      /* Dynamic INSERT for orders */
+      let orderSql, orderParams;
+      if (orderCols.hasUserId) {
+        orderSql = `
+          INSERT INTO public.orders
+            (order_group_id, user_id, seller_id, subtotal, status)
+          VALUES ($1, $2, $3, $4, 'pending')
+          RETURNING id
+        `;
+        orderParams = [orderGroupId, userId, sellerId, sellerSubtotal];
+      } else {
+        orderSql = `
+          INSERT INTO public.orders
+            (order_group_id, seller_id, subtotal, status)
+          VALUES ($1, $2, $3, 'pending')
+          RETURNING id
+        `;
+        orderParams = [orderGroupId, sellerId, sellerSubtotal];
+      }
+
+      const { rows: [order] } = await client.query(orderSql, orderParams);
+
+      /* ✅ Dynamic INSERT for order_items using real column names */
+      for (const item of sellerItems) {
+        const insert = buildOrderItemInsert(itemCols, order.id, item);
+        console.log(`[orderService] Inserting item: ${insert.sql}`);
+        await client.query(insert.sql, insert.params);
+      }
+
+      createdOrders.push({
+        orderId:  order.id,
+        sellerId,
+        sellerName,
+        subtotal: sellerSubtotal,
+        items:    sellerItems,
+      });
+    }
+
+    /* 4. Clear buyer cart */
+    await client.query(
+      `DELETE FROM market.cart_items ci
+       USING market.carts c
+       WHERE ci.cart_id = c.id AND c.user_id = $1`,
+      [userId]
+    );
+
+    await client.query("COMMIT");
+
+    console.log(`[orderService] ✅ Created order ${orderGroupId} with ${createdOrders.length} sub-orders`);
+
+    return {
+      orderGroupId,
+      trackingId,
+      orders:       createdOrders,
+      deliveryFee,
+      grandTotal,
+    };
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("[orderService] createOrderGroup rolled back:", {
+      message:    err.message,
+      code:       err.code,
+      detail:     err.detail,
+      constraint: err.constraint,
+      table:      err.table,
+      column:     err.column,
+    });
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   MARK ORDER GROUP PAID
+════════════════════════════════════════════════════════════ */
+export async function markOrderGroupPaid(orderGroupId, paymentRef) {
+  const [groupCols, orderCols] = await Promise.all([
+    detectOrderGroupColumns(),
+    detectOrderColumns(),
+  ]);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE public.order_groups
+       SET payment_status = 'paid',
+           payment_ref    = $2,
+           status         = 'confirmed'
+           ${groupCols.hasUpdatedAt ? ", updated_at = now()" : ""}
+       WHERE id = $1`,
+      [orderGroupId, paymentRef]
+    );
+
+    await client.query(
+      `UPDATE public.orders
+       SET status = 'confirmed'
+           ${orderCols.hasUpdatedAt ? ", updated_at = now()" : ""}
+       WHERE order_group_id = $1`,
+      [orderGroupId]
+    );
+
+    await client.query("COMMIT");
+    console.log(`[orderService] ✅ Order ${orderGroupId} marked paid`);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("[orderService] markOrderGroupPaid failed:", err.message);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   MARK ORDER GROUP DELIVERED
+════════════════════════════════════════════════════════════ */
+export async function markOrderGroupDelivered(orderGroupId) {
+  const [groupCols, orderCols] = await Promise.all([
+    detectOrderGroupColumns(),
+    detectOrderColumns(),
+  ]);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const groupSet = ["status = 'delivered'"];
+    if (groupCols.hasDeliveredAt) groupSet.push("delivered_at = now()");
+    if (groupCols.hasUpdatedAt)   groupSet.push("updated_at   = now()");
+
+    await client.query(
+      `UPDATE public.order_groups SET ${groupSet.join(", ")} WHERE id = $1`,
+      [orderGroupId]
+    );
+
+    const orderSet = ["status = 'delivered'"];
+    if (orderCols.hasDeliveredAt) orderSet.push("delivered_at = now()");
+    if (orderCols.hasUpdatedAt)   orderSet.push("updated_at   = now()");
+
+    await client.query(
+      `UPDATE public.orders SET ${orderSet.join(", ")} WHERE order_group_id = $1`,
+      [orderGroupId]
+    );
+
+    await client.query("COMMIT");
+    console.log(`[orderService] ✅ Order ${orderGroupId} marked delivered`);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("[orderService] markOrderGroupDelivered failed:", err.message);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   GET FULL ORDER GROUP
+════════════════════════════════════════════════════════════ */
+export async function getOrderGroup(orderGroupId, userId) {
+  const { rows: [group] } = await pool.query(
+    `SELECT
+       og.*,
+       a.recipient_name,
+       a.phone,
+       a.address_line,
+       a.landmark,
+       a.additional_directions,
+       a.call_before_delivery,
+       a.city,
+       a.state
+     FROM public.order_groups og
+     LEFT JOIN public.user_addresses a ON a.id = og.address_id
+     WHERE og.id = $1 AND og.user_id = $2`,
+    [orderGroupId, userId]
   );
 
-  console.log(`[flutterwave] Response status: ${data?.status}`);
+  if (!group) return null;
 
-  if (!data?.data?.link) {
-    throw new Error(`Flutterwave returned no payment link. Response: ${JSON.stringify(data)}`);
+  const { rows: orders } = await pool.query(
+    `SELECT o.*, u.name AS seller_name
+     FROM public.orders o
+     LEFT JOIN market.users u ON u.id = o.seller_id
+     WHERE o.order_group_id = $1
+     ORDER BY o.created_at ASC`,
+    [orderGroupId]
+  );
+
+  for (const order of orders) {
+    const { rows: items } = await pool.query(
+      `SELECT * FROM public.order_items
+       WHERE order_id = $1
+       ORDER BY id`,
+      [order.id]
+    );
+    order.items = items;
   }
 
-  return { link: data.data.link, ref };
+  return { ...group, orders };
 }
-
-export default router;
