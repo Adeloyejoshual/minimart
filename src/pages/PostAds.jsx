@@ -9,9 +9,15 @@
  * Step 4 — Pricing
  * Step 5 — Review & Submit
  *
+ * v2 — Hierarchical category support
+ * ────────────────────────────────────
+ * ✓ Replaces flat local categories array with DB tree picker
+ * ✓ Sends category_id (UUID) + category (name) to backend
+ * ✓ Draft saves/restores full category node { id, name, path }
+ * ✓ Backward compatible: backend still accepts plain text fallback
+ *
  * Auth: seller token (market.users JWT)
  *       Posts to POST /api/products (routes/market/addproduct.js)
- *       which uses authenticateSeller so req.user.id = market.users.id ✓
  */
 
 import {
@@ -23,12 +29,13 @@ import axios            from "axios";
 import toast            from "react-hot-toast";
 import imageCompression from "browser-image-compression";
 
-import categories    from "../config/categories";
-import ImageGrid     from "./PostAds/ImageGrid";
-import VariantEditor from "./PostAds/VariantEditor";
-import ReviewStep    from "./PostAds/ReviewStep";
-import PricingStep   from "./PostAds/PricingStep";
-import StepBar       from "./PostAds/StepBar";
+// ✅ REMOVED: import categories from "../config/categories";
+import CategoryPicker from "./PostAds/CategoryPicker";  // ← NEW
+import ImageGrid      from "./PostAds/ImageGrid";
+import VariantEditor  from "./PostAds/VariantEditor";
+import ReviewStep     from "./PostAds/ReviewStep";
+import PricingStep    from "./PostAds/PricingStep";
+import StepBar        from "./PostAds/StepBar";
 import "../styles/PostAds.css";
 
 /* ══════════════════════════════════════════════════════════════
@@ -40,7 +47,7 @@ const SUBMIT_URL = `${API}/api/products`;
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
 ══════════════════════════════════════════════════════════════ */
-const DRAFT_KEY       = "post-ad-draft-v9";
+const DRAFT_KEY       = "post-ad-draft-v10"; // ← bumped (category shape changed)
 const MAX_IMAGES      = 8;
 const MAX_FILE_MB     = 5;
 const MAX_VARIANTS    = 20;
@@ -53,7 +60,7 @@ const MAX_TAG_LEN     = 24;
 const TOTAL_STEPS     = 5;
 
 /* ══════════════════════════════════════════════════════════════
-   SVG ICONS
+   SVG ICONS  (unchanged — keeping all originals)
 ══════════════════════════════════════════════════════════════ */
 const IconArrowLeft = ({ size = 18 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -180,7 +187,7 @@ const IconPlusSmall = () => (
 );
 
 /* ══════════════════════════════════════════════════════════════
-   PROHIBITED CONTENT PATTERNS
+   PROHIBITED CONTENT PATTERNS  (unchanged)
 ══════════════════════════════════════════════════════════════ */
 const PROHIBITED_PATTERNS = [
   { pattern: /\b(gun|pistol|rifle|shotgun|firearm|weapon|ammo|ammunition|explosive|bomb|grenade|machete)\b/i, category: "Weapons & Dangerous Items" },
@@ -220,9 +227,7 @@ const BLANK_VARIANT = () => ({
 });
 
 /* ══════════════════════════════════════════════════════════════
-   GET SELLER TOKEN
-   Checks every known key. Logs what it finds so we can see
-   exactly which key the frontend is using.
+   GET SELLER TOKEN  (unchanged)
 ══════════════════════════════════════════════════════════════ */
 function getSellerToken() {
   const KEYS = [
@@ -233,12 +238,8 @@ function getSellerToken() {
     "seller_auth_token",
   ];
 
-  /* Log all localStorage keys in dev so we can see what exists */
   if (import.meta.env.DEV) {
-    console.log(
-      "[PostAds] localStorage keys:",
-      Object.keys(localStorage)
-    );
+    console.log("[PostAds] localStorage keys:", Object.keys(localStorage));
     KEYS.forEach((k) => {
       const v = localStorage.getItem(k);
       console.log(
@@ -369,7 +370,7 @@ const STEP_META = [
 ];
 
 /* ══════════════════════════════════════════════════════════════
-   PROHIBITED BANNER
+   PROHIBITED BANNER  (unchanged)
 ══════════════════════════════════════════════════════════════ */
 const ProhibitedBanner = memo(function ProhibitedBanner({ result, scanDone }) {
   if (!scanDone || !result) return null;
@@ -449,7 +450,23 @@ export default function PostAds() {
   const [tags,           setTags]           = useState([]);
   const [tagInput,       setTagInput]       = useState("");
   const [description,    setDescription]    = useState("");
-  const [category,       setCategory]       = useState("");
+
+  /*
+   * ✅ CHANGED: was `const [category, setCategory] = useState("")`
+   *
+   * selectedCategory holds the full node chosen from the tree:
+   * {
+   *   id   : "uuid-from-db",     // sent as category_id
+   *   name : "Smartphones",      // sent as category (text fallback)
+   *   slug : "smartphones",
+   *   level: 2,                  // 1=root, 2=mid, 3=leaf
+   *   path : ["Electronics", "Phones & Tablets", "Smartphones"],
+   * }
+   *
+   * null = nothing selected yet
+   */
+  const [selectedCategory, setSelectedCategory] = useState(null);
+
   const [keyFeatures,    setKeyFeatures]    = useState([""]);
   const [specifications, setSpecifications] = useState([{ key: "", value: "" }]);
   const [whatsInBox,     setWhatsInBox]     = useState([""]);
@@ -469,11 +486,16 @@ export default function PostAds() {
   const [scanDone,   setScanDone]   = useState(false);
 
   /* ── Derived ── */
-  const filledImages   = useMemo(() => images.filter(Boolean), [images]);
-  const activeCategory = useMemo(
-    () => categories.find((c) => c.id === category),
-    [category]
-  );
+  const filledImages = useMemo(() => images.filter(Boolean), [images]);
+
+  /*
+   * ✅ CHANGED: was `categories.find(c => c.id === category)`
+   * Now just uses selectedCategory directly — no local lookup needed.
+   * Keep the name `activeCategory` so ReviewStep/VariantEditor
+   * props stay the same (they only use .name).
+   */
+  const activeCategory = selectedCategory;
+
   const discountPct = useMemo(() =>
     originalPrice && basePrice && Number(originalPrice) > Number(basePrice)
       ? Math.round(
@@ -482,6 +504,7 @@ export default function PostAds() {
       : 0,
     [originalPrice, basePrice]
   );
+
   const duplicateSlots = useMemo(() => {
     const seen = new Map(), dupes = [];
     Object.entries(imageHashes).forEach(([idx, hash]) => {
@@ -511,41 +534,63 @@ export default function PostAds() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* Load draft */
+  /* ── Load draft ── */
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const d = JSON.parse(raw);
+
       if (d.step)                          setStep(d.step);
       if (Array.isArray(d.completedSteps)) setCompletedSteps(d.completedSteps);
       if (d.title)                         setTitle(d.title);
       if (d.brand)                         setBrand(d.brand);
       if (Array.isArray(d.tags))           setTags(d.tags);
       if (d.description)                   setDescription(d.description);
-      if (d.category)                      setCategory(d.category);
-      if (d.keyFeatures?.length)           setKeyFeatures(d.keyFeatures);
-      if (d.specifications?.length)        setSpecifications(d.specifications);
-      if (d.whatsInBox?.length)            setWhatsInBox(d.whatsInBox);
-      if (d.variants?.length)              setVariants(d.variants);
-      if (d.basePrice)                     setBasePrice(d.basePrice);
-      if (d.originalPrice)                 setOriginalPrice(d.originalPrice);
+
+      /*
+       * ✅ CHANGED: restore full category node, not just a string ID.
+       * Guard: must have id + name to be valid.
+       */
+      if (d.selectedCategory?.id && d.selectedCategory?.name) {
+        setSelectedCategory(d.selectedCategory);
+      }
+
+      if (d.keyFeatures?.length)    setKeyFeatures(d.keyFeatures);
+      if (d.specifications?.length) setSpecifications(d.specifications);
+      if (d.whatsInBox?.length)     setWhatsInBox(d.whatsInBox);
+      if (d.variants?.length)       setVariants(d.variants);
+      if (d.basePrice)              setBasePrice(d.basePrice);
+      if (d.originalPrice)          setOriginalPrice(d.originalPrice);
     } catch { /* ignore corrupt draft */ }
   }, []);
 
-  /* Auto-save draft */
+  /* ── Auto-save draft ── */
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({
-      step, completedSteps, title, brand, tags, description, category,
-      keyFeatures, specifications, whatsInBox, variants, basePrice, originalPrice,
+      step,
+      completedSteps,
+      title,
+      brand,
+      tags,
+      description,
+      selectedCategory,   // ✅ save full node, not just string
+      keyFeatures,
+      specifications,
+      whatsInBox,
+      variants,
+      basePrice,
+      originalPrice,
     }));
     setLastSaved(Date.now());
   }, [
-    step, completedSteps, title, brand, tags, description, category,
-    keyFeatures, specifications, whatsInBox, variants, basePrice, originalPrice,
+    step, completedSteps, title, brand, tags, description,
+    selectedCategory,             // ✅ was: category
+    keyFeatures, specifications, whatsInBox, variants,
+    basePrice, originalPrice,
   ]);
 
-  /* Prohibited content scan */
+  /* ── Prohibited content scan ── */
   useEffect(() => {
     if (!title && !description && !keyFeatures.some((f) => f.trim())) {
       setScanResult(null);
@@ -559,7 +604,7 @@ export default function PostAds() {
       toast.error(`Prohibited: ${result.blocked[0].category}`);
   }, [title, description, keyFeatures]);
 
-  /* Edit-step events from ReviewStep */
+  /* ── Edit-step events from ReviewStep ── */
   useEffect(() => {
     const handler = (e) => setStep(e.detail);
     window.addEventListener("pa-edit-step", handler);
@@ -567,7 +612,7 @@ export default function PostAds() {
   }, []);
 
   /* ════════════════════════════════════════════════════════════
-     IMAGE HANDLERS
+     IMAGE HANDLERS  (unchanged)
   ════════════════════════════════════════════════════════════ */
   const handleAddImage = useCallback(async (index, file, extraFiles = []) => {
     if (!file.type.startsWith("image/")) {
@@ -657,7 +702,7 @@ export default function PostAds() {
   }, []);
 
   /* ════════════════════════════════════════════════════════════
-     LIST HELPERS
+     LIST HELPERS  (unchanged)
   ════════════════════════════════════════════════════════════ */
   const updateList = useCallback((setter, i, val) =>
     setter((p) => p.map((x, idx) => (idx === i ? val : x))), []);
@@ -668,7 +713,7 @@ export default function PostAds() {
     setter((p) => p.length <= 1 ? p : p.filter((_, idx) => idx !== i)), []);
 
   /* ════════════════════════════════════════════════════════════
-     VARIANT HELPERS
+     VARIANT HELPERS  (unchanged)
   ════════════════════════════════════════════════════════════ */
   const updateVariant = useCallback((i, field, val) =>
     setVariants((p) =>
@@ -701,7 +746,7 @@ export default function PostAds() {
   }, []);
 
   /* ════════════════════════════════════════════════════════════
-     TAGS
+     TAGS  (unchanged)
   ════════════════════════════════════════════════════════════ */
   const commitTag = useCallback(() => {
     const t = normalize(tagInput).toLowerCase();
@@ -715,12 +760,14 @@ export default function PostAds() {
     setTags((p) => p.filter((x) => x !== t)), []);
 
   /* ════════════════════════════════════════════════════════════
-     SMART FEATURE GENERATOR
+     SMART FEATURE GENERATOR  (unchanged — uses activeCategory.name)
   ════════════════════════════════════════════════════════════ */
   const generateKeyFeatures = useCallback(() => {
     const gen = guessFeatures({
-      title, categoryName: activeCategory?.name,
-      description, specs: specifications,
+      title,
+      categoryName: activeCategory?.name,
+      description,
+      specs: specifications,
     });
     if (!gen.length) { toast.error("Add a title or description first"); return; }
     const existing = keyFeatures.map(normalize).filter(Boolean);
@@ -737,10 +784,17 @@ export default function PostAds() {
 
   const fieldErrors = useMemo(() => {
     const e = {};
-    if (filledImages.length === 0)                         e.images = "Add at least 1 photo";
-    if (touched.title && title.trim().length < 3)          e.title  = "Title must be at least 3 characters";
-    if (touched.title && title.trim().length > 80)         e.title  = "Title is too long";
-    if (touched.category && !category)                     e.category = "Select a category";
+    if (filledImages.length === 0)
+      e.images = "Add at least 1 photo";
+    if (touched.title && title.trim().length < 3)
+      e.title = "Title must be at least 3 characters";
+    if (touched.title && title.trim().length > 80)
+      e.title = "Title is too long";
+
+    // ✅ CHANGED: validate selectedCategory instead of category string
+    if (touched.category && !selectedCategory)
+      e.category = "Select a category";
+
     if (touched.basePrice) {
       const n = Number(basePrice);
       if (!basePrice || isNaN(n) || n <= 0) e.basePrice = "Enter a valid price";
@@ -758,11 +812,14 @@ export default function PostAds() {
         e[`v_price_${i}`] = "Invalid price";
     });
     return e;
-  }, [touched, title, category, filledImages.length, variants, basePrice, originalPrice]);
+  }, [
+    touched, title, selectedCategory,   // ✅ was: category
+    filledImages.length, variants, basePrice, originalPrice,
+  ]);
 
   const stepValid = useMemo(() => {
     if (step === 1) return filledImages.length > 0;
-    if (step === 2) return title.trim().length >= 3 && !!category;
+    if (step === 2) return title.trim().length >= 3 && !!selectedCategory; // ✅
     if (step === 3) return (
       variants.every((v) => v.sku.trim() && v.name.trim() && Number(v.price) >= 0) &&
       !duplicateSkuExists
@@ -774,14 +831,14 @@ export default function PostAds() {
       Number(basePrice) > 0
     );
     return true;
-  }, [step, filledImages.length, title, category, variants, basePrice, duplicateSkuExists]);
+  }, [step, filledImages.length, title, selectedCategory, variants, basePrice, duplicateSkuExists]);
 
   const stepError = useMemo(() => {
     if (step === 1 && filledImages.length === 0)
       return "Add at least one photo";
     if (step === 2 && title.trim().length < 3)
       return "Title needs at least 3 characters";
-    if (step === 2 && !category)
+    if (step === 2 && !selectedCategory)          // ✅
       return "Pick a category";
     if (step === 3 && duplicateSkuExists)
       return "Two or more variants share the same SKU — each SKU must be unique";
@@ -790,10 +847,10 @@ export default function PostAds() {
     if (step === 4 && (!basePrice || Number(basePrice) <= 0))
       return "Set a valid base price";
     return "";
-  }, [step, filledImages.length, title, category, variants, basePrice, duplicateSkuExists]);
+  }, [step, filledImages.length, title, selectedCategory, variants, basePrice, duplicateSkuExists]);
 
   /* ════════════════════════════════════════════════════════════
-     NAVIGATION
+     NAVIGATION  (unchanged)
   ════════════════════════════════════════════════════════════ */
   const goNext = useCallback(() => {
     setAttemptedNext(true);
@@ -833,37 +890,24 @@ export default function PostAds() {
     if (submittingRef.current) return;
     submittingRef.current = true;
 
-    /* ── LIVE DEBUG — remove after token key is confirmed ── */
-    console.group("🔍 PostAds Submit Debug");
-    console.log("SUBMIT_URL         :", SUBMIT_URL);
-    console.log("API base           :", API);
-    console.log("All localStorage keys:", Object.keys(localStorage));
-    console.log("sellerToken        :", localStorage.getItem("sellerToken")
-      ? `${localStorage.getItem("sellerToken").slice(0, 30)}...` : "null");
-    console.log("seller_token       :", localStorage.getItem("seller_token")
-      ? `${localStorage.getItem("seller_token").slice(0, 30)}...` : "null");
-    console.log("market_token       :", localStorage.getItem("market_token")
-      ? `${localStorage.getItem("market_token").slice(0, 30)}...` : "null");
-    console.log("sellerAuthToken    :", localStorage.getItem("sellerAuthToken")
-      ? `${localStorage.getItem("sellerAuthToken").slice(0, 30)}...` : "null");
-    console.log("token (public)     :", localStorage.getItem("token")
-      ? `${localStorage.getItem("token").slice(0, 30)}...` : "null");
-    console.groupEnd();
-    /* ── END DEBUG ── */
+    /* ── Debug ── */
+    if (import.meta.env.DEV) {
+      console.group("🔍 PostAds Submit Debug");
+      console.log("SUBMIT_URL       :", SUBMIT_URL);
+      console.log("selectedCategory :", selectedCategory);
+      console.log("All localStorage :", Object.keys(localStorage));
+      console.groupEnd();
+    }
 
-    /* ── Get seller token ── */
     const token = getSellerToken();
 
     if (!token) {
       submittingRef.current = false;
-      toast.error(
-        "Seller session not found. Please log in to your seller account."
-      );
+      toast.error("Seller session not found. Please log in to your seller account.");
       navigate("/seller/login");
       return;
     }
 
-    /* ── Pre-flight ── */
     if (!filledImages.length) {
       submittingRef.current = false;
       toast.error("Add at least one photo");
@@ -879,6 +923,12 @@ export default function PostAds() {
       toast.error("Fix duplicate variant SKUs before submitting");
       return;
     }
+    /* ✅ Guard: category must be selected */
+    if (!selectedCategory) {
+      submittingRef.current = false;
+      toast.error("Please select a category");
+      return;
+    }
 
     setPosting(true);
     setUploadPct(0);
@@ -887,11 +937,19 @@ export default function PostAds() {
       const fd = new FormData();
       fd.append("name",        title.trim());
       fd.append("description", description.trim());
-      fd.append("category",    category);
-      fd.append("basePrice",   basePrice);
-      if (originalPrice) fd.append("originalPrice", originalPrice);
-      if (brand.trim())  fd.append("brand",         brand.trim());
-      if (tags.length)   fd.append("tags",          JSON.stringify(tags));
+
+      /*
+       * ✅ CHANGED: send BOTH fields
+       *   category_id → backend links to tree, validates, auto-fills name
+       *   category    → text fallback (backward compat if category_id col missing)
+       */
+      fd.append("category_id", selectedCategory.id);
+      fd.append("category",    selectedCategory.name);
+
+      fd.append("basePrice", basePrice);
+      if (originalPrice)  fd.append("originalPrice", originalPrice);
+      if (brand.trim())   fd.append("brand",         brand.trim());
+      if (tags.length)    fd.append("tags",          JSON.stringify(tags));
 
       fd.append("variants",
         JSON.stringify(variants.filter((v) => v.sku.trim() && v.name.trim())));
@@ -907,7 +965,8 @@ export default function PostAds() {
       images.forEach((img) => { if (img?.file) fd.append("images", img.file); });
 
       console.log(`[PostAds] POSTing to: ${SUBMIT_URL}`);
-      console.log(`[PostAds] Token prefix: ${token.slice(0, 20)}...`);
+      console.log(`[PostAds] category_id: ${selectedCategory.id}`);
+      console.log(`[PostAds] category:    ${selectedCategory.name}`);
 
       await axios.post(SUBMIT_URL, fd, {
         headers: {
@@ -926,12 +985,10 @@ export default function PostAds() {
       window.navigator?.vibrate?.([50, 30, 80]);
 
     } catch (err) {
-      /* ── Enhanced error logging ── */
       console.error("[PostAds] Submit error:", {
         status  : err.response?.status,
         message : err.response?.data?.message,
         url     : err.config?.url,
-        method  : err.config?.method,
       });
 
       if (!err.response) {
@@ -945,17 +1002,8 @@ export default function PostAds() {
           "Access denied. Verify your seller account first."
         );
       } else if (err.response.status === 404) {
-        /*
-         * 404 means SUBMIT_URL is wrong or the route is not mounted.
-         * The console.log above will show the exact URL that was hit.
-         * Check server.js to confirm the route is registered.
-         */
-        console.error(
-          "[PostAds] 404 — route not found. SUBMIT_URL was:", SUBMIT_URL
-        );
-        toast.error(
-          "Submit endpoint not found. Please contact support."
-        );
+        console.error("[PostAds] 404 — route not found:", SUBMIT_URL);
+        toast.error("Submit endpoint not found. Please contact support.");
       } else if (err.response.status === 409) {
         toast.error(
           err.response.data?.message ||
@@ -965,15 +1013,13 @@ export default function PostAds() {
         toast.error("Images are too large. Each must be under 5 MB.");
       } else if (err.response.status === 422) {
         toast.error(
-          err.response.data?.message ||
-          "Check your inputs and try again."
+          err.response.data?.message || "Check your inputs and try again."
         );
       } else if (err.response.status === 429) {
         toast.error("Already submitting. Please wait a moment.");
       } else {
         toast.error(
-          err.response.data?.message ||
-          "Failed to post ad. Please try again."
+          err.response.data?.message || "Failed to post ad. Please try again."
         );
       }
     } finally {
@@ -981,8 +1027,8 @@ export default function PostAds() {
       submittingRef.current = false;
     }
   }, [
-    filledImages, scanResult, duplicateSkuExists,
-    title, description, category, basePrice, originalPrice,
+    filledImages, scanResult, duplicateSkuExists, selectedCategory,
+    title, description, basePrice, originalPrice,
     brand, tags, variants, keyFeatures, specifications,
     whatsInBox, images, navigate,
   ]);
@@ -1006,6 +1052,7 @@ export default function PostAds() {
             <h1 className="pa-topbar-title">Post an Ad</h1>
             <p className="pa-topbar-sub">
               Step {step} of {TOTAL_STEPS}
+              {/* ✅ CHANGED: was activeCategory?.name, still works */}
               {activeCategory ? ` — ${activeCategory.name}` : ""}
             </p>
           </div>
@@ -1057,7 +1104,7 @@ export default function PostAds() {
                 <ProhibitedBanner result={scanResult} scanDone={scanDone} />
               )}
 
-              {/* STEP 1 — PHOTOS */}
+              {/* ── STEP 1 — PHOTOS ── */}
               {step === 1 && (
                 <section aria-labelledby="pa-step1-heading">
                   <div className="pa-section-head">
@@ -1082,7 +1129,7 @@ export default function PostAds() {
                 </section>
               )}
 
-              {/* STEP 2 — DETAILS */}
+              {/* ── STEP 2 — DETAILS ── */}
               {step === 2 && (
                 <section aria-labelledby="pa-step2-heading">
                   <div className="pa-section-head">
@@ -1309,7 +1356,7 @@ export default function PostAds() {
                     </div>
                   </div>
 
-                  {/* Category */}
+                  {/* ✅ CHANGED: replaced flat category grid with CategoryPicker */}
                   <div className="pa-field">
                     <label className="pa-label" id="pa-cat-label">
                       Category <span aria-hidden="true">*</span>
@@ -1319,29 +1366,33 @@ export default function PostAds() {
                         {fieldErrors.category}
                       </span>
                     )}
-                    <div className="pa-cat-grid" role="radiogroup"
-                      aria-labelledby="pa-cat-label">
-                      {categories.map((c) => (
-                        <button key={c.id} type="button" role="radio"
-                          aria-checked={category === c.id}
-                          className={`pa-cat-btn${category === c.id ? " pa-cat-btn--active" : ""}`}
-                          onClick={() => {
-                            setCategory(c.id); markTouched("category");
-                          }}>
-                          {c.icon && (
-                            <span className="pa-cat-icon" aria-hidden="true">
-                              {c.icon}
-                            </span>
-                          )}
-                          <span>{c.name}</span>
-                        </button>
-                      ))}
-                    </div>
+
+                    {/*
+                     * CategoryPicker fetches the tree from GET /api/categories,
+                     * lets the seller drill down L1 → L2 → L3,
+                     * and calls onSelect with the full node object.
+                     */}
+                    <CategoryPicker
+                      value={selectedCategory}
+                      onSelect={(node) => {
+                        setSelectedCategory(node);
+                        markTouched("category");
+                      }}
+                      error={!!fieldErrors.category}
+                    />
+
+                    {/* Breadcrumb preview of what's selected */}
+                    {selectedCategory?.path?.length > 0 && (
+                      <p className="pa-cat-breadcrumb" aria-live="polite">
+                        {selectedCategory.path.join(" › ")}
+                      </p>
+                    )}
                   </div>
+
                 </section>
               )}
 
-              {/* STEP 3 — VARIANTS */}
+              {/* ── STEP 3 — VARIANTS ── (unchanged) */}
               {step === 3 && (
                 <section aria-labelledby="pa-step3-heading">
                   <div className="pa-section-head">
@@ -1370,7 +1421,7 @@ export default function PostAds() {
                 </section>
               )}
 
-              {/* STEP 4 — PRICING */}
+              {/* ── STEP 4 — PRICING ── (unchanged) */}
               {step === 4 && (
                 <section aria-labelledby="pa-step4-heading">
                   <div className="pa-section-head">
@@ -1395,7 +1446,7 @@ export default function PostAds() {
                 </section>
               )}
 
-              {/* STEP 5 — REVIEW */}
+              {/* ── STEP 5 — REVIEW ── */}
               {step === 5 && (
                 <section aria-labelledby="pa-step5-heading">
                   <div className="pa-section-head">
@@ -1416,7 +1467,13 @@ export default function PostAds() {
                     originalPrice={originalPrice}
                     discountPct={discountPct}
                     description={description}
-                    category={category}
+                    /*
+                     * ✅ CHANGED: was `category={category}` (string ID)
+                     * Now pass the resolved name + full node for breadcrumb display.
+                     * ReviewStep uses activeCategory.name — no change needed there
+                     * as long as it reads from activeCategory prop.
+                     */
+                    category={selectedCategory?.name ?? ""}
                     activeCategory={activeCategory}
                     variants={variants}
                     keyFeatures={keyFeatures}
