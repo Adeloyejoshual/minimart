@@ -2,20 +2,8 @@
  * src/pages/MarketDetail.jsx
  * Route: /shop/:slug
  *
- * PREMIUM upgrade — Amazon/Apple-level polish:
- * - Quantity selector with +/-
- * - Rating stars + review count
- * - Delivery estimate
- * - Confetti burst on add-to-cart
- * - Sticky mini-header on scroll
- * - Breadcrumb navigation
- * - Recently viewed tracking
- * - Premium skeleton with shimmer
- * - Enhanced sticky bar with total
- * - Trust badges with icons
- * - Buy-together suggestions
- * - Wishlist heart-beat animation
- * - Fully mobile-optimized
+ * WITH LIVE DEBUG LOGGING on add-to-cart
+ * (Remove console.log lines when working)
  */
 
 import {
@@ -798,10 +786,30 @@ export default function MarketDetail({ user }) {
   }, [product?.view_count]);
 
   /* ════════════════════════════════════════════════════════
-     ADD TO CART
+     ADD TO CART — WITH LIVE DEBUG LOGGING
+     Remove console.log lines when working properly
   ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart) return;
+
+    /* ═══════════════════════════════════════
+       DEBUG: Log everything about the attempt
+    ═══════════════════════════════════════ */
+    console.log("═══════════════════════════════════════════");
+    console.log("🛒 [MarketDetail] ADD TO CART START");
+    console.log("Product ID:", product.id);
+    console.log("Product name:", product.name);
+    console.log("Product stock:", product.stock);
+    console.log("Product status:", product.status);
+    console.log("Product is_active:", product.is_active);
+    console.log("Variant ID:", selectedVariant?.id ?? "none");
+    console.log("Variant stock:", selectedVariant?.stock ?? "N/A");
+    console.log("Quantity requested:", qty);
+    console.log("Display price:", displayPrice);
+    console.log("Logged in:", isLoggedIn());
+    console.log("Token preview:", localStorage.getItem("marketplace_token")?.slice(0, 20) + "…");
+    console.log("POST URL:", CART_ITEMS_URL);
+    console.log("═══════════════════════════════════════════");
 
     setAddingToCart(true);
     setCartError(null);
@@ -810,16 +818,36 @@ export default function MarketDetail({ user }) {
 
     try {
       if (isLoggedIn()) {
-        await axios.post(
+        const payload = {
+          product_id: product.id,
+          variant_id: variantId,
+          qty       : qty,
+        };
+
+        console.log("📤 [MarketDetail] POST payload:", payload);
+        console.log("📤 [MarketDetail] Headers:", authHeaders());
+
+        const res = await axios.post(
           CART_ITEMS_URL,
-          { product_id: product.id, variant_id: variantId, qty },
-          { headers: authHeaders() }
+          payload,
+          { headers: authHeaders(), timeout: 15_000 }
         );
+
+        console.log("✅ [MarketDetail] Server response:", {
+          status: res.status,
+          data  : res.data,
+        });
+
         const count = await fetchServerCartCount();
+        console.log("✅ [MarketDetail] New cart count:", count);
+
         if (count !== null) setCartCount(count);
         window.dispatchEvent(new Event("cart-updated"));
+
       } else {
+        console.log("👤 [MarketDetail] Guest mode — using localStorage");
         const newCount = addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty);
+        console.log("✅ [MarketDetail] Guest cart count:", newCount);
         setCartCount(newCount);
       }
 
@@ -829,8 +857,28 @@ export default function MarketDetail({ user }) {
       setTimeout(() => setConfetti(false), 1200);
       setTimeout(() => setAddedToCart(false), 3500);
 
+      console.log("✅ [MarketDetail] ADD TO CART DONE");
+      console.log("═══════════════════════════════════════════");
+
     } catch (err) {
-      const msg = err.response?.data?.message ?? err.response?.data?.error ?? "Failed to add to cart";
+      /* ═══════════════════════════════════════
+         DEBUG: Full error dump
+      ═══════════════════════════════════════ */
+      console.error("═══════════════════════════════════════════");
+      console.error("❌ [MarketDetail] ADD TO CART FAILED");
+      console.error("Error message:", err.message);
+      console.error("Error code:", err.code);
+      console.error("Response status:", err.response?.status);
+      console.error("Response data:", err.response?.data);
+      console.error("Response headers:", err.response?.headers);
+      console.error("Full error object:", err);
+      console.error("═══════════════════════════════════════════");
+
+      const msg = err.response?.data?.message
+               ?? err.response?.data?.error
+               ?? err.message
+               ?? "Failed to add to cart";
+
       setCartError(msg);
       setTimeout(() => setCartError(null), 4000);
     } finally {
