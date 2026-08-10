@@ -3,8 +3,7 @@
  *
  * Includes:
  * - Personalized welcome bar (for logged-in users)
- * - Auto-sliding hero carousel with gradient backgrounds
- * - Trust indicators row (mobile-optimized)
+ * - Auto-sliding hero carousel with SVG icons
  * - Quick action tiles (Flash / New / Trending / Sell)
  */
 
@@ -13,18 +12,18 @@ import { useNavigate } from "react-router-dom";
 import { FiArrowRight, FiChevronRight, FiShoppingCart } from "react-icons/fi";
 
 import {
-  HERO_SLIDES, SLIDE_INTERVAL, TRUST_BADGES, haptic,
+  HERO_SLIDES, SLIDE_INTERVAL, haptic,
 } from "./mobileHelpers";
 
 const MobileHero = memo(function MobileHero({
   user, cartCount, onPostAd,
 }) {
-  const navigate = useNavigate();
+  const navigate   = useNavigate();
   const [slideIndex, setSlideIndex] = useState(0);
-  const timerRef = useRef(null);
-  const firstName = user?.name?.split(" ")[0] ?? null;
+  const timerRef   = useRef(null);
+  const firstName  = user?.name?.split(" ")[0] ?? null;
 
-  /* Auto-slide */
+  /* ── Auto-slide ── */
   const resetTimer = useCallback(() => {
     clearInterval(timerRef.current);
     timerRef.current = setInterval(
@@ -44,10 +43,13 @@ const MobileHero = memo(function MobileHero({
     haptic(6);
   }, [resetTimer]);
 
-  /* Swipe support */
+  /* ── Swipe support ── */
   const touchStartX = useRef(null);
 
-  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
   const handleTouchEnd = (e) => {
     if (touchStartX.current === null) return;
     const diff = touchStartX.current - e.changedTouches[0].clientX;
@@ -59,28 +61,40 @@ const MobileHero = memo(function MobileHero({
 
   const slide = HERO_SLIDES[slideIndex];
 
+  /* ── Quick tiles ── */
   const quickTiles = [
     {
-      icon: "⚡", label: "Flash Deals", color: "#ff5722",
-      onClick: () => document.getElementById("lmm-flash")?.scrollIntoView({ behavior: "smooth" }),
+      icon   : "⚡",
+      label  : "Flash Deals",
+      color  : "#ff5722",
+      onClick: () =>
+        document.getElementById("lmm-flash")?.scrollIntoView({ behavior: "smooth" }),
     },
     {
-      icon: "✨", label: "New Arrivals", color: "#10b981",
-      onClick: () => document.getElementById("lmm-new")?.scrollIntoView({ behavior: "smooth" }),
+      icon   : "✨",
+      label  : "New Arrivals",
+      color  : "#10b981",
+      onClick: () =>
+        document.getElementById("lmm-new")?.scrollIntoView({ behavior: "smooth" }),
     },
     {
-      icon: "🔥", label: "Trending", color: "#6366f1",
-      onClick: () => document.getElementById("lmm-listings")?.scrollIntoView({ behavior: "smooth" }),
+      icon   : "🔥",
+      label  : "Trending",
+      color  : "#6366f1",
+      onClick: () =>
+        document.getElementById("lmm-listings")?.scrollIntoView({ behavior: "smooth" }),
     },
     {
-      icon: "💰", label: user ? "Sell" : "Sign Up", color: "#f59e0b",
+      icon   : "💰",
+      label  : user ? "Sell" : "Sign Up",
+      color  : "#f59e0b",
       onClick: onPostAd,
     },
   ];
 
   return (
     <>
-      {/* Welcome bar */}
+      {/* ── Welcome bar ── */}
       {user && firstName && (
         <div className="lmm-welcome" aria-live="polite">
           <span className="lmm-welcome__greeting">
@@ -98,7 +112,7 @@ const MobileHero = memo(function MobileHero({
         </div>
       )}
 
-      {/* Hero carousel */}
+      {/* ── Hero carousel ── */}
       <section
         className="lmm-hero"
         aria-label="Featured banner"
@@ -115,15 +129,22 @@ const MobileHero = memo(function MobileHero({
         {/* Particles */}
         <div className="lmm-hero__particles" aria-hidden="true">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className={`lmm-hero__particle lmm-hero__particle--${i + 1}`} />
+            <div
+              key={i}
+              className={`lmm-hero__particle lmm-hero__particle--${i + 1}`}
+            />
           ))}
         </div>
 
         <div className="lmm-hero__content">
           <span className="lmm-hero__eyebrow">
-            <span className="lmm-hero__icon" aria-hidden="true">{slide.icon}</span>
+            {/* ✅ FIXED: was slide.icon (emoji string), now slide.Icon (SVG component) */}
+            <span className="lmm-hero__icon" aria-hidden="true">
+              <slide.Icon size={16} strokeWidth={2} />
+            </span>
             {slide.eyebrow}
           </span>
+
           <h1 className="lmm-hero__title">{slide.title}</h1>
           <p  className="lmm-hero__sub">{slide.sub}</p>
 
@@ -131,13 +152,16 @@ const MobileHero = memo(function MobileHero({
             <button
               type="button"
               className="lmm-hero__cta"
-              style={{ background: `linear-gradient(135deg, ${slide.accent}, ${slide.accent}bb)` }}
+              style={{
+                background: `linear-gradient(135deg, ${slide.accent}, ${slide.accent}bb)`,
+              }}
               onClick={() =>
                 document.getElementById("lmm-listings")?.scrollIntoView({ behavior: "smooth" })
               }
             >
               {slide.cta} <FiArrowRight size={13} />
             </button>
+
             <button
               type="button"
               className="lmm-hero__cta-2"
@@ -169,24 +193,14 @@ const MobileHero = memo(function MobileHero({
               role="tab"
               aria-selected={i === slideIndex}
               aria-label={`Slide ${i + 1}`}
-              className={`lmm-hero__dot ${i === slideIndex ? "lmm-hero__dot--on" : ""}`}
+              className={`lmm-hero__dot${i === slideIndex ? " lmm-hero__dot--on" : ""}`}
               onClick={() => handleSlide(i)}
             />
           ))}
         </div>
       </section>
 
-      {/* Trust badges */}
-      <div className="lmm-trust-row" aria-label="Why shop at Loemart">
-        {TRUST_BADGES.map((b) => (
-          <div key={b.label} className="lmm-trust-item">
-            <span className="lmm-trust-item__icon" aria-hidden="true">{b.icon}</span>
-            <span className="lmm-trust-item__label">{b.label}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Quick tiles */}
+      {/* ── Quick tiles ── */}
       <div className="lmm-quick-tiles" aria-label="Quick actions">
         {quickTiles.map((t) => (
           <button
