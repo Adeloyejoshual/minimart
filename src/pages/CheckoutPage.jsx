@@ -1,27 +1,16 @@
 /**
  * src/pages/CheckoutPage.jsx
- * Route: /shop/checkout
- *
- * Multi-step checkout flow:
- *   Step 1 — Address
- *   Step 2 — Review
- *   Step 3 — Payment
- *
- * v3 — LIVE DEBUG for order placement failures
- * ─────────────────────────────────────────────
- * ✓ Full error object captured and forwarded to PaymentStep
- * ✓ Console groups for every submit attempt
- * ✓ Preserves entire err.response.data.debug (SQL details)
- * ✓ Backward compatible with all existing steps
+ * v4 — With floating debug panel
  */
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
-import AddressStep from "./Checkout/AddressStep";
-import ReviewStep  from "./Checkout/ReviewStep";
-import PaymentStep from "./Checkout/PaymentStep";
+import AddressStep         from "./Checkout/AddressStep";
+import ReviewStep          from "./Checkout/ReviewStep";
+import PaymentStep         from "./Checkout/PaymentStep";
+import CheckoutDebugPanel  from "./Checkout/CheckoutDebugPanel";   /* ✅ NEW */
 
 import "../styles/Checkout.css";
 
@@ -31,9 +20,6 @@ import "../styles/Checkout.css";
 const API      = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const CART_KEY = "mm_cart";
 
-/* ═══════════════════════════════════════════════════════════════
-   TOKEN HELPERS
-═══════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token");
@@ -42,9 +28,6 @@ const authHeaders = () => ({
   Authorization: `Bearer ${getToken()}`,
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   STEPS CONFIG
-═══════════════════════════════════════════════════════════════ */
 const STEPS = [
   { id: 1, label: "Address" },
   { id: 2, label: "Review"  },
@@ -57,12 +40,11 @@ const STEPS = [
 export default function CheckoutPage({ user }) {
   const navigate = useNavigate();
 
-  /* ── Redirect if not logged in ──────────────────────────── */
   useEffect(() => {
     if (!user) navigate("/auth", { state: { from: "/shop/checkout" } });
   }, [user, navigate]);
 
-  /* ── State ──────────────────────────────────────────────── */
+  /* ── State ── */
   const [step,            setStep]            = useState(1);
   const [addresses,       setAddresses]       = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
@@ -75,14 +57,16 @@ export default function CheckoutPage({ user }) {
   const [notes,           setNotes]           = useState("");
   const [loading,         setLoading]         = useState(false);
   const [error,           setError]           = useState(null);
-  const [errorDebug,      setErrorDebug]      = useState(null);   // ✅ NEW
+  const [errorDebug,      setErrorDebug]      = useState(null);
 
-  /* ════════════════════════════════════════════════════════
-     LOAD SAVED ADDRESSES
-  ════════════════════════════════════════════════════════ */
+  /* ✅ NEW: Debug state */
+  const [lastRequest,  setLastRequest]  = useState(null);
+  const [lastResponse, setLastResponse] = useState(null);
+  const [lastError,    setLastError]    = useState(null);
+
+  /* ────── LOAD ADDRESSES ────── */
   useEffect(() => {
     if (!user) return;
-
     let cancelled = false;
 
     axios
@@ -91,7 +75,6 @@ export default function CheckoutPage({ user }) {
         if (cancelled) return;
         const list = data.data ?? [];
         setAddresses(list);
-
         const def = list.find((a) => a.is_default) ?? list[0] ?? null;
         if (def) setSelectedAddress(def);
       })
@@ -103,21 +86,16 @@ export default function CheckoutPage({ user }) {
     return () => { cancelled = true; };
   }, [user]);
 
-  /* ════════════════════════════════════════════════════════
-     LOAD CART
-  ════════════════════════════════════════════════════════ */
+  /* ────── LOAD CART ────── */
   useEffect(() => {
     if (!user) return;
-
     let cancelled = false;
     setCartLoading(true);
 
     const readLocalCart = () => {
       try {
         return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-      } catch {
-        return [];
-      }
+      } catch { return []; }
     };
 
     axios
@@ -125,42 +103,28 @@ export default function CheckoutPage({ user }) {
       .then(({ data }) => {
         if (cancelled) return;
         const serverItems = data.data?.items ?? [];
-
-        if (serverItems.length) {
-          setCartItems(serverItems);
-        } else {
-          const local = readLocalCart();
-          setCartItems(local);
-        }
+        setCartItems(serverItems.length ? serverItems : readLocalCart());
       })
       .catch((err) => {
         if (cancelled) return;
-        console.warn("[Checkout] server cart load failed:", err.message);
+        console.warn("[Checkout] cart load failed:", err.message);
         setCartItems(readLocalCart());
       })
-      .finally(() => {
-        if (!cancelled) setCartLoading(false);
-      });
+      .finally(() => { if (!cancelled) setCartLoading(false); });
 
     return () => { cancelled = true; };
   }, [user]);
 
-  /* ════════════════════════════════════════════════════════
-     REDIRECT IF CART IS EMPTY AFTER LOAD
-  ════════════════════════════════════════════════════════ */
+  /* ────── REDIRECT IF EMPTY ────── */
   useEffect(() => {
-    if (cartLoading) return;
-    if (!user) return;
-
+    if (cartLoading || !user) return;
     if (!cartItems.length) {
-      console.warn("[Checkout] Cart is empty — redirecting to /shop/cart");
+      console.warn("[Checkout] Cart is empty — redirecting");
       navigate("/shop/cart");
     }
   }, [cartLoading, cartItems.length, user, navigate]);
 
-  /* ════════════════════════════════════════════════════════
-     SUBTOTAL
-  ════════════════════════════════════════════════════════ */
+  /* ────── SUBTOTAL ────── */
   const subtotal = useMemo(
     () => cartItems.reduce(
       (sum, item) => sum + Number(item.price) * Number(item.qty ?? 1),
@@ -169,12 +133,9 @@ export default function CheckoutPage({ user }) {
     [cartItems]
   );
 
-  /* ════════════════════════════════════════════════════════
-     CALCULATE DELIVERY + PAYMENT OPTIONS
-  ════════════════════════════════════════════════════════ */
+  /* ────── CALCULATE ────── */
   useEffect(() => {
     if (subtotal <= 0) return;
-
     let cancelled = false;
 
     axios
@@ -186,7 +147,6 @@ export default function CheckoutPage({ user }) {
       .then(({ data }) => {
         if (cancelled) return;
         setCalculation(data.data);
-
         if (data.data.paymentOptions?.length) {
           setPaymentMethod((prev) =>
             data.data.paymentOptions.some((o) => o.key === prev)
@@ -203,9 +163,7 @@ export default function CheckoutPage({ user }) {
     return () => { cancelled = true; };
   }, [subtotal, discount]);
 
-  /* ════════════════════════════════════════════════════════
-     ADDRESS HANDLERS
-  ════════════════════════════════════════════════════════ */
+  /* ────── ADDRESS HANDLERS ────── */
   const handleAddAddress = useCallback((addr) => {
     setAddresses((prev) => [addr, ...prev]);
     setSelectedAddress(addr);
@@ -220,15 +178,15 @@ export default function CheckoutPage({ user }) {
     setSelectedAddress(addr);
   }, []);
 
-  /* ════════════════════════════════════════════════════════
-     PLACE ORDER — WITH LIVE DEBUG
-  ════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════
+     PLACE ORDER — with debug capture
+  ═══════════════════════════════════════════════════ */
   const handlePlaceOrder = useCallback(async () => {
-    /* ── Reset previous errors ── */
     setError(null);
     setErrorDebug(null);
+    setLastError(null);
+    setLastResponse(null);
 
-    /* ── Guards ── */
     if (!selectedAddress) {
       setError("Please select a delivery address.");
       setStep(1);
@@ -239,20 +197,17 @@ export default function CheckoutPage({ user }) {
       return;
     }
     if (!cartItems.length) {
-      setError("Your cart is empty. Add items before checking out.");
+      setError("Your cart is empty.");
       setTimeout(() => navigate("/shop/cart"), 1500);
       return;
     }
     if (!calculation) {
-      setError("Still calculating totals. Please wait a moment and try again.");
+      setError("Still calculating totals. Please wait.");
       return;
     }
 
     setLoading(true);
 
-    /* ═══════════════════════════════════════════════════
-       LIVE DEBUG — request payload
-    ═══════════════════════════════════════════════════ */
     const payload = {
       addressId : selectedAddress.id,
       paymentMethod,
@@ -261,110 +216,98 @@ export default function CheckoutPage({ user }) {
       notes     : notes || undefined,
     };
 
-    console.group("🛒 [Checkout] Place Order Request");
-    console.log("URL:      ", `${API}/checkout`);
-    console.log("Payload:  ", payload);
-    console.log("Address:  ", selectedAddress);
-    console.log("Cart items:", cartItems.length);
-    console.log("Subtotal: ", subtotal);
-    console.log("Grand tot:", calculation.grandTotal);
+    /* ✅ Capture request */
+    const requestSnapshot = {
+      url:     `${API}/checkout`,
+      payload,
+      time:    new Date().toISOString(),
+    };
+    setLastRequest(requestSnapshot);
+
+    console.group("🛒 [Checkout] Place Order");
+    console.log("URL:    ", requestSnapshot.url);
+    console.log("Payload:", payload);
     console.groupEnd();
 
     try {
-      const { data } = await axios.post(
+      const { data, status } = await axios.post(
         `${API}/checkout`,
         payload,
         { headers: authHeaders(), timeout: 30_000 }
       );
 
-      /* ═══════════════════════════════════════════════
-         LIVE DEBUG — success response
-      ═══════════════════════════════════════════════ */
-      console.group("✅ [Checkout] Order Response");
-      console.log("Full response:", data);
-      console.groupEnd();
+      /* ✅ Capture success response */
+      setLastResponse({
+        status,
+        data,
+        time: new Date().toISOString(),
+      });
+
+      console.log("✅ [Checkout] Response:", data);
 
       const orderData = data.data ?? data;
 
-      /* ── Online payment → redirect to Flutterwave ── */
       if (orderData.requiresPayment && orderData.paymentLink) {
-        console.log("→ Redirecting to Flutterwave:", orderData.paymentLink);
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
         window.location.href = orderData.paymentLink;
         return;
       }
 
-      /* ── Online payment with NO payment link (Flutterwave failed backend-side) ── */
       if (orderData.requiresPayment && !orderData.paymentLink) {
-        console.warn("→ Order created but no payment link:", orderData);
-        setError(
-          "Order created, but payment could not be initiated. " +
-          "Please visit your orders page to retry payment."
-        );
+        setError("Order created but payment link failed. Visit your orders to retry.");
         setErrorDebug(orderData);
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
-        setTimeout(() => {
-          navigate(`/shop/orders/${orderData.orderGroupId}`);
-        }, 3000);
+        setTimeout(() => navigate(`/shop/orders/${orderData.orderGroupId}`), 3000);
         return;
       }
 
-      /* ── Cash on delivery → success page ── */
       if (orderData.orderGroupId) {
-        console.log("→ COD success, navigating to order page");
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
         navigate(`/shop/orders/${orderData.orderGroupId}`);
         return;
       }
 
-      throw new Error("Unexpected response from server. Please try again.");
+      throw new Error("Unexpected response from server.");
 
     } catch (err) {
-      /* ═══════════════════════════════════════════════
-         LIVE DEBUG — full error dump
-      ═══════════════════════════════════════════════ */
-      console.group("❌ [Checkout] Order Failed");
-      console.log("Status:          ", err.response?.status);
-      console.log("Status text:     ", err.response?.statusText);
-      console.log("Message:         ", err.response?.data?.message);
-      console.log("Debug object:    ", err.response?.data?.debug);
-      console.log("Full data:       ", err.response?.data);
-      console.log("Request payload: ", payload);
-      console.log("Error object:    ", err);
+      /* ✅ Capture full error */
+      const errorSnapshot = {
+        status:       err.response?.status,
+        message:      err.response?.data?.message || err.message,
+        debug:        err.response?.data?.debug,
+        fullResponse: err.response?.data,
+        time:         new Date().toISOString(),
+      };
+      setLastError(errorSnapshot);
+
+      console.group("❌ [Checkout] Failed");
+      console.log("Status:  ", errorSnapshot.status);
+      console.log("Message: ", errorSnapshot.message);
+      console.log("Debug:   ", errorSnapshot.debug);
+      console.log("Full:    ", errorSnapshot.fullResponse);
       console.groupEnd();
 
-      /* Show the most detailed error we can find */
-      const backendMessage = err.response?.data?.message;
-      const sqlMessage     = err.response?.data?.debug?.message;
-      const genericMessage = err.message;
-
       const displayMessage =
-        sqlMessage
-          ? `${backendMessage} (${sqlMessage})`
-          : backendMessage || genericMessage || "Failed to place order. Please try again.";
+        errorSnapshot.debug?.message
+          ? `${errorSnapshot.message} (${errorSnapshot.debug.message})`
+          : errorSnapshot.message || "Failed to place order.";
 
       setError(displayMessage);
-      setErrorDebug(err.response?.data?.debug ?? err.response?.data ?? null);
+      setErrorDebug(errorSnapshot.debug ?? errorSnapshot.fullResponse);
 
     } finally {
       setLoading(false);
     }
   }, [
     selectedAddress, paymentMethod, cartItems, calculation,
-    couponCode, discount, notes, subtotal, navigate,
+    couponCode, discount, notes, navigate,
   ]);
 
-  /* ════════════════════════════════════════════════════════
-     GUARD
-  ════════════════════════════════════════════════════════ */
   if (!user) return null;
 
-  /* ════════════════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════════════════ */
   return (
     <div className="ck-page">
 
@@ -385,13 +328,11 @@ export default function CheckoutPage({ user }) {
       <div className="ck-steps">
         {STEPS.map((s, i) => (
           <Fragment key={s.id}>
-            <div
-              className={[
-                "ck-step",
-                step === s.id ? "ck-step--active" : "",
-                step >  s.id  ? "ck-step--done"   : "",
-              ].join(" ").trim()}
-            >
+            <div className={[
+              "ck-step",
+              step === s.id ? "ck-step--active" : "",
+              step >  s.id  ? "ck-step--done"   : "",
+            ].join(" ").trim()}>
               <div className="ck-step-dot">
                 {step > s.id ? "✓" : s.id}
               </div>
@@ -399,18 +340,16 @@ export default function CheckoutPage({ user }) {
             </div>
 
             {i < STEPS.length - 1 && (
-              <div
-                className={[
-                  "ck-step-line",
-                  step > s.id ? "ck-step-line--done" : "",
-                ].join(" ").trim()}
-              />
+              <div className={[
+                "ck-step-line",
+                step > s.id ? "ck-step-line--done" : "",
+              ].join(" ").trim()} />
             )}
           </Fragment>
         ))}
       </div>
 
-      {/* ── Global Error Banner (only shown on step 1 & 2) ── */}
+      {/* ── Global Error Banner ── */}
       {error && step !== 3 && (
         <div className="ck-error" role="alert">
           ⚠️ {error}
@@ -425,7 +364,6 @@ export default function CheckoutPage({ user }) {
 
       {/* ── Step Content ── */}
       <div className="ck-content">
-
         {cartLoading && (
           <div className="ck-loading" role="status" aria-live="polite">
             <div className="ck-loading-spinner" />
@@ -468,7 +406,7 @@ export default function CheckoutPage({ user }) {
             onSelectPayment={setPaymentMethod}
             loading={loading}
             error={error}
-            errorDebug={errorDebug}           /* ✅ NEW */
+            errorDebug={errorDebug}
             onDismissError={() => {
               setError(null);
               setErrorDebug(null);
@@ -481,8 +419,26 @@ export default function CheckoutPage({ user }) {
             onPlaceOrder={handlePlaceOrder}
           />
         )}
-
       </div>
+
+      {/* ═════════════════════════════════════
+          ✅ FLOATING DEBUG PANEL
+      ═════════════════════════════════════ */}
+      <CheckoutDebugPanel
+        apiBase={`${API}/checkout`}
+        token={getToken()}
+        user={user}
+        addresses={addresses}
+        selectedAddress={selectedAddress}
+        cartItems={cartItems}
+        cartLoading={cartLoading}
+        calculation={calculation}
+        paymentMethod={paymentMethod}
+        lastRequest={lastRequest}
+        lastResponse={lastResponse}
+        lastError={lastError}
+        onRetry={handlePlaceOrder}
+      />
     </div>
   );
 }
