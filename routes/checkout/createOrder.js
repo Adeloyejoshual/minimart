@@ -5,17 +5,13 @@
  * Create order from cart.
  * Validates cart, calculates fees, splits by seller.
  *
- * v3 — Stock validation fix + price type cast
- * ─────────────────────────────────────────────
- * ✓ COALESCE(pv.price::numeric, p.price::numeric) — fixes 22023 type error
- * ✓ Smart stock check — only validates stock when it's actually tracked
- * ✓ NULL stock = untracked inventory (allowed)
- * ✓ Falls back to product-level stock if variant has none
- * ✓ Auth guard middleware
- * ✓ User email/name enrichment for Flutterwave
- * ✓ Env var validation before payment
- * ✓ Order saves even if Flutterwave fails
- * ✓ Comprehensive diagnostic logging
+ * v4 — Debug always visible
+ * ─────────────────────────────────
+ * ✓ Debug details ALWAYS returned in error responses (no NODE_ENV check)
+ * ✓ Every step logged so Render logs show progression
+ * ✓ Response includes debug info AND stack trace on 500 errors
+ * ✓ Flutterwave errors also include debug field
+ * ✓ Same fallbacks, guards, and cart/stock logic as before
  */
 
 import express from "express";
@@ -27,7 +23,7 @@ import { createOrderGroup, getOrderGroup } from "../../services/orderService.js"
 const router = express.Router();
 
 /* ════════════════════════════════════════════════════════════
-   AUTH GUARD — every route requires req.user
+   AUTH GUARD
 ════════════════════════════════════════════════════════════ */
 router.use((req, res, next) => {
   if (!req.user?.id) {
@@ -35,6 +31,7 @@ router.use((req, res, next) => {
     return res.status(401).json({
       success: false,
       message: "Authentication required",
+      debug: { reason: "req.user is undefined — check auth middleware order" },
     });
   }
   next();
@@ -61,12 +58,16 @@ router.get("/orders", async (req, res) => {
     res.json({ success: true, data: rows });
   } catch (err) {
     console.error("[GET /api/checkout/orders]", err.message);
-    res.status(500).json({ success: false, message: "Failed to fetch orders" });
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch orders",
+      debug: { message: err.message, code: err.code },
+    });
   }
 });
 
 /* ════════════════════════════════════════════════════════════
-   GET /api/checkout/orders/:groupId — single order detail
+   GET /api/checkout/orders/:groupId
 ════════════════════════════════════════════════════════════ */
 router.get("/orders/:groupId", async (req, res) => {
   try {
@@ -80,21 +81,23 @@ router.get("/orders/:groupId", async (req, res) => {
     res.json({ success: true, data: group });
   } catch (err) {
     console.error("[GET /api/checkout/orders/:groupId]", err.message);
-    res.status(500).json({ success: false, message: "Failed to fetch order" });
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch order",
+      debug: { message: err.message, code: err.code },
+    });
   }
 });
 
 /* ════════════════════════════════════════════════════════════
-   HELPER — enrich req.user with email/name if JWT lacks them
+   HELPER — enrich req.user with email/name from DB
 ════════════════════════════════════════════════════════════ */
 async function enrichUser(user) {
   if (user.email && user.name) return user;
 
   try {
     const { rows: [full] } = await pool.query(
-      `SELECT id, email, name
-       FROM market.users
-       WHERE id = $1`,
+      `SELECT id, email, name FROM market.users WHERE id = $1`,
       [user.id]
     );
 
@@ -113,7 +116,7 @@ async function enrichUser(user) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   POST /api/checkout — create order
+   POST /api/checkout — CREATE ORDER
 ════════════════════════════════════════════════════════════ */
 router.post("/", async (req, res) => {
   const {
@@ -124,7 +127,10 @@ router.post("/", async (req, res) => {
     notes,
   } = req.body;
 
-  /* ── Basic input validation ── */
+  /* Track which step failed for debug */
+  let currentStep = "init";
+
+  /* ── Input validation ── */
   if (!addressId) {
     return res.status(422).json({
       success: false,
@@ -140,21 +146,27 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    /* ── Enrich user (fetches email/name if JWT lacks them) ── */
+    /* ══════════════════════════════════════════════════
+       STEP 1: Enrich user
+    ══════════════════════════════════════════════════ */
+    currentStep = "enrichUser";
+    console.log(`[checkout] STEP 1: Enriching user ${req.user.id}`);
     const user = await enrichUser(req.user);
 
     /* ══════════════════════════════════════════════════
-       1. Validate address belongs to user
+       STEP 2: Validate address
     ══════════════════════════════════════════════════ */
+    currentStep = "validateAddress";
+    console.log(`[checkout] STEP 2: Validating address ${addressId}`);
+
     const { rows: [address] } = await pool.query(
-      `SELECT id
-       FROM public.user_addresses
+      `SELECT id FROM public.user_addresses
        WHERE id = $1 AND user_id = $2`,
       [addressId, user.id]
     );
 
     if (!address) {
-      console.warn(`[checkout] Address ${addressId} not found for user ${user.id}`);
+      console.warn(`[checkout] Address ${addressId} not found`);
       return res.status(404).json({
         success: false,
         message: "Address not found. Please add a new address.",
@@ -162,13 +174,11 @@ router.post("/", async (req, res) => {
     }
 
     /* ══════════════════════════════════════════════════
-       2. Fetch cart with live prices + stock
-       ──────────────────────────────────────────────
-       Two casts + smart stock logic:
-       - pv.price::numeric  →  aligns with products.price BIGINT
-       - Stock: variant stock IF variant exists,
-                otherwise treat as unlimited (NULL)
+       STEP 3: Fetch cart
     ══════════════════════════════════════════════════ */
+    currentStep = "fetchCart";
+    console.log(`[checkout] STEP 3: Fetching cart for user ${user.id}`);
+
     const { rows: cartItems } = await pool.query(
       `SELECT
          ci.id            AS item_id,
@@ -190,7 +200,6 @@ router.post("/", async (req, res) => {
          pv.attributes,
          pv.stock         AS variant_stock,
 
-         /* ✅ FIX: cast both prices to numeric to prevent 22023 error */
          COALESCE(pv.price::numeric, p.price::numeric) AS live_price,
 
          (
@@ -217,11 +226,14 @@ router.post("/", async (req, res) => {
       });
     }
 
-    console.log(`[checkout] Loaded ${cartItems.length} cart items for user ${user.id}`);
+    console.log(`[checkout] ✓ Loaded ${cartItems.length} cart items`);
 
     /* ══════════════════════════════════════════════════
-       3. Validate all items are available (not deleted/inactive)
+       STEP 4: Validate availability
     ══════════════════════════════════════════════════ */
+    currentStep = "validateAvailability";
+    console.log(`[checkout] STEP 4: Validating item availability`);
+
     const unavailable = cartItems.filter((i) =>
       i.deleted_at || !i.is_active || !["active", "approved"].includes(i.status)
     );
@@ -238,39 +250,22 @@ router.post("/", async (req, res) => {
     }
 
     /* ══════════════════════════════════════════════════
-       4. Smart stock validation
-       ──────────────────────────────────────────────
-       ONLY flag items as out-of-stock when:
-         - They have a variant AND
-         - That variant's stock is explicitly 0 or negative
-
-       If variant doesn't exist → item has no stock tracking
-                                  → seller allowed to list it
-                                  → allow purchase
+       STEP 5: Smart stock validation
     ══════════════════════════════════════════════════ */
+    currentStep = "validateStock";
+
     const outOfStock = cartItems.filter((i) => {
-      /* No variant = product has no stock tracking = always available */
       if (!i.variant_id) return false;
-
-      /* Variant exists but stock is NULL = untracked = available */
       if (i.variant_stock === null || i.variant_stock === undefined) return false;
-
-      /* Variant exists AND stock is a number → check it */
       const stock = Number(i.variant_stock);
       return isNaN(stock) || stock <= 0;
     });
 
     if (outOfStock.length) {
-      console.warn(`[checkout] ${outOfStock.length} out-of-stock items:`,
-        outOfStock.map((i) => ({
-          name:          i.name,
-          variant_id:    i.variant_id,
-          variant_stock: i.variant_stock,
-        }))
-      );
+      console.warn(`[checkout] ${outOfStock.length} out-of-stock items`);
       return res.status(400).json({
         success: false,
-        message: `${outOfStock.length} item(s) are out of stock. Please remove them to continue.`,
+        message: `${outOfStock.length} item(s) are out of stock.`,
         data: {
           outOfStockIds: outOfStock.map((i) => i.item_id),
           details:       outOfStock.map((i) => ({
@@ -281,34 +276,22 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════
-       5. Check quantity doesn't exceed stock (when tracked)
-    ══════════════════════════════════════════════════ */
     const insufficient = cartItems.filter((i) => {
       if (!i.variant_id) return false;
       if (i.variant_stock === null || i.variant_stock === undefined) return false;
-
       const stock = Number(i.variant_stock);
-      const qty   = Number(i.qty);
-      return stock > 0 && qty > stock;
+      return stock > 0 && Number(i.qty) > stock;
     });
 
     if (insufficient.length) {
-      console.warn(`[checkout] ${insufficient.length} items exceed stock:`,
-        insufficient.map((i) => ({
-          name:  i.name,
-          qty:   i.qty,
-          stock: i.variant_stock,
-        }))
-      );
       return res.status(400).json({
         success: false,
         message: `Some items exceed available stock. Please reduce quantities.`,
         data: {
           insufficient: insufficient.map((i) => ({
-            itemId: i.item_id,
-            name:   i.name,
-            wanted: i.qty,
+            itemId:    i.item_id,
+            name:      i.name,
+            wanted:    i.qty,
             available: i.variant_stock,
           })),
         },
@@ -316,20 +299,21 @@ router.post("/", async (req, res) => {
     }
 
     /* ══════════════════════════════════════════════════
-       6. Validate seller IDs exist
+       STEP 6: Validate sellers
     ══════════════════════════════════════════════════ */
+    currentStep = "validateSellers";
     const badSeller = cartItems.find((i) => !i.seller_id);
     if (badSeller) {
-      console.warn(`[checkout] Product "${badSeller.name}" has no seller`);
       return res.status(400).json({
         success: false,
-        message: `A product in your cart is missing seller information: "${badSeller.name}". Please remove it and try again.`,
+        message: `A product is missing seller info: "${badSeller.name}". Please remove it.`,
       });
     }
 
     /* ══════════════════════════════════════════════════
-       7. Calculate totals
+       STEP 7: Calculate totals
     ══════════════════════════════════════════════════ */
+    currentStep = "calculateTotals";
     const subtotal    = cartItems.reduce(
       (s, i) => s + (Number(i.live_price) * Number(i.qty)),
       0
@@ -341,8 +325,9 @@ router.post("/", async (req, res) => {
     console.log(`[checkout] Totals — subtotal: ₦${subtotal} | delivery: ₦${deliveryFee} | grand: ₦${grandTotal}`);
 
     /* ══════════════════════════════════════════════════
-       8. Validate payment method for this total
+       STEP 8: Validate payment method
     ══════════════════════════════════════════════════ */
+    currentStep = "validatePaymentMethod";
     if (!isPaymentMethodAllowed(paymentMethod, grandTotal)) {
       return res.status(400).json({
         success: false,
@@ -351,8 +336,9 @@ router.post("/", async (req, res) => {
     }
 
     /* ══════════════════════════════════════════════════
-       9. Format items for order service
+       STEP 9: Format items
     ══════════════════════════════════════════════════ */
+    currentStep = "formatItems";
     const formattedItems = cartItems.map((i) => ({
       productId:  i.product_id,
       sellerId:   i.seller_id,
@@ -371,9 +357,10 @@ router.post("/", async (req, res) => {
     }));
 
     /* ══════════════════════════════════════════════════
-       10. Create order group
+       STEP 10: Create order group
     ══════════════════════════════════════════════════ */
-    console.log(`[checkout] Creating order — user: ${user.id} | items: ${cartItems.length}`);
+    currentStep = "createOrderGroup";
+    console.log(`[checkout] STEP 10: Creating order for user ${user.id}`);
 
     const result = await createOrderGroup({
       userId:        user.id,
@@ -389,7 +376,7 @@ router.post("/", async (req, res) => {
     console.log(`[checkout] ✅ Order group ${result.orderGroupId} created`);
 
     /* ══════════════════════════════════════════════════
-       11a. CASH ON DELIVERY — done
+       STEP 11a: CASH ON DELIVERY — done
     ══════════════════════════════════════════════════ */
     if (paymentMethod === "CASH_ON_DELIVERY") {
       return res.status(201).json({
@@ -407,17 +394,16 @@ router.post("/", async (req, res) => {
     }
 
     /* ══════════════════════════════════════════════════
-       11b. ONLINE PAYMENT — initialize Flutterwave
-       Order is ALREADY saved. If Flutterwave fails,
-       still return success so user can retry from
-       the orders page.
+       STEP 11b: ONLINE PAYMENT — Flutterwave
     ══════════════════════════════════════════════════ */
+    currentStep = "flutterwave";
+
     try {
       if (!process.env.FLW_SECRET_KEY) {
-        throw new Error("FLW_SECRET_KEY environment variable is not set");
+        throw new Error("FLW_SECRET_KEY environment variable is not set on Render");
       }
       if (!process.env.CLIENT_ORIGIN) {
-        throw new Error("CLIENT_ORIGIN environment variable is not set");
+        throw new Error("CLIENT_ORIGIN environment variable is not set on Render");
       }
       if (!user.email) {
         throw new Error("User email is required for online payment");
@@ -430,7 +416,7 @@ router.post("/", async (req, res) => {
         name:         user.name ?? "Customer",
       });
 
-      console.log(`[checkout] ✅ Flutterwave link generated for ${result.orderGroupId}`);
+      console.log(`[checkout] ✅ Flutterwave link generated`);
 
       return res.status(201).json({
         success: true,
@@ -448,12 +434,14 @@ router.post("/", async (req, res) => {
       });
 
     } catch (flwErr) {
-      console.error("[checkout] ❌ Flutterwave init failed:", flwErr.message);
-      if (flwErr.response?.data) {
-        console.error("[checkout] Flutterwave response:", flwErr.response.data);
-      }
+      console.error("═══════════════════════════════════════");
+      console.error("[checkout] ❌ Flutterwave init failed");
+      console.error("Message:  ", flwErr.message);
+      console.error("Response: ", flwErr.response?.data);
+      console.error("Status:   ", flwErr.response?.status);
+      console.error("═══════════════════════════════════════");
 
-      /* Order is saved — return success with a note */
+      /* Order is saved — return success with a note + debug info */
       return res.status(201).json({
         success: true,
         message: "Order created but payment link failed. Please try paying from your orders page.",
@@ -465,7 +453,18 @@ router.post("/", async (req, res) => {
           paymentMethod,
           requiresPayment: true,
           paymentLink:     null,
-          paymentError:    process.env.NODE_ENV !== "production" ? flwErr.message : undefined,
+        },
+        /* ✅ ALWAYS include Flutterwave debug — no NODE_ENV check */
+        debug: {
+          source:      "flutterwave",
+          message:     flwErr.message,
+          status:      flwErr.response?.status,
+          response:    flwErr.response?.data,
+          hint:        !process.env.FLW_SECRET_KEY
+            ? "Missing FLW_SECRET_KEY env var on Render"
+            : !process.env.CLIENT_ORIGIN
+              ? "Missing CLIENT_ORIGIN env var on Render"
+              : "Flutterwave API error — check secret key validity",
         },
       });
     }
@@ -476,11 +475,11 @@ router.post("/", async (req, res) => {
     ════════════════════════════════════════════════ */
     console.error("═══════════════════════════════════════════════");
     console.error("[POST /api/checkout] ORDER CREATION FAILED");
+    console.error("Failed at step:", currentStep);
     console.error("User ID:      ", req.user?.id);
     console.error("User email:   ", req.user?.email);
     console.error("Address ID:   ", addressId);
     console.error("Payment:      ", paymentMethod);
-    console.error("Discount:     ", discount);
     console.error("─── SQL Error ─────────────────────────────────");
     console.error("Message:      ", err.message);
     console.error("Code:         ", err.code);
@@ -492,17 +491,20 @@ router.post("/", async (req, res) => {
     console.error(err.stack);
     console.error("═══════════════════════════════════════════════");
 
+    /* ✅ ALWAYS return debug info — no NODE_ENV check */
     res.status(500).json({
       success: false,
       message: "Failed to create order",
-      debug: process.env.NODE_ENV !== "production" ? {
+      debug: {
+        failedAt:   currentStep,
         message:    err.message,
         code:       err.code,
         detail:     err.detail,
         constraint: err.constraint,
         table:      err.table,
         column:     err.column,
-      } : undefined,
+        stack:      err.stack?.split("\n").slice(0, 5).join("\n"),
+      },
     });
   }
 });
@@ -519,6 +521,9 @@ async function initializeFlutterwavePayment({
   const axios = (await import("axios")).default;
   const ref   = `MINIMART-${orderGroupId.slice(0, 8).toUpperCase()}-${Date.now()}`;
 
+  console.log(`[flutterwave] Initializing payment for ${orderGroupId} — ₦${amount}`);
+  console.log(`[flutterwave] Using key prefix: ${process.env.FLW_SECRET_KEY?.slice(0, 20)}…`);
+
   const { data } = await axios.post(
     "https://api.flutterwave.com/v3/payments",
     {
@@ -528,7 +533,7 @@ async function initializeFlutterwavePayment({
       redirect_url: `${process.env.CLIENT_ORIGIN}/shop/orders/${orderGroupId}?verify=true`,
       customer:     { email, name },
       customizations: {
-        title:       "Minimart Checkout",
+        title:       "Loemart Checkout",
         description: `Order ${orderGroupId.slice(0, 8).toUpperCase()}`,
         logo:        `${process.env.CLIENT_ORIGIN}/logo.png`,
       },
@@ -544,6 +549,8 @@ async function initializeFlutterwavePayment({
       timeout: 15_000,
     }
   );
+
+  console.log(`[flutterwave] Response status: ${data?.status}`);
 
   if (!data?.data?.link) {
     throw new Error(`Flutterwave returned no payment link. Response: ${JSON.stringify(data)}`);
