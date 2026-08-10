@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    4-components.css
-   Fields · Tags · Category grid · List inputs ·
+   Fields · Tags · Category grid · Category picker · List inputs ·
    Generate button · Pricing · Review · Variants ·
    Modals · Upload progress · Submit button
 ═══════════════════════════════════════════════════════════════ */
@@ -130,13 +130,13 @@
   box-shadow:   0 0 0 3px rgba(255,87,34,0.08);
 }
 .pa-tag-input-wrap input {
-  flex:       1;
-  border:     none;
-  outline:    none;
-  background: transparent;
-  font-size:  13px;
-  font-weight:600;
-  color:      var(--pa-text-primary);
+  flex:        1;
+  border:      none;
+  outline:     none;
+  background:  transparent;
+  font-size:   13px;
+  font-weight: 600;
+  color:       var(--pa-text-primary);
 }
 
 .pa-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -170,6 +170,9 @@
 
 /* ══════════════════════════════
    CATEGORY GRID
+   (kept for backward compat —
+   hidden when CategoryPicker
+   is active)
 ══════════════════════════════ */
 .pa-cat-grid {
   display:               grid;
@@ -210,6 +213,258 @@
 }
 
 .pa-cat-icon { font-size: 20px; line-height: 1; }
+
+/* ══════════════════════════════
+   CATEGORY PICKER
+   Hierarchical drill-down
+   L1 → L2 → L3 columns
+══════════════════════════════ */
+.cp-wrap {
+  border:        1.5px solid var(--pa-border);
+  border-radius: var(--pa-radius-lg);
+  overflow:      hidden;
+  background:    var(--pa-surface);
+  transition:    border-color 0.2s, box-shadow 0.2s;
+}
+
+/* Error state — matches .pa-input--error */
+.cp-wrap--error {
+  border-color: var(--pa-danger);
+  box-shadow:   0 0 0 3px rgba(239,68,68,0.08);
+}
+
+/* ── Column layout ── */
+.cp-columns {
+  display:          flex;
+  overflow-x:       auto;
+  scrollbar-width:  thin;
+  scrollbar-color:  var(--pa-border) transparent;
+  /* Snap on mobile so columns feel intentional */
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cp-columns::-webkit-scrollbar        { height: 4px; }
+.cp-columns::-webkit-scrollbar-track  { background: transparent; }
+.cp-columns::-webkit-scrollbar-thumb  { background: var(--pa-border); border-radius: 999px; }
+
+.cp-column {
+  display:          flex;
+  flex-direction:   column;
+  min-width:        160px;
+  /* Enough rows visible before scroll */
+  max-height:       272px;
+  overflow-y:       auto;
+  border-right:     1px solid var(--pa-border);
+  flex-shrink:      0;
+  scroll-snap-align: start;
+  scrollbar-width:  thin;
+  scrollbar-color:  var(--pa-border) transparent;
+}
+
+.cp-column::-webkit-scrollbar        { width: 3px; }
+.cp-column::-webkit-scrollbar-thumb  { background: var(--pa-border); border-radius: 999px; }
+
+/* Last column has no right border */
+.cp-column:last-child { border-right: none; }
+
+/* Subtle tint so the depth levels are visually distinct */
+.cp-column--l2 { background: var(--pa-surface-2); }
+.cp-column--l3 { background: var(--pa-surface-3); }
+
+/* ── Row buttons ── */
+.cp-item {
+  display:        flex;
+  align-items:    center;
+  gap:            8px;
+  width:          100%;
+  padding:        10px 12px;
+  background:     none;
+  border:         none;
+  border-bottom:  1px solid var(--pa-border);
+  text-align:     left;
+  font-size:      13px;
+  font-weight:    600;
+  font-family:    inherit;
+  color:          var(--pa-text-secondary);
+  cursor:         pointer;
+  transition:     background var(--pa-t-fast), color var(--pa-t-fast);
+  /* Prevent text overflow in narrow columns */
+  min-width:      0;
+}
+
+.cp-item:last-child { border-bottom: none; }
+
+.cp-item:hover {
+  background: rgba(255,87,34,0.05);
+  color:      var(--pa-primary);
+}
+
+.cp-item:focus-visible {
+  outline:        2px solid var(--pa-primary);
+  outline-offset: -2px;
+}
+
+/* Highlighted column entry (drilled into, not yet confirmed) */
+.cp-item--active {
+  background:  rgba(255,87,34,0.08) !important;
+  color:       var(--pa-primary)    !important;
+  font-weight: 800;
+}
+
+/* Confirmed leaf selection */
+.cp-item--selected {
+  color:       var(--pa-primary);
+  font-weight: 800;
+}
+
+.cp-item-icon {
+  font-size:   16px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.cp-item-name {
+  flex:         1;
+  line-height:  1.3;
+  /* Truncate very long names gracefully */
+  overflow:     hidden;
+  text-overflow:ellipsis;
+  white-space:  nowrap;
+}
+
+/* Arrow → child exists */
+.cp-item-arrow {
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity:     0.35;
+  color:       var(--pa-text-muted);
+  transition:  opacity var(--pa-t-fast);
+}
+.cp-item--active .cp-item-arrow { opacity: 0.7; }
+
+/* Check ✓ leaf selected */
+.cp-item-check {
+  margin-left: auto;
+  flex-shrink: 0;
+  color:       var(--pa-success);
+}
+
+/* ── Selected summary bar ── */
+.cp-selected-bar {
+  display:       flex;
+  align-items:   center;
+  gap:           8px;
+  padding:       9px 12px;
+  background:    #f0fdf4;
+  border-top:    1px solid #bbf7d0;
+  font-size:     13px;
+  font-weight:   700;
+  color:         #166534;
+  /* Stays outside the scrollable .cp-columns area */
+}
+
+.cp-selected-name {
+  flex:          1;
+  overflow:      hidden;
+  text-overflow: ellipsis;
+  white-space:   nowrap;
+}
+
+.cp-clear-btn {
+  background:    none;
+  border:        1px solid transparent;
+  border-radius: var(--pa-radius-sm);
+  color:         var(--pa-text-muted);
+  cursor:        pointer;
+  font-size:     13px;
+  font-weight:   700;
+  padding:       2px 8px;
+  line-height:   1.4;
+  transition:    var(--pa-t-fast);
+  flex-shrink:   0;
+}
+.cp-clear-btn:hover,
+.cp-clear-btn:focus-visible {
+  background:   #fee2e2;
+  border-color: var(--pa-danger);
+  color:        var(--pa-danger);
+}
+
+/* ── Loading spinner ── */
+.cp-spinner {
+  display:         flex;
+  justify-content: center;
+  align-items:     center;
+  padding:         28px 16px;
+}
+
+.cp-spinner-ring {
+  width:            28px;
+  height:           28px;
+  border:           3px solid var(--pa-border);
+  border-top-color: var(--pa-primary);
+  border-radius:    50%;
+  animation:        pa-spin 0.7s linear infinite;
+  /* Reuses the pa-spin keyframe already declared
+     in 1-base.css / animations section           */
+}
+
+/* ── Retry & empty states ── */
+.cp-retry {
+  display:     block;
+  width:       100%;
+  padding:     20px 16px;
+  background:  none;
+  border:      none;
+  color:       var(--pa-danger);
+  cursor:      pointer;
+  font-size:   13px;
+  font-weight: 700;
+  font-family: inherit;
+  text-align:  center;
+  transition:  background var(--pa-t-fast);
+}
+.cp-retry:hover { background: #fff5f5; }
+
+.cp-empty {
+  padding:     20px 16px;
+  text-align:  center;
+  color:       var(--pa-text-faint);
+  font-size:   13px;
+  font-weight: 600;
+}
+
+/* ── Breadcrumb trail shown below picker ── */
+.pa-cat-breadcrumb {
+  margin-top:  6px;
+  font-size:   12px;
+  font-weight: 600;
+  color:       var(--pa-text-muted);
+  line-height: 1.5;
+  /* Animate in when selection is made */
+  animation:   pa-fadein 0.2s ease;
+}
+
+/* ── Mobile: stack columns vertically when screen is very narrow ── */
+@media (max-width: 380px) {
+  .cp-columns {
+    flex-direction:   column;
+    scroll-snap-type: y mandatory;
+    max-height:       none;
+    overflow-x:       hidden;
+    overflow-y:       auto;
+  }
+
+  .cp-column {
+    min-width:  100%;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--pa-border);
+  }
+
+  .cp-column:last-child { border-bottom: none; }
+}
 
 /* ══════════════════════════════
    LIST INPUTS
@@ -266,36 +521,29 @@
 }
 
 .pa-add-btn {
-  width:         100%;
-  margin-top:    10px;
-  height:        40px;
-  border-radius: var(--pa-radius-sm);
-  border:        1.5px dashed var(--pa-border);
-  background:    var(--pa-surface);
-  cursor:        pointer;
-  font-size:     13px;
-  font-weight:   700;
-  color:         var(--pa-primary);
-  display:       inline-flex;
-  align-items:   center;
-  justify-content:center;
-  gap:           6px;
-  transition:    var(--pa-t-fast);
+  width:           100%;
+  margin-top:      10px;
+  height:          40px;
+  border-radius:   var(--pa-radius-sm);
+  border:          1.5px dashed var(--pa-border);
+  background:      var(--pa-surface);
+  cursor:          pointer;
+  font-size:       13px;
+  font-weight:     700;
+  color:           var(--pa-primary);
+  display:         inline-flex;
+  align-items:     center;
+  justify-content: center;
+  gap:             6px;
+  transition:      var(--pa-t-fast);
 }
 .pa-add-btn:hover,
 .pa-add-btn:focus-visible {
   border-color: var(--pa-primary);
   background:   #fff4f0;
 }
-.pa-add-btn--lg {
-  height:   48px;
-  font-size:14px;
-}
-.pa-add-btn--sm {
-  margin-top: 6px;
-  height:     34px;
-  font-size:  12px;
-}
+.pa-add-btn--lg { height: 48px; font-size: 14px; }
+.pa-add-btn--sm { margin-top: 6px; height: 34px; font-size: 12px; }
 
 /* ══════════════════════════════
    PRICING
@@ -500,7 +748,7 @@
 .pa-upload-fill { height: 100%; background: linear-gradient(90deg, var(--pa-secondary), #8b5cf6); border-radius: 999px; transition: width 0.25s ease; }
 
 /* ══════════════════════════════
-   MODAL — glass via .pa-glass-bar on header/footer
+   MODAL
 ══════════════════════════════ */
 .pa-modal-overlay {
   position:                fixed;
