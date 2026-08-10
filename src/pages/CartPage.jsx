@@ -2,19 +2,7 @@
  * src/pages/CartPage.jsx
  * Route: /shop/cart
  *
- * Professional cart page — Amazon/Jumia level:
- * ─────────────────────────────────────────────
- * ✓ Guest + logged-in cart support
- * ✓ Real-time quantity update (with debounce)
- * ✓ Remove with undo toast (5s window)
- * ✓ Item-level savings display
- * ✓ Total savings + subtotal + delivery + grand total
- * ✓ Empty state with CTA
- * ✓ Skeleton loading
- * ✓ Sticky checkout bar
- * ✓ Move to wishlist
- * ✓ Stock validation on quantity change
- * ✓ Recommended products
+ * WITH LIVE DEBUG PANEL — remove when working
  */
 
 import {
@@ -146,7 +134,169 @@ const Icon = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SKELETON LOADER
+   ★ LIVE DEBUG PANEL ★
+═══════════════════════════════════════════════════════════════ */
+function DebugPanel({ debug, onClose, onRetry }) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div style={{
+      position     : "fixed",
+      bottom       : 80,
+      left         : 8,
+      right        : 8,
+      zIndex       : 9999,
+      background   : "#0f172a",
+      color        : "#f1f5f9",
+      borderRadius : 12,
+      padding      : 12,
+      fontSize     : 11,
+      fontFamily   : "monospace",
+      lineHeight   : 1.5,
+      maxHeight    : expanded ? "70vh" : 40,
+      overflow     : "auto",
+      boxShadow    : "0 10px 40px rgba(0,0,0,0.5)",
+      border       : "2px solid #ff5722",
+    }}>
+      {/* Header */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: expanded ? 8 : 0,
+        cursor: "pointer",
+      }}
+      onClick={() => setExpanded(!expanded)}>
+        <strong style={{ color: "#ff5722" }}>🔍 CART DEBUG PANEL</strong>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onRetry(); }}
+            style={{
+              background: "#10b981", color: "#fff", border: "none",
+              padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer"
+            }}
+          >
+            🔄 Retry
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            style={{
+              background: "#ef4444", color: "#fff", border: "none",
+              padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer"
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <>
+          {/* Config */}
+          <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
+            <div style={{ color: "#fbbf24", marginBottom: 4 }}>📡 CONFIG</div>
+            <div>BASE: <span style={{ color: "#10b981" }}>{debug.base || "❌ MISSING"}</span></div>
+            <div>URL:  <span style={{ color: "#10b981" }}>{debug.url}</span></div>
+            <div>Token: <span style={{ color: debug.hasToken ? "#10b981" : "#ef4444" }}>
+              {debug.hasToken ? `✓ Present (${debug.tokenPreview})` : "❌ Missing"}
+            </span></div>
+            <div>Logged in: <span style={{ color: debug.loggedIn ? "#10b981" : "#fbbf24" }}>
+              {debug.loggedIn ? "✓ Yes" : "⚠ No (guest mode)"}
+            </span></div>
+          </div>
+
+          {/* Request */}
+          {debug.request && (
+            <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
+              <div style={{ color: "#fbbf24", marginBottom: 4 }}>📤 LAST REQUEST</div>
+              <div>Method: {debug.request.method}</div>
+              <div>Headers: {JSON.stringify(debug.request.headers, null, 2)}</div>
+              <div>Time: {debug.request.time}</div>
+            </div>
+          )}
+
+          {/* Response */}
+          {debug.response && (
+            <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
+              <div style={{ color: "#fbbf24", marginBottom: 4 }}>
+                📥 LAST RESPONSE
+                <span style={{
+                  marginLeft: 8,
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  background: debug.response.status >= 200 && debug.response.status < 300
+                    ? "#10b981" : "#ef4444",
+                  color: "#fff",
+                  fontSize: 9,
+                }}>
+                  {debug.response.status || "NO RESPONSE"}
+                </span>
+              </div>
+              <pre style={{
+                margin: "6px 0 0",
+                background: "#0f172a",
+                padding: 8,
+                borderRadius: 4,
+                overflow: "auto",
+                maxHeight: 200,
+                fontSize: 10,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+              }}>
+                {typeof debug.response.body === "string"
+                  ? debug.response.body
+                  : JSON.stringify(debug.response.body, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {/* Error */}
+          {debug.error && (
+            <div style={{ marginBottom: 10, padding: 8, background: "#7f1d1d", borderRadius: 6 }}>
+              <div style={{ color: "#fca5a5", marginBottom: 4 }}>❌ ERROR</div>
+              <div>Message: {debug.error.message}</div>
+              <div>Code: {debug.error.code || "N/A"}</div>
+              <div>Status: {debug.error.status || "N/A"}</div>
+              {debug.error.stack && (
+                <pre style={{
+                  margin: "6px 0 0",
+                  background: "#0f172a",
+                  padding: 8,
+                  borderRadius: 4,
+                  overflow: "auto",
+                  maxHeight: 100,
+                  fontSize: 10,
+                }}>
+                  {debug.error.stack.split("\n").slice(0, 5).join("\n")}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* Cart Data */}
+          {debug.items && (
+            <div style={{ padding: 8, background: "#1e293b", borderRadius: 6 }}>
+              <div style={{ color: "#fbbf24", marginBottom: 4 }}>
+                🛒 CART ITEMS ({debug.items.length})
+              </div>
+              <pre style={{
+                margin: 0,
+                fontSize: 10,
+                overflow: "auto",
+                maxHeight: 150,
+              }}>
+                {JSON.stringify(debug.items, null, 2)}
+              </pre>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SKELETON
 ═══════════════════════════════════════════════════════════════ */
 function CartSkeleton() {
   return (
@@ -187,6 +337,33 @@ function EmptyCart({ onShop }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   ERROR STATE
+═══════════════════════════════════════════════════════════════ */
+function ErrorState({ message, onRetry, onShowDebug }) {
+  return (
+    <div className="cp-empty">
+      <div className="cp-empty__illustration" aria-hidden="true">
+        <div className="cp-empty__circle" style={{ color: "#ef4444" }}>⚠️</div>
+      </div>
+      <h2 className="cp-empty__title">Failed to load your cart</h2>
+      <p className="cp-empty__text">{message}</p>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        <button className="cp-empty__btn" onClick={onRetry}>
+          Try again
+        </button>
+        <button
+          className="cp-empty__btn"
+          onClick={onShowDebug}
+          style={{ background: "#0f172a" }}
+        >
+          🔍 Show Debug
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    CART ITEM
 ═══════════════════════════════════════════════════════════════ */
 function CartItem({
@@ -201,7 +378,7 @@ function CartItem({
 
   const stock = item.stock ?? 99;
   const price = Number(item.price ?? 0);
-  const orig  = Number(item.originalPrice ?? 0);
+  const orig  = Number(item.originalPrice ?? item.original_price ?? 0);
   const hasDiscount = orig > price;
   const savings     = hasDiscount ? (orig - price) * localQty : 0;
   const subtotal    = price * localQty;
@@ -250,24 +427,21 @@ function CartItem({
       </div>
 
       <div className="cp-item__body">
-        <h3 className="cp-item__name" onClick={onClick}>
-          {item.name}
-        </h3>
+        <h3 className="cp-item__name" onClick={onClick}>{item.name}</h3>
 
         {item.variant?.name && (
-          <p className="cp-item__variant">
-            {item.variant.name}
-          </p>
+          <p className="cp-item__variant">{item.variant.name}</p>
+        )}
+        {item.variant_name && !item.variant?.name && (
+          <p className="cp-item__variant">{item.variant_name}</p>
         )}
 
-        {/* Stock warning */}
         {stock <= 5 && stock > 0 && (
           <p className="cp-item__stock-alert">
             ⚠️ Only {stock} left in stock
           </p>
         )}
 
-        {/* Price */}
         <div className="cp-item__price-row">
           <span className="cp-item__price">{formatPrice(price)}</span>
           {hasDiscount && (
@@ -275,14 +449,12 @@ function CartItem({
           )}
         </div>
 
-        {/* Savings */}
         {savings > 0 && (
           <p className="cp-item__savings">
             You save {formatPrice(savings)}
           </p>
         )}
 
-        {/* Bottom row: qty + actions */}
         <div className="cp-item__actions">
           <div className="cp-qty">
             <button
@@ -306,18 +478,14 @@ function CartItem({
             </button>
           </div>
 
-          <span className="cp-item__subtotal">
-            {formatPrice(subtotal)}
-          </span>
+          <span className="cp-item__subtotal">{formatPrice(subtotal)}</span>
         </div>
 
-        {/* Icon actions */}
         <div className="cp-item__icons">
           <button
             type="button"
             className="cp-item__icon-btn"
             onClick={() => onMoveToWishlist(item)}
-            aria-label="Move to wishlist"
           >
             {Icon.heart} <span>Save for later</span>
           </button>
@@ -325,7 +493,6 @@ function CartItem({
             type="button"
             className="cp-item__icon-btn cp-item__icon-btn--danger"
             onClick={() => onRemove(item)}
-            aria-label="Remove from cart"
           >
             {Icon.trash} <span>Remove</span>
           </button>
@@ -342,26 +509,82 @@ export default function CartPage({ user }) {
   const navigate = useNavigate();
   const { toggle: toggleWishlist } = useWishlist();
 
-  const [items,    setItems]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [checking, setChecking] = useState(false);
+  const [items,      setItems]      = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [checking,   setChecking]   = useState(false);
+  const [errorMsg,   setErrorMsg]   = useState(null);
+
+  /* ── DEBUG STATE ── */
+  const [debug,          setDebug]          = useState({});
+  const [showDebug,      setShowDebug]      = useState(true); // Show by default
+  const [debugCollapsed, setDebugCollapsed] = useState(false);
 
   const loggedIn = isLoggedIn();
 
   /* ════════════════════════════════════════════════════════
-     LOAD CART
+     LOAD CART — with full debug tracing
   ════════════════════════════════════════════════════════ */
   const loadCart = useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
+
+    const token         = localStorage.getItem("marketplace_token");
+    const tokenPreview  = token ? `${token.slice(0, 20)}…` : null;
+    const requestTime   = new Date().toISOString();
+
+    /* Initial debug snapshot */
+    const debugData = {
+      base         : BASE,
+      url          : CART_URL,
+      hasToken     : !!token,
+      tokenPreview,
+      loggedIn,
+      request: {
+        method  : "GET",
+        headers : loggedIn ? { Authorization: `Bearer ${tokenPreview}` } : {},
+        time    : requestTime,
+      },
+      response : null,
+      error    : null,
+      items    : null,
+    };
+    setDebug(debugData);
+
+    console.log("═══════════════════════════════════════════");
+    console.log("🛒 [CartPage] LOAD CART");
+    console.log("URL:", CART_URL);
+    console.log("Token:", token ? "✓ Present" : "❌ Missing");
+    console.log("Logged in:", loggedIn);
+    console.log("═══════════════════════════════════════════");
+
     try {
       if (loggedIn) {
+        /* ═══════════════════════════════════════
+           LOGGED IN — fetch from server
+        ═══════════════════════════════════════ */
+        if (!BASE) {
+          throw new Error("VITE_API_BASE_URL is not set! Check your .env file.");
+        }
+
         const res = await axios.get(CART_URL, {
-          headers: authHeaders(),
-          timeout: 10_000,
+          headers : authHeaders(),
+          timeout : 15_000,
         });
+
+        console.log("✅ [CartPage] Response:", res.status, res.data);
+
+        /* Update debug with response */
+        setDebug((prev) => ({
+          ...prev,
+          response: {
+            status : res.status,
+            body   : res.data,
+          },
+        }));
+
         const serverItems = res.data?.data?.items ?? [];
-        /* Normalize server response to our shape */
-        setItems(serverItems.map((s) => ({
+
+        const normalized = serverItems.map((s) => ({
           id            : s.id,
           productId     : s.product_id,
           name          : s.product_name ?? s.name,
@@ -376,14 +599,68 @@ export default function CartPage({ user }) {
             sku : s.variant_sku,
           } : null,
           slug          : s.slug ?? s.product_id,
-        })));
+        }));
+
+        setItems(normalized);
+        setDebug((prev) => ({ ...prev, items: normalized }));
+
       } else {
-        setItems(readGuestCart());
+        /* ═══════════════════════════════════════
+           GUEST — read from localStorage
+        ═══════════════════════════════════════ */
+        const guestItems = readGuestCart();
+        console.log("👤 [CartPage] Guest cart:", guestItems);
+
+        setItems(guestItems);
+        setDebug((prev) => ({
+          ...prev,
+          response: { status: "guest", body: "localStorage" },
+          items   : guestItems,
+        }));
       }
+
     } catch (err) {
-      console.error("Failed to load cart:", err);
-      toast.error("Could not load your cart");
-      setItems(loggedIn ? [] : readGuestCart());
+      console.error("❌ [CartPage] Load failed:", err);
+
+      const errorInfo = {
+        message : err.message,
+        code    : err.code,
+        status  : err.response?.status,
+        stack   : err.stack,
+      };
+
+      /* Update debug with error */
+      setDebug((prev) => ({
+        ...prev,
+        response: err.response ? {
+          status : err.response.status,
+          body   : err.response.data,
+        } : null,
+        error: errorInfo,
+      }));
+
+      /* Extract user-friendly message */
+      const friendlyMsg =
+        err.response?.data?.message ??
+        err.response?.data?.error ??
+        (err.code === "ERR_NETWORK"
+          ? "Cannot reach server. Check your internet connection."
+          : err.code === "ECONNABORTED"
+          ? "Request timed out. Please try again."
+          : err.message);
+
+      setErrorMsg(friendlyMsg);
+      toast.error(friendlyMsg);
+
+      /* Show debug automatically on error */
+      setShowDebug(true);
+
+      /* Fallback to guest cart if server fails */
+      if (!loggedIn) {
+        setItems(readGuestCart());
+      } else {
+        setItems([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -399,17 +676,19 @@ export default function CartPage({ user }) {
   const handleQtyChange = useCallback(async (itemId, newQty) => {
     if (loggedIn) {
       try {
-        await axios.patch(
+        const res = await axios.patch(
           `${CART_ITEMS_URL}/${itemId}`,
           { qty: newQty },
           { headers: authHeaders() }
         );
+        console.log("✓ Qty updated:", res.data);
         setItems((prev) =>
           prev.map((i) => i.id === itemId ? { ...i, qty: newQty } : i)
         );
         window.dispatchEvent(new Event("cart-updated"));
-      } catch {
-        toast.error("Failed to update quantity");
+      } catch (err) {
+        console.error("❌ Qty update failed:", err);
+        toast.error(err.response?.data?.message ?? "Failed to update quantity");
       }
     } else {
       const cart = readGuestCart();
@@ -427,18 +706,16 @@ export default function CartPage({ user }) {
   ════════════════════════════════════════════════════════ */
   const handleRemove = useCallback(async (item) => {
     const removed = { ...item };
-
-    /* Optimistic UI */
     setItems((prev) => prev.filter((i) => i.id !== item.id));
 
-    /* Persist */
     if (loggedIn) {
       try {
         await axios.delete(`${CART_ITEMS_URL}/${item.id}`, {
           headers: authHeaders(),
         });
         window.dispatchEvent(new Event("cart-updated"));
-      } catch {
+      } catch (err) {
+        console.error("❌ Remove failed:", err);
         setItems((prev) => [...prev, removed]);
         toast.error("Failed to remove item");
         return;
@@ -448,7 +725,6 @@ export default function CartPage({ user }) {
       writeGuestCart(cart);
     }
 
-    /* Undo toast */
     toast(
       (t) => (
         <div className="cp-undo-toast">
@@ -459,9 +735,7 @@ export default function CartPage({ user }) {
           <button
             className="cp-undo-toast__btn"
             onClick={() => {
-              /* Restore */
               if (loggedIn) {
-                /* Re-add on server */
                 axios.post(
                   CART_ITEMS_URL,
                   {
@@ -473,6 +747,9 @@ export default function CartPage({ user }) {
                 ).then(() => {
                   window.dispatchEvent(new Event("cart-updated"));
                   loadCart();
+                }).catch((e) => {
+                  console.error("❌ Restore failed:", e);
+                  toast.error("Could not restore item");
                 });
               } else {
                 const cart = readGuestCart();
@@ -513,13 +790,12 @@ export default function CartPage({ user }) {
   } = useMemo(() => {
     const sub = items.reduce((s, i) => s + (Number(i.price) * i.qty), 0);
     const sav = items.reduce((s, i) => {
-      const orig = Number(i.originalPrice ?? 0);
+      const orig  = Number(i.originalPrice ?? i.original_price ?? 0);
       const price = Number(i.price);
       return s + (orig > price ? (orig - price) * i.qty : 0);
     }, 0);
     const count = items.reduce((s, i) => s + i.qty, 0);
 
-    /* Free delivery over ₦50,000 */
     const freeDeliveryThreshold = 50_000;
     const free  = sub >= freeDeliveryThreshold;
     const fee   = free ? 0 : 1_500;
@@ -540,15 +816,12 @@ export default function CartPage({ user }) {
   ════════════════════════════════════════════════════════ */
   const handleCheckout = useCallback(async () => {
     if (!loggedIn) {
-      /* Save intent + redirect to auth */
       localStorage.setItem("post_auth_redirect", "/shop/checkout");
       toast("Please sign in to checkout", { icon: "🔒" });
       navigate("/auth");
       return;
     }
-
     setChecking(true);
-    /* Validate stock, then navigate */
     setTimeout(() => {
       navigate("/shop/checkout");
       setChecking(false);
@@ -561,7 +834,16 @@ export default function CartPage({ user }) {
   return (
     <div className="cp-page">
 
-      {/* ── Header ── */}
+      {/* ★ DEBUG PANEL ★ */}
+      {showDebug && (
+        <DebugPanel
+          debug={debug}
+          onClose={() => setShowDebug(false)}
+          onRetry={loadCart}
+        />
+      )}
+
+      {/* Header */}
       <header className="cp-header">
         <button
           type="button"
@@ -577,20 +859,45 @@ export default function CartPage({ user }) {
             <span className="cp-header__count">({itemCount})</span>
           )}
         </h1>
+        {!showDebug && (
+          <button
+            onClick={() => setShowDebug(true)}
+            style={{
+              marginLeft: "auto",
+              background: "#0f172a",
+              color: "#fff",
+              border: "none",
+              padding: "6px 12px",
+              borderRadius: 6,
+              fontSize: 11,
+              cursor: "pointer",
+            }}
+          >
+            🔍 Debug
+          </button>
+        )}
       </header>
 
-      {/* ── Loading ── */}
+      {/* Loading */}
       {loading && <CartSkeleton />}
 
-      {/* ── Empty ── */}
-      {!loading && items.length === 0 && (
+      {/* Error */}
+      {!loading && errorMsg && items.length === 0 && (
+        <ErrorState
+          message={errorMsg}
+          onRetry={loadCart}
+          onShowDebug={() => setShowDebug(true)}
+        />
+      )}
+
+      {/* Empty (no error) */}
+      {!loading && !errorMsg && items.length === 0 && (
         <EmptyCart onShop={() => navigate("/loemart")} />
       )}
 
-      {/* ── Cart with items ── */}
+      {/* Items */}
       {!loading && items.length > 0 && (
         <>
-          {/* ── Free delivery banner ── */}
           {!hasFreeDelivery && (
             <div className="cp-free-shipping-banner">
               <span className="cp-free-shipping-banner__icon">{Icon.truck}</span>
@@ -619,7 +926,6 @@ export default function CartPage({ user }) {
             </div>
           )}
 
-          {/* ── Items list ── */}
           <div className="cp-items">
             {items.map((item) => (
               <CartItem
@@ -633,7 +939,6 @@ export default function CartPage({ user }) {
             ))}
           </div>
 
-          {/* ── Total savings badge ── */}
           {totalSavings > 0 && (
             <div className="cp-savings-badge">
               <span aria-hidden="true">💰</span>
@@ -641,7 +946,6 @@ export default function CartPage({ user }) {
             </div>
           )}
 
-          {/* ── Order summary ── */}
           <section className="cp-summary" aria-label="Order summary">
             <h3 className="cp-summary__title">Order Summary</h3>
 
@@ -678,7 +982,6 @@ export default function CartPage({ user }) {
             )}
           </section>
 
-          {/* ── Trust badges ── */}
           <div className="cp-trust-row">
             <div className="cp-trust-item">
               <span className="cp-trust-item__icon">{Icon.shield}</span>
@@ -694,14 +997,11 @@ export default function CartPage({ user }) {
             </div>
           </div>
 
-          {/* Spacer for sticky bar */}
           <div style={{ height: 110 }} aria-hidden="true" />
         </>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          STICKY CHECKOUT BAR
-      ══════════════════════════════════════════════════ */}
+      {/* Sticky checkout bar */}
       {!loading && items.length > 0 && (
         <div className="cp-sticky-bar" role="region" aria-label="Checkout">
           <div className="cp-sticky-bar__left">
