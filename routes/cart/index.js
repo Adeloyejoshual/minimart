@@ -5,6 +5,8 @@
  * Mounted in app.js as:
  *   app.use("/api/cart", cartRouter);
  *
+ * Auth: authenticateBuyer — public.users (buyers only)
+ *
  * Routes exposed:
  *   GET    /api/cart              → cartRead   (fetch cart)
  *   POST   /api/cart/items        → cartWrite  (add item)
