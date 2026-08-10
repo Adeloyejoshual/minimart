@@ -2,7 +2,14 @@
  * src/loemart/HomePageMobile.jsx
  *
  * Mobile-first Loemart homepage orchestrator.
- * All UI split into focused sub-components under /mobile.
+ *
+ * v2 — REAL cart sync
+ * ────────────────────────
+ * ✓ Add to Cart hits /api/cart/items for logged-in users
+ * ✓ Guest fallback to localStorage
+ * ✓ Real-time cart count from server
+ * ✓ Optimistic UI + error handling
+ * ✓ Auto-syncs when cart-updated event fires
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -20,7 +27,7 @@ import MobileHero     from "./mobile/MobileHero";
 import MobileSections from "./mobile/MobileSections";
 import MobileGrid     from "./mobile/MobileGrid";
 import MobileFooter   from "./mobile/MobileFooter";
-import Footer         from "../components/Footer";   // ← ADD THIS
+import Footer         from "../components/Footer";
 import {
   SearchSheet, FilterSheet, fireCartToast,
 } from "./mobile/MobileSheets";
@@ -31,6 +38,50 @@ import {
   normalize, addToCart, getCartCount,
   getRecentlyViewed, getSearchHistory, addToSearchHistory,
 } from "./mobile/mobileHelpers";
+
+/* ═══════════════════════════════════════════════════════════════
+   CART API
+═══════════════════════════════════════════════════════════════ */
+const CART_URL       = `${API}/cart`;
+const CART_ITEMS_URL = `${API}/cart/items`;
+
+const isLoggedIn = () => !!localStorage.getItem("marketplace_token");
+
+const authHeaders = () => {
+  const token = localStorage.getItem("marketplace_token");
+  return token
+    ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+    : { "Content-Type": "application/json" };
+};
+
+/* ── Fetch cart count from server (returns total qty) ── */
+const fetchServerCartCount = async () => {
+  try {
+    if (!isLoggedIn()) return null;
+    const res = await axios.get(CART_URL, {
+      headers: authHeaders(),
+      timeout: 5_000,
+    });
+    return res.data?.data?.total_qty ?? res.data?.data?.item_count ?? 0;
+  } catch (err) {
+    console.warn("[HomePage] Cart count fetch failed:", err.message);
+    return null;
+  }
+};
+
+/* ── Server: add item to cart ── */
+const serverAddToCart = async (product, variant = null, qty = 1) => {
+  const payload = {
+    product_id: product.id,
+    variant_id: variant?.id ?? null,
+    qty,
+  };
+  const res = await axios.post(CART_ITEMS_URL, payload, {
+    headers: authHeaders(),
+    timeout: 10_000,
+  });
+  return res.data;
+};
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN
@@ -66,11 +117,35 @@ export default function HomePageMobile({ user }) {
   const [recentlyViewed] = useState(getRecentlyViewed);
 
   /* ── Cart / wishlist ── */
-  const [cartCount, setCartCount] = useState(getCartCount);
+  const [cartCount,   setCartCount]   = useState(getCartCount);
+  const [addingIds,   setAddingIds]   = useState(new Set());   // ← Track in-flight adds
+  const [addedIds,    setAddedIds]    = useState(new Set());   // ← Track recent success
+
+  /* ── Sync cart count from server on mount ── */
   useEffect(() => {
-    const sync = () => setCartCount(getCartCount());
+    if (isLoggedIn()) {
+      fetchServerCartCount().then((c) => {
+        if (c !== null) setCartCount(c);
+      });
+    }
+  }, [user]);
+
+  /* ── Listen for cart-updated events ── */
+  useEffect(() => {
+    const sync = async () => {
+      if (isLoggedIn()) {
+        const c = await fetchServerCartCount();
+        if (c !== null) setCartCount(c);
+      } else {
+        setCartCount(getCartCount());
+      }
+    };
     window.addEventListener("cart-updated", sync);
-    return () => window.removeEventListener("cart-updated", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("cart-updated", sync);
+      window.removeEventListener("storage", sync);
+    };
   }, []);
 
   const [wishlist, setWishlist] = useState(() => {
@@ -172,11 +247,78 @@ export default function HomePageMobile({ user }) {
     setWishlist((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }, []);
 
-  const handleAddToCart = useCallback((product) => {
-    addToCart(product);
-    setCartCount(getCartCount());
-    fireCartToast(product, navigate);
-  }, [navigate]);
+  /* ══════════════════════════════════════════════════
+     ★ REAL ADD TO CART ★
+     - Logged in → POST /api/cart/items
+     - Guest → localStorage
+     - Optimistic UI + haptic + toast
+  ══════════════════════════════════════════════════ */
+  const handleAddToCart = useCallback(async (product) => {
+    if (!product?.id) return;
+
+    /* Prevent double-tap on same product */
+    if (addingIds.has(product.id)) return;
+
+    console.log("🛒 [HomePage] ADD TO CART:", product.id, product.name);
+
+    /* Mark as in-flight */
+    setAddingIds((prev) => new Set(prev).add(product.id));
+
+    /* Haptic feedback */
+    window.navigator?.vibrate?.(15);
+
+    try {
+      if (isLoggedIn()) {
+        /* ── SERVER add ── */
+        console.log("📤 [HomePage] Server POST", CART_ITEMS_URL);
+        const res = await serverAddToCart(product, null, 1);
+        console.log("✅ [HomePage] Server response:", res);
+
+        /* Refresh count from server (source of truth) */
+        const newCount = await fetchServerCartCount();
+        if (newCount !== null) setCartCount(newCount);
+
+      } else {
+        /* ── GUEST add ── */
+        console.log("👤 [HomePage] Guest — using localStorage");
+        addToCart(product);
+        setCartCount(getCartCount());
+      }
+
+      /* Broadcast for other components */
+      window.dispatchEvent(new Event("cart-updated"));
+
+      /* Mark as recently added (for card UI feedback) */
+      setAddedIds((prev) => new Set(prev).add(product.id));
+      setTimeout(() => {
+        setAddedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(product.id);
+          return next;
+        });
+      }, 2500);
+
+      /* Fire success toast (with View Cart button) */
+      fireCartToast(product, navigate);
+
+    } catch (err) {
+      console.error("❌ [HomePage] Add to cart failed:", err);
+
+      const msg = err.response?.data?.message
+               ?? err.response?.data?.error
+               ?? err.message
+               ?? "Failed to add to cart";
+
+      toast.error(msg, { duration: 3500 });
+    } finally {
+      /* Clear in-flight flag */
+      setAddingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(product.id);
+        return next;
+      });
+    }
+  }, [addingIds, navigate]);
 
   const goPostAd = useCallback(() => {
     navigate(user ? "/minimart/post-ad" : "/auth");
@@ -226,6 +368,8 @@ export default function HomePageMobile({ user }) {
         newArrivals={newArrivals}
         recentlyViewed={recentlyViewed}
         onAddToCart={handleAddToCart}
+        addingIds={addingIds}
+        addedIds={addedIds}
       />
 
       {/* 4. Main product grid */}
@@ -240,6 +384,8 @@ export default function HomePageMobile({ user }) {
         wishlist={wishlist}
         onWishlist={toggleWishlist}
         onAddToCart={handleAddToCart}
+        addingIds={addingIds}
+        addedIds={addedIds}
         onRetry={() => fetchProducts({ newOffset: 0 })}
         onLoadMore={handleLoadMore}
         onClearFilters={clearAllFilters}
@@ -254,7 +400,7 @@ export default function HomePageMobile({ user }) {
         onPostAd={goPostAd}
       />
 
-      {/* 6. ★ NEW — Site-wide Footer ★ */}
+      {/* 6. Site-wide Footer */}
       <Footer />
 
       {/* 7. Sheets */}
