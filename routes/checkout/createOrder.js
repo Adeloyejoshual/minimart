@@ -2,17 +2,45 @@
  * POST /api/checkout
  * Create order from cart.
  * Validates cart, calculates fees, splits by seller.
+ *
+ * v2 — Diagnostic & robustness improvements
+ * ──────────────────────────────────────────
+ * ✓ Full error diagnostics in dev (message, code, detail, stack)
+ * ✓ Auth guard — returns 401 if req.user missing
+ * ✓ Enriches req.user with email/name from DB if JWT lacks them
+ * ✓ Validates Flutterwave env vars before attempting payment
+ * ✓ Wraps Flutterwave call in try/catch — order still saves if payment link fails
+ * ✓ Detailed logging on every failure branch
  */
 
 import express from "express";
 import { pool } from "../../config/db.js";
-import { calculateDeliveryFee } from "../../services/delivery.js";
-import { isPaymentMethodAllowed } from "../../services/paymentRules.js";
+import { calculateDeliveryFee }    from "../../services/delivery.js";
+import { isPaymentMethodAllowed }  from "../../services/paymentRules.js";
 import { createOrderGroup, getOrderGroup } from "../../services/orderService.js";
 
 const router = express.Router();
 
-/* GET /api/checkout/orders — order history */
+/* ════════════════════════════════════════════════════════════
+   AUTH GUARD
+   Ensures req.user exists on every route in this file.
+   If your app already attaches authenticateUser middleware
+   at mount time, this is a safety net.
+════════════════════════════════════════════════════════════ */
+router.use((req, res, next) => {
+  if (!req.user?.id) {
+    console.error("[checkout] ❌ req.user missing — auth middleware not attached");
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+  }
+  next();
+});
+
+/* ════════════════════════════════════════════════════════════
+   GET /api/checkout/orders — order history
+════════════════════════════════════════════════════════════ */
 router.get("/orders", async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -36,12 +64,17 @@ router.get("/orders", async (req, res) => {
   }
 });
 
-/* GET /api/checkout/orders/:groupId — single order detail */
+/* ════════════════════════════════════════════════════════════
+   GET /api/checkout/orders/:groupId — single order detail
+════════════════════════════════════════════════════════════ */
 router.get("/orders/:groupId", async (req, res) => {
   try {
     const group = await getOrderGroup(req.params.groupId, req.user.id);
     if (!group) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
     }
     res.json({ success: true, data: group });
   } catch (err) {
@@ -50,7 +83,38 @@ router.get("/orders/:groupId", async (req, res) => {
   }
 });
 
-/* POST /api/checkout — create order */
+/* ════════════════════════════════════════════════════════════
+   HELPER — enrich req.user with email/name if JWT lacks them
+   Flutterwave requires customer.email and customer.name.
+════════════════════════════════════════════════════════════ */
+async function enrichUser(user) {
+  if (user.email && user.name) return user;
+
+  try {
+    const { rows: [full] } = await pool.query(
+      `SELECT id, email, name
+       FROM market.users
+       WHERE id = $1`,
+      [user.id]
+    );
+
+    if (full) {
+      return {
+        ...user,
+        email: user.email ?? full.email,
+        name:  user.name  ?? full.name,
+      };
+    }
+  } catch (err) {
+    console.warn("[checkout] user enrichment failed:", err.message);
+  }
+
+  return user;
+}
+
+/* ════════════════════════════════════════════════════════════
+   POST /api/checkout — create order
+════════════════════════════════════════════════════════════ */
 router.post("/", async (req, res) => {
   const {
     addressId,
@@ -60,6 +124,7 @@ router.post("/", async (req, res) => {
     notes,
   } = req.body;
 
+  /* ── Basic input validation ── */
   if (!addressId) {
     return res.status(422).json({
       success: false,
@@ -75,16 +140,20 @@ router.post("/", async (req, res) => {
   }
 
   try {
+    /* ── Enrich user (fetches email/name if JWT lacks them) ── */
+    const user = await enrichUser(req.user);
+
     /* ── Validate address belongs to user ── */
     const { rows: [address] } = await pool.query(
       "SELECT id FROM public.user_addresses WHERE id = $1 AND user_id = $2",
-      [addressId, req.user.id]
+      [addressId, user.id]
     );
 
     if (!address) {
+      console.warn(`[checkout] Address ${addressId} not found for user ${user.id}`);
       return res.status(404).json({
         success: false,
-        message: "Address not found",
+        message: "Address not found. Please add a new address.",
       });
     }
 
@@ -95,7 +164,7 @@ router.post("/", async (req, res) => {
          ci.qty,
 
          p.id             AS product_id,
-         p.user_id        AS seller_id,         -- ✅ use p.user_id, never u.id
+         p.user_id        AS seller_id,
          p.name,
          p.category,
          p.status,
@@ -125,17 +194,18 @@ router.post("/", async (req, res) => {
        LEFT JOIN market.product_variants pv ON pv.id = ci.variant_id
        LEFT JOIN market.users u ON u.id = p.user_id
        WHERE c.user_id = $1`,
-      [req.user.id]
+      [user.id]
     );
 
     if (!cartItems.length) {
+      console.warn(`[checkout] Cart empty for user ${user.id}`);
       return res.status(400).json({
         success: false,
-        message: "Your cart is empty",
+        message: "Your cart is empty. Add items before checking out.",
       });
     }
 
-    /* ── Validate all items ── */
+    /* ── Validate all items are available ── */
     const unavailable = cartItems.filter((i) =>
       i.deleted_at || !i.is_active || !["active", "approved"].includes(i.status)
     );
@@ -167,12 +237,15 @@ router.post("/", async (req, res) => {
     }
 
     /* ── Calculate totals ── */
-    const subtotal    = cartItems.reduce((s, i) => s + (Number(i.live_price) * i.qty), 0);
+    const subtotal    = cartItems.reduce(
+      (s, i) => s + (Number(i.live_price) * Number(i.qty)),
+      0
+    );
     const deliveryFee = calculateDeliveryFee(subtotal);
     const discountAmt = Math.min(Number(discount) || 0, subtotal);
     const grandTotal  = subtotal + deliveryFee - discountAmt;
 
-    /* ── Validate payment method ── */
+    /* ── Validate payment method for this total ── */
     if (!isPaymentMethodAllowed(paymentMethod, grandTotal)) {
       return res.status(400).json({
         success: false,
@@ -187,7 +260,7 @@ router.post("/", async (req, res) => {
       sellerName: i.seller_name,
       name:       i.name,
       image:      i.image,
-      qty:        i.qty,
+      qty:        Number(i.qty),
       price:      Number(i.live_price),
       category:   i.category,
       variant: i.variant_id ? {
@@ -199,8 +272,10 @@ router.post("/", async (req, res) => {
     }));
 
     /* ── Create order group ── */
+    console.log(`[checkout] Creating order for user ${user.id} — ${cartItems.length} items — ₦${grandTotal}`);
+
     const result = await createOrderGroup({
-      userId:        req.user.id,
+      userId:        user.id,
       addressId,
       items:         formattedItems,
       subtotal,
@@ -210,7 +285,9 @@ router.post("/", async (req, res) => {
       notes:         notes ?? null,
     });
 
-    /* COD — return success immediately */
+    console.log(`[checkout] ✅ Order group ${result.orderGroupId} created`);
+
+    /* ── CASH ON DELIVERY — return success immediately ── */
     if (paymentMethod === "CASH_ON_DELIVERY") {
       return res.status(201).json({
         success: true,
@@ -226,43 +303,109 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* Online payment */
-    const flw = await initializeFlutterwavePayment({
-      orderGroupId: result.orderGroupId,
-      amount:       result.grandTotal,
-      email:        req.user.email,
-      name:         req.user.name,
-    });
+    /* ── ONLINE PAYMENT — initialize Flutterwave ── */
+    try {
+      /* Validate env vars first */
+      if (!process.env.FLW_SECRET_KEY) {
+        throw new Error("FLW_SECRET_KEY environment variable is not set");
+      }
+      if (!process.env.CLIENT_ORIGIN) {
+        throw new Error("CLIENT_ORIGIN environment variable is not set");
+      }
+      if (!user.email) {
+        throw new Error("User email is required for online payment");
+      }
 
-    res.status(201).json({
-      success: true,
-      message: "Order created — complete payment to confirm",
-      data: {
-        orderGroupId:    result.orderGroupId,
-        trackingId:      result.trackingId,
-        grandTotal:      result.grandTotal,
-        deliveryFee:     result.deliveryFee,
-        paymentMethod,
-        requiresPayment: true,
-        paymentLink:     flw.link,
-        paymentRef:      flw.ref,
-      },
-    });
+      const flw = await initializeFlutterwavePayment({
+        orderGroupId: result.orderGroupId,
+        amount:       result.grandTotal,
+        email:        user.email,
+        name:         user.name ?? "Customer",
+      });
+
+      console.log(`[checkout] ✅ Flutterwave link generated for order ${result.orderGroupId}`);
+
+      return res.status(201).json({
+        success: true,
+        message: "Order created — complete payment to confirm",
+        data: {
+          orderGroupId:    result.orderGroupId,
+          trackingId:      result.trackingId,
+          grandTotal:      result.grandTotal,
+          deliveryFee:     result.deliveryFee,
+          paymentMethod,
+          requiresPayment: true,
+          paymentLink:     flw.link,
+          paymentRef:      flw.ref,
+        },
+      });
+
+    } catch (flwErr) {
+      /*
+       * Flutterwave failed but the ORDER IS ALREADY CREATED.
+       * Don't return 500 — return the order details so the user
+       * can retry payment from the order page.
+       */
+      console.error("[checkout] ❌ Flutterwave init failed:", flwErr.message);
+      console.error("[checkout] Full error:", flwErr.response?.data ?? flwErr);
+
+      return res.status(201).json({
+        success: true,
+        message: "Order created but payment link failed. Please try paying from your orders page.",
+        data: {
+          orderGroupId:    result.orderGroupId,
+          trackingId:      result.trackingId,
+          grandTotal:      result.grandTotal,
+          deliveryFee:     result.deliveryFee,
+          paymentMethod,
+          requiresPayment: true,
+          paymentLink:     null,
+          paymentError:    process.env.NODE_ENV !== "production" ? flwErr.message : undefined,
+        },
+      });
+    }
 
   } catch (err) {
-    console.error("[POST /api/checkout] MESSAGE:", err.message);
-    console.error("[POST /api/checkout] CODE:", err.code);
-    console.error("[POST /api/checkout] DETAIL:", err.detail);
+    /* ════════════════════════════════════════════════════
+       COMPREHENSIVE ERROR LOGGING
+    ════════════════════════════════════════════════════ */
+    console.error("═══════════════════════════════════════════════");
+    console.error("[POST /api/checkout] ORDER CREATION FAILED");
+    console.error("User ID:      ", req.user?.id);
+    console.error("User email:   ", req.user?.email);
+    console.error("Address ID:   ", addressId);
+    console.error("Payment:      ", paymentMethod);
+    console.error("Discount:     ", discount);
+    console.error("─── SQL Error ─────────────────────────────────");
+    console.error("Message:      ", err.message);
+    console.error("Code:         ", err.code);
+    console.error("Detail:       ", err.detail);
+    console.error("Constraint:   ", err.constraint);
+    console.error("Table:        ", err.table);
+    console.error("Column:       ", err.column);
+    console.error("─── Stack ─────────────────────────────────────");
+    console.error(err.stack);
+    console.error("═══════════════════════════════════════════════");
 
     res.status(500).json({
       success: false,
       message: "Failed to create order",
-      debug: process.env.NODE_ENV !== "production" ? err.message : undefined,
+      debug: process.env.NODE_ENV !== "production" ? {
+        message:    err.message,
+        code:       err.code,
+        detail:     err.detail,
+        constraint: err.constraint,
+        table:      err.table,
+        column:     err.column,
+      } : undefined,
     });
   }
 });
 
-/* Flutterwave payment initializer */
+/* ════════════════════════════════════════════════════════════
+   FLUTTERWAVE PAYMENT INITIALIZER
+   Isolated so failures don't kill the order.
+════════════════════════════════════════════════════════════ */
 async function initializeFlutterwavePayment({
   orderGroupId,
   amount,
@@ -279,7 +422,7 @@ async function initializeFlutterwavePayment({
       amount,
       currency:     "NGN",
       redirect_url: `${process.env.CLIENT_ORIGIN}/shop/orders/${orderGroupId}?verify=true`,
-      customer: { email, name },
+      customer:     { email, name },
       customizations: {
         title:       "Minimart Checkout",
         description: `Order ${orderGroupId.slice(0, 8).toUpperCase()}`,
@@ -291,11 +434,16 @@ async function initializeFlutterwavePayment({
     },
     {
       headers: {
-        Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+        Authorization:  `Bearer ${process.env.FLW_SECRET_KEY}`,
         "Content-Type": "application/json",
       },
+      timeout: 15_000,
     }
   );
+
+  if (!data?.data?.link) {
+    throw new Error(`Flutterwave returned no payment link. Response: ${JSON.stringify(data)}`);
+  }
 
   return { link: data.data.link, ref };
 }
