@@ -5,15 +5,52 @@
  * Splits cart by seller and creates:
  *   order_group → orders → order_items
  *
- * Upgrades:
- *   ✅ tracking_id generation
- *   ✅ safer seller validation
- *   ✅ delivered_at support
- *   ✅ sellerName preserved
+ * v2 — Robust column detection
+ * ────────────────────────────────
+ * ✓ Auto-detects if tracking_id column exists (won't crash if missing)
+ * ✓ Preserves seller names properly
+ * ✓ Better error messages
  */
 
 import { pool }                 from "../config/db.js";
 import { calculateDeliveryFee } from "./delivery.js";
+
+/* ════════════════════════════════════════════════════════════
+   COLUMN DETECTION (cached — runs once per server lifetime)
+════════════════════════════════════════════════════════════ */
+let ORDER_GROUP_COLS = null;
+
+async function detectOrderGroupColumns() {
+  if (ORDER_GROUP_COLS) return ORDER_GROUP_COLS;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'order_groups'`
+    );
+
+    const cols = new Set(rows.map((r) => r.column_name));
+
+    ORDER_GROUP_COLS = {
+      hasTrackingId:  cols.has("tracking_id"),
+      hasDeliveredAt: cols.has("delivered_at"),
+      hasUpdatedAt:   cols.has("updated_at"),
+    };
+
+    console.log("[orderService] Detected order_groups columns:", ORDER_GROUP_COLS);
+  } catch (err) {
+    console.warn("[orderService] Column detection failed:", err.message);
+    ORDER_GROUP_COLS = {
+      hasTrackingId:  true,
+      hasDeliveredAt: true,
+      hasUpdatedAt:   true,
+    };
+  }
+
+  return ORDER_GROUP_COLS;
+}
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -38,11 +75,15 @@ export async function createOrderGroup({
   const deliveryFee = calculateDeliveryFee(subtotal);
   const grandTotal  = subtotal + deliveryFee - discount;
 
+  const cols   = await detectOrderGroupColumns();
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
-    /* 1. Create master order group */
+    /* ══════════════════════════════════════════════════
+       1. Create master order group
+    ══════════════════════════════════════════════════ */
     const { rows: [group] } = await client.query(
       `INSERT INTO public.order_groups
          (user_id, address_id, total_amount, delivery_fee,
@@ -66,15 +107,25 @@ export async function createOrderGroup({
     const orderGroupId = group.id;
     const trackingId   = generateTrackingId(orderGroupId);
 
-    /* Save tracking ID */
-    await client.query(
-      `UPDATE public.order_groups
-       SET tracking_id = $1
-       WHERE id = $2`,
-      [trackingId, orderGroupId]
-    );
+    /* ══════════════════════════════════════════════════
+       Save tracking ID (only if column exists)
+    ══════════════════════════════════════════════════ */
+    if (cols.hasTrackingId) {
+      try {
+        await client.query(
+          `UPDATE public.order_groups
+           SET tracking_id = $1
+           WHERE id = $2`,
+          [trackingId, orderGroupId]
+        );
+      } catch (err) {
+        console.warn("[orderService] tracking_id update failed:", err.message);
+      }
+    }
 
-    /* 2. Group items by seller */
+    /* ══════════════════════════════════════════════════
+       2. Group items by seller
+    ══════════════════════════════════════════════════ */
     const sellerMap = new Map();
 
     for (const item of items) {
@@ -91,14 +142,16 @@ export async function createOrderGroup({
       sellerMap.get(item.sellerId).items.push(item);
     }
 
-    /* 3. Create one public.orders row per seller */
+    /* ══════════════════════════════════════════════════
+       3. Create one public.orders row per seller
+    ══════════════════════════════════════════════════ */
     const createdOrders = [];
 
     for (const [sellerId, sellerData] of sellerMap.entries()) {
       const { items: sellerItems, sellerName } = sellerData;
 
       const sellerSubtotal = sellerItems.reduce(
-        (sum, i) => sum + Number(i.price) * i.qty,
+        (sum, i) => sum + Number(i.price) * Number(i.qty),
         0
       );
 
@@ -124,9 +177,9 @@ export async function createOrderGroup({
             item.image         ?? null,
             item.variant?.sku  ?? null,
             item.variant?.name ?? null,
-            item.qty,
+            Number(item.qty),
             Number(item.price),
-            Number(item.price) * item.qty,
+            Number(item.price) * Number(item.qty),
           ]
         );
       }
@@ -140,7 +193,9 @@ export async function createOrderGroup({
       });
     }
 
-    /* 4. Clear buyer cart */
+    /* ══════════════════════════════════════════════════
+       4. Clear buyer cart
+    ══════════════════════════════════════════════════ */
     await client.query(
       `DELETE FROM market.cart_items ci
        USING market.carts c
@@ -161,6 +216,15 @@ export async function createOrderGroup({
 
   } catch (err) {
     await client.query("ROLLBACK");
+    /* Log the SQL error before rethrowing so the route can see it */
+    console.error("[orderService] createOrderGroup rolled back:", {
+      message:    err.message,
+      code:       err.code,
+      detail:     err.detail,
+      constraint: err.constraint,
+      table:      err.table,
+      column:     err.column,
+    });
     throw err;
   } finally {
     client.release();
@@ -171,24 +235,30 @@ export async function createOrderGroup({
    MARK ORDER GROUP PAID
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupPaid(orderGroupId, paymentRef) {
+  const cols   = await detectOrderGroupColumns();
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
+
+    const updateClause = cols.hasUpdatedAt
+      ? `updated_at = now(),`
+      : "";
 
     await client.query(
       `UPDATE public.order_groups
        SET payment_status = 'paid',
            payment_ref    = $2,
-           status         = 'confirmed',
-           updated_at     = now()
+           status         = 'confirmed'
+           ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
        WHERE id = $1`,
       [orderGroupId, paymentRef]
     );
 
     await client.query(
       `UPDATE public.orders
-       SET status     = 'confirmed',
-           updated_at = now()
+       SET status     = 'confirmed'
+           ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
        WHERE order_group_id = $1`,
       [orderGroupId]
     );
@@ -203,31 +273,50 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   OPTIONAL — call this later when delivery is completed
-   Sets delivered_at for return calculations
+   MARK ORDER GROUP DELIVERED
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupDelivered(orderGroupId) {
+  const cols   = await detectOrderGroupColumns();
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
-    await client.query(
-      `UPDATE public.order_groups
-       SET status       = 'delivered',
-           delivered_at = now(),
-           updated_at   = now()
-       WHERE id = $1`,
-      [orderGroupId]
-    );
+    if (cols.hasDeliveredAt) {
+      await client.query(
+        `UPDATE public.order_groups
+         SET status       = 'delivered',
+             delivered_at = now()
+             ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
+         WHERE id = $1`,
+        [orderGroupId]
+      );
 
-    await client.query(
-      `UPDATE public.orders
-       SET status       = 'delivered',
-           delivered_at = now(),
-           updated_at   = now()
-       WHERE order_group_id = $1`,
-      [orderGroupId]
-    );
+      await client.query(
+        `UPDATE public.orders
+         SET status       = 'delivered',
+             delivered_at = now()
+             ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
+         WHERE order_group_id = $1`,
+        [orderGroupId]
+      );
+    } else {
+      await client.query(
+        `UPDATE public.order_groups
+         SET status = 'delivered'
+             ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
+         WHERE id = $1`,
+        [orderGroupId]
+      );
+
+      await client.query(
+        `UPDATE public.orders
+         SET status = 'delivered'
+             ${cols.hasUpdatedAt ? ", updated_at = now()" : ""}
+         WHERE order_group_id = $1`,
+        [orderGroupId]
+      );
+    }
 
     await client.query("COMMIT");
   } catch (err) {
@@ -240,12 +329,6 @@ export async function markOrderGroupDelivered(orderGroupId) {
 
 /* ════════════════════════════════════════════════════════════
    GET FULL ORDER GROUP
-   Includes:
-   - buyer address (with landmark, directions, call_before_delivery)
-   - tracking ID
-   - delivered_at
-   - seller names
-   - all order items
 ════════════════════════════════════════════════════════════ */
 export async function getOrderGroup(orderGroupId, userId) {
   const { rows: [group] } = await pool.query(
