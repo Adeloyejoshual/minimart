@@ -1,3 +1,4 @@
+
 // ════════════════════════════════════════════════════════════
 // FILE: App.jsx
 //
@@ -156,7 +157,6 @@ import PostAds            from "./pages/PostAds";
 import PaymentSuccess     from "./pages/PaymentSuccess";
 import CartPage           from "./pages/CartPage";
 import CheckoutPage       from "./pages/CheckoutPage";
-import OrderSuccess       from "./pages/OrderSuccess";
 import OrderHistory       from "./pages/OrderHistory";
 
 /* ════════════════════════════════════════════════════════════
@@ -187,6 +187,7 @@ import MessagingDesktop   from "./pages/MessagingDesktop";
    PAGES — CHECKOUT / PAYMENT
 ════════════════════════════════════════════════════════════ */
 import FlutterwaveRedirect from "./pages/Checkout/Payment/FlutterwaveRedirect";
+import PaymentReturnRouter from "./pages/Checkout/Payment/PaymentReturnRouter";
 import OrderSuccessPage    from "./pages/Checkout/Payment/OrderSuccessPage";
 import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 
@@ -1040,13 +1041,14 @@ function AppInner() {
             </ProtectedRoute>
           }
         />
-        <Route path="/shop/orders/:orderGroupId"
-          element={
-            <ProtectedRoute user={user}>
-              <OrderSuccess user={user} />
-            </ProtectedRoute>
-          }
-        />
+        {/*
+          ✅ Where Flutterwave redirects after payment.
+          PaymentReturnRouter inspects the payment status for the
+          group and routes internally to success/failed — it replaces
+          the old OrderSuccess-based "/shop/orders/:orderGroupId" route.
+        */}
+        <Route path="/shop/orders/:groupId"
+          element={<PaymentReturnRouter />} />
         <Route path="/shop/orders"
           element={
             <ProtectedRoute user={user}>
