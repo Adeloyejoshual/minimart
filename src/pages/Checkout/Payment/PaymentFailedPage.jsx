@@ -4,7 +4,12 @@ import React, { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 
-const API = process.env.REACT_APP_API_URL || "";
+/* ✅ FIXED: Use Vite env var */
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token");
 
 export default function PaymentFailedPage() {
   const { orderId }     = useParams();
@@ -12,26 +17,24 @@ export default function PaymentFailedPage() {
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState(null);
 
-  // ── Retry payment ────────────────────────────────────────
-  // Fetches a fresh Flutterwave payment link for same order
   const handleRetry = async () => {
     setRetrying(true);
     setRetryError(null);
 
     try {
+      /* ✅ FIXED: Correct endpoint */
       const res = await axios.post(
-        `${API}/api/payments/retry`,
-        { orderId },
-        { withCredentials: true }
+        `${API}/checkout/retry-payment`,
+        { orderGroupId: orderId },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
       );
 
-      const paymentUrl = res.data?.paymentUrl;
+      const paymentUrl = res.data?.data?.paymentLink;
 
       if (!paymentUrl) {
         throw new Error("Could not generate payment link.");
       }
 
-      // Redirect to Flutterwave again
       window.location.href = paymentUrl;
 
     } catch (err) {
@@ -50,16 +53,12 @@ export default function PaymentFailedPage() {
     <div className="pfp-wrapper">
       <div className="pfp-card">
 
-        {/* ── Failed icon ──────────────────────────────── */}
         <div className="pfp-icon-wrap">
           <div className="pfp-x-circle">
-            <span className="pfp-x-icon" aria-hidden="true">
-              ✕
-            </span>
+            <span className="pfp-x-icon" aria-hidden="true">✕</span>
           </div>
         </div>
 
-        {/* ── Heading ──────────────────────────────────── */}
         <h1 className="pfp-title">Payment Failed</h1>
 
         <p className="pfp-subtitle">
@@ -68,7 +67,6 @@ export default function PaymentFailedPage() {
           You can retry payment or choose a different method.
         </p>
 
-        {/* ── Order reference ───────────────────────────── */}
         {orderId && (
           <div className="pfp-ref-box">
             <span className="pfp-ref-label">Order ID</span>
@@ -76,11 +74,8 @@ export default function PaymentFailedPage() {
           </div>
         )}
 
-        {/* ── Common reasons ────────────────────────────── */}
         <div className="pfp-reasons">
-          <h3 className="pfp-reasons-title">
-            Common reasons for failure:
-          </h3>
+          <h3 className="pfp-reasons-title">Common reasons for failure:</h3>
           <ul className="pfp-reasons-list">
             <li>💳 Insufficient card balance</li>
             <li>🔒 Card not enabled for online payments</li>
@@ -89,21 +84,15 @@ export default function PaymentFailedPage() {
           </ul>
         </div>
 
-        {/* ── Retry error ───────────────────────────────── */}
         {retryError && (
           <div className="pfp-error" role="alert">
             ⚠️ {retryError}
           </div>
         )}
 
-        {/* ── Action buttons ────────────────────────────── */}
         <div className="pfp-actions">
-
-          {/* Retry same order */}
           <button
-            className={`pfp-btn pfp-btn--primary ${
-              retrying ? "pfp-btn--loading" : ""
-            }`}
+            className={`pfp-btn pfp-btn--primary ${retrying ? "pfp-btn--loading" : ""}`}
             onClick={handleRetry}
             disabled={retrying || !orderId}
             aria-busy={retrying}
@@ -118,31 +107,18 @@ export default function PaymentFailedPage() {
             )}
           </button>
 
-          {/* View orders */}
-          <Link
-            to="/orders"
-            className="pfp-btn pfp-btn--secondary"
-          >
+          <Link to="/orders" className="pfp-btn pfp-btn--secondary">
             📋 View My Orders
           </Link>
 
-          {/* Go home */}
-          <Link
-            to="/"
-            className="pfp-btn pfp-btn--ghost"
-          >
+          <Link to="/" className="pfp-btn pfp-btn--ghost">
             🏠 Back to Home
           </Link>
-
         </div>
 
-        {/* ── Support note ──────────────────────────────── */}
         <p className="pfp-support-note">
           Still having issues?{" "}
-          <a
-            href="/support"
-            className="pfp-support-link"
-          >
+          <a href="/support" className="pfp-support-link">
             Contact Support
           </a>
         </p>
