@@ -4,7 +4,12 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 
-const API = process.env.REACT_APP_API_URL || "";
+/* ✅ FIXED: Use Vite env var like the rest of your app */
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token");
 
 const fmt = (n) =>
   `₦${Number(n || 0).toLocaleString("en-NG")}`;
@@ -17,7 +22,6 @@ export default function OrderSuccessPage() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
 
-  // ── Fetch order details ──────────────────────────────────
   useEffect(() => {
     if (!orderId) {
       navigate("/");
@@ -25,13 +29,15 @@ export default function OrderSuccessPage() {
     }
 
     axios
-      .get(`${API}/api/orders/${orderId}`, {
-        withCredentials: true,
+      /* ✅ FIXED: Correct endpoint */
+      .get(`${API}/checkout/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
       })
       .then((res) => {
-        setOrder(res.data);
+        setOrder(res.data.data ?? res.data);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[OrderSuccess]", err);
         setError("Could not load order details.");
       })
       .finally(() => {
@@ -39,7 +45,6 @@ export default function OrderSuccessPage() {
       });
   }, [orderId, navigate]);
 
-  // ── Loading state ────────────────────────────────────────
   if (loading) {
     return (
       <div className="osp-wrapper">
@@ -51,7 +56,6 @@ export default function OrderSuccessPage() {
     );
   }
 
-  // ── Error state ──────────────────────────────────────────
   if (error) {
     return (
       <div className="osp-wrapper">
@@ -66,13 +70,14 @@ export default function OrderSuccessPage() {
     );
   }
 
-  const isCOD = order?.paymentMethod === "CASH_ON_DELIVERY";
+  /* ✅ FIXED: Backend returns payment_method (snake_case) */
+  const isCOD = order?.payment_method === "CASH_ON_DELIVERY";
 
   return (
     <div className="osp-wrapper">
       <div className="osp-card">
 
-        {/* ── Success icon ─────────────────────────────── */}
+        {/* Success icon */}
         <div className="osp-icon-wrap osp-icon-wrap--success">
           <svg
             className="osp-checkmark"
@@ -92,7 +97,7 @@ export default function OrderSuccessPage() {
           </svg>
         </div>
 
-        {/* ── Heading ──────────────────────────────────── */}
+        {/* Heading */}
         <h1 className="osp-title">
           {isCOD ? "Order Placed! 🎉" : "Payment Successful! 🎉"}
         </h1>
@@ -103,59 +108,66 @@ export default function OrderSuccessPage() {
             : "Your payment was confirmed. We're preparing your order."}
         </p>
 
-        {/* ── Order ID ─────────────────────────────────── */}
+        {/* Order ID */}
         <div className="osp-ref-box">
           <span className="osp-ref-label">Order ID</span>
           <span className="osp-ref-value">
-            {order?.id ?? orderId}
+            {/* ✅ FIXED: Backend uses tracking_id */}
+            {order?.tracking_id ?? order?.id ?? orderId}
           </span>
         </div>
 
-        {/* ── Order summary ─────────────────────────────── */}
+        {/* Order summary */}
         {order && (
           <div className="osp-summary">
             <h2 className="osp-summary-title">Order Summary</h2>
 
-            {/* Items */}
+            {/* Items — flatten from orders[].items[] */}
             <div className="osp-items">
-              {(order.items ?? []).map((item) => (
-                <div key={item.id} className="osp-item">
-                  <img
-                    src={item.image || "/placeholder.png"}
-                    alt={item.name}
-                    className="osp-item-img"
-                  />
-                  <div className="osp-item-info">
-                    <p className="osp-item-name">{item.name}</p>
-                    <p className="osp-item-qty">
-                      Qty: {item.quantity}
-                    </p>
+              {(order.orders ?? []).flatMap((subOrder) =>
+                (subOrder.items ?? []).map((item) => (
+                  <div key={item.id} className="osp-item">
+                    <img
+                      src={item.image || "/placeholder.png"}
+                      alt={item.product_name ?? "Product"}
+                      className="osp-item-img"
+                    />
+                    <div className="osp-item-info">
+                      {/* ✅ FIXED: Backend has no "name" — uses product_name from JOIN */}
+                      <p className="osp-item-name">
+                        {item.product_name ?? "Product"}
+                      </p>
+                      <p className="osp-item-qty">
+                        Qty: {item.quantity}
+                      </p>
+                    </div>
+                    <span className="osp-item-price">
+                      {/* ✅ FIXED: item.price × item.quantity */}
+                      {fmt(Number(item.price) * Number(item.quantity))}
+                    </span>
                   </div>
-                  <span className="osp-item-price">
-                    {fmt(item.totalPrice)}
-                  </span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
             {/* Totals */}
             <div className="osp-totals">
               <div className="osp-total-row">
                 <span>Subtotal</span>
-                <span>{fmt(order.subtotal)}</span>
+                {/* ✅ FIXED: total_amount is subtotal in your schema */}
+                <span>{fmt(order.total_amount)}</span>
               </div>
               <div className="osp-total-row">
                 <span>Delivery Fee</span>
-                <span>{fmt(order.deliveryFee)}</span>
+                <span>{fmt(order.delivery_fee)}</span>
               </div>
               <div className="osp-total-divider" />
               <div className="osp-total-row osp-total-row--grand">
                 <span>Total</span>
-                <strong>{fmt(order.grandTotal)}</strong>
+                <strong>{fmt(order.grand_total)}</strong>
               </div>
             </div>
 
-            {/* Payment method badge */}
             <div
               className={`osp-payment-badge ${
                 isCOD
@@ -168,21 +180,25 @@ export default function OrderSuccessPage() {
           </div>
         )}
 
-        {/* ── Delivery info ─────────────────────────────── */}
-        {order?.shippingAddress && (
+        {/* Delivery info */}
+        {order && (order.address_line || order.city) && (
           <div className="osp-delivery-info">
-            <h3 className="osp-delivery-title">
-              📦 Delivering To
-            </h3>
+            <h3 className="osp-delivery-title">📦 Delivering To</h3>
             <p className="osp-delivery-address">
-              {order.shippingAddress.street},{" "}
-              {order.shippingAddress.city},{" "}
-              {order.shippingAddress.state}
+              {[
+                order.recipient_name,
+                order.address_line,
+                order.city,
+                order.state,
+              ].filter(Boolean).join(", ")}
             </p>
+            {order.phone && (
+              <p className="osp-delivery-address">📞 {order.phone}</p>
+            )}
           </div>
         )}
 
-        {/* ── What happens next ─────────────────────────── */}
+        {/* Next steps */}
         <div className="osp-next-steps">
           <h3 className="osp-next-title">What happens next?</h3>
           <ol className="osp-steps-list">
@@ -204,7 +220,7 @@ export default function OrderSuccessPage() {
           </ol>
         </div>
 
-        {/* ── Action buttons ────────────────────────────── */}
+        {/* Actions */}
         <div className="osp-actions">
           <Link
             to={`/orders/${orderId}`}
