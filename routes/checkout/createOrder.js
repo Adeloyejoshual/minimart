@@ -1,17 +1,19 @@
 /**
  * routes/checkout/createOrder.js
- * POST /api/checkout
+ * POST   /api/checkout                — create order
+ * POST   /api/checkout/retry-payment  — regenerate Flutterwave link
+ * GET    /api/checkout/orders         — list user orders
+ * GET    /api/checkout/orders/:id     — single order detail
  *
- * Create order from cart.
- * Validates cart, calculates fees, splits by seller.
- *
- * v4 — Debug always visible
- * ─────────────────────────────────
- * ✓ Debug details ALWAYS returned in error responses (no NODE_ENV check)
- * ✓ Every step logged so Render logs show progression
- * ✓ Response includes debug info AND stack trace on 500 errors
- * ✓ Flutterwave errors also include debug field
- * ✓ Same fallbacks, guards, and cart/stock logic as before
+ * v5 — Complete with notifications
+ * ────────────────────────────────────
+ * ✓ Debug details ALWAYS returned in error responses
+ * ✓ Every step logged for Render tracking
+ * ✓ Sends buyer + seller notifications for COD orders
+ * ✓ Includes retry-payment endpoint for failed transactions
+ * ✓ Non-blocking notification dispatch (email fail ≠ order fail)
+ * ✓ Auto-loads notification service (safe if missing)
+ * ✓ Comprehensive error handling with stack traces
  */
 
 import express from "express";
@@ -116,6 +118,148 @@ async function enrichUser(user) {
 }
 
 /* ════════════════════════════════════════════════════════════
+   HELPER — safely load notification service (won't crash if missing)
+════════════════════════════════════════════════════════════ */
+async function getNotifier() {
+  try {
+    return await import("../../services/notificationService.js");
+  } catch (err) {
+    console.warn("[checkout] notificationService not available:", err.message);
+    return null;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   HELPER — dispatch COD order notifications (non-blocking)
+════════════════════════════════════════════════════════════ */
+async function dispatchCODNotifications({
+  user,
+  orderGroupId,
+  trackingId,
+  grandTotal,
+  orders,
+}) {
+  const notifier = await getNotifier();
+  if (!notifier) {
+    console.warn("[checkout] Skipping notifications — service unavailable");
+    return;
+  }
+
+  const {
+    sendPaymentNotification,
+    sendOrderStatusEmail,
+    createNotification,
+  } = notifier;
+
+  const amtFmt   = `₦${Number(grandTotal).toLocaleString("en-NG")}`;
+  const trackId  = trackingId ?? orderGroupId.slice(0, 8).toUpperCase();
+  const jobs     = [];
+
+  /* ── BUYER — Email confirmation ── */
+  if (user.email && sendPaymentNotification) {
+    jobs.push(
+      sendPaymentNotification({
+        to:        user.email,
+        name:      user.name,
+        amount:    grandTotal,
+        orderId:   trackId,
+        reference: "Cash on Delivery",
+      }).catch((err) =>
+        console.warn("[checkout] buyer COD email failed:", err.message)
+      )
+    );
+  }
+
+  /* ── BUYER — In-app notification ── */
+  if (createNotification) {
+    jobs.push(
+      createNotification({
+        userId:  user.id,
+        type:    "order_placed",
+        title:   "Order Placed! 📦",
+        message: `Your order ${trackId} is confirmed. Pay ${amtFmt} on delivery.`,
+        link:    `/shop/orders/${orderGroupId}`,
+        meta:    { orderGroupId, trackingId: trackId, amount: grandTotal },
+      }).catch((err) =>
+        console.warn("[checkout] buyer notif failed:", err.message)
+      )
+    );
+  }
+
+  /* ── SELLERS — Email + in-app per seller ── */
+  for (const orderInfo of orders) {
+    /* Fetch seller email + name */
+    let seller = null;
+    try {
+      const { rows: [row] } = await pool.query(
+        `SELECT email, name FROM market.users WHERE id = $1`,
+        [orderInfo.sellerId]
+      );
+      seller = row;
+    } catch (err) {
+      console.warn(
+        `[checkout] Could not fetch seller ${orderInfo.sellerId}:`,
+        err.message
+      );
+    }
+
+    const sellerAmt = `₦${Number(orderInfo.subtotal).toLocaleString("en-NG")}`;
+
+    /* Seller email */
+    if (seller?.email && sendOrderStatusEmail) {
+      jobs.push(
+        sendOrderStatusEmail({
+          to:      seller.email,
+          name:    seller.name,
+          orderId: trackId,
+          status:  "New COD Order",
+          message: `You have a new Cash-on-Delivery order worth ${sellerAmt}. Please prepare it for shipping.`,
+        }).catch((err) =>
+          console.warn(
+            `[checkout] seller ${orderInfo.sellerId} COD email failed:`,
+            err.message
+          )
+        )
+      );
+    }
+
+    /* Seller in-app */
+    if (createNotification) {
+      jobs.push(
+        createNotification({
+          userId:  orderInfo.sellerId,
+          type:    "new_order",
+          title:   "New COD Order 💵",
+          message: `New Cash-on-Delivery order ${trackId} — ${sellerAmt}`,
+          link:    `/seller-dashboard/orders/${orderInfo.orderId}`,
+          meta:    {
+            orderId:      orderInfo.orderId,
+            orderGroupId,
+            trackingId:   trackId,
+            amount:       Number(orderInfo.subtotal),
+            paymentType:  "COD",
+          },
+        }).catch((err) =>
+          console.warn(
+            `[checkout] seller ${orderInfo.sellerId} notif failed:`,
+            err.message
+          )
+        )
+      );
+    }
+  }
+
+  /* Run all in parallel */
+  const results = await Promise.allSettled(jobs);
+  const succeeded = results.filter((r) => r.status === "fulfilled").length;
+  const failed    = results.filter((r) => r.status === "rejected").length;
+
+  console.log(
+    `[checkout] ✅ COD notifications dispatched — ${succeeded} succeeded, ${failed} failed`
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
    POST /api/checkout — CREATE ORDER
 ════════════════════════════════════════════════════════════ */
 router.post("/", async (req, res) => {
@@ -127,7 +271,6 @@ router.post("/", async (req, res) => {
     notes,
   } = req.body;
 
-  /* Track which step failed for debug */
   let currentStep = "init";
 
   /* ── Input validation ── */
@@ -376,9 +519,22 @@ router.post("/", async (req, res) => {
     console.log(`[checkout] ✅ Order group ${result.orderGroupId} created`);
 
     /* ══════════════════════════════════════════════════
-       STEP 11a: CASH ON DELIVERY — done
+       STEP 11a: CASH ON DELIVERY — done + notify
     ══════════════════════════════════════════════════ */
     if (paymentMethod === "CASH_ON_DELIVERY") {
+      currentStep = "codNotifications";
+
+      /* ✅ Dispatch notifications async (fire & forget) */
+      dispatchCODNotifications({
+        user,
+        orderGroupId: result.orderGroupId,
+        trackingId:   result.trackingId,
+        grandTotal:   result.grandTotal,
+        orders:       result.orders,
+      }).catch((err) =>
+        console.warn("[checkout] COD notifications dispatch failed:", err.message)
+      );
+
       return res.status(201).json({
         success: true,
         message: "Order placed successfully",
@@ -395,6 +551,10 @@ router.post("/", async (req, res) => {
 
     /* ══════════════════════════════════════════════════
        STEP 11b: ONLINE PAYMENT — Flutterwave
+       ─────────────────────────────────────────────
+       Notifications for online payments are sent by
+       services/orderPaymentHandler.js AFTER webhook
+       confirms payment.
     ══════════════════════════════════════════════════ */
     currentStep = "flutterwave";
 
@@ -454,7 +614,6 @@ router.post("/", async (req, res) => {
           requiresPayment: true,
           paymentLink:     null,
         },
-        /* ✅ ALWAYS include Flutterwave debug — no NODE_ENV check */
         debug: {
           source:      "flutterwave",
           message:     flwErr.message,
@@ -491,7 +650,6 @@ router.post("/", async (req, res) => {
     console.error(err.stack);
     console.error("═══════════════════════════════════════════════");
 
-    /* ✅ ALWAYS return debug info — no NODE_ENV check */
     res.status(500).json({
       success: false,
       message: "Failed to create order",
@@ -510,6 +668,101 @@ router.post("/", async (req, res) => {
 });
 
 /* ════════════════════════════════════════════════════════════
+   POST /api/checkout/retry-payment
+   Generates a fresh Flutterwave link for an unpaid order.
+════════════════════════════════════════════════════════════ */
+router.post("/retry-payment", async (req, res) => {
+  const { orderGroupId } = req.body;
+
+  if (!orderGroupId) {
+    return res.status(422).json({
+      success: false,
+      message: "Order ID is required",
+    });
+  }
+
+  try {
+    const user = await enrichUser(req.user);
+
+    /* Verify order belongs to user + is unpaid + is online payment */
+    const { rows: [order] } = await pool.query(
+      `SELECT id, grand_total, payment_status, payment_method
+       FROM public.order_groups
+       WHERE id = $1 AND user_id = $2`,
+      [orderGroupId, user.id]
+    );
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    if (order.payment_status === "paid") {
+      return res.status(400).json({
+        success: false,
+        message: "This order has already been paid",
+      });
+    }
+
+    if (order.payment_method !== "ONLINE_PAYMENT") {
+      return res.status(400).json({
+        success: false,
+        message: "Only online payment orders can be retried",
+      });
+    }
+
+    /* Sanity check env vars */
+    if (!process.env.FLW_SECRET_KEY || !process.env.CLIENT_ORIGIN) {
+      return res.status(500).json({
+        success: false,
+        message: "Payment gateway not configured",
+      });
+    }
+
+    if (!user.email) {
+      return res.status(400).json({
+        success: false,
+        message: "User email required for online payment",
+      });
+    }
+
+    /* Generate fresh Flutterwave link */
+    const flw = await initializeFlutterwavePayment({
+      orderGroupId: order.id,
+      amount:       order.grand_total,
+      email:        user.email,
+      name:         user.name ?? "Customer",
+    });
+
+    console.log(`[checkout/retry] ✅ New link generated for ${orderGroupId}`);
+
+    res.json({
+      success: true,
+      message: "New payment link generated",
+      data: {
+        orderGroupId: order.id,
+        paymentLink:  flw.link,
+        paymentRef:   flw.ref,
+        grandTotal:   order.grand_total,
+      },
+    });
+
+  } catch (err) {
+    console.error("[checkout/retry] Failed:", err.message);
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate new payment link",
+      debug: {
+        message:  err.message,
+        response: err.response?.data,
+      },
+    });
+  }
+});
+
+/* ════════════════════════════════════════════════════════════
    FLUTTERWAVE PAYMENT INITIALIZER
 ════════════════════════════════════════════════════════════ */
 async function initializeFlutterwavePayment({
@@ -519,7 +772,7 @@ async function initializeFlutterwavePayment({
   name,
 }) {
   const axios = (await import("axios")).default;
-  const ref   = `MINIMART-${orderGroupId.slice(0, 8).toUpperCase()}-${Date.now()}`;
+  const ref   = `LOEMART-${orderGroupId.slice(0, 8).toUpperCase()}-${Date.now()}`;
 
   console.log(`[flutterwave] Initializing payment for ${orderGroupId} — ₦${amount}`);
   console.log(`[flutterwave] Using key prefix: ${process.env.FLW_SECRET_KEY?.slice(0, 20)}…`);
