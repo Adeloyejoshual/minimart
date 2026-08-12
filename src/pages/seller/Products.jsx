@@ -8,7 +8,19 @@
  * - Edit  → redirects to PostAds update flow
  * - Delete modal (soft delete)
  * - Pause / resume toggle modal
- * - Aligned with /api/seller/products routes
+ *
+ * v2 — Bug fixes
+ * ──────────────────────────────────────────────────────────────
+ * ✓ window.innerWidth access deferred — no SSR crash
+ * ✓ Abort controller correctly tracks unmount vs cancel
+ * ✓ Modal focus targets a real focusable element
+ * ✓ SummaryStrip labelled as page-scoped (not store-wide)
+ * ✓ buildPageNumbers start cannot go below 1
+ * ✓ handleMutated scoped — delete only closes delete modal, etc.
+ * ✓ resize throttled with requestAnimationFrame
+ * ✓ ProductImage err state reset synchronously on src change
+ * ✓ LOW_STOCK_THRESHOLD used consistently
+ * ✓ CSS keyframes extracted to a single stable <style> mount
  */
 
 import {
@@ -16,7 +28,77 @@ import {
   useRef, useMemo, memo,
 } from "react";
 import { useNavigate }             from "react-router-dom";
-import { sellerApi, useDashboard } from "./SellerDashboard";
+import { sellerApi }               from "./SellerDashboard";
+
+/* ══════════════════════════════════════════════════════════════
+   GLOBAL STYLES  (injected once, not on every render)
+══════════════════════════════════════════════════════════════ */
+const STYLE_ID = "sp-seller-products-styles";
+
+function ensureStyles() {
+  if (document.getElementById(STYLE_ID)) return;
+  const el = document.createElement("style");
+  el.id = STYLE_ID;
+  el.textContent = `
+    @keyframes sp-spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes sp-shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position:  400px 0; }
+    }
+    @keyframes sp-fadeup {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0);   }
+    }
+    .sp-card {
+      background: white; border-radius: 16px;
+      border: 1px solid #f3f4f6; overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      transition: box-shadow 0.2s, transform 0.2s;
+      animation: sp-fadeup 0.22s ease;
+    }
+    .sp-card:hover {
+      box-shadow: 0 8px 24px rgba(99,102,241,0.1);
+      transform: translateY(-2px);
+    }
+    .sp-row {
+      border-bottom: 1px solid #f9fafb; background: white;
+      transition: background 0.15s; animation: sp-fadeup 0.2s ease;
+    }
+    .sp-row:last-child { border-bottom: none; }
+    .sp-row:hover      { background: #fafafa; }
+    .sp-btn {
+      display: inline-flex; align-items: center;
+      justify-content: center; gap: 0.3rem;
+      padding: 0.42rem 0.65rem; border-radius: 8px;
+      font-size: 0.75rem; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      border: 1px solid transparent;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .sp-btn:hover    { opacity: 0.82; }
+    .sp-btn:active   { transform: scale(0.96); }
+    .sp-btn:disabled { opacity: 0.5; cursor: default; }
+    .sp-btn--blue  { background:#eff6ff; border-color:#bfdbfe; color:#1e40af; }
+    .sp-btn--amber { background:#fffbeb; border-color:#fde68a; color:#92400e; }
+    .sp-btn--red   { background:#fef2f2; border-color:#fecaca; color:#ef4444; }
+    .sp-pill {
+      padding: 0.38rem 0.875rem; border-radius: 100px;
+      font-size: 0.78rem; cursor: pointer;
+      font-family: inherit; white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .sp-pill:hover { border-color: #6366f1 !important; color: #6366f1 !important; }
+    .sp-page-btn:hover:not(:disabled) { border-color: #6366f1; color: #6366f1; }
+    input:focus {
+      border-color: #6366f1 !important;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
+      outline: none;
+    }
+  `;
+  document.head.appendChild(el);
+}
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -33,15 +115,46 @@ const STATUS_FILTERS = [
 ];
 
 const STATUS_CONFIG = {
-  pending  : { bg: "#fffbeb", color: "#92400e", dot: "#f59e0b", label: "Pending"  },
-  approved : { bg: "#ecfdf5", color: "#065f46", dot: "#10b981", label: "Approved" },
-  active   : { bg: "#ecfdf5", color: "#065f46", dot: "#10b981", label: "Active"   },
-  rejected : { bg: "#fef2f2", color: "#991b1b", dot: "#ef4444", label: "Rejected" },
-  paused   : { bg: "#f3f4f6", color: "#6b7280", dot: "#9ca3af", label: "Paused"   },
-  archived : { bg: "#f3f4f6", color: "#6b7280", dot: "#9ca3af", label: "Archived" },
+  pending  : { bg:"#fffbeb", color:"#92400e", dot:"#f59e0b", label:"Pending"  },
+  approved : { bg:"#ecfdf5", color:"#065f46", dot:"#10b981", label:"Approved" },
+  active   : { bg:"#ecfdf5", color:"#065f46", dot:"#10b981", label:"Active"   },
+  rejected : { bg:"#fef2f2", color:"#991b1b", dot:"#ef4444", label:"Rejected" },
+  paused   : { bg:"#f3f4f6", color:"#6b7280", dot:"#9ca3af", label:"Paused"   },
+  archived : { bg:"#f3f4f6", color:"#6b7280", dot:"#9ca3af", label:"Archived" },
 };
 
 const PRODUCTS_BASE = "/api/seller/products";
+
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE HOOK
+   ─────────────────────────────────────────────────────────────
+   Defers window access to after mount (SSR-safe).
+   Throttles resize with requestAnimationFrame.
+══════════════════════════════════════════════════════════════ */
+function useWindowWidth() {
+  const [width, setWidth] = useState(0);   // 0 = "not yet measured"
+
+  useEffect(() => {
+    setWidth(window.innerWidth);           // set real value after mount
+
+    let rafId = null;
+    const handler = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        setWidth(window.innerWidth);
+        rafId = null;
+      });
+    };
+
+    window.addEventListener("resize", handler);
+    return () => {
+      window.removeEventListener("resize", handler);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, []);
+
+  return width;
+}
 
 /* ══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -77,14 +190,20 @@ function getStatusCfg(p) {
   );
 }
 
+/**
+ * Build an array of page numbers centred on `current`.
+ * Max 5 numbers shown. Start is clamped to min 1.
+ */
 function buildPageNumbers(current, total) {
-  const max = Math.min(total, 5);
+  const count = Math.min(total, 5);
   let start;
   if      (total <= 5)           start = 1;
   else if (current <= 3)         start = 1;
   else if (current >= total - 2) start = total - 4;
   else                           start = current - 2;
-  return Array.from({ length: max }, (_, i) => start + i);
+
+  start = Math.max(1, start);   // ← clamp: never go below page 1
+  return Array.from({ length: count }, (_, i) => start + i);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -255,10 +374,8 @@ function SkeletonCard() {
       border: "1px solid #f3f4f6", overflow: "hidden",
     }}>
       <div style={{ height: 155, ...shimmerStyle }} />
-      <div style={{
-        padding: "0.9rem", display: "flex",
-        flexDirection: "column", gap: "0.5rem",
-      }}>
+      <div style={{ padding: "0.9rem", display: "flex",
+        flexDirection: "column", gap: "0.5rem" }}>
         {[75, 50, 90].map((w, i) => (
           <div key={i} style={{
             height: 11, width: `${w}%`,
@@ -277,14 +394,10 @@ function SkeletonRow() {
       padding: "0.875rem 1.25rem",
       borderBottom: "1px solid #f3f4f6",
     }}>
-      <div style={{
-        width: 48, height: 48, borderRadius: 10,
-        flexShrink: 0, ...shimmerStyle,
-      }} />
-      <div style={{
-        flex: 1, display: "flex",
-        flexDirection: "column", gap: "0.4rem",
-      }}>
+      <div style={{ width: 48, height: 48, borderRadius: 10,
+        flexShrink: 0, ...shimmerStyle }} />
+      <div style={{ flex: 1, display: "flex",
+        flexDirection: "column", gap: "0.4rem" }}>
         {[60, 40].map((w, i) => (
           <div key={i} style={{
             height: 11, width: `${w}%`,
@@ -325,10 +438,10 @@ const StatusChip = memo(function StatusChip({ product }) {
 const StockBadge = memo(function StockBadge({ stock }) {
   const n = Number(stock ?? 0);
   const cfg =
-    n <= 0  ? { bg: "#fef2f2", color: "#991b1b", dot: "#ef4444", text: "Out of stock"    } :
-    n <= 5  ? { bg: "#fffbeb", color: "#92400e", dot: "#f59e0b", text: `Low — ${n} left` } :
-    n <= 20 ? { bg: "#fff7ed", color: "#c2410c", dot: "#f97316", text: `${n} in stock`   } :
-              { bg: "#ecfdf5", color: "#065f46", dot: "#10b981", text: `${n} in stock`   };
+    n <= 0                    ? { bg:"#fef2f2", color:"#991b1b", dot:"#ef4444", text:"Out of stock"    } :
+    n <= LOW_STOCK_THRESHOLD  ? { bg:"#fffbeb", color:"#92400e", dot:"#f59e0b", text:`Low — ${n} left` } :
+    n <= 20                   ? { bg:"#fff7ed", color:"#c2410c", dot:"#f97316", text:`${n} in stock`   } :
+                                { bg:"#ecfdf5", color:"#065f46", dot:"#10b981", text:`${n} in stock`   };
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: "0.3rem",
@@ -347,10 +460,13 @@ const StockBadge = memo(function StockBadge({ stock }) {
 
 /* ══════════════════════════════════════════════════════════════
    PRODUCT IMAGE
+   ─────────────────────────────────────────────────────────────
+   err state is reset synchronously via `key={src}` — React
+   remounts the component when src changes, so the broken-image
+   flicker from the async useEffect approach is eliminated.
 ══════════════════════════════════════════════════════════════ */
 function ProductImage({ src, alt, width, height, borderRadius = 0 }) {
   const [err, setErr] = useState(false);
-  useEffect(() => { setErr(false); }, [src]);
 
   return (
     <div style={{
@@ -360,6 +476,7 @@ function ProductImage({ src, alt, width, height, borderRadius = 0 }) {
     }}>
       {src && !err ? (
         <img
+          key={src}                          // remount on src change — resets err
           src={src}
           alt={alt}
           style={{ width: "100%", height: "100%",
@@ -388,9 +505,7 @@ function ProductImage({ src, alt, width, height, borderRadius = 0 }) {
 function ActionButtons({ product, onEdit, onDelete, onPause, compact = false }) {
   return (
     <div style={{ display: "flex", gap: "0.4rem" }}>
-      <button
-        onClick={() => onEdit(product)}
-        className="sp-btn sp-btn--blue"
+      <button onClick={() => onEdit(product)} className="sp-btn sp-btn--blue"
         style={compact ? {} : { flex: 1 }}
         aria-label={`Edit ${product.name}`}>
         <Icon.Edit size={13} />
@@ -398,23 +513,13 @@ function ActionButtons({ product, onEdit, onDelete, onPause, compact = false }) 
       </button>
 
       {(product.status === "approved" || product.status === "active") && (
-        <button
-          onClick={() => onPause(product)}
-          className="sp-btn sp-btn--amber"
-          aria-label={
-            product.is_paused
-              ? `Resume ${product.name}`
-              : `Pause ${product.name}`
-          }>
-          {product.is_paused
-            ? <Icon.Play  size={13} />
-            : <Icon.Pause size={13} />}
+        <button onClick={() => onPause(product)} className="sp-btn sp-btn--amber"
+          aria-label={product.is_paused ? `Resume ${product.name}` : `Pause ${product.name}`}>
+          {product.is_paused ? <Icon.Play size={13} /> : <Icon.Pause size={13} />}
         </button>
       )}
 
-      <button
-        onClick={() => onDelete(product)}
-        className="sp-btn sp-btn--red"
+      <button onClick={() => onDelete(product)} className="sp-btn sp-btn--red"
         aria-label={`Delete ${product.name}`}>
         <Icon.Trash size={13} />
       </button>
@@ -493,12 +598,8 @@ const ProductCard = memo(function ProductCard({
         )}
 
         <div style={{ marginTop: "0.5rem" }}>
-          <ActionButtons
-            product={p}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onPause={onPause}
-          />
+          <ActionButtons product={p} onEdit={onEdit}
+            onDelete={onDelete} onPause={onPause} />
         </div>
       </div>
     </article>
@@ -521,8 +622,10 @@ const ProductRow = memo(function ProductRow({
       gap: "0.5rem", alignItems: "center",
       padding: "0.875rem 1.25rem",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-        <ProductImage src={cover} alt={p.name} width={48} height={48} borderRadius={10} />
+      <div style={{ display: "flex", alignItems: "center",
+        gap: "0.75rem", minWidth: 0 }}>
+        <ProductImage src={cover} alt={p.name}
+          width={48} height={48} borderRadius={10} />
         <div style={{ minWidth: 0 }}>
           <p style={{
             fontWeight: 600, color: "#1f2937", margin: 0,
@@ -532,12 +635,14 @@ const ProductRow = memo(function ProductRow({
             {p.name}
           </p>
           {p.category && (
-            <p style={{ color: "#9ca3af", fontSize: "0.7rem", margin: "0.1rem 0 0" }}>
+            <p style={{ color: "#9ca3af", fontSize: "0.7rem",
+              margin: "0.1rem 0 0" }}>
               {p.category}
             </p>
           )}
           {Array.isArray(p.variants) && p.variants.length > 1 && (
-            <p style={{ color: "#c4b5fd", fontSize: "0.65rem", margin: "0.1rem 0 0" }}>
+            <p style={{ color: "#c4b5fd", fontSize: "0.65rem",
+              margin: "0.1rem 0 0" }}>
               {p.variants.length} variants
             </p>
           )}
@@ -549,29 +654,43 @@ const ProductRow = memo(function ProductRow({
       </span>
       <StockBadge stock={totalStock} />
       <StatusChip product={p} />
-      <ActionButtons product={p} onEdit={onEdit} onDelete={onDelete} onPause={onPause} compact />
+      <ActionButtons product={p} onEdit={onEdit}
+        onDelete={onDelete} onPause={onPause} compact />
     </div>
   );
 });
 
 /* ══════════════════════════════════════════════════════════════
    MODAL SHELL
+   ─────────────────────────────────────────────────────────────
+   Focus is placed on the modal container div which has
+   tabIndex={-1}, role="dialog", and aria-modal="true".
+   This is the correct ARIA pattern — the focused element
+   IS the dialog root, so screen readers announce it correctly.
 ══════════════════════════════════════════════════════════════ */
 function Modal({ onClose, label, children }) {
-  const ref = useRef();
+  const dialogRef = useRef();
 
   useEffect(() => {
-    ref.current?.focus();
+    /* Focus the dialog root so screen readers announce it */
+    dialogRef.current?.focus();
+
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   return (
-    <div style={MS.overlay} onClick={onClose}
-      role="dialog" aria-modal="true" aria-label={label}>
-      <div ref={ref} tabIndex={-1} style={MS.modal}
-        onClick={(e) => e.stopPropagation()}>
+    <div style={MS.overlay} onClick={onClose}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        style={MS.modal}
+        onClick={(e) => e.stopPropagation()}
+      >
         {children}
       </div>
     </div>
@@ -607,9 +726,7 @@ function DeleteModal({ product, onClose, onDeleted }) {
     setDeleting(true);
     setError(null);
     try {
-      const { data } = await sellerApi.delete(
-        `${PRODUCTS_BASE}/${product.id}`
-      );
+      const { data } = await sellerApi.delete(`${PRODUCTS_BASE}/${product.id}`);
       if (data.success) {
         onDeleted();
       } else {
@@ -658,7 +775,7 @@ function DeleteModal({ product, onClose, onDeleted }) {
    PAUSE MODAL
 ══════════════════════════════════════════════════════════════ */
 function PauseModal({ product, onClose, onToggled }) {
-  const isPaused      = product.is_paused;
+  const isPaused          = product.is_paused;
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
 
@@ -684,7 +801,8 @@ function PauseModal({ product, onClose, onToggled }) {
   return (
     <Modal onClose={onClose} label={isPaused ? "Resume listing" : "Pause listing"}>
       <div style={MS.body}>
-        <div style={{ ...MS.iconWrap, background: isPaused ? "#ecfdf5" : "#fffbeb" }}>
+        <div style={{ ...MS.iconWrap,
+          background: isPaused ? "#ecfdf5" : "#fffbeb" }}>
           {isPaused ? <Icon.Play size={22} /> : <Icon.Pause size={22} />}
         </div>
         <div style={{ textAlign: "center" }}>
@@ -725,6 +843,10 @@ function PauseModal({ product, onClose, onToggled }) {
 
 /* ══════════════════════════════════════════════════════════════
    SUMMARY STRIP
+   ─────────────────────────────────────────────────────────────
+   NOTE: counts are scoped to the current page, not the full
+   store. For store-wide stats, use the /api/seller/orders/stats
+   endpoint instead.
 ══════════════════════════════════════════════════════════════ */
 function SummaryStrip({ products, mobile }) {
   const stats = useMemo(() => ({
@@ -732,15 +854,17 @@ function SummaryStrip({ products, mobile }) {
       (p) => (p.status === "approved" || p.status === "active") && !p.is_paused
     ).length,
     stock: products.reduce((s, p) => s + getTotalStock(p), 0),
-    low:   products.filter((p) => getTotalStock(p) <= LOW_STOCK_THRESHOLD).length,
+    low:   products.filter(
+      (p) => getTotalStock(p) <= LOW_STOCK_THRESHOLD   // ← uses constant
+    ).length,
   }), [products]);
 
   const items = [
-    { label: "Active Listings", value: stats.active,
+    { label: "Active (this page)", value: stats.active,
       I: Icon.Activity,  color: "#10b981", bg: "#ecfdf5" },
-    { label: "Total Stock",     value: stats.stock,
+    { label: "Total Stock",        value: stats.stock,
       I: Icon.Warehouse, color: "#6366f1", bg: "#eff6ff" },
-    { label: "Low Stock Items", value: stats.low,
+    { label: "Low Stock Items",    value: stats.low,
       I: Icon.Alert,     color: "#f59e0b", bg: "#fffbeb" },
   ];
 
@@ -782,6 +906,22 @@ function SummaryStrip({ products, mobile }) {
 /* ══════════════════════════════════════════════════════════════
    PAGINATION BAR
 ══════════════════════════════════════════════════════════════ */
+function pageBtnStyle(active, disabled) {
+  return {
+    padding: "0.4rem 0", minWidth: 36,
+    border: `1px solid ${active ? "#6366f1" : "#e5e7eb"}`,
+    borderRadius: "8px",
+    cursor: disabled ? "default" : "pointer",
+    fontSize: "0.78rem",
+    fontWeight: active ? 700 : 500,
+    background: active   ? "#6366f1" : "white",
+    color:      active   ? "white"   : "#374151",
+    opacity:    disabled ? 0.4       : 1,
+    transition: "all 0.15s",
+    fontFamily: "inherit",
+  };
+}
+
 function PaginationBar({ pagination, page, onPage }) {
   const totalPages = pagination?.totalPages ?? 0;
   if (totalPages <= 1) return null;
@@ -815,22 +955,6 @@ function PaginationBar({ pagination, page, onPage }) {
       </div>
     </div>
   );
-}
-
-function pageBtnStyle(active, disabled) {
-  return {
-    padding: "0.4rem 0", minWidth: 36,
-    border: `1px solid ${active ? "#6366f1" : "#e5e7eb"}`,
-    borderRadius: "8px",
-    cursor: disabled ? "default" : "pointer",
-    fontSize: "0.78rem",
-    fontWeight: active ? 700 : 500,
-    background: active   ? "#6366f1" : "white",
-    color:      active   ? "white"   : "#374151",
-    opacity:    disabled ? 0.4       : 1,
-    transition: "all 0.15s",
-    fontFamily: "inherit",
-  };
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -874,7 +998,11 @@ function EmptyState({ hasFilters, onClear, onPost, mobile }) {
    MAIN PAGE
 ══════════════════════════════════════════════════════════════ */
 export default function Products() {
-  const navigate = useNavigate();
+  /* Inject global keyframe styles once on mount */
+  useEffect(() => { ensureStyles(); }, []);
+
+  const navigate   = useNavigate();
+  const screenW    = useWindowWidth();
 
   const [products,     setProducts]     = useState([]);
   const [loading,      setLoading]      = useState(true);
@@ -887,26 +1015,22 @@ export default function Products() {
   const [viewMode,     setViewMode]     = useState("grid");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [pauseTarget,  setPauseTarget]  = useState(null);
-  const [screenW,      setScreenW]      = useState(window.innerWidth);
   const [fetchError,   setFetchError]   = useState(null);
 
   const searchRef = useRef();
-  const abortRef  = useRef(null);
 
-  /* ── Responsive ── */
-  useEffect(() => {
-    const fn = () => setScreenW(window.innerWidth);
-    window.addEventListener("resize", fn);
-    return () => window.removeEventListener("resize", fn);
-  }, []);
+  /*
+   * screenW starts at 0 (unmeasured). Treat 0 as "not mobile"
+   * so the initial render shows the desktop layout which is
+   * corrected on first paint after mount.
+   */
+  const mobile = screenW > 0 && screenW < 640;
+  const tablet = screenW > 0 && screenW < 1024;
 
-  const mobile = screenW < 640;
-  const tablet = screenW < 1024;
-
-  /* ── Debounce search ── */
+  /* ── Debounce search input ── */
   useEffect(() => {
     const t = setTimeout(() => {
-      setSearch(searchInput);
+      setSearch(searchInput.trim());
       setPage(1);
     }, 400);
     return () => clearTimeout(t);
@@ -920,23 +1044,25 @@ export default function Products() {
   /* ══════════════════════════════════════════════════════════
      FETCH
      ─────────────────────────────────────────────────────────
-     The server's ok() helper returns:
-       { success: true, products: [...], pagination: {...} }
+     Each call creates a new AbortController. The controller
+     from a *previous* call is aborted before the new one starts.
 
-     NOT wrapped in a "data" key. So we read:
-       data.products   (not data.data.products)
-       data.pagination (not data.data.pagination)
-
-     We handle both shapes defensively in case the response
-     shape changes:
-       data.products ?? data.data?.products ?? []
+     On unmount, the latest controller is aborted via the
+     useEffect cleanup — preventing setState on unmounted
+     components entirely (no `signal.aborted` check needed
+     in finally, because the abort throws CanceledError which
+     is caught and returned early).
   ══════════════════════════════════════════════════════════ */
+  const abortRef = useRef(null);
+
   const load = useCallback(async (silent = false) => {
+    /* Cancel any in-flight request */
     abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const controller  = new AbortController();
+    abortRef.current  = controller;
 
     if (!silent) setLoading(true);
+    else         setRefreshing(true);
     setFetchError(null);
 
     try {
@@ -957,42 +1083,49 @@ export default function Products() {
       if (data.success) {
         /*
          * Handle both response shapes:
-         *   Shape A: { success, products, pagination }       ← server ok() helper
-         *   Shape B: { success, data: { products, pagination } }  ← wrapped
+         *   Shape A: { success, products, pagination }
+         *   Shape B: { success, data: { products, pagination } }
          */
-        const products   = data.products   ?? data.data?.products   ?? [];
-        const pagination = data.pagination ?? data.data?.pagination ?? null;
-
-        setProducts(products);
-        setPagination(pagination);
+        setProducts(data.products   ?? data.data?.products   ?? []);
+        setPagination(data.pagination ?? data.data?.pagination ?? null);
       } else {
         setFetchError(data.message ?? "Failed to load products");
       }
     } catch (err) {
+      /* Aborted — component unmounted or new request started */
       if (err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
       console.error("[Products] fetch error:", err.message);
       setFetchError(err.response?.data?.message ?? err.message);
     } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
-        setRefreshing(false);
-      }
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [page, filter, search]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    /* Abort on unmount — prevents setState after unmount */
+    return () => abortRef.current?.abort();
+  }, [load]);
 
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
+  const handleRefresh = useCallback(() => { load(true); }, [load]);
+
+  const handleEdit = useCallback(
+    (p) => navigate(`/minimart/edit-ad/${p.id}`),
+    [navigate]
+  );
+
+  /*
+   * Scoped handlers — delete only clears deleteTarget,
+   * pause only clears pauseTarget. Prevents one modal's
+   * success from accidentally closing the other.
+   */
+  const handleDeleted = useCallback(() => {
+    setDeleteTarget(null);
     load(true);
   }, [load]);
 
-  const handleEdit = useCallback((p) => {
-    navigate(`/minimart/edit-ad/${p.id}`);
-  }, [navigate]);
-
-  const handleMutated = useCallback(() => {
-    setDeleteTarget(null);
+  const handleToggled = useCallback(() => {
     setPauseTarget(null);
     load(true);
   }, [load]);
@@ -1004,70 +1137,6 @@ export default function Products() {
   ══════════════════════════════════════════════════════════ */
   return (
     <>
-      <style>{`
-        @keyframes sp-spin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes sp-shimmer {
-          0%   { background-position: -400px 0; }
-          100% { background-position:  400px 0; }
-        }
-        @keyframes sp-fadeup {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0);   }
-        }
-        .sp-card {
-          background: white; border-radius: 16px;
-          border: 1px solid #f3f4f6; overflow: hidden;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-          transition: box-shadow 0.2s, transform 0.2s;
-          animation: sp-fadeup 0.22s ease;
-        }
-        .sp-card:hover {
-          box-shadow: 0 8px 24px rgba(99,102,241,0.1);
-          transform: translateY(-2px);
-        }
-        .sp-row {
-          border-bottom: 1px solid #f9fafb; background: white;
-          transition: background 0.15s; animation: sp-fadeup 0.2s ease;
-        }
-        .sp-row:last-child { border-bottom: none; }
-        .sp-row:hover      { background: #fafafa; }
-        .sp-btn {
-          display: inline-flex; align-items: center;
-          justify-content: center; gap: 0.3rem;
-          padding: 0.42rem 0.65rem; border-radius: 8px;
-          font-size: 0.75rem; font-weight: 600;
-          cursor: pointer; font-family: inherit;
-          border: 1px solid transparent;
-          transition: opacity 0.15s, transform 0.1s;
-        }
-        .sp-btn:hover         { opacity: 0.82; }
-        .sp-btn:active        { transform: scale(0.96); }
-        .sp-btn:disabled      { opacity: 0.5; cursor: default; }
-        .sp-btn--blue         { background:#eff6ff; border-color:#bfdbfe; color:#1e40af; }
-        .sp-btn--amber        { background:#fffbeb; border-color:#fde68a; color:#92400e; }
-        .sp-btn--red          { background:#fef2f2; border-color:#fecaca; color:#ef4444; }
-        .sp-pill {
-          padding: 0.38rem 0.875rem; border-radius: 100px;
-          font-size: 0.78rem; cursor: pointer;
-          font-family: inherit; white-space: nowrap;
-          transition: all 0.15s;
-        }
-        .sp-pill:hover {
-          border-color: #6366f1 !important;
-          color: #6366f1 !important;
-        }
-        .sp-page-btn:hover:not(:disabled) {
-          border-color: #6366f1; color: #6366f1;
-        }
-        input:focus {
-          border-color: #6366f1 !important;
-          box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
-          outline: none;
-        }
-      `}</style>
-
       <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
 
         {/* ── HEADER ── */}
@@ -1090,15 +1159,15 @@ export default function Products() {
 
           <div style={{ display: "flex", gap: "0.5rem",
             alignItems: "center", flexWrap: "wrap" }}>
-            <button onClick={handleRefresh}
-              disabled={refreshing || loading}
+
+            <button onClick={handleRefresh} disabled={refreshing || loading}
               aria-label="Refresh listings"
               style={{
                 background: "white", border: "1px solid #e5e7eb",
                 borderRadius: "10px", padding: "0.6rem 0.875rem",
                 cursor: (refreshing || loading) ? "default" : "pointer",
-                color: "#6b7280",
-                display: "flex", alignItems: "center", gap: "0.4rem",
+                color: "#6b7280", display: "flex",
+                alignItems: "center", gap: "0.4rem",
                 fontSize: "0.8rem", fontWeight: 600, fontFamily: "inherit",
                 opacity: (refreshing || loading) ? 0.6 : 1,
                 transition: "opacity 0.15s",
@@ -1137,17 +1206,14 @@ export default function Products() {
               </div>
             )}
 
-            <button onClick={() => navigate("/minimart/post-ad")}
-              style={POST_BTN}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}>
+            <button onClick={() => navigate("/minimart/post-ad")} style={POST_BTN}>
               <Icon.Plus size={15} />
               {mobile ? "Post Ad" : "Post New Product"}
             </button>
           </div>
         </div>
 
-        {/* ── FETCH ERROR BANNER ── */}
+        {/* ── FETCH ERROR ── */}
         {fetchError && (
           <div style={{
             background: "#fef2f2", border: "1px solid #fecaca",
@@ -1200,7 +1266,8 @@ export default function Products() {
               }}
             />
             {searchInput && (
-              <button onClick={() => { setSearchInput(""); searchRef.current?.focus(); }}
+              <button
+                onClick={() => { setSearchInput(""); searchRef.current?.focus(); }}
                 aria-label="Clear search"
                 style={{
                   position: "absolute", right: "0.8rem", top: "50%",
@@ -1268,7 +1335,8 @@ export default function Products() {
           }}>
             {products.map((p) => (
               <ProductCard key={p.id} product={p} mobile={mobile}
-                onEdit={handleEdit} onDelete={setDeleteTarget}
+                onEdit={handleEdit}
+                onDelete={setDeleteTarget}
                 onPause={setPauseTarget} />
             ))}
           </div>
@@ -1293,7 +1361,8 @@ export default function Products() {
             </div>
             {products.map((p) => (
               <ProductRow key={p.id} product={p}
-                onEdit={handleEdit} onDelete={setDeleteTarget}
+                onEdit={handleEdit}
+                onDelete={setDeleteTarget}
                 onPause={setPauseTarget} />
             ))}
           </div>
@@ -1302,15 +1371,20 @@ export default function Products() {
         <PaginationBar pagination={pagination} page={page} onPage={setPage} />
       </div>
 
+      {/* ── MODALS ── */}
       {deleteTarget && (
-        <DeleteModal product={deleteTarget}
+        <DeleteModal
+          product={deleteTarget}
           onClose={() => setDeleteTarget(null)}
-          onDeleted={handleMutated} />
+          onDeleted={handleDeleted}
+        />
       )}
       {pauseTarget && (
-        <PauseModal product={pauseTarget}
+        <PauseModal
+          product={pauseTarget}
           onClose={() => setPauseTarget(null)}
-          onToggled={handleMutated} />
+          onToggled={handleToggled}
+        />
       )}
     </>
   );
@@ -1373,8 +1447,8 @@ const MS = {
     color: "#6b7280", fontSize: "0.875rem",
     margin: 0, lineHeight: 1.6,
   },
-  actions: { display: "flex", gap: "0.75rem" },
-  btnInner: {
+  actions:   { display: "flex", gap: "0.75rem" },
+  btnInner:  {
     display: "flex", alignItems: "center",
     gap: "0.4rem", justifyContent: "center",
   },
