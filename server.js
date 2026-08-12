@@ -1,15 +1,17 @@
 /**
- * server.js — v2
+ * server.js — v3
  * ─────────────────────────────────────────────────────────────
+ * ✓ Fixed seller product router mount point (/api/seller not
+ *   /api/seller/products — prefix was doubling)
+ * ✓ Fixed seller order router mount point (same pattern)
  * ✓ All seller sub-routes mounted in correct order
- * ✓ sellerOrderRouter added (/api/seller/orders)
- * ✓ sellerNotificationsRouter added (/api/seller/notifications)
- * ✓ Payout + Settings mounted BEFORE catch-all profile router
- * ✓ Checkout import path corrected
- * ✓ Webhook error logging improved
- * ✓ All cron intervals unref'd
- * ✓ Pool export aliased to config/db.js convention
- * ✓ Consistent unhandledRejection handling
+ * ✓ ENV validation covers all critical secrets
+ * ✓ Pool created once — exported for config/db.js alias
+ * ✓ CORS origin set hardened
+ * ✓ Webhook routes before body parsers (raw body preserved)
+ * ✓ All cron intervals unref'd (never block process exit)
+ * ✓ Graceful shutdown covers server + pool + io
+ * ✓ unhandledRejection never silently exits in prod
  */
 
 import express           from "express";
@@ -31,23 +33,29 @@ const IS_PROD    = process.env.NODE_ENV === "production";
 
 /* ════════════════════════════════════════════════════════════
    ENV VALIDATION
+   ─────────────────────────────────────────────────────────
+   Crash immediately at startup if any required variable is
+   absent. Silent missing vars are a production incident
+   waiting to happen.
 ════════════════════════════════════════════════════════════ */
 const REQUIRED_ENV = [
   "COCKROACH_URI",
   "JWT_SECRET",
   "PAYSTACK_SECRET_KEY",
 ];
-const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
-if (missing.length) {
-  missing.forEach((k) => console.error(`❌  Missing env: ${k}`));
+
+const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k]);
+if (missingEnv.length) {
+  missingEnv.forEach((k) => console.error(`❌  Missing env var: ${k}`));
   process.exit(1);
 }
 
 /* ════════════════════════════════════════════════════════════
    DATABASE
-   ⚠️  NOTE: This pool is also exported as the singleton used by
-   config/db.js.  Import from "config/db.js" everywhere else —
-   do NOT create a second Pool.
+   ─────────────────────────────────────────────────────────
+   Single Pool instance for the entire process.
+   Exported so config/db.js can re-export it without creating
+   a second pool. Never import pg directly elsewhere.
 ════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString            : process.env.COCKROACH_URI,
@@ -62,20 +70,21 @@ export const pool = new Pool({
 });
 
 pool.on("error", (err) =>
-  console.error("🔥 Pool error:", err.message)
+  console.error("🔥 [pool] idle client error:", err.message)
 );
 
 /* ════════════════════════════════════════════════════════════
-   APP + SERVER
+   APP + HTTP SERVER
 ════════════════════════════════════════════════════════════ */
 const app    = express();
 const PORT   = Number(process.env.PORT) || 5000;
 const server = http.createServer(app);
 
 /*
- * trust proxy — required when behind Render / Nginx / Cloudflare
- * so that rate-limiter sees the real client IP from
- * X-Forwarded-For, not the load-balancer IP.
+ * trust proxy — required behind Render / Nginx / Cloudflare.
+ * Makes req.ip reflect the real client IP from X-Forwarded-For
+ * rather than the load-balancer address. Needed for rate-
+ * limiting to work correctly per real client.
  */
 app.set("trust proxy", 1);
 
@@ -89,57 +98,69 @@ export const io      = initSocket(server, ALLOWED_ORIGIN);
 
 /* ════════════════════════════════════════════════════════════
    IN-MEMORY CACHE
+   ─────────────────────────────────────────────────────────
+   Simple TTL cache for lightweight hot-path data.
+   Not shared across workers — use Redis for multi-process.
 ════════════════════════════════════════════════════════════ */
 const _cache    = new Map();
-const CACHE_TTL = 60_000;
+const CACHE_TTL = 60_000;   // 1 minute default
 
 export const setCache = (key, value, ttl = CACHE_TTL) =>
   _cache.set(key, { value, expires: Date.now() + ttl });
 
 export const getCache = (key) => {
   const item = _cache.get(key);
-  if (!item)                      return null;
-  if (Date.now() > item.expires)  { _cache.delete(key); return null; }
+  if (!item)                     return null;
+  if (Date.now() > item.expires) { _cache.delete(key); return null; }
   return item.value;
 };
 
-export const deleteCache = (key) => _cache.delete(key);
-
+export const deleteCache      = (key)    => _cache.delete(key);
 export const clearCachePattern = (prefix) => {
   for (const key of _cache.keys())
     if (key.startsWith(prefix)) _cache.delete(key);
 };
 
-/* Periodic cache eviction — unref so it never blocks exit */
+/* Periodic eviction — unref so it never blocks clean exit */
 const _cacheEviction = setInterval(() => {
   const now = Date.now();
   for (const [k, v] of _cache.entries())
     if (now > v.expires) _cache.delete(k);
 }, 60_000);
-_cacheEviction.unref(); /* ✅ already present — kept */
+_cacheEviction.unref();
 
 /* ════════════════════════════════════════════════════════════
    CORS
+   ─────────────────────────────────────────────────────────
+   Hard-coded production origins + anything in CLIENT_ORIGIN
+   env var (comma-separated). In development CLIENT_ORIGIN="*"
+   allows all origins.
 ════════════════════════════════════════════════════════════ */
-const HARD_ALLOWED = [
+const HARD_ALLOWED_ORIGINS = new Set([
   "https://www.loemart.com",
   "https://loemart.com",
   "http://localhost:5173",
   "http://localhost:3000",
   "http://localhost:4173",
-];
+]);
 
 const _envOrigins = ALLOWED_ORIGIN === "*"
   ? []
   : ALLOWED_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean);
 
-const ALLOWED_ORIGINS = new Set([..._envOrigins, ...HARD_ALLOWED]);
+const ALLOWED_ORIGINS = new Set([
+  ..._envOrigins,
+  ...HARD_ALLOWED_ORIGINS,
+]);
 
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin || ALLOWED_ORIGIN === "*" || ALLOWED_ORIGINS.has(origin))
-      return cb(null, true);
-    console.warn("[CORS] blocked:", origin);
+    /* Allow server-to-server / curl (no Origin header) */
+    if (!origin)                    return cb(null, true);
+    if (ALLOWED_ORIGIN === "*")     return cb(null, true);
+    if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+
+    console.warn("[CORS] blocked origin:", origin);
     cb(new Error(`CORS blocked: ${origin}`));
   },
   credentials    : true,
@@ -153,6 +174,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+/* Preflight — liberal to avoid OPTIONS 404s */
 app.options("*", cors({ origin: true, credentials: true }));
 
 /* ════════════════════════════════════════════════════════════
@@ -165,11 +187,11 @@ app.use(helmet({
   hsts                      : IS_PROD
     ? { maxAge: 31_536_000, includeSubDomains: true, preload: true }
     : false,
-  referrerPolicy            : { policy: "strict-origin-when-cross-origin" },
+  referrerPolicy : { policy: "strict-origin-when-cross-origin" },
 }));
 
 /* ════════════════════════════════════════════════════════════
-   STATIC UPLOADS
+   STATIC — uploaded files
 ════════════════════════════════════════════════════════════ */
 app.use(
   "/uploads",
@@ -181,6 +203,10 @@ app.use(
 
 /* ════════════════════════════════════════════════════════════
    RATE LIMITERS
+   ─────────────────────────────────────────────────────────
+   ipKey reads the real IP after trust proxy is set.
+   Upload limiter is applied specifically to message upload
+   routes which hit R2/S3.
 ════════════════════════════════════════════════════════════ */
 const ipKey = (req) =>
   req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
@@ -206,7 +232,7 @@ const uploadLimiter = rateLimit({
   handler         : (_req, res) =>
     res.status(429).json({
       success : false,
-      message : "Too many upload requests.",
+      message : "Too many upload requests. Please wait a moment.",
     }),
 });
 
@@ -218,12 +244,7 @@ const uploadLimiter = rateLimit({
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 import checkoutWebhookRouter            from "./routes/checkout/webhook.js";
-
-/*
- * ✅ FIX: was incorrectly imported from ./routes/checkout/index.js
- *    Your checkout route file is createOrder.js
- */
-import checkoutRouter from "./routes/checkout/createOrder.js";
+import checkoutRouter                   from "./routes/checkout/createOrder.js";
 
 /* ── Marketplace auth (public.users) ── */
 import authRouter           from "./routes/auth.routes.js";
@@ -234,23 +255,29 @@ import resetPasswordRouter  from "./routes/resetPassword.js";
 import sellerAuthRouter from "./routes/sellerAuth.routes.js";
 
 /* ── Seller sub-routes ──────────────────────────────────────
-   MOUNT ORDER IS CRITICAL — more specific routes FIRST,
-   catch-all profile router LAST.
+   MOUNT ORDER IS CRITICAL.
 
-   /api/seller/orders      ← sellerOrderRouter      (NEW)
-   /api/seller/products    ← sellerProductRouter
-   /api/seller/payout      ← sellerPayoutRoutes     (was after profile — bug)
-   /api/seller/settings    ← sellerSettingsRouter   (was after profile — bug)
-   /api/seller/notifications ← sellerNotificationsRouter (NEW)
-   /api/seller             ← sellerProfileRouter    (catch-all, LAST)
+   Rules:
+     1. More specific paths BEFORE less specific paths.
+     2. Catch-all profile router (/api/seller) MUST be last.
+     3. Each router owns its own path prefix internally —
+        the mount point provides only the parent namespace.
+
+   Route ownership:
+     sellerOrderRouter        owns /orders/*
+     sellerProductRouter      owns /products/*      ← FIX: was mounted at
+     sellerPayoutRoutes       owns /payout/*           /api/seller/products
+     sellerSettingsRouter     owns /settings/*         which doubled the prefix
+     sellerNotificationsRouter owns /notifications/*
+     sellerProfileRouter      owns everything else  ← catch-all, LAST
 ─────────────────────────────────────────────────────────── */
-import sellerOnboardingRouter    from "./routes/sellerOnboarding.routes.js";
-import sellerOrderRouter         from "./routes/seller/order.js";         /* ✅ NEW */
-import sellerProductRouter       from "./routes/seller/product.js";
-import sellerPayoutRoutes        from "./routes/seller/payout.js";
-import sellerSettingsRouter      from "./routes/seller/settings.js";
-import sellerNotificationsRouter from "./routes/seller/notifications.js"; /* ✅ NEW */
-import sellerProfileRouter       from "./routes/sellerprofile.js";
+import sellerOnboardingRouter     from "./routes/sellerOnboarding.routes.js";
+import sellerOrderRouter          from "./routes/seller/order.js";
+import sellerProductRouter        from "./routes/seller/product.js";
+import sellerPayoutRoutes         from "./routes/seller/payout.js";
+import sellerSettingsRouter       from "./routes/seller/settings.js";
+import sellerNotificationsRouter  from "./routes/seller/notifications.js";
+import sellerProfileRouter        from "./routes/sellerprofile.js";
 
 /* ── Seller Dashboard (legacy) ── */
 import sellerDashboardRouter from "./routes/dashboard.js";
@@ -310,18 +337,20 @@ import { sendWeeklyNewsletter } from "./services/weeklyNewsletter.js";
 import { processInactiveUsers } from "./services/inactiveUsers.js";
 
 /* ════════════════════════════════════════════════════════════
-   WEBHOOKS — MUST be before body parsers
-   Raw body must be preserved for HMAC signature verification.
+   WEBHOOKS — before body parsers
+   ─────────────────────────────────────────────────────────
+   Raw body MUST be preserved for HMAC signature verification.
+   These routes use express.raw() — never express.json().
 ════════════════════════════════════════════════════════════ */
 
-/* ── Paystack webhook ── */
+/* ── Paystack ── */
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "*/*" }),
   webhookRouter
 );
 
-/* ── Flutterwave webhook ── */
+/* ── Flutterwave ── */
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "*/*" }),
@@ -330,14 +359,10 @@ app.use(
     try {
       req.body = JSON.parse(raw);
     } catch (parseErr) {
-      /*
-       * ✅ FIX: was silently swallowing bad payloads.
-       *    Log the error so you can debug malformed webhooks.
-       */
       console.warn(
-        "[webhook/flw] Body parse failed — passing raw string:",
-        parseErr.message,
-        "| Raw (first 200):", raw.slice(0, 200)
+        "[webhook/flw] Body parse failed — passing raw string.",
+        "Error:", parseErr.message,
+        "| Raw (first 200 chars):", raw.slice(0, 200)
       );
       req.body = { _raw: raw };
     }
@@ -346,7 +371,7 @@ app.use(
   flwWebhookRouter
 );
 
-/* ── Flutterwave capture (debug / audit) ── */
+/* ── Flutterwave audit capture ── */
 app.post(
   "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
@@ -371,7 +396,7 @@ app.post(
         ]
       );
     } catch (dbErr) {
-      /* Non-critical — log but don't fail the response */
+      /* Non-critical — log but don't fail the 200 response */
       console.warn("[webhook/flw-capture] DB insert failed:", dbErr.message);
     }
 
@@ -387,13 +412,16 @@ app.use(
 );
 
 /* ════════════════════════════════════════════════════════════
-   BODY PARSERS — after webhooks
+   BODY PARSERS — after webhook routes
 ════════════════════════════════════════════════════════════ */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 /* ════════════════════════════════════════════════════════════
    REQUEST ID
+   ─────────────────────────────────────────────────────────
+   Echoed back in X-Request-Id header and error responses
+   so client-side errors can be correlated with server logs.
 ════════════════════════════════════════════════════════════ */
 app.use((req, res, next) => {
   const id      = req.headers["x-request-id"] || crypto.randomUUID();
@@ -431,49 +459,59 @@ app.use("/api/auth", authRouter);
 app.use("/api/auth", forgotPasswordRouter);
 app.use("/api/auth", resetPasswordRouter);
 
-/* ── Seller auth (market.users) ── */
+/* ── Seller auth (market.users JWT) ── */
 app.use("/api/seller-auth", sellerAuthRouter);
 
 /* ── Seller onboarding ── */
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
 
-/* ── Seller sub-routes ──────────────────────────────────────
-   ORDER IS CRITICAL — specific routes BEFORE catch-all.
+/* ════════════════════════════════════════════════════════════
+   SELLER SUB-ROUTES
+   ─────────────────────────────────────────────────────────
+   All mounted at /api/seller. Each router owns its own
+   internal prefix — the mount point is the shared namespace.
 
-   ✅ FIX: sellerPayoutRoutes and sellerSettingsRouter were
-   mounted AFTER sellerProfileRouter in the original file.
-   Express matched /api/seller/* in the profile router first,
-   so payout and settings routes returned 404.
+   KEY FIX (v3):
+     sellerProductRouter was previously mounted at
+     /api/seller/products. The router already defines routes
+     as GET /products, PUT /products/:id etc, so Express was
+     building: /api/seller/products/products — a 404.
 
-   Correct order:
-     1. /api/seller/orders        ← new, must be first
-     2. /api/seller/products      ← CRUD operations
-     3. /api/seller/payout        ← specific prefix
-     4. /api/seller/settings      ← specific prefix
-     5. /api/seller/notifications ← new, specific prefix
-     6. /api/seller               ← catch-all LAST
-─────────────────────────────────────────────────────────── */
+     Correct mount is /api/seller so the final paths become:
+       GET  /api/seller/products
+       PUT  /api/seller/products/:id
+     etc.
 
-/* 1. Orders — GET/PATCH /api/seller/orders/* */
-app.use("/api/seller/orders",        sellerOrderRouter);         /* ✅ NEW */
+   Same fix applied to sellerOrderRouter.
 
-/* 2. Products — GET/PUT/PATCH/DELETE /api/seller/products/* */
-app.use("/api/seller/products",      sellerProductRouter);
+   ORDER RULES:
+     1. Named sub-paths (/orders, /products, /payout …) FIRST
+     2. Catch-all sellerProfileRouter LAST
+════════════════════════════════════════════════════════════ */
 
-/* 3. Payout — /api/seller/payout/* */
-app.use("/api/seller/payout",        sellerPayoutRoutes);        /* ✅ MOVED up */
+/*
+ * sellerOrderRouter  — owns /orders, /orders/stats, /orders/:id …
+ * sellerProductRouter — owns /products, /products/:id …
+ *
+ * Both mounted at /api/seller (not /api/seller/orders or
+ * /api/seller/products) because the routers define those
+ * prefixes themselves.
+ */
+app.use("/api/seller", sellerOrderRouter);          /* GET /api/seller/orders/…   */
+app.use("/api/seller", sellerProductRouter);        /* GET /api/seller/products/… */
+app.use("/api/seller", sellerPayoutRoutes);         /* /api/seller/payout/…       */
+app.use("/api/seller", sellerSettingsRouter);       /* /api/seller/settings/…     */
+app.use("/api/seller", sellerNotificationsRouter);  /* /api/seller/notifications/ */
 
-/* 4. Settings — /api/seller/settings/* */
-app.use("/api/seller/settings",      sellerSettingsRouter);      /* ✅ MOVED up */
+/*
+ * Profile catch-all — MUST be last under /api/seller.
+ * Express matches routes in registration order; placing this
+ * first would swallow all other /api/seller/* requests.
+ */
+app.use("/api/seller", sellerProfileRouter);
 
-/* 5. Notifications — /api/seller/notifications/* */
-app.use("/api/seller/notifications", sellerNotificationsRouter); /* ✅ NEW */
-
-/* 6. Profile catch-all — MUST be last under /api/seller */
-app.use("/api/seller",               sellerProfileRouter);
-
-/* ── Seller Dashboard (legacy dashboard.js) ── */
-app.use("/api/seller-dashboard",     sellerDashboardRouter);
+/* ── Seller Dashboard (legacy) ── */
+app.use("/api/seller-dashboard", sellerDashboardRouter);
 
 /* ── Marketplace products ── */
 app.use("/api/products",     marketRouter);
@@ -489,7 +527,7 @@ app.use("/api/users",        userRouter);
 app.use("/api/edit-profile", editProfileRouter);
 
 /* ── Messaging ── */
-app.use("/api/messages/upload", uploadLimiter);
+app.use("/api/messages/upload", uploadLimiter);     /* rate-limit uploads first */
 app.use("/api/messages",        messagesRouter);
 app.use("/api/conversations",   conversationsRouter);
 
@@ -509,17 +547,16 @@ app.use("/api/favorites",       favoritesRouter);
 app.use("/api/airtime-coupons", airtimeCouponRoutes);
 app.use("/api/subscription",    subscriptionRouter);
 
-/* ── Settings ── */
+/* ── Settings + Support ── */
 app.use("/api/settings", settingsRouter);
-
-/* ── Support ── */
-app.use("/api/support", supportRouter);
+app.use("/api/support",  supportRouter);
 
 /* ════════════════════════════════════════════════════════════
    HEALTH CHECK
 ════════════════════════════════════════════════════════════ */
 app.get("/api/health", async (_req, res) => {
   let dbOk = false, dbLatency = null, dbError = null;
+
   try {
     const t0       = Date.now();
     const { rows } = await pool.query("SELECT 1 AS ok");
@@ -530,15 +567,15 @@ app.get("/api/health", async (_req, res) => {
   }
 
   return res.status(dbOk ? 200 : 503).json({
-    success      : true,
-    status       : dbOk ? "healthy" : "degraded",
-    timestamp    : new Date().toISOString(),
-    database     : {
+    success   : true,
+    status    : dbOk ? "healthy" : "degraded",
+    timestamp : new Date().toISOString(),
+    database  : {
       ok         : dbOk,
       latency_ms : dbLatency,
       error      : dbError ?? undefined,
     },
-    process : {
+    process: {
       uptime_s  : Math.floor(process.uptime()),
       memory_mb : Math.round(process.memoryUsage().rss / 1_048_576),
       node      : process.version,
@@ -560,7 +597,7 @@ app.get("/sitemap.xml", (_req, res) =>
   res.sendFile(path.join(PUBLIC_DIR, "sitemap-index.xml"))
 );
 app.get("/sitemaps/:file", (req, res) => {
-  const safe = path.basename(req.params.file);
+  const safe = path.basename(req.params.file);  /* strip path traversal */
   res.sendFile(path.join(PUBLIC_DIR, "sitemaps", safe), (err) => {
     if (err)
       res.status(404).json({ success: false, message: "Sitemap not found" });
@@ -583,16 +620,18 @@ if (IS_PROD) {
     express.static(dist, {
       maxAge     : "1d",
       setHeaders(res, fp) {
+        /* HTML must never be cached — ensures fresh deploys land */
         if (/\.html?$/i.test(fp))
-          res.setHeader(
-            "Cache-Control",
-            "no-cache, no-store, must-revalidate"
-          );
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       },
     })
   );
 
-  /* API 404 — before SPA catch-all */
+  /*
+   * API 404 — before SPA catch-all.
+   * Without this, unknown /api/* paths fall through to index.html
+   * which returns a 200 with HTML, confusing API clients.
+   */
   app.use((req, res, next) => {
     if (req.path.startsWith("/api/"))
       return res.status(404).json({
@@ -602,14 +641,15 @@ if (IS_PROD) {
     next();
   });
 
-  /* SPA catch-all */
+  /* SPA catch-all — must be last */
   app.get("*", (_req, res) =>
     res.sendFile(path.join(dist, "index.html"))
   );
 }
 
 /* ════════════════════════════════════════════════════════════
-   404 — development only (prod handled by SPA catch-all above)
+   404 — development only
+   (Production 404s are handled above before the SPA fallback)
 ════════════════════════════════════════════════════════════ */
 if (!IS_PROD) {
   app.use((req, res) =>
@@ -622,6 +662,9 @@ if (!IS_PROD) {
 
 /* ════════════════════════════════════════════════════════════
    GLOBAL ERROR HANDLER
+   ─────────────────────────────────────────────────────────
+   Four-argument signature required by Express to recognise
+   this as an error handler — do not remove _next.
 ════════════════════════════════════════════════════════════ */
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
@@ -629,7 +672,7 @@ app.use((err, req, res, _next) => {
   console.error(`🔥 [${reqId}] ${err.message}`);
   if (!IS_PROD) console.error(err.stack);
 
-  /* Multer errors */
+  /* ── Multer ── */
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({
       success: false, message: "File too large", reqId,
@@ -643,13 +686,13 @@ app.use((err, req, res, _next) => {
       success: false, message: "Unexpected file field", reqId,
     });
 
-  /* CORS */
+  /* ── CORS ── */
   if (err.message?.startsWith("CORS"))
     return res.status(403).json({
       success: false, message: err.message, reqId,
     });
 
-  /* PostgreSQL / CockroachDB errors */
+  /* ── PostgreSQL / CockroachDB ── */
   const PG_ERRORS = {
     "23505" : [409, "Duplicate entry"],
     "23503" : [400, "Referenced record not found"],
@@ -664,6 +707,7 @@ app.use((err, req, res, _next) => {
     return res.status(status).json({ success: false, message, reqId });
   }
 
+  /* ── Default ── */
   const status  = err.status ?? err.statusCode ?? 500;
   const message = IS_PROD && status === 500
     ? "Internal server error"
@@ -674,24 +718,40 @@ app.use((err, req, res, _next) => {
 
 /* ════════════════════════════════════════════════════════════
    GRACEFUL SHUTDOWN
+   ─────────────────────────────────────────────────────────
+   SIGTERM: sent by Render / Docker on deploy / scale-down.
+   SIGINT:  Ctrl-C in development.
+
+   Sequence:
+     1. Stop accepting new connections (server.close)
+     2. Close Socket.IO (drains existing WS connections)
+     3. Drain + close the DB pool
+     4. Exit 0
+   Force-exit after 15 s if anything hangs.
 ════════════════════════════════════════════════════════════ */
 let isShuttingDown = false;
 
 async function shutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  console.log(`\n[server] ${signal} — shutting down gracefully…`);
+
+  console.log(`\n[server] ${signal} received — shutting down gracefully…`);
   clearInterval(_cacheEviction);
 
+  /* Force exit if shutdown hangs */
   const forceExit = setTimeout(() => {
-    console.error("[server] forced exit after 15 s");
+    console.error("[server] forced exit after 15 s timeout");
     process.exit(1);
   }, 15_000);
   forceExit.unref();
 
   server.close(async () => {
-    try { io.close();       } catch (_e) { /* ignore */ }
-    try { await pool.end(); } catch (_e) { /* ignore */ }
+    try   { io.close();       console.log("[server] Socket.IO closed"); }
+    catch (_e) { /* already closed */ }
+
+    try   { await pool.end(); console.log("[server] DB pool closed"); }
+    catch (_e) { /* already closed */ }
+
     clearTimeout(forceExit);
     console.log("[server] clean exit ✓");
     process.exit(0);
@@ -701,14 +761,14 @@ async function shutdown(signal) {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT",  () => shutdown("SIGINT"));
 
+/*
+ * Unhandled rejections: log loudly everywhere.
+ * Exit in dev so the bug is immediately visible.
+ * In prod, let the process monitor (Render) decide to restart —
+ * exiting blindly could drop in-flight requests.
+ */
 process.on("unhandledRejection", (reason) => {
-  /*
-   * ✅ FIX: original code called process.exit(1) in dev only.
-   *    In prod, unhandled rejections should be logged loudly.
-   *    We never exit silently in prod — let the process
-   *    monitor (Render) decide whether to restart.
-   */
-  console.error("[server] ⚠️  Unhandled rejection:", reason);
+  console.error("[server] ⚠️  Unhandled promise rejection:", reason);
   if (!IS_PROD) process.exit(1);
 });
 
@@ -723,16 +783,16 @@ process.on("uncaughtException", (err) => {
 ════════════════════════════════════════════════════════════ */
 async function start() {
 
-  /* 1. Verify DB reachability */
+  /* 1 — Verify DB is reachable before opening to traffic */
   try {
     const { rows } = await pool.query("SELECT version()");
-    console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
+    console.log("✅ CockroachDB connected:", rows[0].version.split(" ")[0]);
   } catch (err) {
     console.error("❌ DB connection failed:", err.message);
     process.exit(1);
   }
 
-  /* 2. Schema initializations */
+  /* 2 — Schema initializations */
   try {
     await initAirtimeSchema();
     console.log("✅ [airtime] schema ready");
@@ -741,110 +801,107 @@ async function start() {
       console.error("❌ [airtime] schema init failed:", err.message);
       process.exit(1);
     } else {
-      console.warn("⚠️  [airtime] schema init failed (dev non-fatal):", err.message);
+      console.warn("⚠️  [airtime] schema init failed (non-fatal in dev):", err.message);
     }
   }
 
-  /* 3. Background jobs */
+  /* 3 — Background jobs */
   startListingExpiryJob();
   startCleanupJob();
   initLeaderboardCron();
 
-  /* 4. Cron jobs */
+  /* 4 — Cron jobs (node-cron is optional — warn if missing) */
   await (async () => {
     let cron;
     try {
       ({ default: cron } = await import("node-cron"));
-    } catch (_e) {
+    } catch {
       console.warn(
         "[cron] node-cron not installed — scheduled jobs disabled.\n" +
-        "       npm install node-cron"
+        "       Run: npm install node-cron"
       );
       return;
     }
 
-    /* Account purge — daily 02:00 UTC */
-    cron.schedule("0 2 * * *", () => {
+    /* Daily account purge — 02:00 UTC */
+    cron.schedule("0 2 * * *", () =>
       purgeDeletedAccounts().catch((err) =>
         console.error("[cron] purgeDeletedAccounts:", err.message)
-      );
-    });
+      )
+    );
 
     /* Weekly newsletter — Monday 08:00 UTC */
-    cron.schedule("0 8 * * 1", () => {
+    cron.schedule("0 8 * * 1", () =>
       sendWeeklyNewsletter().catch((err) =>
         console.error("[cron] weeklyNewsletter:", err.message)
-      );
-    });
+      )
+    );
 
     /* Inactive user nudges — daily 09:00 UTC */
-    cron.schedule("0 9 * * *", () => {
+    cron.schedule("0 9 * * *", () =>
       processInactiveUsers().catch((err) =>
         console.error("[cron] inactiveUsers:", err.message)
-      );
-    });
+      )
+    );
 
-    console.log("✅ [cron] Account purge       → daily 02:00 UTC");
-    console.log("✅ [cron] Weekly newsletter   → Monday 08:00 UTC");
-    console.log("✅ [cron] Inactive users      → daily 09:00 UTC");
+    console.log("✅ [cron] Account purge     → daily    02:00 UTC");
+    console.log("✅ [cron] Weekly newsletter → Monday   08:00 UTC");
+    console.log("✅ [cron] Inactive users    → daily    09:00 UTC");
   })();
 
-  /* 5. Open HTTP server — LAST step */
+  /* 5 — Open HTTP server (last — only after everything is ready) */
   server.listen(PORT, () => {
     const env = process.env.NODE_ENV || "development";
     console.log(`\n🚀 Loemart server  |  port=${PORT}  |  env=${env}`);
     console.log(`
-  ════════════════════════════════════════════════════
-  SELLER ROUTE MAP
-  ════════════════════════════════════════════════════
+  ═══════════════════════════════════════════════════════
+  ROUTE MAP
+  ═══════════════════════════════════════════════════════
 
-  ── Seller Auth  (market.users) ────────────────────
-    POST   /api/seller-auth/register
-    POST   /api/seller-auth/verify-email
-    POST   /api/seller-auth/login
-    GET    /api/seller-auth/me
+  ── Seller Auth  (market.users JWT) ────────────────────
+    POST  /api/seller-auth/register
+    POST  /api/seller-auth/verify-email
+    POST  /api/seller-auth/login
+    GET   /api/seller-auth/me
 
-  ── Seller Onboarding ──────────────────────────────
-    /api/seller-onboarding
+  ── Seller Orders ──────────────────────────────────────
+    GET   /api/seller/orders
+    GET   /api/seller/orders/stats
+    GET   /api/seller/orders/:id
+    PATCH /api/seller/orders/:id/status
 
-  ── Seller Orders  (NEW) ───────────────────────────
-    GET    /api/seller/orders
-    GET    /api/seller/orders/stats
-    GET    /api/seller/orders/:id
-    PATCH  /api/seller/orders/:id/status
-    GET    /api/seller/orders/:id/items
-    POST   /api/seller/orders/:id/notes
-
-  ── Seller Products ────────────────────────────────
-    POST   /api/products             (authenticateSeller)
+  ── Seller Products ────────────────────────────────────
     GET    /api/seller/products
     GET    /api/seller/products/:id
     PUT    /api/seller/products/:id
     PATCH  /api/seller/products/:id/pause
+    PATCH  /api/seller/products/:id/images
+    DELETE /api/seller/products/:id/images/:imgId
     DELETE /api/seller/products/:id
+    POST   /api/products    ← addproduct (authenticateSeller)
 
-  ── Seller Payout ──────────────────────────────────
-    /api/seller/payout
+  ── Seller Payout ──────────────────────────────────────
+    /api/seller/payout/*
 
-  ── Seller Settings ────────────────────────────────
-    /api/seller/settings
+  ── Seller Settings ────────────────────────────────────
+    /api/seller/settings/*
 
-  ── Seller Notifications  (NEW) ────────────────────
-    /api/seller/notifications
+  ── Seller Notifications ───────────────────────────────
+    /api/seller/notifications/*
 
-  ── Seller Profile (catch-all) ─────────────────────
-    /api/seller
+  ── Seller Profile (catch-all) ─────────────────────────
+    /api/seller/*
 
-  ── Seller Dashboard (legacy) ──────────────────────
-    /api/seller-dashboard
+  ── Checkout ───────────────────────────────────────────
+    POST /api/checkout
+    POST /api/checkout/retry-payment
+    GET  /api/checkout/orders
+    GET  /api/checkout/orders/:id
 
-  ── Checkout ───────────────────────────────────────
-    POST   /api/checkout
-    POST   /api/checkout/retry-payment
-    GET    /api/checkout/orders
-    GET    /api/checkout/orders/:id
+  ── Health ─────────────────────────────────────────────
+    GET  /api/health
 
-  ════════════════════════════════════════════════════
+  ═══════════════════════════════════════════════════════
     `);
   });
 }
