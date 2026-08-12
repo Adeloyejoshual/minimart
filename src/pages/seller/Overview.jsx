@@ -1,8 +1,23 @@
 // pages/seller/Overview.jsx
+// ═════════════════════════════════════════════════════════════
+// Seller Dashboard — Overview page
+//
+// v2 — Reads from useDashboard() context instead of props
+// ─────────────────────────────────────────────────────────────
+// ✓ Uses useDashboard() hook — no more undefined props crash
+// ✓ Fixed axios params (was { range } — should be { params: { range } })
+// ✓ Error boundary friendly — safe null checks throughout
+// ✓ All fetches log errors so blank page shows what broke
+// ✓ Empty state fallbacks for every section
+// ═════════════════════════════════════════════════════════════
+
 import React, { useState, useEffect, useCallback } from "react";
-import { sellerApi } from "./SellerDashboard";
+import { sellerApi, useDashboard } from "./SellerDashboard";
 import StatCard from "./components/StatCard";
 
+/* ═══════════════════════════════════════════════════════════════
+   FORMATTERS
+═══════════════════════════════════════════════════════════════ */
 const fmt = (v) =>
   `₦${Number(v ?? 0).toLocaleString("en-NG", {
     minimumFractionDigits: 2,
@@ -23,26 +38,133 @@ const fmtDate = (d) =>
       })
     : "—";
 
+/* ═══════════════════════════════════════════════════════════════
+   STATUS CONFIG
+═══════════════════════════════════════════════════════════════ */
 const STATUS_BADGE = {
   pending:    { bg: "#fffbeb", color: "#92400e" },
+  confirmed:  { bg: "#fdf4ff", color: "#7e22ce" },
   processing: { bg: "#eff6ff", color: "#1e40af" },
   shipped:    { bg: "#f0f9ff", color: "#0369a1" },
   delivered:  { bg: "#ecfdf5", color: "#065f46" },
   cancelled:  { bg: "#fef2f2", color: "#991b1b" },
 };
 
-const Spin = () => (
+/* ═══════════════════════════════════════════════════════════════
+   ATOMS
+═══════════════════════════════════════════════════════════════ */
+const Spin = ({ size = 28 }) => (
   <div style={{
-    width: "28px", height: "28px",
-    border: "3px solid #e5e7eb",
-    borderTop: "3px solid #6366f1",
+    width:        size,
+    height:       size,
+    border:       `${Math.ceil(size / 10)}px solid #e5e7eb`,
+    borderTop:    `${Math.ceil(size / 10)}px solid #6366f1`,
     borderRadius: "50%",
-    animation: "spin 0.7s linear infinite",
-    margin: "0 auto",
+    animation:    "spin 0.7s linear infinite",
+    margin:       "0 auto",
   }} />
 );
 
-export default function Overview({ vendor, onNavigate }) {
+/*
+ * Safe StatCard fallback if the imported component is broken/missing.
+ * Prevents the whole page from crashing when StatCard is undefined.
+ */
+const SafeStatCard = (props) => {
+  if (typeof StatCard === "function") return <StatCard {...props} />;
+
+  /* Fallback inline card */
+  const { icon, label, value, sub, color = "#6366f1", loading, onClick } = props;
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background:   "white",
+        borderRadius: 14,
+        padding:      16,
+        border:       "1px solid #f3f4f6",
+        boxShadow:    "0 1px 3px rgba(0,0,0,0.04)",
+        cursor:       onClick ? "pointer" : "default",
+        transition:   "transform 0.15s",
+      }}
+    >
+      <div style={{
+        display:      "inline-flex",
+        alignItems:   "center",
+        justifyContent: "center",
+        width:        40,
+        height:       40,
+        borderRadius: 10,
+        background:   color + "15",
+        color,
+        fontSize:     20,
+        marginBottom: 12,
+      }}>
+        {icon}
+      </div>
+      <p style={{
+        fontSize:      11,
+        color:         "#9ca3af",
+        margin:        0,
+        fontWeight:    600,
+        textTransform: "uppercase",
+        letterSpacing: 0.5,
+      }}>
+        {label}
+      </p>
+      {loading ? (
+        <div style={{
+          width:        60,
+          height:       20,
+          background:   "linear-gradient(90deg,#f3f4f6 25%,#e9eaf0 50%,#f3f4f6 75%)",
+          backgroundSize: "200% 100%",
+          animation:    "sdShimmer 1.4s infinite",
+          borderRadius: 4,
+          marginTop:    6,
+        }} />
+      ) : (
+        <p style={{
+          fontSize:   20,
+          fontWeight: 800,
+          color:      "#1f2937",
+          margin:     "4px 0",
+        }}>
+          {value}
+        </p>
+      )}
+      {sub && (
+        <p style={{ fontSize: 11, color: "#9ca3af", margin: 0 }}>{sub}</p>
+      )}
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
+export default function Overview() {
+  /*
+   * ✅ FIX: Read vendor + navigate from context instead of props.
+   *    Previously received them as props from <Overview /> in
+   *    SellerDashboard.jsx — but the pageMap does <Overview />
+   *    with no props, so vendor and onNavigate were undefined.
+   *    Clicking any button called undefined() → crash → blank.
+   */
+  const dashboard = useDashboard?.() ?? {};
+  const vendor    = dashboard.vendor    ?? null;
+  const navigate  = dashboard.navigate  ?? (() => {
+    console.warn("[Overview] navigate not available — using window.location fallback");
+    return null;
+  });
+
+  const goTo = useCallback((page) => {
+    if (typeof navigate === "function") {
+      navigate(page);
+    } else {
+      window.location.href = `/seller/dashboard/${page}`;
+    }
+  }, [navigate]);
+
+  /* ── State ──────────────────────────────────────────────── */
   const [stats,        setStats]        = useState(null);
   const [orders,       setOrders]       = useState([]);
   const [topProducts,  setTopProducts]  = useState([]);
@@ -52,65 +174,104 @@ export default function Overview({ vendor, onNavigate }) {
   const [loadingOrders,setLoadingOrders]= useState(true);
   const [loadingProd,  setLoadingProd]  = useState(true);
   const [loadingChart, setLoadingChart] = useState(true);
+  const [errors,       setErrors]       = useState({});
 
-  // ── GET /api/seller-dashboard/stats ──────────────────────
+  /* ═══════════════════════════════════════════════════════════
+     API — Stats
+     ✅ FIX: axios needs { params: {} } not raw object
+  ═══════════════════════════════════════════════════════════ */
   const loadStats = useCallback(async () => {
     setLoadingStats(true);
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/stats", { range }
+        "/api/seller-dashboard/stats",
+        { params: { range } } /* ✅ was { range } */
       );
-      if (data.success) setStats(data.stats);
-    } catch { /* silent */ } finally {
+      if (data?.success) {
+        setStats(data.stats ?? null);
+        setErrors((e) => ({ ...e, stats: null }));
+      }
+    } catch (err) {
+      console.warn("[Overview] stats failed:", err.message);
+      setErrors((e) => ({ ...e, stats: err.message }));
+    } finally {
       setLoadingStats(false);
     }
   }, [range]);
 
-  // ── GET /api/seller-dashboard/orders ─────────────────────
+  /* ═══════════════════════════════════════════════════════════
+     API — Orders
+  ═══════════════════════════════════════════════════════════ */
   const loadOrders = useCallback(async () => {
     setLoadingOrders(true);
     try {
       const { data } = await sellerApi.get(
         "/api/seller-dashboard/orders",
-        { limit: 5, offset: 0 }
+        { params: { limit: 5, offset: 0 } } /* ✅ was { limit, offset } */
       );
-      if (data.success) setOrders(data.orders ?? []);
-    } catch { /* silent */ } finally {
+      if (data?.success) {
+        setOrders(Array.isArray(data.orders) ? data.orders : []);
+        setErrors((e) => ({ ...e, orders: null }));
+      }
+    } catch (err) {
+      console.warn("[Overview] orders failed:", err.message);
+      setErrors((e) => ({ ...e, orders: err.message }));
+    } finally {
       setLoadingOrders(false);
     }
   }, []);
 
-  // ── GET /api/seller-dashboard/top-products ────────────────
+  /* ═══════════════════════════════════════════════════════════
+     API — Top products
+  ═══════════════════════════════════════════════════════════ */
   const loadTopProducts = useCallback(async () => {
     setLoadingProd(true);
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/top-products", { limit: 5 }
+        "/api/seller-dashboard/top-products",
+        { params: { limit: 5 } } /* ✅ was { limit } */
       );
-      if (data.success) setTopProducts(data.products ?? []);
-    } catch { /* silent */ } finally {
+      if (data?.success) {
+        setTopProducts(Array.isArray(data.products) ? data.products : []);
+        setErrors((e) => ({ ...e, products: null }));
+      }
+    } catch (err) {
+      console.warn("[Overview] top products failed:", err.message);
+      setErrors((e) => ({ ...e, products: err.message }));
+    } finally {
       setLoadingProd(false);
     }
   }, []);
 
-  // ── GET /api/seller-dashboard/revenue-chart ───────────────
+  /* ═══════════════════════════════════════════════════════════
+     API — Revenue chart
+  ═══════════════════════════════════════════════════════════ */
   const loadChart = useCallback(async () => {
     setLoadingChart(true);
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/revenue-chart", { range }
+        "/api/seller-dashboard/revenue-chart",
+        { params: { range } } /* ✅ was { range } */
       );
-      if (data.success) setChartData(data.chart ?? []);
-    } catch { /* silent */ } finally {
+      if (data?.success) {
+        setChartData(Array.isArray(data.chart) ? data.chart : []);
+        setErrors((e) => ({ ...e, chart: null }));
+      }
+    } catch (err) {
+      console.warn("[Overview] chart failed:", err.message);
+      setErrors((e) => ({ ...e, chart: err.message }));
+    } finally {
       setLoadingChart(false);
     }
   }, [range]);
 
-  useEffect(() => { loadStats();      }, [loadStats]);
-  useEffect(() => { loadOrders();     }, [loadOrders]);
-  useEffect(() => { loadTopProducts();}, [loadTopProducts]);
-  useEffect(() => { loadChart();      }, [loadChart]);
+  /* Load on mount + range change */
+  useEffect(() => { loadStats();       }, [loadStats]);
+  useEffect(() => { loadOrders();      }, [loadOrders]);
+  useEffect(() => { loadTopProducts(); }, [loadTopProducts]);
+  useEffect(() => { loadChart();       }, [loadChart]);
 
+  /* ── Derived ───────────────────────────────────────────── */
   const RANGES = [
     { key: "7d",  label: "7d"  },
     { key: "30d", label: "30d" },
@@ -118,17 +279,27 @@ export default function Overview({ vendor, onNavigate }) {
     { key: "all", label: "All" },
   ];
 
-  // ── Mini bar chart (pure divs) ────────────────────────────
-  const maxRev = Math.max(...chartData.map((d) => d.revenue), 1);
+  /*
+   * ✅ FIX: Math.max(...[]) → -Infinity, breaks chart bar heights.
+   *    Default to 1 when array is empty.
+   */
+  const maxRev = chartData.length
+    ? Math.max(...chartData.map((d) => Number(d?.revenue) || 0), 1)
+    : 1;
 
+  const storeName = vendor?.store_name ?? "Seller";
+
+  /* ═══════════════════════════════════════════════════════════
+     RENDER
+  ═══════════════════════════════════════════════════════════ */
   return (
     <div style={ov.root}>
 
-      {/* ── Welcome banner ─────────────────────────────── */}
+      {/* ── Welcome banner ──────────────────────────────── */}
       <div style={ov.banner}>
-        <div>
+        <div style={{ minWidth: 0, flex: 1 }}>
           <h2 style={ov.bannerTitle}>
-            Welcome back, {vendor?.store_name} 👋
+            Welcome back, {storeName} 👋
           </h2>
           <p style={ov.bannerSub}>
             Here's what's happening with your store
@@ -143,11 +314,12 @@ export default function Overview({ vendor, onNavigate }) {
               onClick={() => setRange(key)}
               style={{
                 ...ov.rangeBtn,
-                background: range === key
-                  ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)",
-                color:      range === key ? "white" : "rgba(255,255,255,0.65)",
-                fontWeight: range === key ? 700 : 400,
-                border:     `1px solid ${
+                background:  range === key
+                  ? "rgba(255,255,255,0.25)"
+                  : "rgba(255,255,255,0.08)",
+                color:       range === key ? "white" : "rgba(255,255,255,0.65)",
+                fontWeight:  range === key ? 700 : 400,
+                border:      `1px solid ${
                   range === key
                     ? "rgba(255,255,255,0.3)"
                     : "rgba(255,255,255,0.08)"
@@ -162,7 +334,7 @@ export default function Overview({ vendor, onNavigate }) {
 
       {/* ── Stats grid ─────────────────────────────────── */}
       <div style={ov.statsGrid}>
-        <StatCard
+        <SafeStatCard
           icon="💰"
           label="Total Revenue"
           value={fmtShort(stats?.total_revenue)}
@@ -171,9 +343,9 @@ export default function Overview({ vendor, onNavigate }) {
           trend={stats?.revenue_change}
           trendUp={(stats?.revenue_change ?? 0) >= 0}
           loading={loadingStats}
-          onClick={() => onNavigate("analytics")}
+          onClick={() => goTo("analytics")}
         />
-        <StatCard
+        <SafeStatCard
           icon="📦"
           label="Total Orders"
           value={stats?.total_orders ?? 0}
@@ -182,9 +354,9 @@ export default function Overview({ vendor, onNavigate }) {
           trend={stats?.orders_change}
           trendUp={(stats?.orders_change ?? 0) >= 0}
           loading={loadingStats}
-          onClick={() => onNavigate("orders")}
+          onClick={() => goTo("orders")}
         />
-        <StatCard
+        <SafeStatCard
           icon="👥"
           label="Customers"
           value={stats?.total_customers ?? 0}
@@ -192,31 +364,66 @@ export default function Overview({ vendor, onNavigate }) {
           color="#f59e0b"
           loading={loadingStats}
         />
-        <StatCard
+        <SafeStatCard
           icon="🏷️"
           label="Products"
           value={stats?.total_products ?? 0}
           sub="in your store"
           color="#8b5cf6"
           loading={loadingStats}
-          onClick={() => onNavigate("products")}
+          onClick={() => goTo("products")}
         />
       </div>
 
-      {/* ── Revenue chart + Top products ───────────────── */}
+      {/* ── Error banner ───────────────────────────────── */}
+      {(errors.stats || errors.orders || errors.products || errors.chart) && (
+        <div style={{
+          padding:      "10px 14px",
+          background:   "#fef3c7",
+          border:       "1px solid #fde68a",
+          borderRadius: 10,
+          color:        "#92400e",
+          fontSize:     13,
+          display:      "flex",
+          alignItems:   "center",
+          gap:          10,
+        }}>
+          <span>⚠️</span>
+          <span>
+            Some data couldn't load. Check console for details.
+            {" "}
+            <button
+              onClick={() => {
+                loadStats();
+                loadOrders();
+                loadTopProducts();
+                loadChart();
+              }}
+              style={{
+                background: "none",
+                border:     "none",
+                color:      "#92400e",
+                fontWeight: 700,
+                cursor:     "pointer",
+                textDecoration: "underline",
+                padding:    0,
+                marginLeft: 4,
+              }}
+            >
+              Retry
+            </button>
+          </span>
+        </div>
+      )}
+
+      {/* ── Revenue chart + Top products ────────────────── */}
       <div style={ov.midRow}>
 
         {/* Revenue chart */}
         <div style={ov.chartCard}>
           <div style={ov.cardHeader}>
             <h3 style={ov.cardTitle}>📈 Revenue Trend</h3>
-            {loadingChart && (
-              <div style={{ width: "16px", height: "16px",
-                border: "2px solid #e5e7eb",
-                borderTop: "2px solid #6366f1",
-                borderRadius: "50%",
-                animation: "spin 0.7s linear infinite" }} />
-            )}
+            {loadingChart && <Spin size={16} />}
           </div>
 
           {!loadingChart && chartData.length === 0 ? (
@@ -225,46 +432,56 @@ export default function Overview({ vendor, onNavigate }) {
               <p>No revenue data for this period</p>
             </div>
           ) : (
-            <div style={{ display: "flex", alignItems: "flex-end",
-              gap: "4px", height: "120px", paddingTop: "1rem" }}>
+            <div style={{
+              display:    "flex",
+              alignItems: "flex-end",
+              gap:        4,
+              height:     120,
+              paddingTop: 16,
+            }}>
               {(loadingChart
                 ? Array(8).fill({ label: "", revenue: 0 })
                 : chartData
               ).map((d, i) => {
+                const rev = Number(d?.revenue) || 0;
                 const pct = loadingChart
                   ? 0.3 + Math.random() * 0.5
-                  : d.revenue / maxRev;
+                  : rev / maxRev;
                 return (
                   <div
                     key={i}
-                    style={{ flex: 1, display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center", gap: "4px",
-                      minWidth: 0 }}
-                    title={
-                      !loadingChart
-                        ? `${d.label}: ${fmt(d.revenue)}`
-                        : ""
-                    }
+                    style={{
+                      flex:           1,
+                      display:        "flex",
+                      flexDirection:  "column",
+                      alignItems:     "center",
+                      gap:            4,
+                      minWidth:       0,
+                    }}
+                    title={!loadingChart ? `${d.label}: ${fmt(rev)}` : ""}
                   >
                     <div style={{
-                      width:        "100%",
-                      height:       `${Math.max(pct * 90, 3)}px`,
-                      background:   loadingChart
+                      width:          "100%",
+                      height:         `${Math.max(pct * 90, 3)}px`,
+                      background:     loadingChart
                         ? "linear-gradient(90deg,#f3f4f6 25%,#e9eaf0 50%,#f3f4f6 75%)"
                         : "linear-gradient(180deg,#818cf8,#6366f1)",
-                      borderRadius: "4px 4px 0 0",
+                      borderRadius:   "4px 4px 0 0",
                       backgroundSize: "200% 100%",
-                      animation:    loadingChart
-                        ? "sdShimmer 1.4s infinite" : "none",
-                      transition:   "height 0.3s ease",
+                      animation:      loadingChart ? "sdShimmer 1.4s infinite" : "none",
+                      transition:     "height 0.3s ease",
                     }} />
                     {!loadingChart && (
-                      <span style={{ fontSize: "0.55rem",
-                        color: "#9ca3af", overflow: "hidden",
-                        textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        maxWidth: "100%", textAlign: "center" }}>
-                        {d.label}
+                      <span style={{
+                        fontSize:      "0.55rem",
+                        color:         "#9ca3af",
+                        overflow:      "hidden",
+                        textOverflow:  "ellipsis",
+                        whiteSpace:    "nowrap",
+                        maxWidth:      "100%",
+                        textAlign:     "center",
+                      }}>
+                        {d?.label ?? ""}
                       </span>
                     )}
                   </div>
@@ -279,7 +496,7 @@ export default function Overview({ vendor, onNavigate }) {
           <div style={ov.cardHeader}>
             <h3 style={ov.cardTitle}>🏆 Top Products</h3>
             <button
-              onClick={() => onNavigate("products")}
+              onClick={() => goTo("products")}
               style={ov.viewAllBtn}
             >
               View all
@@ -294,54 +511,75 @@ export default function Overview({ vendor, onNavigate }) {
               <p>No products yet</p>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column",
-              gap: "0.875rem" }}>
+            <div style={{
+              display:       "flex",
+              flexDirection: "column",
+              gap:           "0.875rem",
+            }}>
               {topProducts.map((p, i) => {
-                const maxP = topProducts[0]?.revenue ?? 1;
-                const RANKS = ["🥇","🥈","🥉","4️⃣","5️⃣"];
+                const maxP  = Number(topProducts[0]?.revenue) || 1;
+                const rev   = Number(p?.revenue) || 0;
+                const RANKS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"];
                 return (
-                  <div key={p.id}>
-                    <div style={{ display: "flex",
+                  <div key={p?.id ?? i}>
+                    <div style={{
+                      display:        "flex",
                       justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: "0.3rem" }}>
-                      <div style={{ display: "flex",
-                        alignItems: "center", gap: "0.5rem",
-                        minWidth: 0 }}>
-                        <span style={{ fontSize: "1rem",
-                          flexShrink: 0 }}>
-                          {RANKS[i] ?? `${i+1}.`}
+                      alignItems:     "center",
+                      marginBottom:   "0.3rem",
+                    }}>
+                      <div style={{
+                        display:    "flex",
+                        alignItems: "center",
+                        gap:        "0.5rem",
+                        minWidth:   0,
+                      }}>
+                        <span style={{ fontSize: "1rem", flexShrink: 0 }}>
+                          {RANKS[i] ?? `${i + 1}.`}
                         </span>
                         <div style={{ minWidth: 0 }}>
-                          <p style={{ fontWeight: 600,
-                            color: "#1f2937", margin: 0,
-                            fontSize: "0.82rem",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            maxWidth: "150px" }}>
-                            {p.name}
+                          <p style={{
+                            fontWeight:    600,
+                            color:         "#1f2937",
+                            margin:        0,
+                            fontSize:      "0.82rem",
+                            overflow:      "hidden",
+                            textOverflow:  "ellipsis",
+                            whiteSpace:    "nowrap",
+                            maxWidth:      150,
+                          }}>
+                            {p?.name ?? "Product"}
                           </p>
-                          <p style={{ color: "#9ca3af",
-                            fontSize: "0.68rem", margin: 0 }}>
-                            {p.total_sold} sold
+                          <p style={{
+                            color:    "#9ca3af",
+                            fontSize: "0.68rem",
+                            margin:   0,
+                          }}>
+                            {p?.total_sold ?? 0} sold
                           </p>
                         </div>
                       </div>
-                      <span style={{ fontWeight: 700,
-                        color: "#10b981", fontSize: "0.82rem",
-                        whiteSpace: "nowrap", marginLeft: "0.5rem" }}>
-                        {fmtShort(p.revenue)}
+                      <span style={{
+                        fontWeight: 700,
+                        color:      "#10b981",
+                        fontSize:   "0.82rem",
+                        whiteSpace: "nowrap",
+                        marginLeft: "0.5rem",
+                      }}>
+                        {fmtShort(rev)}
                       </span>
                     </div>
-                    <div style={{ height: "4px",
-                      background: "#f3f4f6",
-                      borderRadius: "100px", overflow: "hidden" }}>
+                    <div style={{
+                      height:       4,
+                      background:   "#f3f4f6",
+                      borderRadius: 100,
+                      overflow:     "hidden",
+                    }}>
                       <div style={{
                         height:       "100%",
-                        width:        `${(p.revenue / maxP) * 100}%`,
+                        width:        `${(rev / maxP) * 100}%`,
                         background:   "linear-gradient(90deg,#6366f1,#8b5cf6)",
-                        borderRadius: "100px",
+                        borderRadius: 100,
                         transition:   "width 0.4s ease",
                       }} />
                     </div>
@@ -357,45 +595,45 @@ export default function Overview({ vendor, onNavigate }) {
       {/* ── Quick actions ───────────────────────────────── */}
       <div style={ov.quickGrid}>
         {[
-          { icon:"📦", label:"View Orders",
-            sub:`${stats?.pending_orders ?? 0} pending`,
-            page:"orders",   color:"#6366f1" },
-          { icon:"➕", label:"Add Product",
-            sub:"List a new item",
-            page:"products",  color:"#10b981" },
-          { icon:"💸", label:"Withdraw",
-            sub:"Request payout",
-            page:"payouts",   color:"#f59e0b" },
-          { icon:"📊", label:"Analytics",
-            sub:"Sales insights",
-            page:"analytics", color:"#8b5cf6" },
+          { icon: "📦", label: "View Orders",  sub: `${stats?.pending_orders ?? 0} pending`, page: "orders",    color: "#6366f1" },
+          { icon: "➕", label: "Add Product",  sub: "List a new item",                        page: "products",  color: "#10b981" },
+          { icon: "💸", label: "Withdraw",     sub: "Request payout",                         page: "payouts",   color: "#f59e0b" },
+          { icon: "📊", label: "Analytics",    sub: "Sales insights",                         page: "analytics", color: "#8b5cf6" },
         ].map(({ icon, label, sub, page, color }) => (
           <button
             key={page}
-            onClick={() => onNavigate(page)}
+            onClick={() => goTo(page)}
             style={ov.quickBtn}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = color;
-              e.currentTarget.style.boxShadow =
-                `0 2px 12px ${color}22`;
+              e.currentTarget.style.boxShadow   = `0 2px 12px ${color}22`;
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.borderColor = "#f3f4f6";
-              e.currentTarget.style.boxShadow =
-                "0 1px 3px rgba(0,0,0,0.04)";
+              e.currentTarget.style.boxShadow   = "0 1px 3px rgba(0,0,0,0.04)";
             }}
           >
-            <div style={{ ...ov.quickIcon,
-              background: color + "15", color }}>
+            <div style={{
+              ...ov.quickIcon,
+              background: color + "15",
+              color,
+            }}>
               {icon}
             </div>
             <div style={{ textAlign: "left", minWidth: 0 }}>
-              <p style={{ fontWeight: 700, color: "#1f2937",
-                margin: 0, fontSize: "0.875rem" }}>
+              <p style={{
+                fontWeight: 700,
+                color:      "#1f2937",
+                margin:     0,
+                fontSize:   "0.875rem",
+              }}>
                 {label}
               </p>
-              <p style={{ color: "#9ca3af", fontSize: "0.72rem",
-                margin: 0 }}>
+              <p style={{
+                color:    "#9ca3af",
+                fontSize: "0.72rem",
+                margin:   0,
+              }}>
                 {sub}
               </p>
             </div>
@@ -405,10 +643,10 @@ export default function Overview({ vendor, onNavigate }) {
 
       {/* ── Recent orders ───────────────────────────────── */}
       <div style={ov.tableCard}>
-        <div style={ov.cardHeader}>
+        <div style={{ ...ov.cardHeader, padding: "1rem 1.25rem 0" }}>
           <h3 style={ov.cardTitle}>📋 Recent Orders</h3>
           <button
-            onClick={() => onNavigate("orders")}
+            onClick={() => goTo("orders")}
             style={ov.viewAllBtn}
           >
             View all →
@@ -427,65 +665,75 @@ export default function Overview({ vendor, onNavigate }) {
             <table style={ov.table}>
               <thead>
                 <tr>
-                  {[
-                    "Customer","Items","Amount","Status","Date",
-                  ].map((h) => (
+                  {["Customer", "Items", "Amount", "Status", "Date"].map((h) => (
                     <th key={h} style={ov.th}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o) => {
-                  const sc = STATUS_BADGE[o.status]
-                    ?? STATUS_BADGE.pending;
+                {orders.map((o, i) => {
+                  const sc = STATUS_BADGE[o?.status] ?? STATUS_BADGE.pending;
                   return (
                     <tr
-                      key={o.id}
+                      key={o?.id ?? i}
                       style={ov.tr}
+                      onClick={() => goTo("orders")}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = "#fafafa";
+                        e.currentTarget.style.cursor     = "pointer";
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = "";
                       }}
                     >
                       <td style={ov.td}>
-                        <p style={{ fontWeight: 600,
-                          color: "#1f2937", margin: 0,
-                          fontSize: "0.875rem" }}>
-                          {o.customer_name ?? "Guest"}
+                        <p style={{
+                          fontWeight: 600,
+                          color:      "#1f2937",
+                          margin:     0,
+                          fontSize:   "0.875rem",
+                        }}>
+                          {/*
+                           * ✅ FIX: was o.customer_name only — API returns
+                           * buyer_name (new schema) or customer_name (legacy).
+                           */}
+                          {o?.buyer_name ?? o?.customer_name ?? "Guest"}
                         </p>
                       </td>
                       <td style={ov.td}>
-                        <span style={{ fontWeight: 600,
-                          color: "#374151" }}>
-                          {o.item_count ?? "—"}
+                        <span style={{ fontWeight: 600, color: "#374151" }}>
+                          {o?.item_count ?? "—"}
                         </span>
                       </td>
                       <td style={ov.td}>
-                        <span style={{ fontWeight: 700,
-                          color: "#1f2937" }}>
-                          {fmt(o.total)}
+                        <span style={{ fontWeight: 700, color: "#1f2937" }}>
+                          {/*
+                           * ✅ FIX: order response uses subtotal or grand_total
+                           * depending on schema — try both.
+                           */}
+                          {fmt(o?.total ?? o?.grand_total ?? o?.subtotal)}
                         </span>
                       </td>
                       <td style={ov.td}>
                         <span style={{
                           padding:      "0.2rem 0.6rem",
-                          borderRadius: "100px",
+                          borderRadius: 100,
                           fontSize:     "0.72rem",
                           fontWeight:   700,
                           background:   sc.bg,
                           color:        sc.color,
                           whiteSpace:   "nowrap",
                         }}>
-                          {o.status}
+                          {o?.status ?? "pending"}
                         </span>
                       </td>
                       <td style={ov.td}>
-                        <span style={{ color: "#9ca3af",
-                          fontSize: "0.78rem",
-                          whiteSpace: "nowrap" }}>
-                          {fmtDate(o.created_at)}
+                        <span style={{
+                          color:      "#9ca3af",
+                          fontSize:   "0.78rem",
+                          whiteSpace: "nowrap",
+                        }}>
+                          {fmtDate(o?.created_at)}
                         </span>
                       </td>
                     </tr>
@@ -501,6 +749,9 @@ export default function Overview({ vendor, onNavigate }) {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   STYLES
+═══════════════════════════════════════════════════════════════ */
 const ov = {
   root: {
     display:       "flex",
@@ -525,14 +776,14 @@ const ov = {
     color:      "white",
   },
   bannerSub: {
-    opacity:   0.78,
-    margin:    "0.3rem 0 0",
-    fontSize:  "0.875rem",
+    opacity:  0.78,
+    margin:   "0.3rem 0 0",
+    fontSize: "0.875rem",
   },
   rangePicker: {
-    display:   "flex",
-    gap:       "0.35rem",
-    flexWrap:  "wrap",
+    display:  "flex",
+    gap:      "0.35rem",
+    flexWrap: "wrap",
   },
   rangeBtn: {
     padding:      "0.4rem 0.875rem",
@@ -635,6 +886,7 @@ const ov = {
     width:          "100%",
     borderCollapse: "collapse",
     fontSize:       "0.875rem",
+    marginTop:      "1rem",
   },
   th: {
     padding:       "0.75rem 1.25rem",
@@ -652,7 +904,7 @@ const ov = {
     transition:   "background 0.1s",
   },
   td: {
-    padding:  "0.875rem 1.25rem",
-    color:    "#374151",
+    padding: "0.875rem 1.25rem",
+    color:   "#374151",
   },
 };
