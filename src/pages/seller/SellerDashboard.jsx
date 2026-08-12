@@ -1,14 +1,17 @@
 // pages/seller/SellerDashboard.jsx
 // ═════════════════════════════════════════════════════════════
-// Seller Dashboard main shell.
+// Seller Dashboard shell.
 //
-// v4 — Token key aligned + polling loop fixed + safety nets
+// v5 — Uses /api/seller-auth/me for auth (no more 401 loop)
 // ─────────────────────────────────────────────────────────────
-// Reads JWT from localStorage["sellerToken"] — same key that:
-//   • sellerAuth.routes.js  writes on login
-//   • useSellerFlow.js       reads on onboarding
+// Auth flow:
+//   1. Read "sellerToken" from localStorage
+//   2. Verify with GET /api/seller-auth/me  ← same secret as /login
+//   3. Optionally load vendor from /api/seller-onboarding/status
+//      (missing vendor is OK — user just hasn't set up store yet)
 //
-// Provides <DashboardContext> to all sub-pages via useDashboard().
+// If /me returns 401 → token really is invalid → clear + redirect.
+// If /status returns 404 or fails → keep user logged in, show empty state.
 // ═════════════════════════════════════════════════════════════
 
 import React, {
@@ -40,7 +43,6 @@ import "./styles/SellerDashboard.css";
 
 /* ═════════════════════════════════════════════════════════════
    CONSTANTS
-   ✅ "sellerToken" matches sellerAuth.routes.js + useSellerFlow.js
 ═════════════════════════════════════════════════════════════ */
 export const SELLER_TOKEN_KEY = "sellerToken";
 
@@ -70,10 +72,7 @@ export const sellerSignOut = () => {
   window.location.href = "/become-seller";
 };
 
-/*
- * ✅ One-time migration — same as useSellerFlow.js
- *    Handles users who had tokens under the old key.
- */
+/* One-time migration from old token keys */
 (function migrateLegacyToken() {
   if (typeof window === "undefined") return;
 
@@ -97,34 +96,33 @@ export const sellerSignOut = () => {
 
 /* ═════════════════════════════════════════════════════════════
    AXIOS INSTANCE
+   ─────────────────────────────────────────────────────
+   ✅ FIX: No global 401 interceptor that redirects.
+   The redirect loop was caused by that interceptor firing
+   on /api/seller-onboarding/status which validates tokens
+   differently than /api/seller-auth/login signs them.
+   We now handle 401 explicitly in loadSession() only.
 ═════════════════════════════════════════════════════════════ */
 const _http = axios.create({
-  /* Reads from Vite env — set VITE_API_URL in .env if needed */
   baseURL : import.meta.env.VITE_API_URL ?? "",
   timeout : 20_000,
   headers : { "Content-Type": "application/json" },
 });
 
-/* Attach token on every request */
 _http.interceptors.request.use((config) => {
   const token = getSellerToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-/* Handle 401 globally — only redirect if we actually had a token */
-_http.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401 && getSellerToken()) {
-      clearSellerToken();
-      window.location.href = "/become-seller";
-    }
-    return Promise.reject(err);
-  }
-);
+/*
+ * ✅ NO global 401 redirect interceptor.
+ * We handle auth failures explicitly in loadSession() so we
+ * can distinguish between:
+ *   - Genuine expired token   → clear + redirect
+ *   - Onboarding endpoint 401 → different problem, don't clear
+ */
 
-/* Shared API — used by all seller sub-pages */
 export const sellerApi = {
   get    : (url, config)       => _http.get(url, config),
   post   : (url, data, config) => _http.post(url, data, config),
@@ -141,44 +139,23 @@ const DashboardContext = createContext(null);
 export const useDashboard = () => {
   const ctx = useContext(DashboardContext);
   if (!ctx) {
-    throw new Error(
-      "useDashboard must be used inside <SellerDashboard />"
-    );
+    throw new Error("useDashboard must be used inside <SellerDashboard />");
   }
   return ctx;
 };
 
 /* ═════════════════════════════════════════════════════════════
-   ERROR CODE → USER MESSAGE
+   ERROR MESSAGES
 ═════════════════════════════════════════════════════════════ */
 const ERROR_MESSAGES = {
   NO_TOKEN           : "No seller account found. Please sign in.",
-  NOT_SELLER_ACCOUNT :
-    "This account is not registered as a seller. " +
-    "Please use your seller credentials.",
-  ACCOUNT_SUSPENDED  :
-    "Your seller account has been suspended. Contact support for help.",
-  NO_VENDOR          : "No store found. Please complete seller setup.",
-  VENDOR_NOT_ACTIVE  : "Your store is pending approval. Check back soon.",
   TOKEN_EXPIRED      : "Your session has expired. Please sign in again.",
   INVALID_TOKEN      : "Invalid session. Please sign in again.",
-  TIMEOUT            :
-    "Connection timed out. The server may be starting up — please retry.",
+  NOT_SELLER_ACCOUNT : "This account is not registered as a seller.",
+  ACCOUNT_SUSPENDED  : "Your seller account has been suspended.",
+  TIMEOUT            : "Connection timed out. The server may be starting up — please retry.",
   NETWORK            : "Could not reach the server. Check your connection.",
 };
-
-const AUTH_ERROR_CODES = new Set([
-  "NO_TOKEN",
-  "TOKEN_EXPIRED",
-  "INVALID_TOKEN",
-  "NOT_SELLER_ACCOUNT",
-  "ACCOUNT_SUSPENDED",
-]);
-
-const ONBOARDING_ERROR_CODES = new Set([
-  "NO_VENDOR",
-  "VENDOR_NOT_ACTIVE",
-]);
 
 /* ═════════════════════════════════════════════════════════════
    DEV DIAGNOSTIC
@@ -187,31 +164,12 @@ const runTokenDiagnostic = () => {
   if (import.meta.env.MODE !== "development") return;
 
   console.group("🔍 [SellerDashboard] Token Diagnostic");
-
   const val = localStorage.getItem(SELLER_TOKEN_KEY);
   console.log(
     val
       ? `  ✅ "${SELLER_TOKEN_KEY}": ${val.slice(0, 40)}…`
       : `  ❌ "${SELLER_TOKEN_KEY}": NOT FOUND`
   );
-
-  /* Warn about mismatched keys */
-  const otherKeys = ["seller_token", "token", "auth_token", "jwt"];
-  otherKeys.forEach((k) => {
-    if (k !== SELLER_TOKEN_KEY && localStorage.getItem(k)) {
-      console.warn(
-        `  ⚠️  "${k}" also has a value. Dashboard reads "${SELLER_TOKEN_KEY}" — ` +
-        `run the migration or clear old keys.`
-      );
-    }
-  });
-
-  if (!val) {
-    console.error(
-      `  💥 Dashboard will redirect to /become-seller — no token found.`
-    );
-  }
-
   console.groupEnd();
 };
 
@@ -230,9 +188,9 @@ const LoadingScreen = ({ stage, timeoutHit }) => (
       <p className="sd-center-card__msg">
         {timeoutHit
           ? "Server is waking up — please wait…"
-          : stage === "notifications"
-            ? "Almost ready…"
-            : "Loading your dashboard…"}
+          : stage === "vendor"
+            ? "Loading your store…"
+            : "Verifying session…"}
       </p>
       {timeoutHit && (
         <button className="sd-ghost-btn" onClick={sellerSignOut}>
@@ -247,18 +205,12 @@ const LoadingScreen = ({ stage, timeoutHit }) => (
    ERROR SCREEN
 ═════════════════════════════════════════════════════════════ */
 const ErrorScreen = ({ error, code, raw, onRetry }) => {
-  const isAuthErr       = AUTH_ERROR_CODES.has(code);
-  const isOnboardingErr = ONBOARDING_ERROR_CODES.has(code);
+  const isAuthErr = ["NO_TOKEN", "TOKEN_EXPIRED", "INVALID_TOKEN",
+                     "NOT_SELLER_ACCOUNT", "ACCOUNT_SUSPENDED"].includes(code);
 
   const friendlyMsg = ERROR_MESSAGES[code] ?? error ?? "Something went wrong.";
-
-  const emoji = isAuthErr       ? "🔐"
-              : isOnboardingErr ? "🏪"
-              :                   "⚠️";
-
-  const title = isAuthErr       ? "Sign In Required"
-              : isOnboardingErr ? "Store Not Ready"
-              :                   "Dashboard Error";
+  const emoji       = isAuthErr ? "🔐" : "⚠️";
+  const title       = isAuthErr ? "Sign In Required" : "Dashboard Error";
 
   return (
     <div className="sd-center-wrap">
@@ -273,30 +225,21 @@ const ErrorScreen = ({ error, code, raw, onRetry }) => {
             <pre className="sd-debug-panel__body">
               {JSON.stringify({
                 code, error, raw,
-                tokenKey   : SELLER_TOKEN_KEY,
                 tokenFound : !!getSellerToken(),
-                allKeys    : Object.keys(localStorage),
+                tokenKey   : SELLER_TOKEN_KEY,
               }, null, 2)}
             </pre>
           </details>
         )}
 
         <div className="sd-center-card__actions">
-          {!isAuthErr && !isOnboardingErr && (
+          {!isAuthErr && (
             <button className="sd-primary-btn" onClick={onRetry}>
               🔄 Try Again
             </button>
           )}
-          {isOnboardingErr && (
-            <button
-              className="sd-primary-btn"
-              onClick={() => { window.location.href = "/become-seller"; }}
-            >
-              🏪 Go to Store Setup
-            </button>
-          )}
           <button className="sd-danger-btn" onClick={sellerSignOut}>
-            ↩ {isAuthErr ? "Sign In to Seller" : "Sign Out"}
+            ↩ {isAuthErr ? "Sign In" : "Sign Out"}
           </button>
         </div>
       </div>
@@ -311,10 +254,10 @@ export default function SellerDashboard() {
   const { tab: tabParam } = useParams();
   const routerNavigate    = useNavigate();
 
-  /* ── Core state ──────────────────────────────────────────── */
   const [activePage,  setActivePage]  = useState(tabFromParam(tabParam));
-  const [vendor,      setVendor]      = useState(null);
-  const [loadStage,   setLoadStage]   = useState("vendor");
+  const [user,        setUser]        = useState(null);   /* from /me */
+  const [vendor,      setVendor]      = useState(null);   /* from /status */
+  const [loadStage,   setLoadStage]   = useState("session");
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
   const [errorCode,   setErrorCode]   = useState(null);
@@ -323,32 +266,19 @@ export default function SellerDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hasToken,    setHasToken]    = useState(() => !!getSellerToken());
 
-  /* ── Notification state ─────────────────────────────────── */
   const [notifications, setNotifications] = useState([]);
   const [unreadCount,   setUnreadCount]   = useState(0);
 
-  /* Refs */
   const abortRef       = useRef(null);
   const unreadCountRef = useRef(0);
 
-  /* Keep ref in sync with state (used by polling) */
   useEffect(() => { unreadCountRef.current = unreadCount; }, [unreadCount]);
-
-  /* Dev diagnostic on mount */
   useEffect(() => { runTokenDiagnostic(); }, []);
-
-  /* Sync tab from URL */
   useEffect(() => {
     if (tabParam) setActivePage(tabFromParam(tabParam));
   }, [tabParam]);
-
-  /* Close sidebar on page change */
   useEffect(() => { setSidebarOpen(false); }, [activePage]);
 
-  /* ═══════════════════════════════════════════════════════════
-     NAVIGATE — updates state + URL atomically
-     ✅ replace:true only on tab switch (preserves back button)
-  ═══════════════════════════════════════════════════════════ */
   const navigate = useCallback(
     (page, { replace = true } = {}) => {
       if (!VALID_TABS.includes(page)) return;
@@ -359,11 +289,20 @@ export default function SellerDashboard() {
   );
 
   /* ═══════════════════════════════════════════════════════════
-     LOAD VENDOR
+     LOAD SESSION
+     ─────────────────────────────────────────────────────
+     ✅ FIX: Two-step auth check to prevent redirect loop.
+     Step 1: /api/seller-auth/me (authoritative — same secret as /login)
+     Step 2: /api/seller-onboarding/status (optional — vendor may not exist)
+
+     If step 1 fails with 401 → real auth problem → clear + redirect.
+     If step 2 fails → keep user logged in, show empty vendor state.
   ═══════════════════════════════════════════════════════════ */
-  const loadVendor = useCallback(async () => {
+  const loadSession = useCallback(async () => {
     const token = getSellerToken();
+
     if (!token) {
+      console.log("[SellerDashboard] No token — redirecting to sign in");
       setHasToken(false);
       setError("No seller account found.");
       setErrorCode("NO_TOKEN");
@@ -375,113 +314,158 @@ export default function SellerDashboard() {
     abortRef.current = new AbortController();
 
     setLoading(true);
-    setLoadStage("vendor");
+    setLoadStage("session");
     setError(null);
     setErrorCode(null);
     setErrorRaw(null);
     setTimeoutHit(false);
 
-    /* "Server is waking up" hint after 7s */
     const slowTimer = setTimeout(() => setTimeoutHit(true), 7_000);
 
     try {
-      const { data } = await sellerApi.get(
-        "/api/seller-onboarding/status",
-        { signal: abortRef.current.signal }
-      );
+      /* ════════════════════════════════════════════════
+         STEP 1 — Verify session with /api/seller-auth/me
+         Uses same JWT_SECRET as /api/seller-auth/login
+      ════════════════════════════════════════════════ */
+      console.log("[SellerDashboard] Step 1: Verifying token with /me…");
 
-      if (import.meta.env.MODE === "development") {
-        console.log("[SellerDashboard] onboarding status:", data);
-      }
+      let userRow = null;
+      try {
+        const { data } = await sellerApi.get("/api/seller-auth/me", {
+          signal: abortRef.current.signal,
+        });
 
-      if (data?.vendor) {
-        const { status } = data.vendor;
-        if (status === "active" || status === "approved") {
-          setVendor(data.vendor);
-          setHasToken(true);
-        } else {
-          setError(`Your store status is: ${status}`);
-          setErrorCode("VENDOR_NOT_ACTIVE");
+        if (!data?.success || !data?.user) {
+          throw new Error("Invalid /me response");
         }
-      } else if (data?.success === false) {
-        setError(data.message ?? "Unknown error");
-        setErrorCode(data.code   ?? "UNKNOWN");
-      } else {
-        setError("No vendor found.");
-        setErrorCode("NO_VENDOR");
+
+        userRow = data.user;
+        setUser(userRow);
+        setHasToken(true);
+        console.log("[SellerDashboard] ✅ Session valid — user:", userRow.email);
+
+      } catch (meErr) {
+        if (axios.isCancel(meErr) || meErr.name === "CanceledError") return;
+
+        const status = meErr.response?.status;
+        const msg    = meErr.response?.data?.message ?? meErr.message;
+
+        console.log("[SellerDashboard] /me failed:", { status, msg });
+
+        setErrorRaw({
+          endpoint : "/api/seller-auth/me",
+          status,
+          message  : msg,
+        });
+
+        if (status === 401) {
+          /* Token really is invalid — clear it */
+          clearSellerToken();
+          setHasToken(false);
+          setError("Your session has expired. Please sign in again.");
+          setErrorCode("TOKEN_EXPIRED");
+
+        } else if (status === 404) {
+          /* User doesn't exist in market.users anymore */
+          clearSellerToken();
+          setHasToken(false);
+          setError("Seller account not found. Please sign in.");
+          setErrorCode("NOT_SELLER_ACCOUNT");
+
+        } else if (status === 0 || !meErr.response) {
+          /* Network error — DON'T clear token */
+          console.warn("[SellerDashboard] Network error — keeping token");
+          setError("Could not reach server. Please check your connection.");
+          setErrorCode("NETWORK");
+
+        } else {
+          setError(msg ?? "Session check failed.");
+          setErrorCode("SERVER_ERROR");
+        }
+
+        setLoading(false);
+        clearTimeout(slowTimer);
+        return;
       }
 
-    } catch (err) {
-      /* Ignore abort errors */
-      if (axios.isCancel(err) || err.name === "CanceledError") return;
+      /* Check status */
+      if (userRow.status && userRow.status !== "active") {
+        clearSellerToken();
+        setHasToken(false);
+        setError("Your account has been suspended.");
+        setErrorCode("ACCOUNT_SUSPENDED");
+        setLoading(false);
+        clearTimeout(slowTimer);
+        return;
+      }
 
-      const httpStatusCode = err.response?.status;
-      const serverCode     = err.response?.data?.code;
-      const serverMsg      = err.response?.data?.message;
-      const networkCode    = err.code;
+      /* ════════════════════════════════════════════════
+         STEP 2 — Load vendor profile (optional)
+         Failure here does NOT log user out.
+      ════════════════════════════════════════════════ */
+      setLoadStage("vendor");
+      console.log("[SellerDashboard] Step 2: Loading vendor profile…");
 
-      if (import.meta.env.MODE === "development") {
-        console.error("[SellerDashboard] loadVendor error:", {
-          httpStatus : httpStatusCode,
-          serverCode,
-          serverMsg,
-          networkCode,
+      try {
+        const { data } = await sellerApi.get(
+          "/api/seller-onboarding/status",
+          { signal: abortRef.current.signal }
+        );
+
+        console.log("[SellerDashboard] vendor status:", data);
+
+        if (data?.vendor) {
+          setVendor(data.vendor);
+        } else {
+          /*
+           * ✅ FIX: no vendor is OK — user just hasn't set up store.
+           * Show a placeholder vendor so dashboard renders.
+           * They can click "Complete Store Setup" to go to onboarding.
+           */
+          console.log("[SellerDashboard] No vendor profile — using placeholder");
+          setVendor({
+            id         : null,
+            user_id    : userRow.id,
+            store_name : userRow.name ?? "Your Store",
+            status     : "pending_setup",
+            _placeholder: true,
+          });
+        }
+
+      } catch (vErr) {
+        if (axios.isCancel(vErr) || vErr.name === "CanceledError") return;
+
+        const vStatus = vErr.response?.status;
+        console.warn("[SellerDashboard] vendor fetch failed:", vStatus, vErr.message);
+
+        /*
+         * ✅ IMPORTANT: Do NOT clear token or redirect on vendor error.
+         * Show placeholder vendor so dashboard is usable.
+         */
+        setVendor({
+          id         : null,
+          user_id    : userRow.id,
+          store_name : userRow.name ?? "Your Store",
+          status     : "pending_setup",
+          _placeholder : true,
+          _error     : vErr.response?.data?.message ?? vErr.message,
         });
       }
 
-      setErrorRaw({
-        httpStatus : httpStatusCode,
-        serverCode,
-        networkCode,
-      });
-
-      if (httpStatusCode === 401) {
-        setHasToken(false);
-        setErrorCode(serverCode ?? "TOKEN_EXPIRED");
-        setError("Session expired. Please sign in again.");
-
-      } else if (httpStatusCode === 403) {
-        setErrorCode(serverCode ?? "FORBIDDEN");
-        setError(serverMsg ?? "Access denied.");
-
-      } else if (httpStatusCode === 404) {
-        setErrorCode(serverCode ?? "NO_VENDOR");
-        setError(serverMsg ?? "No vendor found.");
-
-      } else if (
-        networkCode === "ECONNABORTED" ||
-        networkCode === "ERR_NETWORK"  ||
-        !err.response
-      ) {
-        setErrorCode("TIMEOUT");
-        setError(
-          "Connection timed out. " +
-          "The server may be starting up — please retry."
-        );
-
-      } else if (serverCode) {
-        setErrorCode(serverCode);
-        setError(serverMsg ?? serverCode);
-
-      } else {
-        setErrorCode("UNKNOWN");
-        setError(serverMsg ?? err.message ?? "Unexpected error.");
-      }
-
+    } catch (fatalErr) {
+      console.error("[SellerDashboard] Fatal error:", fatalErr);
+      setError("Unexpected error. Please refresh the page.");
+      setErrorCode("FATAL");
     } finally {
       clearTimeout(slowTimer);
       setLoading(false);
       setLoadStage(null);
     }
-  }, []); /* stable — no deps */
+  }, []);
 
   /* ═══════════════════════════════════════════════════════════
-     NOTIFICATIONS
-     ✅ All callbacks are stable (empty deps) so polling
-        interval doesn't re-subscribe every 60 s.
+     NOTIFICATIONS (unchanged)
   ═══════════════════════════════════════════════════════════ */
-
-  /* Full list load */
   const loadNotifications = useCallback(async () => {
     if (!getSellerToken()) return;
     try {
@@ -498,12 +482,11 @@ export default function SellerDashboard() {
       }
     } catch (err) {
       if (import.meta.env.MODE === "development") {
-        console.warn("[SellerDashboard] notifications load:", err.message);
+        console.warn("[SellerDashboard] notifications:", err.message);
       }
     }
   }, []);
 
-  /* Lightweight count poll — uses ref to avoid stale closure */
   const pollUnreadCount = useCallback(async () => {
     if (!getSellerToken()) return;
     try {
@@ -513,17 +496,13 @@ export default function SellerDashboard() {
       if (data?.success) {
         const incoming = data.count ?? 0;
         const prev     = unreadCountRef.current;
-
         setUnreadCount(incoming);
         unreadCountRef.current = incoming;
-
-        /* New notifications arrived — reload full list */
         if (incoming > prev) loadNotifications();
       }
     } catch { /* silent */ }
   }, [loadNotifications]);
 
-  /* Mark single read — optimistic */
   const markNotifRead = useCallback(async (id) => {
     setNotifications((prev) =>
       prev.map((n) =>
@@ -537,11 +516,9 @@ export default function SellerDashboard() {
       unreadCountRef.current = next;
       return next;
     });
-
     try {
       await sellerApi.patch(`/api/seller/notifications/${id}/read`);
     } catch {
-      /* Rollback on failure */
       setNotifications((prev) =>
         prev.map((n) =>
           n.id === id ? { ...n, read: false, read_at: null } : n
@@ -555,44 +532,36 @@ export default function SellerDashboard() {
     }
   }, []);
 
-  /* Mark all read */
   const markAllRead = useCallback(async () => {
     const hasUnread = notifications.some((n) => !n.read);
     if (!hasUnread) return;
-
     const now = new Date().toISOString();
     setNotifications((prev) =>
       prev.map((n) => ({ ...n, read: true, read_at: now }))
     );
     setUnreadCount(0);
     unreadCountRef.current = 0;
-
     try {
       await sellerApi.patch("/api/seller/notifications/read-all");
     } catch {
-      loadNotifications(); /* reload real state */
+      loadNotifications();
     }
   }, [notifications, loadNotifications]);
 
   /* Mount */
   useEffect(() => {
-    loadVendor();
+    loadSession();
     return () => { abortRef.current?.abort(); };
-  }, [loadVendor]);
+  }, [loadSession]);
 
-  /* Start notifications polling once vendor confirmed */
+  /* Notifications polling — only when vendor confirmed */
   useEffect(() => {
-    if (!vendor) return;
-
+    if (!vendor || vendor._placeholder) return;
     loadNotifications();
-
     const t = setInterval(pollUnreadCount, 60_000);
     return () => clearInterval(t);
   }, [vendor, loadNotifications, pollUnreadCount]);
 
-  /* ═══════════════════════════════════════════════════════════
-     PAGE MAP — stable, never recreated
-  ═══════════════════════════════════════════════════════════ */
   const pageMap = useMemo(() => ({
     overview  : <Overview  />,
     orders    : <Orders    />,
@@ -602,43 +571,30 @@ export default function SellerDashboard() {
     settings  : <Settings  />,
   }), []);
 
-  /* ═══════════════════════════════════════════════════════════
-     CONTEXT VALUE
-     ✅ Memoised so consumers don't re-render on unrelated updates
-  ═══════════════════════════════════════════════════════════ */
   const ctxValue = useMemo(() => ({
-    /* Vendor */
+    user,
     vendor,
     setVendor,
-    reloadVendor        : loadVendor,
-
-    /* Navigation */
+    reloadVendor: loadSession,
     activePage,
     navigate,
-
-    /* Notifications */
     notifications,
     unreadCount,
     markNotifRead,
     markAllRead,
-    reloadNotifications : loadNotifications,
+    reloadNotifications: loadNotifications,
   }), [
-    vendor,
-    activePage,
-    navigate,
-    notifications,
-    unreadCount,
-    markNotifRead,
-    markAllRead,
-    loadVendor,
-    loadNotifications,
+    user, vendor, activePage, navigate,
+    notifications, unreadCount,
+    markNotifRead, markAllRead,
+    loadSession, loadNotifications,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
      RENDER GUARDS
   ═══════════════════════════════════════════════════════════ */
 
-  /* 1. No token — redirect */
+  /* 1. No token → login */
   if (!hasToken && !loading) {
     return <Navigate to="/become-seller" replace />;
   }
@@ -648,16 +604,14 @@ export default function SellerDashboard() {
     return <LoadingScreen stage={loadStage} timeoutHit={timeoutHit} />;
   }
 
-  /* 3. Vendor not set up → onboarding */
-  if (
-    errorCode === "VENDOR_NOT_ACTIVE" ||
-    errorCode === "NO_VENDOR"
-  ) {
+  /* 3. Auth error → login */
+  if (["TOKEN_EXPIRED", "INVALID_TOKEN", "NOT_SELLER_ACCOUNT",
+       "ACCOUNT_SUSPENDED", "NO_TOKEN"].includes(errorCode)) {
     return <Navigate to="/become-seller" replace />;
   }
 
-  /* 4. All other errors */
-  if (error || !vendor) {
+  /* 4. Other error → show retry */
+  if (error && !user) {
     return (
       <ErrorScreen
         error={error}
@@ -667,20 +621,19 @@ export default function SellerDashboard() {
           setError(null);
           setErrorCode(null);
           setErrorRaw(null);
-          loadVendor();
+          loadSession();
         }}
       />
     );
   }
 
   /* ═══════════════════════════════════════════════════════════
-     DASHBOARD RENDER
+     RENDER
   ═══════════════════════════════════════════════════════════ */
   return (
     <DashboardContext.Provider value={ctxValue}>
       <div className="sd-root">
 
-        {/* Mobile overlay */}
         {sidebarOpen && (
           <div
             className="sd-mobile-overlay"
@@ -689,7 +642,6 @@ export default function SellerDashboard() {
           />
         )}
 
-        {/* Desktop sidebar */}
         <aside className="sd-sidebar-desktop" aria-label="Sidebar">
           <Sidebar
             vendor={vendor}
@@ -700,12 +652,8 @@ export default function SellerDashboard() {
           />
         </aside>
 
-        {/* Mobile sidebar */}
         {sidebarOpen && (
-          <aside
-            className="sd-sidebar-mobile"
-            aria-label="Mobile sidebar"
-          >
+          <aside className="sd-sidebar-mobile" aria-label="Mobile sidebar">
             <Sidebar
               vendor={vendor}
               activePage={activePage}
@@ -717,7 +665,6 @@ export default function SellerDashboard() {
           </aside>
         )}
 
-        {/* Main content */}
         <div className="sd-main">
           <TopBar
             vendor={vendor}
@@ -729,11 +676,47 @@ export default function SellerDashboard() {
             onMarkAllRead={markAllRead}
           />
 
+          {/* Setup banner if vendor is a placeholder */}
+          {vendor?._placeholder && (
+            <div style={{
+              margin:       "16px 20px 0",
+              padding:      "12px 16px",
+              background:   "#fef3c7",
+              border:       "1px solid #fde68a",
+              borderRadius: 12,
+              display:      "flex",
+              justifyContent: "space-between",
+              alignItems:   "center",
+              flexWrap:     "wrap",
+              gap:          10,
+            }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 700, color: "#92400e" }}>
+                  🏪 Complete your store setup
+                </p>
+                <p style={{ margin: "4px 0 0", fontSize: 13, color: "#78350f" }}>
+                  Your account is verified but your store isn't set up yet.
+                </p>
+              </div>
+              <button
+                onClick={() => { window.location.href = "/become-seller"; }}
+                style={{
+                  padding:      "8px 16px",
+                  background:   "#f59e0b",
+                  color:        "white",
+                  border:       "none",
+                  borderRadius: 8,
+                  cursor:       "pointer",
+                  fontWeight:   700,
+                  fontSize:     13,
+                }}
+              >
+                Set Up Store →
+              </button>
+            </div>
+          )}
+
           <main className="sd-page-wrap" id="sd-main-content">
-            {/*
-              key={activePage} unmounts + remounts the child on tab
-              switch — clean slate + fade-in animation.
-            */}
             <div key={activePage} className="sd-page-anim">
               {pageMap[activePage] ?? pageMap.overview}
             </div>
