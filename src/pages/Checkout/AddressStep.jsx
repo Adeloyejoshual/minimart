@@ -2,16 +2,23 @@
  * src/pages/Checkout/AddressStep.jsx
  *
  * Step 1 of checkout — delivery address selection & management.
- * Features:
- * - Add / edit / delete addresses (max 3)
- * - Set default address
- * - Bus stop delivery model
- * - Nigerian phone + address validation
- * - Zone-based city selector
+ *
+ * v2 — Bug fixes
+ * ──────────────────────────────────────────────────────────────
+ * ✓ Zones API error surfaced — no more silent empty dropdown
+ * ✓ loading tied to zones fetch completion, not arbitrary timer
+ * ✓ stateOptions / cityOptions memoised
+ * ✓ handleDeleteConfirm uses functional setter (no stale closure)
+ * ✓ alert() replaced with inline error state
+ * ✓ KEYFRAMES injected once via useEffect, not every render
+ * ✓ set() field handler stable via useCallback
+ * ✓ Phone normalisation applied before validation
+ * ✓ formOpened.current managed in one place
  */
 
 import {
-  useState, useEffect, useCallback, useRef, memo,
+  useState, useEffect, useCallback,
+  useRef, useMemo, memo,
 } from "react";
 import axios from "axios";
 
@@ -59,6 +66,35 @@ const BLANK = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   KEYFRAMES — injected once into <head>
+═══════════════════════════════════════════════════════════════ */
+const STYLE_ID = "ck-address-styles";
+
+function ensureKeyframes() {
+  if (document.getElementById(STYLE_ID)) return;
+  const el = document.createElement("style");
+  el.id = STYLE_ID;
+  el.textContent = `
+    @keyframes ck-spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes ck-shimmer {
+      0%   { background-position: -300px 0; }
+      100% { background-position:  300px 0; }
+    }
+    @keyframes ck-modal-in {
+      from { opacity: 0; transform: scale(0.96) translateY(6px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @keyframes ck-dropdown-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  `;
+  document.head.appendChild(el);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    VALIDATION
 ═══════════════════════════════════════════════════════════════ */
 const FAKE_PATTERNS = [
@@ -74,23 +110,32 @@ const isFake = (value = "", minLen = 5) => {
   return FAKE_PATTERNS.some((p) => p.test(t));
 };
 
+/**
+ * Normalise a phone string before validation.
+ * Strips spaces and dashes, converts +234 prefix to leading 0.
+ */
+function normalisePhone(raw = "") {
+  let c = raw.replace(/[\s\-]/g, "");
+  if (c.startsWith("+234")) c = "0" + c.slice(4);
+  if (c.startsWith("234") && c.length === 13) c = "0" + c.slice(3);
+  return c;
+}
+
 const validatePhone = (phone = "") => {
-  const c = phone.replace(/[\s\-]/g, "");
+  const c = normalisePhone(phone);
   if (!c) return "Phone number is required";
-  if (!/^(0[7-9][01]\d{8}|234[7-9][01]\d{8})$/.test(c)) {
-    return "Enter a valid number (e.g. 08012345678)";
-  }
+  if (!/^0[7-9][01]\d{8}$/.test(c))
+    return "Enter a valid Nigerian number (e.g. 08012345678)";
   return null;
 };
 
 const validate = (form) => {
   const errors = {};
 
-  if (!form.recipient_name?.trim()) {
+  if (!form.recipient_name?.trim())
     errors.recipient_name = "Recipient name is required";
-  } else if (form.recipient_name.trim().length < 2) {
+  else if (form.recipient_name.trim().length < 2)
     errors.recipient_name = "Enter a full name";
-  }
 
   const phoneErr = validatePhone(form.phone);
   if (phoneErr) errors.phone = phoneErr;
@@ -98,17 +143,15 @@ const validate = (form) => {
   if (!form.state?.trim())  errors.state = "Select a state";
   if (!form.city?.trim())   errors.city  = "Select a city";
 
-  if (!form.address_line?.trim()) {
+  if (!form.address_line?.trim())
     errors.address_line = "Street address is required";
-  } else if (isFake(form.address_line, 10)) {
+  else if (isFake(form.address_line, 10))
     errors.address_line = "Enter a real address (e.g. No. 5, Oba Adesida Road)";
-  }
 
-  if (!form.bus_stop?.trim()) {
+  if (!form.bus_stop?.trim())
     errors.bus_stop = "Bus stop is required — helps our rider find you";
-  } else if (isFake(form.bus_stop, 5)) {
+  else if (isFake(form.bus_stop, 5))
     errors.bus_stop = "Enter a real bus stop (e.g. Oja Oba bus stop)";
-  }
 
   return errors;
 };
@@ -135,6 +178,51 @@ function Spinner({ size = 14 }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   INLINE ERROR BANNER  (replaces alert())
+═══════════════════════════════════════════════════════════════ */
+function ErrorToast({ message, onDismiss }) {
+  if (!message) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        background   : "#fef2f2",
+        border       : "1px solid #fecaca",
+        borderRadius : 10,
+        padding      : "0.75rem 1rem",
+        color        : "#991b1b",
+        fontSize     : "0.85rem",
+        display      : "flex",
+        alignItems   : "center",
+        gap          : "0.5rem",
+        marginBottom : "0.75rem",
+      }}
+    >
+      <span>⚠️ {message}</span>
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          type="button"
+          style={{
+            marginLeft  : "auto",
+            background  : "none",
+            border      : "none",
+            cursor      : "pointer",
+            color       : "#991b1b",
+            fontWeight  : 700,
+            fontSize    : "1rem",
+            lineHeight  : 1,
+          }}
+          aria-label="Dismiss error"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    DELETE CONFIRMATION MODAL
 ═══════════════════════════════════════════════════════════════ */
 function DeleteModal({ address, onConfirm, onCancel }) {
@@ -148,11 +236,8 @@ function DeleteModal({ address, onConfirm, onCancel }) {
 
   const handleYes = async () => {
     setBusy(true);
-    try {
-      await onConfirm();
-    } finally {
-      setBusy(false);
-    }
+    try   { await onConfirm(); }
+    finally { setBusy(false); }
   };
 
   if (!address) return null;
@@ -167,10 +252,7 @@ function DeleteModal({ address, onConfirm, onCancel }) {
       aria-modal="true"
       aria-label="Delete address"
     >
-      <div
-        className="ck-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="ck-modal" onClick={(e) => e.stopPropagation()}>
         <span className="ck-modal-icon">🗑️</span>
         <h3 className="ck-modal-title">Delete this address?</h3>
 
@@ -213,7 +295,7 @@ function DeleteModal({ address, onConfirm, onCancel }) {
 ═══════════════════════════════════════════════════════════════ */
 function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const ref             = useRef(null);
 
   useEffect(() => {
     if (!open) return;
@@ -225,7 +307,6 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
 
     document.addEventListener("mousedown", close);
     window.addEventListener("keydown", esc);
-
     return () => {
       document.removeEventListener("mousedown", close);
       window.removeEventListener("keydown", esc);
@@ -280,27 +361,6 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   INLINE STYLES (keyframes)
-═══════════════════════════════════════════════════════════════ */
-const KEYFRAMES = `
-  @keyframes ck-spin {
-    to { transform: rotate(360deg); }
-  }
-  @keyframes ck-shimmer {
-    0%   { background-position: -300px 0; }
-    100% { background-position:  300px 0; }
-  }
-  @keyframes ck-modal-in {
-    from { opacity: 0; transform: scale(0.96) translateY(6px); }
-    to   { opacity: 1; transform: scale(1) translateY(0); }
-  }
-  @keyframes ck-dropdown-in {
-    from { opacity: 0; transform: translateY(-4px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-`;
-
-/* ═══════════════════════════════════════════════════════════════
    SKELETON
 ═══════════════════════════════════════════════════════════════ */
 function AddressSkeleton() {
@@ -335,51 +395,85 @@ const AddressStep = memo(function AddressStep({
   onNext,
   user,
 }) {
-  const [zones,     setZones]     = useState({});
+  const [zones,      setZones]      = useState({});
+  const [zonesError, setZonesError] = useState(null);
+  const [zonesReady, setZonesReady] = useState(false);  // ← true when fetch done
+
   const [showForm,  setShowForm]  = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form,      setForm]      = useState(BLANK);
   const [errors,    setErrors]    = useState({});
   const [saving,    setSaving]    = useState(false);
   const [delTarget, setDelTarget] = useState(null);
-  const [deleting,  setDeleting]  = useState(false);
-  const [loading,   setLoading]   = useState(true);
+  const [actionErr, setActionErr] = useState(null);  // replaces alert()
 
   const formOpened = useRef(false);
 
-  // ── Pre-filled blank ──────────────────────────────────────
+  /* ── Inject keyframes once ── */
+  useEffect(() => { ensureKeyframes(); }, []);
+
+  /* ── Pre-filled blank ── */
   const makeBlank = useCallback(() => ({
     ...BLANK,
     recipient_name : user?.name         ?? "",
     phone          : user?.phone_number ?? "",
   }), [user]);
 
-  // ── Load zones ────────────────────────────────────────────
+  /* ══════════════════════════════════════════════════════════
+     LOAD ZONES
+     ─────────────────────────────────────────────────────────
+     zonesReady gates the skeleton — loading is only done
+     when the fetch resolves (success or error), not after
+     an arbitrary 300ms timer.
+  ══════════════════════════════════════════════════════════ */
   useEffect(() => {
+    let cancelled = false;
+
     axios
       .get(`${API}/checkout/address/zones`, { headers: authHeader() })
-      .then(({ data }) => setZones(data.data ?? {}))
-      .catch(() => {});
+      .then(({ data }) => {
+        if (cancelled) return;
+        const z = data.data ?? {};
+        if (Object.keys(z).length === 0) {
+          /*
+           * API responded but zones object is empty.
+           * Surface this so the user sees something useful
+           * rather than a select with no options.
+           */
+          setZonesError(
+            "Delivery zones could not be loaded. " +
+            "Please refresh the page or try again."
+          );
+        }
+        setZones(z);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[AddressStep] zones fetch failed:", err.message);
+        setZonesError(
+          "Could not load delivery zones. " +
+          "Please check your connection and refresh."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setZonesReady(true);
+      });
+
+    return () => { cancelled = true; };
   }, []);
 
-  // ── Wait for addresses to load ────────────────────────────
+  /* ── Auto-open form when no addresses ── */
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 300);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // ── Auto-open form when no addresses exist ────────────────
-  useEffect(() => {
-    if (loading) return;
+    if (!zonesReady) return;
     if (addresses.length === 0 && !formOpened.current) {
+      formOpened.current = true;
       setShowForm(true);
       setEditingId(null);
       setForm(makeBlank());
-      formOpened.current = true;
     }
-  }, [loading, addresses.length, makeBlank]);
+  }, [zonesReady, addresses.length, makeBlank]);
 
-  // ── Auto-select default address ───────────────────────────
+  /* ── Auto-select default address ── */
   useEffect(() => {
     if (!selected && addresses.length > 0) {
       const def = addresses.find((a) => a.is_default) ?? addresses[0];
@@ -387,27 +481,32 @@ const AddressStep = memo(function AddressStep({
     }
   }, [addresses, selected, onSelect]);
 
-  // ── Derived ───────────────────────────────────────────────
-  const stateOptions = Object.keys(zones);
-  const cityOptions  = zones[form.state]?.cities ?? [];
-  const atLimit      = addresses.length >= MAX_ADDRESSES;
-  const isEditing    = !!editingId;
+  /* ── Derived (memoised) ── */
+  const stateOptions = useMemo(() => Object.keys(zones).sort(), [zones]);
 
-  // ── Field setter ──────────────────────────────────────────
-  const set = (k) => (e) => {
+  const cityOptions = useMemo(
+    () => (form.state ? (zones[form.state]?.cities ?? []) : []),
+    [zones, form.state]
+  );
+
+  const atLimit   = addresses.length >= MAX_ADDRESSES;
+  const isEditing = !!editingId;
+
+  /* ── Stable field setter ── */
+  const set = useCallback((k) => (e) => {
     const val = e.target.type === "checkbox"
       ? e.target.checked
       : e.target.value;
     setForm((p) => ({ ...p, [k]: val }));
     setErrors((p) => ({ ...p, [k]: "" }));
-  };
+  }, []);
 
-  const handleStateChange = (e) => {
+  const handleStateChange = useCallback((e) => {
     setForm((p) => ({ ...p, state: e.target.value, city: "" }));
     setErrors((p) => ({ ...p, state: "", city: "" }));
-  };
+  }, []);
 
-  // ── Edit ──────────────────────────────────────────────────
+  /* ── Edit ── */
   const handleEdit = useCallback((addr) => {
     setEditingId(addr.id);
     setForm({
@@ -431,7 +530,7 @@ const AddressStep = memo(function AddressStep({
     }, 100);
   }, []);
 
-  // ── Cancel ────────────────────────────────────────────────
+  /* ── Cancel ── */
   const handleCancel = useCallback(() => {
     setShowForm(false);
     setEditingId(null);
@@ -439,7 +538,7 @@ const AddressStep = memo(function AddressStep({
     setForm(makeBlank());
   }, [makeBlank]);
 
-  // ── Save ──────────────────────────────────────────────────
+  /* ── Save ── */
   const handleSave = useCallback(async () => {
     if (saving) return;
 
@@ -503,32 +602,41 @@ const AddressStep = memo(function AddressStep({
     }
   }, [saving, form, editingId, selected, onSelect, setAddresses, makeBlank]);
 
-  // ── Delete ────────────────────────────────────────────────
+  /* ── Delete ── */
   const handleDeleteConfirm = useCallback(async () => {
-    if (!delTarget || deleting) return;
-    setDeleting(true);
+    if (!delTarget) return;
 
     try {
       await axios.delete(
         `${API}/checkout/address/${delTarget.id}`,
         { headers: authHeader() }
       );
-      setAddresses?.((prev) =>
-        prev.filter((a) => a.id !== delTarget.id)
-      );
-      if (selected?.id === delTarget.id) {
-        const rest = addresses.filter((a) => a.id !== delTarget.id);
-        onSelect(rest[0] ?? null);
-      }
+
+      /*
+       * Use functional setter so we never close over a stale
+       * addresses array — the latest state is passed in by React.
+       */
+      setAddresses?.((prev) => {
+        const next = prev.filter((a) => a.id !== delTarget.id);
+
+        /* Update selection if deleted address was selected */
+        if (selected?.id === delTarget.id) {
+          onSelect(next[0] ?? null);
+        }
+
+        return next;
+      });
+
     } catch (err) {
-      alert(err.response?.data?.message ?? "Failed to delete address");
+      setActionErr(
+        err.response?.data?.message ?? "Failed to delete address. Please try again."
+      );
     } finally {
-      setDeleting(false);
       setDelTarget(null);
     }
-  }, [delTarget, deleting, selected, addresses, onSelect, setAddresses]);
+  }, [delTarget, selected, onSelect, setAddresses]);
 
-  // ── Set default ───────────────────────────────────────────
+  /* ── Set default ── */
   const handleSetDefault = useCallback(async (addr) => {
     try {
       await axios.patch(
@@ -541,23 +649,42 @@ const AddressStep = memo(function AddressStep({
       );
       onSelect({ ...addr, is_default: true });
     } catch (err) {
-      alert(err.response?.data?.message ?? "Failed to set default");
+      setActionErr(
+        err.response?.data?.message ?? "Failed to set default address."
+      );
     }
   }, [setAddresses, onSelect]);
 
   /* ════════════════════════════════════════════════════════════
      LOADING SKELETON
+     ─────────────────────────────────────────────────────────
+     Show skeleton until zones fetch resolves (success or error).
+     This guarantees the state dropdown is populated before
+     the form renders.
   ════════════════════════════════════════════════════════════ */
-  if (loading) return <AddressSkeleton />;
+  if (!zonesReady) return <AddressSkeleton />;
 
   /* ════════════════════════════════════════════════════════════
      RENDER
   ════════════════════════════════════════════════════════════ */
   return (
     <div className="ck-section">
-      <style>{KEYFRAMES}</style>
 
       <h2 className="ck-section-title">📍 Delivery Address</h2>
+
+      {/* Action error banner (replaces alert()) */}
+      <ErrorToast
+        message={actionErr}
+        onDismiss={() => setActionErr(null)}
+      />
+
+      {/* Zones fetch error */}
+      {zonesError && (
+        <ErrorToast
+          message={zonesError}
+          onDismiss={() => setZonesError(null)}
+        />
+      )}
 
       {/* Zone notice */}
       <div className="ck-zone-notice">
@@ -609,9 +736,8 @@ const AddressStep = memo(function AddressStep({
             aria-checked={isSelected}
             tabIndex={0}
             onKeyDown={(e) => {
-              if ((e.key === "Enter" || e.key === " ") && !isBeingEdit) {
+              if ((e.key === "Enter" || e.key === " ") && !isBeingEdit)
                 onSelect(addr);
-              }
             }}
           >
             {/* Radio indicator */}
@@ -770,6 +896,11 @@ const AddressStep = memo(function AddressStep({
                 className={`ck-input ${errors.phone ? "ck-input--error" : ""}`}
                 value={form.phone}
                 onChange={(e) => {
+                  /*
+                   * Strip non-digits and cap at 11 chars for
+                   * standard Nigerian format (080XXXXXXXX).
+                   * normalisePhone handles +234 prefix at validate time.
+                   */
                   const v = e.target.value.replace(/\D/g, "").slice(0, 11);
                   setForm((p) => ({ ...p, phone: v }));
                   setErrors((p) => ({ ...p, phone: "" }));
@@ -788,19 +919,48 @@ const AddressStep = memo(function AddressStep({
 
             {/* State */}
             <div className="ck-form-field">
-              <label className="ck-form-label">
+              <label className="ck-form-label" htmlFor="ck-state-select">
                 State <span className="ck-required">*</span>
               </label>
-              <select
-                className={`ck-input ck-select ${errors.state ? "ck-input--error" : ""}`}
-                value={form.state}
-                onChange={handleStateChange}
-              >
-                <option value="">Select state</option>
-                {stateOptions.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+
+              {/*
+               * If zones failed to load, show a retry button instead of
+               * an empty select — user sees the problem and can act on it.
+               */}
+              {stateOptions.length === 0 ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span style={{ color: "#ef4444", fontSize: "0.85rem" }}>
+                    States unavailable
+                  </span>
+                  <button
+                    type="button"
+                    style={{
+                      fontSize     : "0.8rem",
+                      color        : "#6366f1",
+                      background   : "none",
+                      border       : "none",
+                      cursor       : "pointer",
+                      textDecoration : "underline",
+                    }}
+                    onClick={() => window.location.reload()}
+                  >
+                    Reload page
+                  </button>
+                </div>
+              ) : (
+                <select
+                  id="ck-state-select"
+                  className={`ck-input ck-select ${errors.state ? "ck-input--error" : ""}`}
+                  value={form.state}
+                  onChange={handleStateChange}
+                >
+                  <option value="">Select state</option>
+                  {stateOptions.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              )}
+
               {errors.state && (
                 <span className="ck-field-error">{errors.state}</span>
               )}
@@ -808,17 +968,23 @@ const AddressStep = memo(function AddressStep({
 
             {/* City */}
             <div className="ck-form-field">
-              <label className="ck-form-label">
+              <label className="ck-form-label" htmlFor="ck-city-select">
                 City <span className="ck-required">*</span>
               </label>
               <select
+                id="ck-city-select"
                 className={`ck-input ck-select ${errors.city ? "ck-input--error" : ""}`}
                 value={form.city}
                 onChange={set("city")}
-                disabled={!form.state}
+                disabled={!form.state || cityOptions.length === 0}
+                aria-disabled={!form.state || cityOptions.length === 0}
               >
                 <option value="">
-                  {form.state ? "Select city" : "—"}
+                  {!form.state
+                    ? "Select a state first"
+                    : cityOptions.length === 0
+                      ? "No cities available"
+                      : "Select city"}
                 </option>
                 {cityOptions.map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -848,8 +1014,7 @@ const AddressStep = memo(function AddressStep({
             {/* Bus stop */}
             <div className="ck-form-field ck-form-field--full">
               <label className="ck-form-label">
-                🚏 Nearest Bus Stop{" "}
-                <span className="ck-required">*</span>
+                🚏 Nearest Bus Stop <span className="ck-required">*</span>
               </label>
               <div className="ck-busstop-field-note">
                 Enter the bus stop closest to you.
@@ -888,7 +1053,7 @@ const AddressStep = memo(function AddressStep({
               />
             </div>
 
-          </div>{/* end ck-form-grid */}
+          </div>
 
           {/* Call before delivery */}
           <label className="ck-checkbox-label ck-checkbox-label--highlight">
@@ -948,11 +1113,11 @@ const AddressStep = memo(function AddressStep({
         <button
           className="ck-add-address-btn"
           onClick={() => {
+            formOpened.current = true;
             setEditingId(null);
             setForm(makeBlank());
             setErrors({});
             setShowForm(true);
-            formOpened.current = true;
           }}
           type="button"
         >
