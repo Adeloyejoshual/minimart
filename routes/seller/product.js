@@ -14,6 +14,18 @@
  *   PATCH  /api/seller/products/:id/images
  *   DELETE /api/seller/products/:id/images/:imgId
  *   DELETE /api/seller/products/:id
+ *
+ * v2 — Bug fixes
+ * ──────────────────────────────────────────────────────────────
+ * ✓ inFlight guard uses try/finally (no stuck entries)
+ * ✓ Price parsing uses Number() instead of parseInt()
+ * ✓ delivery_options ignored on PUT (delivery agent controlled)
+ * ✓ is_primary promotion uses subquery instead of UPDATE+LIMIT
+ * ✓ assertOwnership checks user_id first (no info leak)
+ * ✓ image count check moved inside transaction (no TOCTOU)
+ * ✓ SKU safeStr includes max length
+ * ✓ Slug only regenerated when name actually changes
+ * ✓ Pagination NaN guards added
  */
 
 import express                from "express";
@@ -45,11 +57,13 @@ const ALLOWED_STATUSES   = new Set([
   "pending", "approved", "rejected",
   "active",  "paused",   "archived",
 ]);
-const PAGE_SIZE_DEFAULT  = 12;
-const PAGE_SIZE_MAX      = 50;
+const PAGE_SIZE_DEFAULT = 12;
+const PAGE_SIZE_MAX     = 50;
 
 /* ══════════════════════════════════════════════════════════════
    SLUG GENERATOR
+   Uniqueness enforced by DB unique constraint on slug.
+   UUID suffix makes collision practically impossible.
 ══════════════════════════════════════════════════════════════ */
 function generateSlug(name, id) {
   const base = String(name)
@@ -62,6 +76,17 @@ function generateSlug(name, id) {
 
   const suffix = String(id).replace(/-/g, "").slice(0, 12);
   return `${base}-${suffix}`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PRICE PARSER
+   Uses Number() to catch inputs like "123abc" that parseInt
+   would silently accept as 123. Math.floor avoids float prices.
+══════════════════════════════════════════════════════════════ */
+function parsePrice(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return isNaN(n) ? null : Math.floor(n);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -80,18 +105,32 @@ function classifyDuplicateError(err) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   SAFE INT PARSER  (for pagination query params)
+   Returns defaultVal if value is missing, non-numeric, or NaN.
+══════════════════════════════════════════════════════════════ */
+function safeInt(value, defaultVal, min = 1, max = Infinity) {
+  const n = parseInt(value, 10);
+  if (isNaN(n)) return defaultVal;
+  return Math.min(max, Math.max(min, n));
+}
+
+/* ══════════════════════════════════════════════════════════════
    OWNERSHIP GUARD
-   Uses req.user.id from authenticateSeller = market.users.id ✓
-   Returns 404 for both "not found" and "not owner" — never
-   confirm a product exists to a user who does not own it.
+   ─────────────────────────────────────────────────────────────
+   Always returns 404 for both "not found" and "wrong owner"
+   — never confirm a product exists to a non-owner.
+
+   Checks user_id BEFORE any other condition to prevent
+   information leakage via different error timing.
 ══════════════════════════════════════════════════════════════ */
 async function assertOwnership(req, res) {
   const { rows } = await pool.query(
-    `SELECT id, name, status, is_paused, slug, user_id
+    `SELECT id, name, status, is_paused, slug, user_id, description, category
      FROM market.products
      WHERE id      = $1
+       AND user_id = $2
        AND status != 'archived'`,
-    [req.params.id]
+    [req.params.id, req.user.id]   // market.users.id ✓
   );
 
   if (!rows.length) {
@@ -99,18 +138,14 @@ async function assertOwnership(req, res) {
     return null;
   }
 
-  const product = rows[0];
-
-  if (product.user_id !== req.user.id) {
-    fail(res, 404, "Product not found");
-    return null;
-  }
-
-  return product;
+  return rows[0];
 }
 
 /* ══════════════════════════════════════════════════════════════
    DOUBLE-SUBMIT GUARD
+   ─────────────────────────────────────────────────────────────
+   inFlight entries are always cleared by the finally block
+   in each route handler. res events are belt-and-suspenders.
 ══════════════════════════════════════════════════════════════ */
 const inFlight = new Set();
 
@@ -127,23 +162,20 @@ function acquireGuard(userId, res) {
 ══════════════════════════════════════════════════════════════ */
 router.get("/products", authenticateSeller, async (req, res) => {
   try {
-    const page  = Math.max(1, parseInt(req.query.page  ?? 1,  10));
-    const limit = Math.min(
-      PAGE_SIZE_MAX,
-      Math.max(1, parseInt(req.query.limit ?? PAGE_SIZE_DEFAULT, 10))
-    );
+    const page   = safeInt(req.query.page,  1,               1);
+    const limit  = safeInt(req.query.limit, PAGE_SIZE_DEFAULT, 1, PAGE_SIZE_MAX);
     const offset = (page - 1) * limit;
     const search = safeStr(req.query.search, 200);
     const status = ALLOWED_STATUSES.has(req.query.status)
       ? req.query.status
       : null;
 
-    /* Build WHERE clause */
+    /* Build WHERE clause dynamically */
     const conditions = [
       "p.user_id = $1",
       "p.status != 'archived'",
     ];
-    const values = [req.user.id];   // market.users.id ✓
+    const values = [req.user.id];  // market.users.id ✓
     let   idx    = 2;
 
     if (status) {
@@ -166,7 +198,7 @@ router.get("/products", authenticateSeller, async (req, res) => {
 
     const where = conditions.join(" AND ");
 
-    /* Count */
+    /* Count total matching rows */
     const { rows: [{ count }] } = await pool.query(
       `SELECT COUNT(*) AS count FROM market.products p WHERE ${where}`,
       values
@@ -174,7 +206,7 @@ router.get("/products", authenticateSeller, async (req, res) => {
     const total      = parseInt(count, 10);
     const totalPages = Math.ceil(total / limit);
 
-    /* Data */
+    /* Fetch page */
     const { rows: products } = await pool.query(
       `SELECT
          p.id,
@@ -238,7 +270,7 @@ router.get("/products", authenticateSeller, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("GET /seller/products:", err.message);
+    console.error("[seller] GET /products:", err.message);
     return fail(res, 500, "Failed to load your products");
   }
 });
@@ -314,7 +346,7 @@ router.get("/products/:id", authenticateSeller, async (req, res) => {
     return ok(res, { product: full });
 
   } catch (err) {
-    console.error("GET /seller/products/:id:", err.message);
+    console.error("[seller] GET /products/:id:", err.message);
     return fail(res, 500, "Failed to load product");
   }
 });
@@ -328,269 +360,362 @@ router.put(
   upload.array("images", MAX_IMAGES),
   async (req, res) => {
 
-    if (!acquireGuard(req.user.id, res)) {
+    const userId = req.user.id;  // market.users.id ✓
+
+    if (!acquireGuard(userId, res)) {
       return fail(res, 429,
         "Your previous submission is still processing. Please wait.");
     }
 
-    const product = await assertOwnership(req, res);
-    if (!product) return;
+    try {
+      return await handleProductUpdate(req, res, userId);
+    } finally {
+      inFlight.delete(userId);
+    }
+  }
+);
 
-    const {
-      name, description, short_description,
-      category, basePrice, originalPrice,
-      brand, tags, condition, variants,
-      keyFeatures, specifications, whatsInBox,
-      weight_kg, dimensions, delivery_options,
-      return_policy, warranty,
-      keep_image_ids, primary_image_id,
-    } = req.body;
+/* ──────────────────────────────────────────────────────────────
+   PUT handler (extracted so finally wraps all exit paths)
+────────────────────────────────────────────────────────────── */
+async function handleProductUpdate(req, res, userId) {
 
-    /* Validate */
-    const cleanName = safeStr(name, 200);
-    if (!cleanName) return fail(res, 422, "Product name is required");
+  const product = await assertOwnership(req, res);
+  if (!product) return;
 
-    const cleanCategory = safeStr(category, 100);
-    if (!cleanCategory) return fail(res, 422, "Category is required");
+  const {
+    name,
+    description,
+    short_description,
+    category,
+    basePrice,
+    originalPrice,
+    brand,
+    tags,
+    condition,
+    variants,
+    keyFeatures,
+    specifications,
+    whatsInBox,
+    weight_kg,
+    dimensions,
+    delivery_options,   // Received but NOT stored — delivery agent controlled
+    return_policy,
+    warranty,
+    keep_image_ids,
+    primary_image_id,
+  } = req.body;
 
-    const price = parseInt(basePrice, 10);
-    if (isNaN(price) || price <= 0)
-      return fail(res, 422, "A valid base price is required");
+  /* ── Warn if client sends delivery_options ── */
+  if (delivery_options !== undefined) {
+    console.warn(
+      `[seller] delivery_options submitted by user=${userId} on PUT — ignored`
+    );
+  }
 
-    const parsedOriginalPrice = originalPrice
-      ? parseInt(originalPrice, 10) : null;
+  /* ── Validate name ── */
+  const cleanName = safeStr(name, 200);
+  if (!cleanName)
+    return fail(res, 422, "Product name is required");
 
-    if (parsedOriginalPrice !== null) {
-      if (isNaN(parsedOriginalPrice))
-        return fail(res, 422, "Original price must be a valid number");
-      if (parsedOriginalPrice < price)
+  /* ── Validate category ── */
+  const cleanCategory = safeStr(category, 100);
+  if (!cleanCategory)
+    return fail(res, 422, "Category is required");
+
+  /* ── Validate prices ── */
+  const price = parsePrice(basePrice);
+  if (price === null || price <= 0)
+    return fail(res, 422, "A valid base price is required");
+
+  const parsedOriginalPrice =
+    originalPrice != null && originalPrice !== ""
+      ? parsePrice(originalPrice)
+      : null;
+
+  if (parsedOriginalPrice !== null) {
+    if (parsedOriginalPrice === null || isNaN(parsedOriginalPrice))
+      return fail(res, 422, "Original price must be a valid number");
+    if (parsedOriginalPrice < price)
+      return fail(res, 422,
+        "Original price must be greater than or equal to base price");
+  }
+
+  /* ── Condition / weight ── */
+  const cleanCondition = ALLOWED_CONDITIONS.has(condition)
+    ? condition
+    : "new";
+
+  const parsedWeight = weight_kg ? parseFloat(weight_kg) : null;
+  if (parsedWeight !== null && isNaN(parsedWeight))
+    return fail(res, 422, "Weight must be a valid number");
+
+  /* ── JSON fields ── */
+  const parsedTags     = parseJSON(tags,           []);
+  const parsedDims     = parseJSON(dimensions,     null);
+  const parsedVariants = parseJSON(variants,       []);
+  const parsedFeatures = parseJSON(keyFeatures,    []);
+  const parsedBox      = parseJSON(whatsInBox,     []);
+  const parsedSpecs    = parseJSON(specifications, []);
+  const keepIds        = parseJSON(keep_image_ids, null);
+
+  /* ── Variant SKU uniqueness ── */
+  if (parsedVariants.length > 0) {
+    const skuSet = new Set();
+    for (const v of parsedVariants) {
+      const sku = safeStr(String(v?.sku ?? ""), 100)?.toUpperCase();
+      if (!sku) continue;
+      if (skuSet.has(sku)) {
         return fail(res, 422,
-          "Original price must be greater than or equal to base price");
-    }
-
-    const cleanCondition = ALLOWED_CONDITIONS.has(condition)
-      ? condition : "new";
-
-    const parsedWeight = weight_kg ? parseFloat(weight_kg) : null;
-    if (parsedWeight !== null && isNaN(parsedWeight))
-      return fail(res, 422, "Weight must be a valid number");
-
-    const parsedTags     = parseJSON(tags,             []);
-    const parsedDims     = parseJSON(dimensions,       null);
-    const parsedDelivery = parseJSON(delivery_options, null);
-    const parsedVariants = parseJSON(variants,         []);
-    const parsedFeatures = parseJSON(keyFeatures,      []);
-    const parsedBox      = parseJSON(whatsInBox,       []);
-    const parsedSpecs    = parseJSON(specifications,   []);
-    const keepIds        = parseJSON(keep_image_ids,   null);
-
-    /* Variant SKU uniqueness */
-    if (parsedVariants.length > 0) {
-      const skuSet = new Set();
-      for (const v of parsedVariants) {
-        const sku = safeStr(String(v?.sku ?? ""))?.toUpperCase();
-        if (!sku) continue;
-        if (skuSet.has(sku)) {
-          return fail(res, 422,
-            `Duplicate variant SKU: "${sku}". Each variant must have a unique SKU.`);
-        }
-        skuSet.add(sku);
+          `Duplicate variant SKU: "${sku}". Each variant must have a unique SKU.`);
       }
+      skuSet.add(sku);
     }
+  }
 
-    /* Images to delete */
+  /* ── Re-moderation check ── */
+  const cleanDescription = safeStr(description, 2000);
+
+  const coreChanged =
+    product.name        !== cleanName        ||
+    product.category    !== cleanCategory    ||
+    product.description !== cleanDescription;
+
+  const newStatus = coreChanged ? "pending" : undefined;
+  const newSlug   = (coreChanged && product.name !== cleanName)
+    ? generateSlug(cleanName, product.id)
+    : undefined;
+
+  /* ── Upload new images ── */
+  let uploaded = [];
+  if (req.files?.length) {
+    try {
+      uploaded = await processAndUploadImages(req.files);
+    } catch (uploadErr) {
+      await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
+      console.error("[seller] Image upload error (PUT):", uploadErr);
+      return fail(res, 502, "Image upload failed. Please try again.");
+    }
+  }
+
+  /* ── DB transaction ── */
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    /*
+     * Determine images to delete INSIDE the transaction to avoid
+     * TOCTOU race between the pre-check and the actual delete.
+     */
     let imagesToDelete = [];
+
     if (Array.isArray(keepIds)) {
-      const { rows: existing } = await pool.query(
-        `SELECT id, storage_key FROM market.product_images WHERE product_id = $1`,
+      const { rows: existing } = await client.query(
+        `SELECT id, storage_key
+         FROM market.product_images
+         WHERE product_id = $1
+         FOR UPDATE`,           // lock rows for the duration of the transaction
         [product.id]
       );
+
       imagesToDelete = existing.filter(
         (img) => !keepIds.includes(String(img.id))
       );
+
       const remainingCount =
         existing.length - imagesToDelete.length + (req.files?.length ?? 0);
+
       if (remainingCount > MAX_IMAGES) {
+        await client.query("ROLLBACK");
+        await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
         return fail(res, 400,
           `Total images cannot exceed ${MAX_IMAGES}. ` +
           `Keeping ${existing.length - imagesToDelete.length}, ` +
           `adding ${req.files?.length ?? 0}.`
         );
       }
-    }
 
-    /* Upload new images */
-    let uploaded = [];
-    if (req.files?.length) {
-      try {
-        uploaded = await processAndUploadImages(req.files);
-      } catch (uploadErr) {
+      if (remainingCount < 1) {
+        await client.query("ROLLBACK");
         await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
-        console.error("Image upload error (update):", uploadErr);
-        return fail(res, 502, "Image upload failed. Please try again.");
+        return fail(res, 400, "At least one image is required.");
       }
     }
 
-    /* Re-moderation check */
-    const { rows: [current] } = await pool.query(
-      `SELECT name, description, category, status
-       FROM market.products WHERE id = $1`,
-      [product.id]
+    /* ── Core product UPDATE ── */
+    const setClauses = [
+      "name              = $1",
+      "description       = $2",
+      "short_description = $3",
+      "category          = $4",
+      "condition         = $5",
+      "price             = $6",
+      "original_price    = $7",
+      "brand             = $8",
+      "tags              = $9",
+      "weight_kg         = $10",
+      "dimensions        = $11",
+      "return_policy     = $12",
+      "warranty          = $13",
+      "updated_at        = NOW()",
+    ];
+
+    const updateValues = [
+      cleanName,
+      cleanDescription,
+      safeStr(short_description, 300),
+      cleanCategory,
+      cleanCondition,
+      price,
+      parsedOriginalPrice,
+      safeStr(brand, 100),
+      parsedTags.length ? parsedTags : null,
+      parsedWeight,
+      parsedDims ? JSON.stringify(parsedDims) : null,
+      safeStr(return_policy, 1000),
+      safeStr(warranty, 500),
+    ];
+
+    let paramIdx = updateValues.length + 1;
+
+    if (newStatus) {
+      setClauses.push(`status = $${paramIdx}`);
+      updateValues.push(newStatus);
+      paramIdx++;
+    }
+
+    if (newSlug) {
+      setClauses.push(`slug = $${paramIdx}`);
+      updateValues.push(newSlug);
+      paramIdx++;
+    }
+
+    updateValues.push(product.id);
+
+    await client.query(
+      `UPDATE market.products
+       SET ${setClauses.join(", ")}
+       WHERE id = $${paramIdx}`,
+      updateValues
     );
 
-    const coreChanged =
-      current.name        !== cleanName     ||
-      current.category    !== cleanCategory ||
-      current.description !== safeStr(description, 2000);
+    /* ── Delete removed images ── */
+    if (imagesToDelete.length) {
+      await client.query(
+        `DELETE FROM market.product_images
+         WHERE id = ANY($1::uuid[])`,
+        [imagesToDelete.map((i) => i.id)]
+      );
+    }
 
-    const newStatus = coreChanged ? "pending" : undefined;
+    /* ── Insert new images ── */
+    if (uploaded.length) {
+      const { rows: [{ max_order }] } = await client.query(
+        `SELECT COALESCE(MAX(sort_order), -1) AS max_order
+         FROM market.product_images
+         WHERE product_id = $1`,
+        [product.id]
+      );
+      let nextOrder = parseInt(max_order, 10) + 1;
 
-    /* Transaction */
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
+      const { rows: [{ remaining }] } = await client.query(
+        `SELECT COUNT(*) AS remaining
+         FROM market.product_images
+         WHERE product_id = $1`,
+        [product.id]
+      );
+      const noneLeft = parseInt(remaining, 10) === 0;
 
-      const setClauses = [
-        "name              = $1",
-        "description       = $2",
-        "short_description = $3",
-        "category          = $4",
-        "condition         = $5",
-        "price             = $6",
-        "original_price    = $7",
-        "brand             = $8",
-        "tags              = $9",
-        "weight_kg         = $10",
-        "dimensions        = $11",
-        "delivery_options  = $12",
-        "return_policy     = $13",
-        "warranty          = $14",
-        "updated_at        = NOW()",
-      ];
-
-      const updateValues = [
-        cleanName,
-        safeStr(description,       2000),
-        safeStr(short_description,  300),
-        cleanCategory,
-        cleanCondition,
-        price,
-        parsedOriginalPrice,
-        safeStr(brand, 100),
-        parsedTags.length ? parsedTags : null,
-        parsedWeight,
-        parsedDims     ? JSON.stringify(parsedDims)     : null,
-        parsedDelivery ? JSON.stringify(parsedDelivery) : null,
-        safeStr(return_policy, 1000),
-        safeStr(warranty,       500),
-      ];
-
-      let paramIdx = updateValues.length + 1;
-
-      if (newStatus) {
-        setClauses.push(`status = $${paramIdx}`);
-        updateValues.push(newStatus);
-        paramIdx++;
-
-        setClauses.push(`slug = $${paramIdx}`);
-        updateValues.push(generateSlug(cleanName, product.id));
-        paramIdx++;
+      for (let i = 0; i < uploaded.length; i++) {
+        await client.query(
+          `INSERT INTO market.product_images
+             (product_id, image_url, storage_key, is_primary, sort_order)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            product.id,
+            uploaded[i].public_url,
+            uploaded[i].key,
+            noneLeft && i === 0,
+            nextOrder + i,
+          ]
+        );
       }
+    }
 
-      updateValues.push(product.id);
+    /* ── Set primary image ── */
+    if (primary_image_id) {
+      const { rows: owned } = await client.query(
+        `SELECT id FROM market.product_images
+         WHERE id = $1 AND product_id = $2`,
+        [primary_image_id, product.id]
+      );
+
+      if (!owned.length) {
+        await client.query("ROLLBACK");
+        await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
+        return fail(res, 422,
+          `primary_image_id "${primary_image_id}" does not belong to this product`);
+      }
 
       await client.query(
-        `UPDATE market.products SET ${setClauses.join(", ")} WHERE id = $${paramIdx}`,
-        updateValues
+        `UPDATE market.product_images
+         SET is_primary = (id = $1)
+         WHERE product_id = $2`,
+        [primary_image_id, product.id]
       );
-
-      if (imagesToDelete.length) {
-        await client.query(
-          `DELETE FROM market.product_images WHERE id = ANY($1::uuid[])`,
-          [imagesToDelete.map((i) => i.id)]
-        );
-      }
-
-      if (uploaded.length) {
-        const { rows: [{ max_order }] } = await client.query(
-          `SELECT COALESCE(MAX(sort_order), -1) AS max_order
-           FROM market.product_images WHERE product_id = $1`,
-          [product.id]
-        );
-        let nextOrder = parseInt(max_order, 10) + 1;
-
-        const { rows: [{ remaining }] } = await client.query(
-          `SELECT COUNT(*) AS remaining
-           FROM market.product_images WHERE product_id = $1`,
-          [product.id]
-        );
-        const noneLeft = parseInt(remaining, 10) === 0;
-
-        for (let i = 0; i < uploaded.length; i++) {
-          await client.query(
-            `INSERT INTO market.product_images
-               (product_id, image_url, storage_key, is_primary, sort_order)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [
-              product.id,
-              uploaded[i].public_url,
-              uploaded[i].key,
-              noneLeft && i === 0,
-              nextOrder + i,
-            ]
-          );
-        }
-      }
-
-      if (primary_image_id) {
-        await client.query(
-          `UPDATE market.product_images
-           SET is_primary = (id = $1)
-           WHERE product_id = $2`,
-          [primary_image_id, product.id]
-        );
-      }
-
-      await replaceVariants(client, product.id, parsedVariants);
-      await insertList(client, "product_features",  "feature",
-                       product.id, parsedFeatures);
-      await insertList(client, "product_box_items", "item",
-                       product.id, parsedBox);
-      await replaceSpecs(client, product.id, parsedSpecs);
-
-      await client.query("COMMIT");
-
-      await Promise.allSettled(
-        imagesToDelete.map((i) => deleteFromR2(i.storage_key))
-      );
-
-      return ok(res, {
-        message: coreChanged
-          ? "Listing updated and resubmitted for review."
-          : "Listing updated successfully.",
-        data: {
-          productId  : product.id,
-          status     : newStatus ?? current.status,
-          resubmitted: !!newStatus,
-        },
-      });
-
-    } catch (dbErr) {
-      await client.query("ROLLBACK");
-      await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
-      console.error("PUT /seller/products/:id DB error:", dbErr);
-
-      if (dbErr.status === 422) return fail(res, 422, dbErr.message);
-      if (dbErr.code === "23505")
-        return fail(res, 409, classifyDuplicateError(dbErr));
-
-      return fail(res, 500, "Failed to update listing. Please try again.");
-
-    } finally {
-      client.release();
     }
+
+    /* ── Child rows ── */
+    await replaceVariants(client, product.id, parsedVariants);
+    await insertList(client, "product_features",  "feature",
+                     product.id, parsedFeatures);
+    await insertList(client, "product_box_items", "item",
+                     product.id, parsedBox);
+    await replaceSpecs(client, product.id, parsedSpecs);
+
+    await client.query("COMMIT");
+
+    /* Delete R2 objects AFTER commit (best-effort, non-fatal) */
+    await Promise.allSettled(
+      imagesToDelete.map((i) => deleteFromR2(i.storage_key))
+    );
+
+    console.log(
+      `[seller] ✅ updated | id=${product.id} | user=${userId}` +
+      (newStatus ? ` | resubmitted for review` : "")
+    );
+
+    return ok(res, {
+      message: coreChanged
+        ? "Listing updated and resubmitted for review."
+        : "Listing updated successfully.",
+      data: {
+        productId  : product.id,
+        status     : newStatus ?? product.status,
+        resubmitted: !!newStatus,
+      },
+    });
+
+  } catch (dbErr) {
+    await client.query("ROLLBACK");
+    await Promise.allSettled(uploaded.map((f) => deleteFromR2(f.key)));
+
+    console.error("[seller] PUT /products/:id DB error:", {
+      message : dbErr.message,
+      code    : dbErr.code,
+      detail  : dbErr.detail,
+    });
+
+    if (dbErr.status === 422) return fail(res, 422, dbErr.message);
+    if (dbErr.code === "23505")
+      return fail(res, 409, classifyDuplicateError(dbErr));
+
+    return fail(res, 500, "Failed to update listing. Please try again.");
+
+  } finally {
+    client.release();
   }
-);
+}
 
 /* ══════════════════════════════════════════════════════════════
    ④ PATCH /products/:id/pause  — toggle pause / resume
@@ -621,13 +746,19 @@ router.patch(
         [nowPaused, !nowPaused, product.id]
       );
 
+      console.log(
+        `[seller] ${nowPaused ? "⏸" : "▶"} ` +
+        `product=${product.id} user=${req.user.id} ` +
+        `→ ${nowPaused ? "paused" : "resumed"}`
+      );
+
       return ok(res, {
         message: nowPaused ? "Listing paused." : "Listing resumed.",
         data   : { productId: product.id, is_paused: nowPaused },
       });
 
     } catch (err) {
-      console.error("PATCH /seller/products/:id/pause:", err.message);
+      console.error("[seller] PATCH /products/:id/pause:", err.message);
       return fail(res, 500, "Failed to update listing status");
     }
   }
@@ -651,6 +782,7 @@ router.patch(
           "`order` must be a non-empty array of image IDs");
       }
 
+      /* Verify all submitted IDs belong to this product */
       const { rows: existing } = await pool.query(
         `SELECT id FROM market.product_images WHERE product_id = $1`,
         [product.id]
@@ -662,6 +794,11 @@ router.patch(
           return fail(res, 422,
             `Image ID "${imgId}" does not belong to this product`);
         }
+      }
+
+      if (primary_id && !existingSet.has(String(primary_id))) {
+        return fail(res, 422,
+          `primary_id "${primary_id}" does not belong to this product`);
       }
 
       const client = await pool.connect();
@@ -678,11 +815,6 @@ router.patch(
         }
 
         if (primary_id) {
-          if (!existingSet.has(String(primary_id))) {
-            await client.query("ROLLBACK");
-            return fail(res, 422,
-              `primary_id "${primary_id}" does not belong to this product`);
-          }
           await client.query(
             `UPDATE market.product_images
              SET is_primary = (id = $1)
@@ -702,7 +834,7 @@ router.patch(
       }
 
     } catch (err) {
-      console.error("PATCH /seller/products/:id/images:", err.message);
+      console.error("[seller] PATCH /products/:id/images:", err.message);
       return fail(res, 500, "Failed to update image order");
     }
   }
@@ -731,12 +863,14 @@ router.delete(
 
       const [img] = rows;
 
+      /* Guard: must always have at least one image */
       const { rows: [{ cnt }] } = await pool.query(
         `SELECT COUNT(*) AS cnt
          FROM market.product_images
          WHERE product_id = $1`,
         [product.id]
       );
+
       if (parseInt(cnt, 10) <= 1) {
         return fail(res, 409,
           "Cannot remove the only image. Upload a replacement first.");
@@ -747,32 +881,43 @@ router.delete(
         [img.id]
       );
 
+      /*
+       * Promote a new primary ONLY if the deleted image was primary.
+       * Uses a subquery instead of UPDATE...LIMIT which PostgreSQL
+       * does not support directly.
+       */
       if (img.is_primary) {
         await pool.query(
           `UPDATE market.product_images
            SET is_primary = true
-           WHERE product_id = $1
-           ORDER BY sort_order ASC
-           LIMIT 1`,
+           WHERE id = (
+             SELECT id FROM market.product_images
+             WHERE product_id = $1
+             ORDER BY sort_order ASC
+             LIMIT 1
+           )`,
           [product.id]
         );
       }
 
+      /* Non-fatal R2 cleanup */
       deleteFromR2(img.storage_key).catch((e) =>
-        console.error("R2 delete failed (single image):", e)
+        console.error("[seller] R2 delete failed (single image):", e)
       );
 
       return ok(res, { message: "Image removed" });
 
     } catch (err) {
-      console.error("DELETE /seller/products/:id/images/:imgId:", err.message);
+      console.error(
+        "[seller] DELETE /products/:id/images/:imgId:", err.message
+      );
       return fail(res, 500, "Failed to remove image");
     }
   }
 );
 
 /* ══════════════════════════════════════════════════════════════
-   ⑦ DELETE /products/:id  — soft delete (archived)
+   ⑦ DELETE /products/:id  — soft delete (archive)
 ══════════════════════════════════════════════════════════════ */
 router.delete(
   "/products/:id",
@@ -792,13 +937,17 @@ router.delete(
         [product.id]
       );
 
+      console.log(
+        `[seller] 🗑 archived | id=${product.id} | user=${req.user.id}`
+      );
+
       return ok(res, {
         message: "Listing removed from your store.",
         data   : { productId: product.id },
       });
 
     } catch (err) {
-      console.error("DELETE /seller/products/:id:", err.message);
+      console.error("[seller] DELETE /products/:id:", err.message);
       return fail(res, 500, "Failed to delete listing");
     }
   }
