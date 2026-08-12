@@ -4,7 +4,19 @@
  * Seller-scoped product management routes.
  * All routes require authenticateSeller (market.users JWT).
  *
- * Mounted at: /api/seller  (in server.js)
+ * Mounted at: /api/seller/products  (in server.js)
+ *
+ * IMPORTANT: Because server.js mounts this router at
+ * /api/seller/products, all route paths here are RELATIVE
+ * to that mount point. So:
+ *
+ *   router.get("/")         → GET  /api/seller/products
+ *   router.get("/:id")      → GET  /api/seller/products/:id
+ *   router.put("/:id")      → PUT  /api/seller/products/:id
+ *   etc.
+ *
+ * DO NOT prefix routes with "/products" — that would double
+ * the path to /api/seller/products/products → 404.
  *
  * Routes:
  *   GET    /api/seller/products
@@ -15,16 +27,18 @@
  *   DELETE /api/seller/products/:id/images/:imgId
  *   DELETE /api/seller/products/:id
  *
- * v2 — Bug fixes
+ * v3 — Fixed route prefix doubling + all v2 bug fixes
  * ──────────────────────────────────────────────────────────────
+ * ✓ FIXED: Removed /products prefix from all routes — mount
+ *   point /api/seller/products already provides it
  * ✓ inFlight guard uses try/finally (no stuck entries)
  * ✓ Price parsing uses Number() instead of parseInt()
  * ✓ delivery_options ignored on PUT (delivery agent controlled)
- * ✓ is_primary promotion uses subquery instead of UPDATE+LIMIT
- * ✓ assertOwnership checks user_id first (no info leak)
- * ✓ image count check moved inside transaction (no TOCTOU)
+ * ✓ is_primary promotion uses subquery (PostgreSQL compatible)
+ * ✓ assertOwnership checks user_id in SQL (no info leak)
+ * ✓ Image count check inside transaction (no TOCTOU)
  * ✓ SKU safeStr includes max length
- * ✓ Slug only regenerated when name actually changes
+ * ✓ Slug only regenerated when name changes
  * ✓ Pagination NaN guards added
  */
 
@@ -62,8 +76,6 @@ const PAGE_SIZE_MAX     = 50;
 
 /* ══════════════════════════════════════════════════════════════
    SLUG GENERATOR
-   Uniqueness enforced by DB unique constraint on slug.
-   UUID suffix makes collision practically impossible.
 ══════════════════════════════════════════════════════════════ */
 function generateSlug(name, id) {
   const base = String(name)
@@ -80,13 +92,20 @@ function generateSlug(name, id) {
 
 /* ══════════════════════════════════════════════════════════════
    PRICE PARSER
-   Uses Number() to catch inputs like "123abc" that parseInt
-   would silently accept as 123. Math.floor avoids float prices.
 ══════════════════════════════════════════════════════════════ */
 function parsePrice(value) {
   if (value === undefined || value === null || value === "") return null;
   const n = Number(value);
   return isNaN(n) ? null : Math.floor(n);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SAFE INT PARSER (pagination)
+══════════════════════════════════════════════════════════════ */
+function safeInt(value, defaultVal, min = 1, max = Infinity) {
+  const n = parseInt(value, 10);
+  if (isNaN(n)) return defaultVal;
+  return Math.min(max, Math.max(min, n));
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -105,32 +124,20 @@ function classifyDuplicateError(err) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   SAFE INT PARSER  (for pagination query params)
-   Returns defaultVal if value is missing, non-numeric, or NaN.
-══════════════════════════════════════════════════════════════ */
-function safeInt(value, defaultVal, min = 1, max = Infinity) {
-  const n = parseInt(value, 10);
-  if (isNaN(n)) return defaultVal;
-  return Math.min(max, Math.max(min, n));
-}
-
-/* ══════════════════════════════════════════════════════════════
    OWNERSHIP GUARD
    ─────────────────────────────────────────────────────────────
    Always returns 404 for both "not found" and "wrong owner"
-   — never confirm a product exists to a non-owner.
-
-   Checks user_id BEFORE any other condition to prevent
-   information leakage via different error timing.
+   to prevent info leakage. user_id checked in SQL directly.
 ══════════════════════════════════════════════════════════════ */
 async function assertOwnership(req, res) {
   const { rows } = await pool.query(
-    `SELECT id, name, status, is_paused, slug, user_id, description, category
+    `SELECT id, name, status, is_paused, slug, user_id,
+            description, category
      FROM market.products
      WHERE id      = $1
        AND user_id = $2
        AND status != 'archived'`,
-    [req.params.id, req.user.id]   // market.users.id ✓
+    [req.params.id, req.user.id]
   );
 
   if (!rows.length) {
@@ -143,9 +150,6 @@ async function assertOwnership(req, res) {
 
 /* ══════════════════════════════════════════════════════════════
    DOUBLE-SUBMIT GUARD
-   ─────────────────────────────────────────────────────────────
-   inFlight entries are always cleared by the finally block
-   in each route handler. res events are belt-and-suspenders.
 ══════════════════════════════════════════════════════════════ */
 const inFlight = new Set();
 
@@ -158,24 +162,27 @@ function acquireGuard(userId, res) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ① GET /products  — paginated seller inventory
+   ① GET /  → GET /api/seller/products
 ══════════════════════════════════════════════════════════════ */
-router.get("/products", authenticateSeller, async (req, res) => {
+router.get("/", authenticateSeller, async (req, res) => {
   try {
-    const page   = safeInt(req.query.page,  1,               1);
+    const page   = safeInt(req.query.page,  1,                1);
     const limit  = safeInt(req.query.limit, PAGE_SIZE_DEFAULT, 1, PAGE_SIZE_MAX);
     const offset = (page - 1) * limit;
-    const search = safeStr(req.query.search, 200);
-    const status = ALLOWED_STATUSES.has(req.query.status)
-      ? req.query.status
+
+    const rawStatus = req.query.status ?? null;
+    const status    = rawStatus && ALLOWED_STATUSES.has(rawStatus)
+      ? rawStatus
       : null;
 
-    /* Build WHERE clause dynamically */
+    const search = safeStr(req.query.search, 200);
+
+    /* Dynamic WHERE */
     const conditions = [
       "p.user_id = $1",
       "p.status != 'archived'",
     ];
-    const values = [req.user.id];  // market.users.id ✓
+    const values = [req.user.id];
     let   idx    = 2;
 
     if (status) {
@@ -198,15 +205,15 @@ router.get("/products", authenticateSeller, async (req, res) => {
 
     const where = conditions.join(" AND ");
 
-    /* Count total matching rows */
+    /* Count */
     const { rows: [{ count }] } = await pool.query(
       `SELECT COUNT(*) AS count FROM market.products p WHERE ${where}`,
       values
     );
     const total      = parseInt(count, 10);
-    const totalPages = Math.ceil(total / limit);
+    const totalPages = total === 0 ? 1 : Math.ceil(total / limit);
 
-    /* Fetch page */
+    /* Page data */
     const { rows: products } = await pool.query(
       `SELECT
          p.id,
@@ -276,9 +283,9 @@ router.get("/products", authenticateSeller, async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ② GET /products/:id  — full product detail
+   ② GET /:id  → GET /api/seller/products/:id
 ══════════════════════════════════════════════════════════════ */
-router.get("/products/:id", authenticateSeller, async (req, res) => {
+router.get("/:id", authenticateSeller, async (req, res) => {
   try {
     const product = await assertOwnership(req, res);
     if (!product) return;
@@ -352,15 +359,15 @@ router.get("/products/:id", authenticateSeller, async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ③ PUT /products/:id  — full update
+   ③ PUT /:id  → PUT /api/seller/products/:id
 ══════════════════════════════════════════════════════════════ */
 router.put(
-  "/products/:id",
+  "/:id",
   authenticateSeller,
   upload.array("images", MAX_IMAGES),
   async (req, res) => {
 
-    const userId = req.user.id;  // market.users.id ✓
+    const userId = req.user.id;
 
     if (!acquireGuard(userId, res)) {
       return fail(res, 429,
@@ -399,14 +406,14 @@ async function handleProductUpdate(req, res, userId) {
     whatsInBox,
     weight_kg,
     dimensions,
-    delivery_options,   // Received but NOT stored — delivery agent controlled
+    delivery_options,
     return_policy,
     warranty,
     keep_image_ids,
     primary_image_id,
   } = req.body;
 
-  /* ── Warn if client sends delivery_options ── */
+  /* Warn if client sends delivery_options — it is ignored */
   if (delivery_options !== undefined) {
     console.warn(
       `[seller] delivery_options submitted by user=${userId} on PUT — ignored`
@@ -434,7 +441,7 @@ async function handleProductUpdate(req, res, userId) {
       : null;
 
   if (parsedOriginalPrice !== null) {
-    if (parsedOriginalPrice === null || isNaN(parsedOriginalPrice))
+    if (isNaN(parsedOriginalPrice))
       return fail(res, 422, "Original price must be a valid number");
     if (parsedOriginalPrice < price)
       return fail(res, 422,
@@ -503,10 +510,7 @@ async function handleProductUpdate(req, res, userId) {
   try {
     await client.query("BEGIN");
 
-    /*
-     * Determine images to delete INSIDE the transaction to avoid
-     * TOCTOU race between the pre-check and the actual delete.
-     */
+    /* Determine images to delete INSIDE the transaction */
     let imagesToDelete = [];
 
     if (Array.isArray(keepIds)) {
@@ -514,7 +518,7 @@ async function handleProductUpdate(req, res, userId) {
         `SELECT id, storage_key
          FROM market.product_images
          WHERE product_id = $1
-         FOR UPDATE`,           // lock rows for the duration of the transaction
+         FOR UPDATE`,
         [product.id]
       );
 
@@ -675,7 +679,7 @@ async function handleProductUpdate(req, res, userId) {
 
     await client.query("COMMIT");
 
-    /* Delete R2 objects AFTER commit (best-effort, non-fatal) */
+    /* Delete R2 objects AFTER commit (best-effort) */
     await Promise.allSettled(
       imagesToDelete.map((i) => deleteFromR2(i.storage_key))
     );
@@ -718,10 +722,10 @@ async function handleProductUpdate(req, res, userId) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ④ PATCH /products/:id/pause  — toggle pause / resume
+   ④ PATCH /:id/pause  → PATCH /api/seller/products/:id/pause
 ══════════════════════════════════════════════════════════════ */
 router.patch(
-  "/products/:id/pause",
+  "/:id/pause",
   authenticateSeller,
   async (req, res) => {
     try {
@@ -758,17 +762,17 @@ router.patch(
       });
 
     } catch (err) {
-      console.error("[seller] PATCH /products/:id/pause:", err.message);
+      console.error("[seller] PATCH /:id/pause:", err.message);
       return fail(res, 500, "Failed to update listing status");
     }
   }
 );
 
 /* ══════════════════════════════════════════════════════════════
-   ⑤ PATCH /products/:id/images  — reorder / set primary
+   ⑤ PATCH /:id/images  → PATCH /api/seller/products/:id/images
 ══════════════════════════════════════════════════════════════ */
 router.patch(
-  "/products/:id/images",
+  "/:id/images",
   authenticateSeller,
   async (req, res) => {
     try {
@@ -834,17 +838,18 @@ router.patch(
       }
 
     } catch (err) {
-      console.error("[seller] PATCH /products/:id/images:", err.message);
+      console.error("[seller] PATCH /:id/images:", err.message);
       return fail(res, 500, "Failed to update image order");
     }
   }
 );
 
 /* ══════════════════════════════════════════════════════════════
-   ⑥ DELETE /products/:id/images/:imgId  — remove one image
+   ⑥ DELETE /:id/images/:imgId
+     → DELETE /api/seller/products/:id/images/:imgId
 ══════════════════════════════════════════════════════════════ */
 router.delete(
-  "/products/:id/images/:imgId",
+  "/:id/images/:imgId",
   authenticateSeller,
   async (req, res) => {
     try {
@@ -863,7 +868,7 @@ router.delete(
 
       const [img] = rows;
 
-      /* Guard: must always have at least one image */
+      /* Must always have at least one image */
       const { rows: [{ cnt }] } = await pool.query(
         `SELECT COUNT(*) AS cnt
          FROM market.product_images
@@ -882,9 +887,8 @@ router.delete(
       );
 
       /*
-       * Promote a new primary ONLY if the deleted image was primary.
-       * Uses a subquery instead of UPDATE...LIMIT which PostgreSQL
-       * does not support directly.
+       * Promote next image as primary if deleted was primary.
+       * Uses a subquery — PostgreSQL does not support UPDATE...LIMIT.
        */
       if (img.is_primary) {
         await pool.query(
@@ -908,19 +912,17 @@ router.delete(
       return ok(res, { message: "Image removed" });
 
     } catch (err) {
-      console.error(
-        "[seller] DELETE /products/:id/images/:imgId:", err.message
-      );
+      console.error("[seller] DELETE /:id/images/:imgId:", err.message);
       return fail(res, 500, "Failed to remove image");
     }
   }
 );
 
 /* ══════════════════════════════════════════════════════════════
-   ⑦ DELETE /products/:id  — soft delete (archive)
+   ⑦ DELETE /:id  → DELETE /api/seller/products/:id
 ══════════════════════════════════════════════════════════════ */
 router.delete(
-  "/products/:id",
+  "/:id",
   authenticateSeller,
   async (req, res) => {
     try {
@@ -947,7 +949,7 @@ router.delete(
       });
 
     } catch (err) {
-      console.error("[seller] DELETE /products/:id:", err.message);
+      console.error("[seller] DELETE /:id:", err.message);
       return fail(res, 500, "Failed to delete listing");
     }
   }
