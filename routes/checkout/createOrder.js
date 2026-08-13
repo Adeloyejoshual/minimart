@@ -7,16 +7,13 @@
  * GET    /api/checkout/orders             — list user orders
  * GET    /api/checkout/orders/:id         — single order detail
  *
- * v8 — Cancel endpoint + notification service integration
+ * v9 — Tracking ID URLs
  * ─────────────────────────────────────────────────────
- * ✓ All v7 features preserved
- * ✓ Cancel order endpoint with stock restoration
- * ✓ Cancel only allowed in early stages (pending / confirmed)
- * ✓ Cancel sends buyer + seller notifications
- * ✓ Idempotency, in-flight guard, debug sanitization
- * ✓ Cart cleared only after payment success
- * ✓ Stock restored if Flutterwave fails
- * ✓ Notifications delegated to checkoutNotificationService
+ * ✓ All routes accept both tracking ID (ORD-XXXX) and UUID
+ * ✓ Flutterwave redirect uses tracking ID in URL
+ * ✓ All responses include trackingId for frontend navigation
+ * ✓ Frontend should navigate to /shop/orders/ORD-XXXX
+ * ✓ All v8 features preserved
  */
 
 import express from "express";
@@ -25,6 +22,7 @@ import { isPaymentMethodAllowed } from "../../services/paymentRules.js";
 import {
   createOrderGroup,
   getOrderGroup,
+  resolveOrderGroup,
   clearCart,
   restoreStock,
 } from "../../services/orderService.js";
@@ -115,6 +113,9 @@ async function enrichUser(user) {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /orders — order history
+   ─────────────────────────────────────────────────────────────
+   Returns tracking_id which frontend uses for navigation.
+   GET /orders list doesn't need resolver — it queries by user_id.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/orders", async (req, res) => {
   try {
@@ -140,6 +141,8 @@ router.get("/orders", async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /orders/:groupId — single order detail
+   ─────────────────────────────────────────────────────────────
+   Accepts both ORD-XXXXXXXX and raw UUID via getOrderGroup().
 ═══════════════════════════════════════════════════════════════ */
 router.get("/orders/:groupId", async (req, res) => {
   try {
@@ -160,30 +163,37 @@ router.get("/orders/:groupId", async (req, res) => {
 /* ═══════════════════════════════════════════════════════════════
    POST /orders/:groupId/cancel — cancel an order
    ─────────────────────────────────────────────────────────────
-   Only allowed in early stages: pending, confirmed.
-   
-   Actions:
-     • Sets order_groups.status = 'cancelled'
-     • Sets all orders.status = 'cancelled'
-     • Restores decremented stock (non-fatal if fails)
-     • Sends buyer + seller cancellation notifications
-     • Returns success with refund info if applicable
+   Accepts both ORD-XXXXXXXX and raw UUID.
+   Uses resolveOrderGroup() to find the actual UUID.
 ═══════════════════════════════════════════════════════════════ */
 const CANCELLABLE_STATUSES = new Set(["pending", "confirmed"]);
 
 router.post("/orders/:groupId/cancel", async (req, res) => {
-  const { groupId } = req.params;
-  const userId      = req.user.id;
+  const userId = req.user.id;
 
   try {
-    /* ── 1. Fetch + verify ownership ── */
+    /* ── 1. Resolve tracking ID or UUID to actual order ── */
+    const resolved = await resolveOrderGroup(req.params.groupId, userId);
+
+    if (!resolved) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    const orderGroupId = resolved.id;
+    const trackingId   = resolved.tracking_id
+      ?? `ORD-${orderGroupId.slice(0, 8).toUpperCase()}`;
+
+    /* ── 2. Fetch full order details using resolved UUID ── */
     const { rows: [order] } = await pool.query(
       `SELECT
          id, status, payment_status, payment_method,
          tracking_id, grand_total, user_id
        FROM public.order_groups
-       WHERE id = $1 AND user_id = $2`,
-      [groupId, userId]
+       WHERE id = $1`,
+      [orderGroupId]
     );
 
     if (!order) {
@@ -193,7 +203,14 @@ router.post("/orders/:groupId/cancel", async (req, res) => {
       });
     }
 
-    /* ── 2. Check if cancellable ── */
+    /* ── 3. Check if cancellable ── */
+    if (order.status === "cancelled") {
+      return res.json({
+        success: true,
+        message: "Order is already cancelled",
+      });
+    }
+
     if (!CANCELLABLE_STATUSES.has(order.status)) {
       return res.status(400).json({
         success: false,
@@ -201,17 +218,9 @@ router.post("/orders/:groupId/cancel", async (req, res) => {
           `Cannot cancel an order that is "${order.status}". ` +
           `Contact support for assistance.`,
         data: {
-          currentStatus : order.status,
-          cancellable   : [...CANCELLABLE_STATUSES],
+          currentStatus: order.status,
+          cancellable  : [...CANCELLABLE_STATUSES],
         },
-      });
-    }
-
-    /* ── 3. Check if already cancelled (idempotent) ── */
-    if (order.status === "cancelled") {
-      return res.json({
-        success: true,
-        message: "Order is already cancelled",
       });
     }
 
@@ -224,14 +233,14 @@ router.post("/orders/:groupId/cancel", async (req, res) => {
         `UPDATE public.order_groups
          SET status = 'cancelled', updated_at = NOW()
          WHERE id = $1`,
-        [groupId]
+        [orderGroupId]
       );
 
       await client.query(
         `UPDATE public.orders
          SET status = 'cancelled', updated_at = NOW()
          WHERE order_group_id = $1`,
-        [groupId]
+        [orderGroupId]
       );
 
       await client.query("COMMIT");
@@ -242,29 +251,28 @@ router.post("/orders/:groupId/cancel", async (req, res) => {
       client.release();
     }
 
-    console.log(`[checkout] ✓ Order ${groupId} cancelled by user ${userId}`);
+    console.log(`[checkout] ✓ Order ${trackingId} cancelled by user ${userId}`);
 
     /* ── 5. Restore stock (best-effort) ── */
     try {
-      await restoreStock(groupId);
-      console.log(`[checkout] ✓ Stock restored for ${groupId}`);
+      await restoreStock(orderGroupId);
+      console.log(`[checkout] ✓ Stock restored for ${trackingId}`);
     } catch (err) {
-      console.warn(`[checkout] Stock restore failed for ${groupId}:`, err.message);
+      console.warn(`[checkout] Stock restore failed for ${trackingId}:`, err.message);
     }
 
     /* ── 6. Determine refund eligibility ── */
-    const wasPaid         = order.payment_status === "paid";
-    const isCOD           = order.payment_method === "CASH_ON_DELIVERY";
+    const wasPaid          = order.payment_status === "paid";
+    const isCOD            = order.payment_method === "CASH_ON_DELIVERY";
     const refundApplicable = wasPaid && !isCOD;
 
     /* ── 7. Send cancellation notifications (fire & forget) ── */
     const user = await enrichUser(req.user);
-    const trackingId = order.tracking_id ?? groupId.slice(0, 8).toUpperCase();
 
     sendOrderStatusUpdate({
       to        : user.email,
       buyerName : user.name,
-      orderId   : groupId,
+      orderId   : orderGroupId,
       trackingId,
       status    : "cancelled",
       message   : refundApplicable
@@ -274,7 +282,7 @@ router.post("/orders/:groupId/cancel", async (req, res) => {
       console.warn("[checkout] Cancel notification failed:", err.message)
     );
 
-    /* Notify sellers too */
+    /* Notify sellers */
     try {
       const { rows: sellers } = await pool.query(
         `SELECT DISTINCT
@@ -284,7 +292,7 @@ router.post("/orders/:groupId/cancel", async (req, res) => {
          FROM public.orders o
          LEFT JOIN market.users u ON u.id = o.seller_id
          WHERE o.order_group_id = $1`,
-        [groupId]
+        [orderGroupId]
       );
 
       for (const seller of sellers) {
@@ -292,7 +300,7 @@ router.post("/orders/:groupId/cancel", async (req, res) => {
           sendOrderStatusUpdate({
             to        : seller.seller_email,
             buyerName : seller.seller_name,
-            orderId   : groupId,
+            orderId   : orderGroupId,
             trackingId,
             status    : "cancelled",
             message   : `Order ${trackingId} from ${user.name ?? "a buyer"} has been cancelled. No further action needed.`,
@@ -312,7 +320,7 @@ router.post("/orders/:groupId/cancel", async (req, res) => {
         ? "Order cancelled. Your refund will be processed within 3–5 business days."
         : "Order cancelled successfully.",
       data: {
-        orderId       : groupId,
+        orderId       : orderGroupId,
         trackingId,
         status        : "cancelled",
         refundPending : refundApplicable,
@@ -344,7 +352,6 @@ router.post("/", async (req, res) => {
   let currentStep = "init";
   const userId    = req.user.id;
 
-  /* ── Input validation ── */
   if (!addressId) {
     return res.status(422).json({
       success: false,
@@ -359,9 +366,8 @@ router.post("/", async (req, res) => {
     });
   }
 
-  /* ── In-flight guard ── */
   if (inFlightUsers.has(userId)) {
-    console.warn(`[checkout] Rejecting duplicate request from user=${userId}`);
+    console.warn(`[checkout] Rejecting duplicate from user=${userId}`);
     return res.status(429).json({
       success: false,
       message: "Your previous order is still processing. Please wait.",
@@ -373,17 +379,10 @@ router.post("/", async (req, res) => {
   res.on("close",  () => inFlightUsers.delete(userId));
 
   try {
-    /* ══════════════════════════════════════════════════
-       STEP 1: Enrich user
-    ══════════════════════════════════════════════════ */
     currentStep = "enrichUser";
     const user = await enrichUser(req.user);
 
-    /* ══════════════════════════════════════════════════
-       STEP 2: Validate address
-    ══════════════════════════════════════════════════ */
     currentStep = "validateAddress";
-
     const { rows: [address] } = await pool.query(
       `SELECT id FROM public.user_addresses
        WHERE id = $1 AND user_id = $2`,
@@ -397,16 +396,11 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════
-       STEP 3: Fetch cart
-    ══════════════════════════════════════════════════ */
     currentStep = "fetchCart";
-
     const { rows: cartItems } = await pool.query(
       `SELECT
          ci.id            AS item_id,
          ci.qty,
-
          p.id             AS product_id,
          p.user_id        AS seller_id,
          p.name,
@@ -414,24 +408,19 @@ router.post("/", async (req, res) => {
          p.status,
          p.is_active,
          p.deleted_at,
-
          COALESCE(u.name, 'Unknown Seller') AS seller_name,
-
          pv.id            AS variant_id,
          pv.name          AS variant_name,
          pv.sku,
          pv.attributes,
          pv.stock         AS variant_stock,
-
          COALESCE(pv.price::numeric, p.price::numeric) AS live_price,
-
          (
            SELECT pi.image_url
            FROM market.product_images pi
            WHERE pi.product_id = p.id AND pi.is_primary = true
            LIMIT 1
          ) AS image
-
        FROM market.cart_items ci
        JOIN market.carts c      ON c.id = ci.cart_id
        JOIN market.products p   ON p.id = ci.product_id
@@ -448,11 +437,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════
-       STEP 4: Validate availability
-    ══════════════════════════════════════════════════ */
     currentStep = "validateAvailability";
-
     const unavailable = cartItems.filter((i) =>
       i.deleted_at || !i.is_active || !["active", "approved"].includes(i.status)
     );
@@ -465,11 +450,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════
-       STEP 5: Stock pre-check
-    ══════════════════════════════════════════════════ */
     currentStep = "validateStock";
-
     const outOfStock = cartItems.filter((i) => {
       if (!i.variant_id) return false;
       if (i.variant_stock === null || i.variant_stock === undefined) return false;
@@ -481,7 +462,7 @@ router.post("/", async (req, res) => {
       return res.status(409).json({
         success: false,
         message: `${outOfStock.length} item(s) are out of stock.`,
-        data: {
+        data   : {
           outOfStockIds: outOfStock.map((i) => i.item_id),
           details      : outOfStock.map((i) => ({ name: i.name, stock: i.variant_stock })),
         },
@@ -499,7 +480,7 @@ router.post("/", async (req, res) => {
       return res.status(409).json({
         success: false,
         message: `Some items exceed available stock. Please reduce quantities.`,
-        data: {
+        data   : {
           insufficient: insufficient.map((i) => ({
             itemId   : i.item_id,
             name     : i.name,
@@ -510,9 +491,6 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════
-       STEP 6: Validate sellers
-    ══════════════════════════════════════════════════ */
     currentStep = "validateSellers";
     const badSeller = cartItems.find((i) => !i.seller_id);
     if (badSeller) {
@@ -522,9 +500,6 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════
-       STEP 7: Calculate + validate payment
-    ══════════════════════════════════════════════════ */
     currentStep = "calculateSubtotal";
     const subtotal = cartItems.reduce(
       (s, i) => s + (Number(i.live_price) * Number(i.qty)),
@@ -539,9 +514,6 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════
-       STEP 8: Format items
-    ══════════════════════════════════════════════════ */
     currentStep = "formatItems";
     const formattedItems = cartItems.map((i) => ({
       productId : i.product_id,
@@ -560,11 +532,7 @@ router.post("/", async (req, res) => {
       } : null,
     }));
 
-    /* ══════════════════════════════════════════════════
-       STEP 9: Create order group (transactional)
-    ══════════════════════════════════════════════════ */
     currentStep = "createOrderGroup";
-
     const result = await createOrderGroup({
       userId        : user.id,
       addressId,
@@ -577,12 +545,12 @@ router.post("/", async (req, res) => {
     });
 
     console.log(
-      `[checkout] ✅ Order group ${result.orderGroupId} created` +
-      (result.idempotent ? " (idempotent replay)" : "")
+      `[checkout] ✅ ${result.trackingId} created` +
+      (result.idempotent ? " (replay)" : "")
     );
 
     /* ══════════════════════════════════════════════════
-       STEP 10a: CASH ON DELIVERY — finalize
+       COD — finalize
     ══════════════════════════════════════════════════ */
     if (paymentMethod === "CASH_ON_DELIVERY") {
       currentStep = "codFinalise";
@@ -591,46 +559,40 @@ router.post("/", async (req, res) => {
 
       dispatchOrderNotifications({
         user,
-        orderGroupId    : result.orderGroupId,
-        trackingId      : result.trackingId,
-        subtotal        : result.subtotal ?? subtotal,
-        deliveryFee     : result.deliveryFee,
-        discount        : result.discount ?? 0,
-        couponCode      : result.couponCode,
-        grandTotal      : result.grandTotal,
-        freeShipping    : result.freeShipping ?? false,
-        paymentMethod   : "CASH_ON_DELIVERY",
+        orderGroupId : result.orderGroupId,
+        trackingId   : result.trackingId,
+        subtotal     : result.subtotal ?? subtotal,
+        deliveryFee  : result.deliveryFee,
+        discount     : result.discount ?? 0,
+        couponCode   : result.couponCode,
+        grandTotal   : result.grandTotal,
+        freeShipping : result.freeShipping ?? false,
+        paymentMethod: "CASH_ON_DELIVERY",
         addressId,
-        orders          : result.orders,
+        orders       : result.orders,
       })
-        .then((r) => {
-          console.log(
-            `[checkout] ✅ COD notifications: ${r?.succeeded ?? 0} ok, ${r?.failed ?? 0} failed`
-          );
-        })
-        .catch((err) => {
-          console.warn("[checkout] COD notifications failed:", err.message);
-        });
+        .then((r) => console.log(`[checkout] ✅ COD notifs: ${r?.succeeded ?? 0} ok, ${r?.failed ?? 0} failed`))
+        .catch((err) => console.warn("[checkout] COD notifs failed:", err.message));
 
       return res.status(201).json({
         success: true,
         message: "Order placed successfully",
         data   : {
-          orderGroupId    : result.orderGroupId,
-          trackingId      : result.trackingId,
-          grandTotal      : result.grandTotal,
-          deliveryFee     : result.deliveryFee,
-          discount        : result.discount,
-          freeShipping    : result.freeShipping,
-          couponCode      : result.couponCode,
+          orderGroupId   : result.orderGroupId,
+          trackingId     : result.trackingId,
+          grandTotal     : result.grandTotal,
+          deliveryFee    : result.deliveryFee,
+          discount       : result.discount,
+          freeShipping   : result.freeShipping,
+          couponCode     : result.couponCode,
           paymentMethod,
-          requiresPayment : false,
+          requiresPayment: false,
         },
       });
     }
 
     /* ══════════════════════════════════════════════════
-       STEP 10b: ONLINE PAYMENT — Flutterwave
+       ONLINE PAYMENT — Flutterwave
     ══════════════════════════════════════════════════ */
     currentStep = "flutterwave";
 
@@ -641,12 +603,13 @@ router.post("/", async (req, res) => {
 
       const flw = await initializeFlutterwavePayment({
         orderGroupId: result.orderGroupId,
+        trackingId  : result.trackingId,
         amount      : result.grandTotal,
         email       : user.email,
         name        : user.name ?? "Customer",
       });
 
-      console.log(`[checkout] ✅ Flutterwave link generated`);
+      console.log(`[checkout] ✅ Flutterwave link for ${result.trackingId}`);
 
       await clearCart(user.id);
 
@@ -654,23 +617,22 @@ router.post("/", async (req, res) => {
         success: true,
         message: "Order created — complete payment to confirm",
         data   : {
-          orderGroupId    : result.orderGroupId,
-          trackingId      : result.trackingId,
-          grandTotal      : result.grandTotal,
-          deliveryFee     : result.deliveryFee,
-          discount        : result.discount,
-          freeShipping    : result.freeShipping,
-          couponCode      : result.couponCode,
+          orderGroupId   : result.orderGroupId,
+          trackingId     : result.trackingId,
+          grandTotal     : result.grandTotal,
+          deliveryFee    : result.deliveryFee,
+          discount       : result.discount,
+          freeShipping   : result.freeShipping,
+          couponCode     : result.couponCode,
           paymentMethod,
-          requiresPayment : true,
-          paymentLink     : flw.link,
-          paymentRef      : flw.ref,
+          requiresPayment: true,
+          paymentLink    : flw.link,
+          paymentRef     : flw.ref,
         },
       });
 
     } catch (flwErr) {
-      console.error("[checkout] ❌ Flutterwave failed:", flwErr.message);
-      if (IS_DEV) console.error("Response:", flwErr.response?.data);
+      console.error(`[checkout] ❌ Flutterwave failed for ${result.trackingId}:`, flwErr.message);
 
       await restoreStock(result.orderGroupId).catch((e) =>
         console.warn("[checkout] stock restore failed:", e.message)
@@ -680,39 +642,28 @@ router.post("/", async (req, res) => {
         success: true,
         message: "Order created but payment link failed. Try from your orders page.",
         data: {
-          orderGroupId    : result.orderGroupId,
-          trackingId      : result.trackingId,
-          grandTotal      : result.grandTotal,
-          deliveryFee     : result.deliveryFee,
-          discount        : result.discount,
-          freeShipping    : result.freeShipping,
-          couponCode      : result.couponCode,
+          orderGroupId   : result.orderGroupId,
+          trackingId     : result.trackingId,
+          grandTotal     : result.grandTotal,
+          deliveryFee    : result.deliveryFee,
+          discount       : result.discount,
+          freeShipping   : result.freeShipping,
+          couponCode     : result.couponCode,
           paymentMethod,
-          requiresPayment : true,
-          paymentLink     : null,
+          requiresPayment: true,
+          paymentLink    : null,
         },
         ...(IS_DEV && {
-          debug: {
-            source  : "flutterwave",
-            message : flwErr.message,
-            status  : flwErr.response?.status,
-          },
+          debug: { source: "flutterwave", message: flwErr.message },
         }),
       });
     }
 
   } catch (err) {
     console.error("═══════════════════════════════════════════════");
-    console.error("[POST /api/checkout] ORDER CREATION FAILED");
-    console.error("Step:    ", currentStep);
-    console.error("User:    ", req.user?.id);
-    console.error("Message: ", err.message);
-    console.error("Source:  ", err.source);
-    if (IS_DEV) {
-      console.error("Code:    ", err.code);
-      console.error("Detail:  ", err.detail);
-      console.error(err.stack);
-    }
+    console.error(`[POST /checkout] FAILED at ${currentStep}`);
+    console.error("User:", req.user?.id, "| Error:", err.message);
+    if (IS_DEV) console.error(err.stack);
     console.error("═══════════════════════════════════════════════");
 
     return errorResponse(res, err, currentStep);
@@ -724,11 +675,13 @@ router.post("/", async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /retry-payment
+   ─────────────────────────────────────────────────────────────
+   Accepts both ORD-XXXXXXXX and raw UUID in orderGroupId.
 ═══════════════════════════════════════════════════════════════ */
 router.post("/retry-payment", async (req, res) => {
-  const { orderGroupId } = req.body;
+  const rawId = req.body.orderGroupId;
 
-  if (!orderGroupId) {
+  if (!rawId) {
     return res.status(422).json({
       success: false,
       message: "Order ID is required",
@@ -738,11 +691,25 @@ router.post("/retry-payment", async (req, res) => {
   try {
     const user = await enrichUser(req.user);
 
+    /* Resolve tracking ID or UUID */
+    const resolved = await resolveOrderGroup(rawId, user.id);
+
+    if (!resolved) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    const orderGroupId = resolved.id;
+    const trackingId   = resolved.tracking_id
+      ?? `ORD-${orderGroupId.slice(0, 8).toUpperCase()}`;
+
     const { rows: [order] } = await pool.query(
-      `SELECT id, grand_total, payment_status, payment_method
+      `SELECT id, grand_total, payment_status, payment_method, tracking_id
        FROM public.order_groups
-       WHERE id = $1 AND user_id = $2`,
-      [orderGroupId, user.id]
+       WHERE id = $1`,
+      [orderGroupId]
     );
 
     if (!order) {
@@ -775,22 +742,24 @@ router.post("/retry-payment", async (req, res) => {
     }
 
     const flw = await initializeFlutterwavePayment({
-      orderGroupId: order.id,
-      amount      : order.grand_total,
-      email       : user.email,
-      name        : user.name ?? "Customer",
+      orderGroupId,
+      trackingId,
+      amount: order.grand_total,
+      email : user.email,
+      name  : user.name ?? "Customer",
     });
 
-    console.log(`[checkout/retry] ✅ New link for ${orderGroupId}`);
+    console.log(`[checkout/retry] ✅ New link for ${trackingId}`);
 
     return res.json({
       success: true,
       message: "New payment link generated",
       data   : {
-        orderGroupId: order.id,
-        paymentLink : flw.link,
-        paymentRef  : flw.ref,
-        grandTotal  : order.grand_total,
+        orderGroupId,
+        trackingId,
+        paymentLink: flw.link,
+        paymentRef : flw.ref,
+        grandTotal : order.grand_total,
       },
     });
 
@@ -802,9 +771,14 @@ router.post("/retry-payment", async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    FLUTTERWAVE PAYMENT INITIALIZER
+   ─────────────────────────────────────────────────────────────
+   Now uses tracking ID in redirect URL so user sees:
+     https://loemart.com/shop/orders/ORD-1F9DFB89?verify=true
+   instead of a raw UUID.
 ═══════════════════════════════════════════════════════════════ */
 async function initializeFlutterwavePayment({
   orderGroupId,
+  trackingId,
   amount,
   email,
   name,
@@ -812,10 +786,21 @@ async function initializeFlutterwavePayment({
   const axios = (await import("axios")).default;
   const ref   = `LOEMART-${orderGroupId.slice(0, 8).toUpperCase()}-${Date.now()}`;
 
-  console.log(`[flutterwave] Init payment for ${orderGroupId} — ₦${amount}`);
+  /*
+   * Use tracking ID in the redirect URL for clean user-facing URLs.
+   * The PaymentReturnRouter resolves tracking IDs via getOrderGroup().
+   */
+  const redirectId = trackingId
+    ?? `ORD-${orderGroupId.slice(0, 8).toUpperCase()}`;
+
+  console.log(
+    `[flutterwave] Init for ${redirectId} — ₦${amount}`
+  );
 
   if (IS_DEV) {
-    console.log(`[flutterwave] Key prefix: ${process.env.FLW_SECRET_KEY?.slice(0, 20)}…`);
+    console.log(
+      `[flutterwave] Key prefix: ${process.env.FLW_SECRET_KEY?.slice(0, 20)}…`
+    );
   }
 
   const { data } = await axios.post(
@@ -824,11 +809,11 @@ async function initializeFlutterwavePayment({
       tx_ref      : ref,
       amount,
       currency    : "NGN",
-      redirect_url: `${process.env.CLIENT_ORIGIN}/shop/orders/${orderGroupId}?verify=true`,
+      redirect_url: `${process.env.CLIENT_ORIGIN}/shop/orders/${redirectId}?verify=true`,
       customer    : { email, name },
       customizations: {
         title      : "Loemart Checkout",
-        description: `Order ${orderGroupId.slice(0, 8).toUpperCase()}`,
+        description: `Order ${redirectId}`,
         logo       : `${process.env.CLIENT_ORIGIN}/logo.png`,
       },
       meta: { order_group_id: orderGroupId },
