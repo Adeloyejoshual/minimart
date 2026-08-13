@@ -1,0 +1,585 @@
+/**
+ * src/pages/Checkout/styles/PaymentStep.css
+ *
+ * v5 — Modern professional trust indicators
+ * ────────────────────────────────────────────────────
+ * ✓ Removed .ps-note blocks (intrusive redirect warning)
+ * ✓ Added .ps-trust (subtle security + payment providers)
+ * ✓ Added .ps-card__check (tick on selected card)
+ * ✓ Added .ps-btn-next__lock (lock in CTA button)
+ * ✓ All flat Jumia aesthetics preserved
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+═══════════════════════════════════════════════════════════════ */
+.ps-root {
+  --ps-orange     : #f68b1e;
+  --ps-orange-dk  : #e07a10;
+  --ps-orange-lt  : #fff5eb;
+  --ps-orange-bd  : #ffd6b3;
+  --ps-orange-ink : #9a3412;
+
+  --ps-ink        : #2b2b2b;
+  --ps-ink-2      : #4a4a4a;
+  --ps-muted      : #6a6a6a;
+  --ps-faint      : #b8b8b8;
+
+  --ps-bg         : #ffffff;
+  --ps-bg-soft    : #f7f7f7;
+  --ps-section-bg : #ededed;
+
+  --ps-border     : #e5e5e5;
+  --ps-border-lt  : #f0f0f0;
+
+  --ps-danger     : #dc2626;
+  --ps-danger-lt  : #fef2f2;
+  --ps-danger-bd  : #fecaca;
+
+  --ps-success    : #16a34a;
+  --ps-success-lt : #ecfdf5;
+
+  --ps-info       : #0284c7;
+  --ps-info-lt    : #f0f9ff;
+  --ps-info-bd    : #bae6fd;
+
+  font-family : system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color       : var(--ps-ink);
+  line-height : 1.5;
+  background  : var(--ps-bg);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SECTION HEADER
+═══════════════════════════════════════════════════════════════ */
+.ps-section-header {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  padding        : 0.85rem 1rem;
+  background     : var(--ps-section-bg);
+  border-top     : 1px solid var(--ps-border-lt);
+  border-bottom  : 1px solid var(--ps-border-lt);
+}
+
+.ps-section-header__title {
+  font-size     : 0.78rem;
+  font-weight   : 700;
+  color         : var(--ps-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin        : 0;
+}
+
+.ps-section-body {
+  padding    : 1rem;
+  background : white;
+}
+
+.ps-empty {
+  font-size : 0.85rem;
+  color     : var(--ps-muted);
+  text-align: center;
+  padding   : 1rem 0;
+  margin    : 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAYMENT OPTION CARDS
+═══════════════════════════════════════════════════════════════ */
+.ps-options {
+  display       : flex;
+  flex-direction: column;
+  gap           : 0.6rem;
+}
+
+.ps-card {
+  display      : flex;
+  align-items  : center;
+  gap          : 0.75rem;
+  padding      : 0.85rem 1rem;
+  background   : white;
+  border       : 1.5px solid var(--ps-border);
+  border-radius: 6px;
+  cursor       : pointer;
+  transition   : all 0.15s;
+  position     : relative;
+}
+
+.ps-card:hover:not(.ps-card--disabled) {
+  border-color: var(--ps-orange-bd);
+}
+
+.ps-card--selected {
+  border-color: var(--ps-orange);
+  background  : var(--ps-orange-lt);
+}
+
+.ps-card--disabled {
+  opacity: 0.55;
+  cursor : not-allowed;
+}
+
+.ps-card:focus-visible {
+  outline       : 2px solid var(--ps-orange);
+  outline-offset: 2px;
+}
+
+/* Radio indicator */
+.ps-card__radio {
+  width          : 20px;
+  height         : 20px;
+  border         : 2px solid var(--ps-faint);
+  border-radius  : 50%;
+  flex-shrink    : 0;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  transition     : border-color 0.15s;
+}
+
+.ps-card--selected .ps-card__radio {
+  border-color: var(--ps-orange);
+}
+
+.ps-card__radio-dot {
+  width        : 10px;
+  height       : 10px;
+  border-radius: 50%;
+  background   : var(--ps-orange);
+  transform    : scale(0);
+  transition   : transform 0.15s ease;
+}
+
+.ps-card--selected .ps-card__radio-dot {
+  transform: scale(1);
+}
+
+/* Icon */
+.ps-card__icon {
+  width          : 40px;
+  height         : 40px;
+  border-radius  : 6px;
+  background     : var(--ps-orange-lt);
+  color          : var(--ps-orange);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.ps-card--selected .ps-card__icon {
+  background: white;
+}
+
+/* Info */
+.ps-card__info {
+  flex     : 1;
+  min-width: 0;
+}
+
+.ps-card__label {
+  font-size  : 0.9rem;
+  font-weight: 600;
+  color      : var(--ps-ink);
+  margin     : 0 0 0.15rem;
+}
+
+.ps-card__desc {
+  font-size  : 0.75rem;
+  color      : var(--ps-muted);
+  margin     : 0;
+  line-height: 1.4;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD CHECKMARK — appears on selected card (v5)
+═══════════════════════════════════════════════════════════════ */
+.ps-card__check {
+  width          : 22px;
+  height         : 22px;
+  border-radius  : 50%;
+  background     : var(--ps-orange);
+  color          : white;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+  margin-left    : auto;
+  animation      : ps-check-pop 0.2s ease;
+}
+
+@keyframes ps-check-pop {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TRUST BAR — subtle security + provider strip (v5)
+   ─────────────────────────────────────────────────────────────
+   Replaces the old "You'll be redirected..." warning note.
+   Modern, confidence-building, non-intrusive.
+═══════════════════════════════════════════════════════════════ */
+.ps-trust {
+  display     : flex;
+  align-items : center;
+  gap         : 0.5rem;
+  flex-wrap   : wrap;
+  margin-top  : 0.85rem;
+  padding-top : 0.75rem;
+  border-top  : 1px solid var(--ps-border-lt);
+  font-size   : 0.72rem;
+  color       : var(--ps-muted);
+}
+
+.ps-trust__lock {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 0.3rem;
+  color      : var(--ps-ink-2);
+  font-weight: 600;
+}
+
+.ps-trust__lock svg {
+  color: var(--ps-success);
+}
+
+.ps-trust__sep {
+  color: var(--ps-faint);
+}
+
+.ps-trust__providers {
+  color         : var(--ps-muted);
+  font-weight   : 500;
+  letter-spacing: 0.01em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PRICE SUMMARY
+═══════════════════════════════════════════════════════════════ */
+.ps-price-row {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : center;
+  padding        : 0.4rem 0;
+  font-size      : 0.88rem;
+  color          : var(--ps-ink-2);
+}
+
+.ps-price-row--discount {
+  color: var(--ps-success);
+}
+
+.ps-price-row--free > span:last-child {
+  color      : var(--ps-success);
+  font-weight: 800;
+}
+
+.ps-free-tag {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight   : 800;
+  color         : var(--ps-success);
+}
+
+.ps-price-divider {
+  height    : 1px;
+  background: var(--ps-border-lt);
+  margin    : 0.5rem 0;
+}
+
+.ps-price-row--total {
+  font-size  : 1rem;
+  font-weight: 800;
+  color      : var(--ps-ink);
+  padding    : 0.5rem 0 0.2rem;
+}
+
+/* Delivery ETA badge */
+.ps-eta-row {
+  display        : flex;
+  justify-content: flex-end;
+  padding        : 0.25rem 0 0.5rem;
+}
+
+.ps-eta {
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 0.35rem;
+  font-size      : 0.75rem;
+  color          : var(--ps-orange-dk);
+  font-weight    : 600;
+  background     : var(--ps-orange-lt);
+  border         : 1px solid var(--ps-orange-bd);
+  padding        : 0.3rem 0.6rem;
+  border-radius  : 4px;
+  white-space    : nowrap;
+}
+
+.ps-eta svg {
+  color: var(--ps-orange);
+}
+
+/* Coupon applied stamp */
+.ps-coupon-applied {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 0.35rem;
+  margin-top   : 0.75rem;
+  padding      : 0.35rem 0.6rem;
+  background   : var(--ps-success-lt);
+  border       : 1px solid #86efac;
+  color        : var(--ps-success);
+  border-radius: 4px;
+  font-size    : 0.78rem;
+  font-weight  : 500;
+}
+
+.ps-coupon-applied strong {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HINT (select a payment method)
+═══════════════════════════════════════════════════════════════ */
+.ps-hint {
+  display      : flex;
+  align-items  : center;
+  gap          : 0.5rem;
+  padding      : 0.75rem 1rem;
+  background   : var(--ps-info-lt);
+  border-top   : 1px solid var(--ps-info-bd);
+  border-bottom: 1px solid var(--ps-info-bd);
+  color        : #075985;
+  font-size    : 0.82rem;
+}
+
+.ps-hint svg {
+  color      : var(--ps-info);
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ERROR BANNER
+═══════════════════════════════════════════════════════════════ */
+.ps-error {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 0.6rem;
+  padding      : 0.85rem 1rem;
+  background   : var(--ps-danger-lt);
+  border-top   : 1px solid var(--ps-danger-bd);
+  border-bottom: 1px solid var(--ps-danger-bd);
+  color        : #991b1b;
+}
+
+.ps-error__icon {
+  color      : var(--ps-danger);
+  flex-shrink: 0;
+  margin-top : 2px;
+}
+
+.ps-error__body {
+  flex     : 1;
+  min-width: 0;
+}
+
+.ps-error__msg {
+  font-size  : 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break : break-word;
+}
+
+.ps-error__debug {
+  margin-top: 0.6rem;
+  font-size : 0.72rem;
+  opacity   : 0.85;
+}
+
+.ps-error__debug summary {
+  cursor     : pointer;
+  font-weight: 600;
+  padding    : 0.15rem 0;
+  user-select: none;
+}
+
+.ps-error__debug pre {
+  margin       : 0.35rem 0 0;
+  padding      : 0.5rem 0.6rem;
+  background   : rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  font-size    : 0.68rem;
+  line-height  : 1.5;
+  overflow     : auto;
+  white-space  : pre-wrap;
+  word-break   : break-word;
+  max-height   : 200px;
+  font-family  : ui-monospace, "SF Mono", Consolas, monospace;
+  color        : var(--ps-ink);
+}
+
+.ps-error__dismiss {
+  background     : none;
+  border         : none;
+  cursor         : pointer;
+  color          : #991b1b;
+  padding        : 0.2rem;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.ps-error__dismiss:hover {
+  opacity: 0.7;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════════════════ */
+.ps-nav {
+  display    : flex;
+  gap        : 0.6rem;
+  padding    : 1rem;
+  background : white;
+  border-top : 1px solid var(--ps-border-lt);
+}
+
+.ps-btn-back {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 0.35rem;
+  padding      : 0.85rem 1.2rem;
+  background   : white;
+  border       : 1px solid var(--ps-border);
+  color        : var(--ps-ink-2);
+  border-radius: 4px;
+  font-weight  : 700;
+  font-size    : 0.88rem;
+  cursor       : pointer;
+  font-family  : inherit;
+  transition   : all 0.15s;
+}
+
+.ps-btn-back:hover:not(:disabled) {
+  background: var(--ps-bg-soft);
+}
+
+.ps-btn-back:disabled {
+  opacity: 0.5;
+  cursor : not-allowed;
+}
+
+.ps-btn-next {
+  flex           : 1;
+  display        : inline-flex;
+  align-items    : center;
+  justify-content: center;
+  gap            : 0.5rem;
+  padding        : 0.9rem;
+  background     : var(--ps-orange);
+  color          : white;
+  border         : none;
+  border-radius  : 4px;
+  font-weight    : 700;
+  font-size      : 0.9rem;
+  cursor         : pointer;
+  font-family    : inherit;
+  transition     : background 0.15s;
+  letter-spacing : 0.01em;
+}
+
+.ps-btn-next:hover:not(:disabled) {
+  background: var(--ps-orange-dk);
+}
+
+.ps-btn-next:disabled {
+  background: var(--ps-faint);
+  cursor    : not-allowed;
+  opacity   : 0.7;
+}
+
+.ps-btn-next--loading {
+  background: var(--ps-orange-dk);
+  opacity   : 0.85;
+}
+
+/* CTA lock icon (v5) — reinforces security at commit moment */
+.ps-btn-next__lock {
+  display    : inline-flex;
+  align-items: center;
+  opacity    : 0.9;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SPINNER
+═══════════════════════════════════════════════════════════════ */
+.ps-spinner {
+  display      : inline-block;
+  border       : 2px solid rgba(255,255,255,0.35);
+  border-top   : 2px solid white;
+  border-radius: 50%;
+  animation    : ps-spin 0.7s linear infinite;
+  flex-shrink  : 0;
+}
+
+@keyframes ps-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SKELETON
+═══════════════════════════════════════════════════════════════ */
+.ps-skel-row {
+  height       : 14px;
+  margin       : 0.6rem 0;
+  border-radius: 3px;
+  background   : linear-gradient(
+    90deg,
+    var(--ps-bg-soft)  25%,
+    #e5e5e5            50%,
+    var(--ps-bg-soft)  75%
+  );
+  background-size: 400px 100%;
+  animation      : ps-shimmer 1.4s infinite;
+}
+
+.ps-skel-row--total {
+  height     : 20px;
+  width      : 60%;
+  margin-left: auto;
+}
+
+@keyframes ps-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .ps-card__icon {
+    width : 36px;
+    height: 36px;
+  }
+  .ps-card__label {
+    font-size: 0.85rem;
+  }
+  .ps-eta {
+    font-size: 0.72rem;
+  }
+  .ps-trust {
+    font-size: 0.68rem;
+  }
+  .ps-trust__providers {
+    flex        : 1 1 100%;
+    margin-top  : 0.25rem;
+    padding-left: 0;
+  }
+  .ps-trust__sep {
+    display: none;
+  }
+}
