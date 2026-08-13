@@ -159,6 +159,11 @@ import CheckoutPage       from "./pages/CheckoutPage";
 import OrderHistory       from "./pages/OrderHistory";
 
 /* ════════════════════════════════════════════════════════════
+   PAGES — SHOP / ORDER TRACKING
+════════════════════════════════════════════════════════════ */
+import OrderTracking from "./pages/Shop/OrderTracking";
+
+/* ════════════════════════════════════════════════════════════
    PAGES — HELP & SUPPORT
 ════════════════════════════════════════════════════════════ */
 import HelpCenter          from "./pages/Help/HelpCenter";
@@ -1052,6 +1057,24 @@ function AppInner() {
           element={
             <ProtectedRoute user={user}>
               <OrderHistory user={user} />
+            </ProtectedRoute>
+          }
+        />
+        {/*
+          ⚠️ NOTE: this route intentionally lives at a DIFFERENT path
+          than "/shop/orders/:groupId" above. Both are single dynamic
+          segments directly under /shop/orders, so "/shop/orders/:orderId"
+          would collide with PaymentReturnRouter's route — whichever is
+          registered first wins, and the other would never render.
+          Using "/shop/orders/track/:orderId" avoids that collision.
+          If OrderTracking is meant to replace or merge with
+          PaymentReturnRouter, that should be a deliberate follow-up
+          change rather than an accidental route shadow.
+        */}
+        <Route path="/shop/orders/track/:orderId"
+          element={
+            <ProtectedRoute user={user}>
+              <OrderTracking user={user} />
             </ProtectedRoute>
           }
         />
