@@ -1,0 +1,1040 @@
+/**
+ * src/pages/Shop/styles/OrderTracking.css
+ *
+ * Professional order tracking page.
+ * Flat Jumia-style matching checkout aesthetic.
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+═══════════════════════════════════════════════════════════════ */
+.otp-wrapper {
+  --otp-orange     : #F68B1E;
+  --otp-orange-dk  : #E07A10;
+  --otp-orange-lt  : #FFF5EB;
+  --otp-orange-bd  : #FFD6B3;
+
+  --otp-ink        : #1A1A1A;
+  --otp-ink-2      : #4A4A4A;
+  --otp-muted      : #6A6A6A;
+  --otp-faint      : #B8B8B8;
+
+  --otp-bg         : #F5F5F5;
+  --otp-card-bg    : #FFFFFF;
+  --otp-section-bg : #EDEDED;
+  --otp-soft       : #F7F7F7;
+
+  --otp-border     : #E5E5E5;
+  --otp-border-lt  : #F0F0F0;
+
+  --otp-success    : #16A34A;
+  --otp-success-lt : #ECFDF5;
+  --otp-success-bd : #BBF7D0;
+
+  --otp-warning    : #F59E0B;
+  --otp-warning-lt : #FEF3C7;
+  --otp-warning-bd : #FDE68A;
+  --otp-warning-ink: #92400E;
+
+  --otp-danger     : #DC2626;
+  --otp-danger-lt  : #FEF2F2;
+  --otp-danger-bd  : #FECACA;
+  --otp-danger-ink : #991B1B;
+
+  --otp-info       : #0284C7;
+  --otp-info-lt    : #F0F9FF;
+
+  min-height : 100vh;
+  background : var(--otp-bg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color      : var(--otp-ink);
+  line-height: 1.5;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TOP BAR
+═══════════════════════════════════════════════════════════════ */
+.otp-topbar {
+  display        : flex;
+  align-items    : center;
+  gap            : 0.75rem;
+  padding        : 0.85rem 1rem;
+  background     : white;
+  border-bottom  : 1px solid var(--otp-border);
+  position       : sticky;
+  top            : 0;
+  z-index        : 40;
+}
+
+.otp-back {
+  width          : 36px;
+  height         : 36px;
+  border         : 1px solid var(--otp-border);
+  background     : white;
+  color          : var(--otp-ink);
+  border-radius  : 6px;
+  cursor         : pointer;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+  transition     : all 0.15s;
+}
+
+.otp-back:hover {
+  background  : var(--otp-soft);
+  border-color: var(--otp-faint);
+}
+
+.otp-topbar__title-block {
+  flex     : 1;
+  min-width: 0;
+}
+
+.otp-topbar__title {
+  font-size    : 1.05rem;
+  font-weight  : 800;
+  color        : var(--otp-ink);
+  margin       : 0;
+  letter-spacing: -0.01em;
+}
+
+.otp-topbar__subtitle {
+  font-size: 0.72rem;
+  color    : var(--otp-muted);
+  margin   : 0.15rem 0 0;
+}
+
+.otp-refresh {
+  width          : 36px;
+  height         : 36px;
+  border         : 1px solid var(--otp-border);
+  background     : white;
+  color          : var(--otp-ink-2);
+  border-radius  : 6px;
+  cursor         : pointer;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+  transition     : all 0.15s;
+}
+
+.otp-refresh:hover:not(:disabled) {
+  background: var(--otp-soft);
+  color     : var(--otp-orange);
+}
+
+.otp-refresh:disabled {
+  opacity: 0.5;
+  cursor : not-allowed;
+}
+
+.otp-refresh--spin {
+  display   : inline-block;
+  animation : otp-spin 1s linear infinite;
+}
+
+@keyframes otp-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONTENT WRAPPER
+═══════════════════════════════════════════════════════════════ */
+.otp-content {
+  max-width: 640px;
+  margin   : 0 auto;
+  padding  : 1rem 0 3rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TRACKING ID CARD
+═══════════════════════════════════════════════════════════════ */
+.otp-tracking-card {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  gap            : 0.75rem;
+  padding        : 1rem;
+  background     : white;
+  border         : 1px dashed var(--otp-orange-bd);
+  border-radius  : 8px;
+  margin         : 0 1rem 1rem;
+}
+
+.otp-tracking-card__info {
+  flex     : 1;
+  min-width: 0;
+}
+
+.otp-tracking-card__label {
+  font-size     : 0.68rem;
+  font-weight   : 700;
+  color         : var(--otp-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin        : 0 0 0.25rem;
+}
+
+.otp-tracking-card__value {
+  font-size    : 1.05rem;
+  font-weight  : 800;
+  color        : var(--otp-orange);
+  font-family  : ui-monospace, "SF Mono", Consolas, monospace;
+  letter-spacing: 0.02em;
+  margin       : 0;
+  word-break   : break-all;
+}
+
+.otp-tracking-card__actions {
+  display    : flex;
+  gap        : 0.4rem;
+  flex-shrink: 0;
+}
+
+.otp-icon-btn {
+  width          : 36px;
+  height         : 36px;
+  border         : 1px solid var(--otp-border);
+  background     : white;
+  color          : var(--otp-ink-2);
+  border-radius  : 6px;
+  cursor         : pointer;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  transition     : all 0.15s;
+}
+
+.otp-icon-btn:hover {
+  border-color: var(--otp-orange);
+  color       : var(--otp-orange);
+}
+
+.otp-icon-btn--done {
+  background  : var(--otp-success-lt);
+  border-color: var(--otp-success-bd);
+  color       : var(--otp-success);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ALERT BAR
+═══════════════════════════════════════════════════════════════ */
+.otp-alert {
+  display      : flex;
+  align-items  : center;
+  gap          : 0.75rem;
+  padding      : 0.85rem 1rem;
+  margin       : 0 1rem 1rem;
+  border-radius: 8px;
+  border-width : 1px;
+  border-style : solid;
+}
+
+.otp-alert--warning {
+  background   : var(--otp-warning-lt);
+  border-color : var(--otp-warning-bd);
+  color        : var(--otp-warning-ink);
+}
+
+.otp-alert__icon {
+  flex-shrink: 0;
+  display    : flex;
+}
+
+.otp-alert__body {
+  flex     : 1;
+  min-width: 0;
+}
+
+.otp-alert__title {
+  font-size  : 0.88rem;
+  font-weight: 700;
+  margin     : 0 0 0.15rem;
+}
+
+.otp-alert__msg {
+  font-size: 0.78rem;
+  margin   : 0;
+  opacity  : 0.85;
+}
+
+.otp-alert__action {
+  padding      : 0.5rem 1rem;
+  background   : var(--otp-orange);
+  color        : white;
+  border       : none;
+  border-radius: 4px;
+  font-weight  : 700;
+  font-size    : 0.82rem;
+  cursor       : pointer;
+  flex-shrink  : 0;
+  font-family  : inherit;
+}
+
+.otp-alert__action:hover:not(:disabled) {
+  background: var(--otp-orange-dk);
+}
+
+.otp-alert__action:disabled {
+  opacity: 0.6;
+  cursor : not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SECTION HEADER
+═══════════════════════════════════════════════════════════════ */
+.otp-section-header {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  padding        : 0.75rem 1rem;
+  background     : var(--otp-section-bg);
+  border-top     : 1px solid var(--otp-border-lt);
+  border-bottom  : 1px solid var(--otp-border-lt);
+}
+
+.otp-section-header__title {
+  font-size     : 0.72rem;
+  font-weight   : 700;
+  color         : var(--otp-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin        : 0;
+}
+
+.otp-section-header__badge {
+  display    : flex;
+  align-items: center;
+  gap        : 0.3rem;
+  font-size  : 0.68rem;
+  font-weight: 700;
+  color      : var(--otp-success);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.otp-live-dot {
+  width        : 6px;
+  height       : 6px;
+  border-radius: 50%;
+  background   : var(--otp-success);
+  animation    : otp-pulse 2s infinite;
+}
+
+@keyframes otp-pulse {
+  0%, 100% { opacity: 1;    transform: scale(1);   }
+  50%      { opacity: 0.5;  transform: scale(1.3); }
+}
+
+.otp-section-body {
+  padding    : 1rem;
+  background : white;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STATUS TIMELINE
+═══════════════════════════════════════════════════════════════ */
+.otp-timeline {
+  display       : flex;
+  flex-direction: column;
+  gap           : 0;
+}
+
+.otp-timeline__cancelled {
+  display        : flex;
+  align-items    : center;
+  gap            : 0.5rem;
+  padding        : 1rem;
+  background     : var(--otp-danger-lt);
+  border         : 1px solid var(--otp-danger-bd);
+  border-radius  : 6px;
+  color          : var(--otp-danger-ink);
+  font-weight    : 600;
+  font-size      : 0.9rem;
+}
+
+.otp-step {
+  display      : flex;
+  gap          : 0.85rem;
+  position     : relative;
+  padding-bottom: 1.25rem;
+}
+
+.otp-step:last-child {
+  padding-bottom: 0;
+}
+
+.otp-step__marker {
+  width          : 28px;
+  height         : 28px;
+  border-radius  : 50%;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+  font-size      : 0.75rem;
+  font-weight    : 700;
+  z-index        : 2;
+  position       : relative;
+}
+
+.otp-step--past .otp-step__marker {
+  background: var(--otp-success);
+  color     : white;
+}
+
+.otp-step--current .otp-step__marker {
+  background : var(--otp-orange);
+  color      : white;
+  box-shadow : 0 0 0 4px var(--otp-orange-lt);
+  animation  : otp-current-pulse 2s infinite;
+}
+
+@keyframes otp-current-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px var(--otp-orange-lt); }
+  50%      { box-shadow: 0 0 0 8px var(--otp-orange-lt); }
+}
+
+.otp-step--future .otp-step__marker {
+  background: var(--otp-soft);
+  color     : var(--otp-faint);
+  border    : 1.5px solid var(--otp-border);
+}
+
+.otp-step__line {
+  position     : absolute;
+  left         : 13.5px;
+  top          : 28px;
+  bottom       : -5px;
+  width        : 1.5px;
+  background   : var(--otp-border);
+  z-index      : 1;
+}
+
+.otp-step--past .otp-step__line {
+  background: var(--otp-success);
+}
+
+.otp-step__body {
+  flex       : 1;
+  padding-top: 3px;
+  min-width  : 0;
+}
+
+.otp-step__label {
+  display    : flex;
+  align-items: center;
+  gap        : 0.5rem;
+  flex-wrap  : wrap;
+  font-size  : 0.9rem;
+  font-weight: 600;
+  color      : var(--otp-ink);
+  margin-bottom: 0.2rem;
+}
+
+.otp-step--future .otp-step__label {
+  color: var(--otp-muted);
+  font-weight: 500;
+}
+
+.otp-step__badge {
+  display        : inline-block;
+  padding        : 0.15rem 0.5rem;
+  background     : var(--otp-orange);
+  color          : white;
+  border-radius  : 3px;
+  font-size      : 0.62rem;
+  font-weight    : 700;
+  text-transform : uppercase;
+  letter-spacing : 0.04em;
+}
+
+.otp-step__subtitle {
+  font-size  : 0.78rem;
+  color      : var(--otp-muted);
+  margin     : 0 0 0.2rem;
+  line-height: 1.5;
+}
+
+.otp-step__time {
+  font-size: 0.7rem;
+  color    : var(--otp-faint);
+  margin   : 0;
+}
+
+.otp-step__number {
+  font-size: 0.75rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DELIVERY DETAILS
+═══════════════════════════════════════════════════════════════ */
+.otp-delivery {
+  display    : flex;
+  align-items: center;
+  gap        : 0.75rem;
+  padding    : 0.75rem;
+  background : var(--otp-orange-lt);
+  border     : 1px solid var(--otp-orange-bd);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.otp-delivery__icon {
+  width          : 40px;
+  height         : 40px;
+  border-radius  : 50%;
+  background     : white;
+  color          : var(--otp-orange);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.otp-delivery__body {
+  flex: 1;
+}
+
+.otp-delivery__title {
+  font-size  : 0.9rem;
+  font-weight: 700;
+  color      : var(--otp-orange-dk);
+  margin     : 0 0 0.15rem;
+}
+
+.otp-delivery__sub {
+  font-size: 0.75rem;
+  color    : var(--otp-orange-dk);
+  margin   : 0;
+  opacity  : 0.85;
+}
+
+.otp-address__name {
+  font-size  : 0.9rem;
+  font-weight: 600;
+  color      : var(--otp-ink);
+  margin     : 0 0 0.3rem;
+}
+
+.otp-address__phone {
+  color      : var(--otp-muted);
+  font-weight: 400;
+}
+
+.otp-address__line {
+  font-size  : 0.85rem;
+  color      : var(--otp-ink-2);
+  margin     : 0 0 0.25rem;
+  line-height: 1.4;
+}
+
+.otp-address__landmark {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 0.3rem;
+  font-size  : 0.78rem;
+  color      : var(--otp-orange-dk);
+  background : var(--otp-orange-lt);
+  padding    : 0.25rem 0.55rem;
+  border-radius: 4px;
+  margin     : 0.35rem 0 0.25rem;
+  font-weight: 500;
+}
+
+.otp-address__city {
+  font-size: 0.82rem;
+  color    : var(--otp-muted);
+  margin   : 0.35rem 0 0;
+}
+
+.otp-address__call {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 0.35rem;
+  margin     : 0.5rem 0 0;
+  font-size  : 0.78rem;
+  color      : var(--otp-success);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ITEMS LIST
+═══════════════════════════════════════════════════════════════ */
+.otp-items {
+  display       : flex;
+  flex-direction: column;
+  gap           : 1rem;
+}
+
+.otp-items__seller-group {
+  display       : flex;
+  flex-direction: column;
+}
+
+.otp-items__seller {
+  display    : flex;
+  align-items: center;
+  gap        : 0.5rem;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--otp-border-lt);
+  font-size  : 0.82rem;
+  font-weight: 600;
+  color      : var(--otp-ink);
+}
+
+.otp-items__seller-dot {
+  width          : 22px;
+  height         : 22px;
+  border-radius  : 50%;
+  background     : var(--otp-orange);
+  color          : white;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  font-size      : 0.68rem;
+  font-weight    : 700;
+  flex-shrink    : 0;
+}
+
+.otp-item {
+  display      : flex;
+  gap          : 0.75rem;
+  padding      : 0.75rem 0;
+  border-bottom: 1px solid var(--otp-border-lt);
+}
+
+.otp-item:first-child { padding-top: 0; }
+.otp-item:last-child {
+  padding-bottom: 0;
+  border-bottom : none;
+}
+
+.otp-item__img {
+  width          : 52px;
+  height         : 52px;
+  border-radius  : 4px;
+  background     : var(--otp-soft);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+  overflow       : hidden;
+  color          : var(--otp-faint);
+}
+
+.otp-item__img img {
+  width     : 100%;
+  height    : 100%;
+  object-fit: cover;
+}
+
+.otp-item__info {
+  flex     : 1;
+  min-width: 0;
+}
+
+.otp-item__name {
+  font-size  : 0.85rem;
+  font-weight: 600;
+  color      : var(--otp-ink);
+  margin     : 0 0 0.2rem;
+  line-height: 1.35;
+  display    : -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow   : hidden;
+}
+
+.otp-item__variant {
+  font-size: 0.72rem;
+  color    : var(--otp-muted);
+  margin   : 0 0 0.2rem;
+}
+
+.otp-item__qty {
+  font-size: 0.78rem;
+  color    : var(--otp-muted);
+  margin   : 0;
+}
+
+.otp-item__price {
+  font-size  : 0.88rem;
+  font-weight: 700;
+  color      : var(--otp-ink);
+  align-self : center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAYMENT SUMMARY
+═══════════════════════════════════════════════════════════════ */
+.otp-price-row {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : center;
+  padding        : 0.4rem 0;
+  font-size      : 0.85rem;
+  color          : var(--otp-ink-2);
+}
+
+.otp-price-row--discount {
+  color: var(--otp-success);
+}
+
+.otp-price-divider {
+  height    : 1px;
+  background: var(--otp-border-lt);
+  margin    : 0.5rem 0;
+}
+
+.otp-price-row--total {
+  font-size  : 1rem;
+  font-weight: 800;
+  color      : var(--otp-ink);
+  padding    : 0.5rem 0 0.2rem;
+}
+
+.otp-free-tag {
+  color         : var(--otp-success);
+  font-weight   : 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.otp-payment-badge {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 0.4rem;
+  margin-top   : 0.85rem;
+  padding      : 0.4rem 0.75rem;
+  background   : var(--otp-soft);
+  border       : 1px solid var(--otp-border);
+  border-radius: 4px;
+  font-size    : 0.78rem;
+  font-weight  : 600;
+  color        : var(--otp-ink-2);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ACTIONS SECTION
+═══════════════════════════════════════════════════════════════ */
+.otp-actions-section {
+  padding    : 1rem;
+  margin-top : 0.5rem;
+}
+
+.otp-actions-section__title {
+  font-size     : 0.72rem;
+  font-weight   : 700;
+  color         : var(--otp-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin        : 0 0 0.75rem;
+}
+
+.otp-action-buttons {
+  display       : flex;
+  flex-direction: column;
+  gap           : 0.5rem;
+}
+
+.otp-action-btn {
+  display        : flex;
+  align-items    : center;
+  gap            : 0.6rem;
+  width          : 100%;
+  padding        : 0.85rem 1rem;
+  background     : white;
+  border         : 1px solid var(--otp-border);
+  border-radius  : 6px;
+  color          : var(--otp-ink);
+  font-size      : 0.88rem;
+  font-weight    : 600;
+  cursor         : pointer;
+  text-decoration: none;
+  font-family    : inherit;
+  transition     : all 0.15s;
+}
+
+.otp-action-btn:hover {
+  border-color: var(--otp-orange);
+  color       : var(--otp-orange);
+}
+
+.otp-action-btn svg {
+  flex-shrink: 0;
+  color      : var(--otp-orange);
+}
+
+.otp-action-btn--danger {
+  color: var(--otp-danger);
+}
+
+.otp-action-btn--danger:hover {
+  border-color: var(--otp-danger);
+  color       : var(--otp-danger);
+}
+
+.otp-action-btn--danger svg {
+  color: var(--otp-danger);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ERROR STATE
+═══════════════════════════════════════════════════════════════ */
+.otp-error-state {
+  max-width     : 400px;
+  margin        : 4rem auto;
+  padding       : 2rem;
+  background    : white;
+  border        : 1px solid var(--otp-border);
+  border-radius : 8px;
+  text-align    : center;
+}
+
+.otp-error-state__icon {
+  width          : 64px;
+  height         : 64px;
+  border-radius  : 50%;
+  background     : var(--otp-danger-lt);
+  color          : var(--otp-danger);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  margin         : 0 auto 1rem;
+}
+
+.otp-error-state__title {
+  font-size    : 1.1rem;
+  font-weight  : 700;
+  color        : var(--otp-ink);
+  margin       : 0 0 0.5rem;
+}
+
+.otp-error-state__msg {
+  font-size    : 0.88rem;
+  color        : var(--otp-muted);
+  margin       : 0 0 1.5rem;
+}
+
+.otp-error-state__actions {
+  display: flex;
+  gap    : 0.6rem;
+  justify-content: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BUTTONS
+═══════════════════════════════════════════════════════════════ */
+.otp-btn {
+  display        : inline-flex;
+  align-items    : center;
+  justify-content: center;
+  gap            : 0.4rem;
+  padding        : 0.75rem 1.2rem;
+  border-radius  : 4px;
+  font-weight    : 700;
+  font-size      : 0.88rem;
+  cursor         : pointer;
+  font-family    : inherit;
+  text-decoration: none;
+  border         : none;
+  transition     : all 0.15s;
+}
+
+.otp-btn--primary {
+  background: var(--otp-orange);
+  color     : white;
+}
+
+.otp-btn--primary:hover:not(:disabled) {
+  background: var(--otp-orange-dk);
+}
+
+.otp-btn--secondary {
+  background: white;
+  color     : var(--otp-ink-2);
+  border    : 1px solid var(--otp-border);
+}
+
+.otp-btn--secondary:hover:not(:disabled) {
+  background: var(--otp-soft);
+}
+
+.otp-btn--danger {
+  background: var(--otp-danger);
+  color     : white;
+}
+
+.otp-btn--danger:hover:not(:disabled) {
+  background: #B91C1C;
+}
+
+.otp-btn:disabled {
+  opacity: 0.6;
+  cursor : not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MODAL
+═══════════════════════════════════════════════════════════════ */
+.otp-modal-overlay {
+  position       : fixed;
+  inset          : 0;
+  background     : rgba(0, 0, 0, 0.5);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  padding        : 1rem;
+  z-index        : 1000;
+}
+
+.otp-modal {
+  background   : white;
+  border-radius: 8px;
+  width        : 100%;
+  max-width    : 400px;
+  padding      : 1.5rem;
+  text-align   : center;
+}
+
+.otp-modal__icon {
+  width          : 56px;
+  height         : 56px;
+  border-radius  : 50%;
+  background     : var(--otp-danger-lt);
+  color          : var(--otp-danger);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  margin         : 0 auto 1rem;
+}
+
+.otp-modal__title {
+  font-size  : 1.1rem;
+  font-weight: 800;
+  color      : var(--otp-ink);
+  margin     : 0 0 0.5rem;
+}
+
+.otp-modal__msg {
+  font-size  : 0.88rem;
+  color      : var(--otp-muted);
+  margin     : 0 0 1.5rem;
+  line-height: 1.5;
+}
+
+.otp-modal__actions {
+  display: flex;
+  gap    : 0.6rem;
+}
+
+.otp-modal__actions .otp-btn {
+  flex: 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════════════════════ */
+.otp-toast {
+  position       : fixed;
+  bottom         : 2rem;
+  left           : 50%;
+  transform      : translateX(-50%);
+  display        : flex;
+  align-items    : center;
+  gap            : 0.5rem;
+  padding        : 0.85rem 1.25rem;
+  border-radius  : 6px;
+  font-size      : 0.88rem;
+  font-weight    : 600;
+  color          : white;
+  z-index        : 1100;
+  box-shadow     : 0 8px 24px rgba(0, 0, 0, 0.15);
+  animation      : otp-toast-in 0.3s ease-out;
+  max-width      : calc(100vw - 2rem);
+}
+
+.otp-toast--success {
+  background: var(--otp-success);
+}
+
+.otp-toast--error {
+  background: var(--otp-danger);
+}
+
+.otp-toast--info {
+  background: var(--otp-ink);
+}
+
+@keyframes otp-toast-in {
+  from { opacity: 0; transform: translate(-50%, 20px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SKELETON
+═══════════════════════════════════════════════════════════════ */
+.otp-skel {
+  background   : linear-gradient(
+    90deg,
+    var(--otp-soft)  25%,
+    #E5E5E5          50%,
+    var(--otp-soft)  75%
+  );
+  background-size: 400px 100%;
+  animation      : otp-shimmer 1.4s infinite;
+  border-radius  : 4px;
+}
+
+.otp-skel--title {
+  height: 20px;
+  width : 140px;
+  margin: 0 0 0.4rem;
+}
+
+.otp-skel--subtitle {
+  height: 12px;
+  width : 200px;
+}
+
+.otp-skel--card {
+  height: 120px;
+  margin: 0 1rem 1rem;
+}
+
+@keyframes otp-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .otp-tracking-card__value {
+    font-size: 0.9rem;
+  }
+  .otp-step__label {
+    font-size: 0.85rem;
+  }
+  .otp-topbar__title {
+    font-size: 0.95rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .otp-content {
+    padding: 1.5rem;
+  }
+  .otp-tracking-card,
+  .otp-alert {
+    margin-left : 0;
+    margin-right: 0;
+  }
+}
