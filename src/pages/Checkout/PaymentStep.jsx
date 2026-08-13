@@ -1,15 +1,16 @@
 /**
  * src/pages/Checkout/PaymentStep.jsx
  *
- * v3 — LIVE DEBUG error display
- * ─────────────────────────────────
- * ✓ Shows full debug object (SQL error details) in dev mode
- * ✓ Dismiss button clears error
- * ✓ Expandable "Debug details" panel
- * ✓ Only display component — order logic lives in parent
+ * v5 — Modern professional trust indicators
+ * ─────────────────────────────────────────────────────
+ * ✓ Removed intrusive "You'll be redirected..." note
+ * ✓ Added subtle trust bar (lock + provider names)
+ * ✓ Confidence-inspiring, not warning-heavy
+ * ✓ All other v4 features intact
  */
 
-import React, { memo } from "react";
+import { memo } from "react";
+import "./styles/PaymentStep.css";
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -19,6 +20,11 @@ const fmt = (n) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+
+const toNumber = (v) => {
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+};
 
 function normaliseKey(key = "") {
   const k = key.toUpperCase().replace(/[\s\-_]/g, "_");
@@ -31,136 +37,266 @@ function normaliseKey(key = "") {
   return key;
 }
 
+const IS_DEV = import.meta.env.DEV;
+
+/* ═══════════════════════════════════════════════════════════════
+   SVG ICONS
+═══════════════════════════════════════════════════════════════ */
+const Icon = {
+  Cash: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <circle cx="12" cy="12" r="3" />
+      <line x1="6" y1="12" x2="6.01" y2="12" />
+      <line x1="18" y1="12" x2="18.01" y2="12" />
+    </svg>
+  ),
+  Card: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  ),
+  Wallet: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12V7H5a2 2 0 010-4h14v4" />
+      <path d="M3 5v14a2 2 0 002 2h16v-5" />
+      <path d="M18 12a2 2 0 000 4h4v-4z" />
+    </svg>
+  ),
+  Lock: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0110 0v4" />
+    </svg>
+  ),
+  Shield: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  ),
+  Info: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  ),
+  Alert: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  ),
+  X: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  ),
+  ArrowLeft: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  ),
+  Check: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="3"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  Calendar: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  ),
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   PAYMENT ICON MAP
+═══════════════════════════════════════════════════════════════ */
+function PaymentIcon({ payKey }) {
+  const norm = normaliseKey(payKey);
+  if (norm === "CASH_ON_DELIVERY") return <Icon.Cash />;
+  if (norm === "ONLINE_PAYMENT")   return <Icon.Card />;
+  return <Icon.Wallet />;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    SPINNER
 ═══════════════════════════════════════════════════════════════ */
-function Spinner() {
+function Spinner({ size = 15 }) {
   return (
     <span
-      style={{
-        display      : "inline-block",
-        width        : "16px",
-        height       : "16px",
-        border       : "2px solid rgba(255,255,255,0.35)",
-        borderTop    : "2px solid white",
-        borderRadius : "50%",
-        animation    : "ck-spin 0.7s linear infinite",
-        flexShrink   : 0,
-      }}
+      className="ps-spinner"
+      style={{ width: size, height: size }}
       aria-hidden="true"
     />
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ERROR DISPLAY — with expandable debug details
+   TRUST BAR — subtle security indicators
+   ─────────────────────────────────────────────────────────────
+   Replaces the "You'll be redirected..." note with quiet
+   confidence: a small lock + accepted payment provider names.
+═══════════════════════════════════════════════════════════════ */
+const TrustBar = memo(function TrustBar() {
+  return (
+    <div className="ps-trust">
+      <span className="ps-trust__lock">
+        <Icon.Lock size={11} />
+        Secured payment
+      </span>
+      <span className="ps-trust__sep" aria-hidden="true">·</span>
+      <span className="ps-trust__providers">
+        Visa · Mastercard · Verve · Bank transfer · USSD
+      </span>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   ERROR BANNER
 ═══════════════════════════════════════════════════════════════ */
 function ErrorBanner({ error, errorDebug, onDismiss }) {
   if (!error) return null;
 
-  const isDev = import.meta.env.DEV;
-
   return (
-    <div className="ck-payment-error" role="alert" aria-live="assertive">
-      <div style={{
-        display   : "flex",
-        alignItems: "flex-start",
-        gap       : "0.5rem",
-        width     : "100%",
-      }}>
-        <span aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }}>
-          ⚠️
-        </span>
+    <div className="ps-error" role="alert" aria-live="assertive">
+      <span className="ps-error__icon" aria-hidden="true">
+        <Icon.Alert />
+      </span>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Main error message */}
-          <div style={{
-            fontWeight  : 600,
-            lineHeight  : 1.4,
-            wordBreak   : "break-word",
-          }}>
-            {error}
-          </div>
+      <div className="ps-error__body">
+        <div className="ps-error__msg">{error}</div>
 
-          {/* Expandable debug details */}
-          {errorDebug && isDev && (
-            <details style={{
-              marginTop: 10,
-              fontSize : 11,
-              opacity  : 0.85,
-            }}>
-              <summary style={{
-                cursor    : "pointer",
-                fontWeight: 600,
-                padding   : "2px 0",
-                userSelect: "none",
-              }}>
-                🔍 Debug Details
-              </summary>
-              <pre style={{
-                marginTop   : 6,
-                padding     : "8px 10px",
-                background  : "rgba(0,0,0,0.06)",
-                borderRadius: 6,
-                fontSize    : 10,
-                lineHeight  : 1.5,
-                overflow    : "auto",
-                whiteSpace  : "pre-wrap",
-                wordBreak   : "break-word",
-                maxHeight   : 200,
-                fontFamily  : "monospace",
-              }}>
-                {JSON.stringify(errorDebug, null, 2)}
-              </pre>
-            </details>
-          )}
-        </div>
-
-        {/* Dismiss button */}
-        {onDismiss && (
-          <button
-            type="button"
-            onClick={onDismiss}
-            aria-label="Dismiss error"
-            style={{
-              background : "none",
-              border     : "none",
-              cursor     : "pointer",
-              color      : "inherit",
-              opacity    : 0.6,
-              fontSize   : "1rem",
-              lineHeight : 1,
-              padding    : "0.1rem 0.3rem",
-              flexShrink : 0,
-              marginLeft : "auto",
-            }}
-          >
-            ✕
-          </button>
+        {errorDebug && IS_DEV && (
+          <details className="ps-error__debug">
+            <summary>🔍 Debug details</summary>
+            <pre>{JSON.stringify(errorDebug, null, 2)}</pre>
+          </details>
         )}
       </div>
+
+      {onDismiss && (
+        <button
+          type="button"
+          className="ps-error__dismiss"
+          onClick={onDismiss}
+          aria-label="Dismiss error"
+        >
+          <Icon.X />
+        </button>
+      )}
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PAYMENT STEP
+   PAYMENT OPTION CARD
+═══════════════════════════════════════════════════════════════ */
+const PaymentCard = memo(function PaymentCard({
+  option,
+  isSelected,
+  disabled,
+  onSelect,
+}) {
+  const handleClick = () => {
+    if (!disabled) onSelect(option.key);
+  };
+
+  const handleKey = (e) => {
+    if ((e.key === "Enter" || e.key === " ") && !disabled) {
+      e.preventDefault();
+      onSelect(option.key);
+    }
+  };
+
+  return (
+    <div
+      className={`ps-card ${isSelected ? "ps-card--selected" : ""} ${disabled ? "ps-card--disabled" : ""}`}
+      onClick={handleClick}
+      onKeyDown={handleKey}
+      role="radio"
+      aria-checked={isSelected}
+      tabIndex={disabled ? -1 : 0}
+      aria-label={option.label}
+    >
+      <div className="ps-card__radio" aria-hidden="true">
+        <div className="ps-card__radio-dot" />
+      </div>
+
+      <div className="ps-card__icon">
+        <PaymentIcon payKey={option.key} />
+      </div>
+
+      <div className="ps-card__info">
+        <p className="ps-card__label">{option.label}</p>
+        {option.desc && (
+          <p className="ps-card__desc">{option.desc}</p>
+        )}
+      </div>
+
+      {isSelected && (
+        <span className="ps-card__check" aria-hidden="true">
+          <Icon.Check />
+        </span>
+      )}
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 const PaymentStep = memo(function PaymentStep({
   calculation,
   paymentMethod,
   onSelectPayment,
-  loading = false,
-  error = null,
-  errorDebug = null,           /* ✅ NEW */
-  onDismissError,              /* ✅ NEW */
+  loading      = false,
+  error        = null,
+  errorDebug   = null,
+  onDismissError,
   onBack,
   onPlaceOrder,
 }) {
   /* ── Totals ── */
-  const grandTotal  = Number(calculation?.grandTotal  ?? 0);
-  const deliveryFee = Number(calculation?.deliveryFee ?? 0);
-  const subtotal    = Number(calculation?.subtotal    ?? 0);
+  const subtotal     = toNumber(calculation?.subtotal);
+  const deliveryFee  = toNumber(calculation?.deliveryFee);
+  const discount     = toNumber(calculation?.discount);
+  const grandTotal   = toNumber(calculation?.grandTotal);
+  const freeShipping = !!calculation?.freeShipping;
+  const couponCode   = calculation?.coupon?.code ?? null;
+
+  const deliveryRange = calculation?.deliveryRange ?? null;
+  const deliveryEta   = calculation?.deliveryEta   ?? null;
 
   /* ── Selected method ── */
   const normSelected = paymentMethod ? normaliseKey(paymentMethod) : null;
@@ -170,147 +306,162 @@ const PaymentStep = memo(function PaymentStep({
   /* ── Payment options ── */
   const paymentOptions = calculation?.paymentOptions ?? [];
 
+  /* ── CTA label ── */
+  const ctaLabel = loading
+    ? "Placing Order…"
+    : isCOD
+      ? "Confirm Order"
+      : isOnline
+        ? `Pay ${fmt(grandTotal)}`
+        : "Place Order";
+
   return (
-    <div className="ck-section">
+    <div className="ps-root">
 
-      <style>{`
-        @keyframes ck-spin { to { transform: rotate(360deg); } }
-      `}</style>
-
-      <h2 className="ck-section-title">💳 Payment Method</h2>
-
-      {/* ── Payment option cards ── */}
-      <div
-        className="ck-payment-options"
-        role="radiogroup"
-        aria-label="Payment method"
-      >
-        {paymentOptions.length === 0 && (
-          <p className="ck-payment-empty">
-            Loading payment options…
-          </p>
-        )}
-
-        {paymentOptions.map((opt) => {
-          const normKey    = normaliseKey(opt.key);
-          const isSelected = normSelected === normKey;
-
-          return (
-            <div
-              key={opt.key}
-              className={`ck-payment-card ${
-                isSelected ? "ck-payment-card--selected" : ""
-              }`}
-              onClick={() => { if (!loading) onSelectPayment(opt.key); }}
-              role="radio"
-              aria-checked={isSelected}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if ((e.key === "Enter" || e.key === " ") && !loading) {
-                  onSelectPayment(opt.key);
-                }
-              }}
-              aria-label={opt.label}
-            >
-              <div className="ck-radio-wrap">
-                <div
-                  className={`ck-radio ${isSelected ? "ck-radio--active" : ""}`}
-                  aria-hidden="true"
-                />
-              </div>
-              <div className="ck-payment-icon" aria-hidden="true">
-                {opt.icon}
-              </div>
-              <div className="ck-payment-info">
-                <p className="ck-payment-label">{opt.label}</p>
-                <p className="ck-payment-desc">{opt.desc}</p>
-              </div>
-            </div>
-          );
-        })}
+      {/* ══ SECTION: PAYMENT METHOD ══ */}
+      <div className="ps-section-header">
+        <h3 className="ps-section-header__title">Payment Method</h3>
       </div>
 
-      {/* ── Order summary ── */}
-      {calculation && (
-        <div className="ck-final-summary">
-          <div className="ck-final-row">
-            <span>Subtotal</span>
-            <span>{fmt(subtotal)}</span>
+      <div className="ps-section-body">
+        {paymentOptions.length === 0 ? (
+          <p className="ps-empty">Loading payment options…</p>
+        ) : (
+          <>
+            <div
+              className="ps-options"
+              role="radiogroup"
+              aria-label="Payment method"
+            >
+              {paymentOptions.map((opt) => (
+                <PaymentCard
+                  key={opt.key}
+                  option={opt}
+                  isSelected={normSelected === normaliseKey(opt.key)}
+                  disabled={loading}
+                  onSelect={onSelectPayment}
+                />
+              ))}
+            </div>
+
+            {/*
+              Trust bar — always shown when payment options are
+              available. Quiet, professional, and confidence-
+              inspiring without being warning-heavy.
+            */}
+            <TrustBar />
+          </>
+        )}
+      </div>
+
+      {/* ══ SECTION: ORDER SUMMARY ══ */}
+      <div className="ps-section-header">
+        <h3 className="ps-section-header__title">Order Summary</h3>
+      </div>
+
+      <div className="ps-section-body">
+        {calculation ? (
+          <>
+            <div className="ps-price-row">
+              <span>Subtotal</span>
+              <span>{fmt(subtotal)}</span>
+            </div>
+
+            {discount > 0 && (
+              <div className="ps-price-row ps-price-row--discount">
+                <span>
+                  Discount
+                  {couponCode ? ` (${couponCode})` : ""}
+                </span>
+                <span>− {fmt(discount)}</span>
+              </div>
+            )}
+
+            <div className={`ps-price-row ${freeShipping ? "ps-price-row--free" : ""}`}>
+              <span>Delivery Fee</span>
+              <span>
+                {freeShipping ? (
+                  <span className="ps-free-tag">FREE</span>
+                ) : (
+                  fmt(deliveryFee)
+                )}
+              </span>
+            </div>
+
+            {(deliveryRange || deliveryEta) && (
+              <div className="ps-eta-row">
+                <span className="ps-eta">
+                  <Icon.Calendar />
+                  {deliveryRange?.short ?? deliveryEta}
+                </span>
+              </div>
+            )}
+
+            <div className="ps-price-divider" />
+
+            <div className="ps-price-row ps-price-row--total">
+              <span>Total to Pay</span>
+              <strong>{fmt(grandTotal)}</strong>
+            </div>
+
+            {couponCode && (
+              <div className="ps-coupon-applied">
+                <Icon.Check />
+                Coupon <strong>{couponCode}</strong> applied
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="ps-skel">
+            <div className="ps-skel-row" />
+            <div className="ps-skel-row" />
+            <div className="ps-skel-row" />
+            <div className="ps-price-divider" />
+            <div className="ps-skel-row ps-skel-row--total" />
           </div>
-          <div className="ck-final-row">
-            <span>Delivery Fee</span>
-            <span>{deliveryFee === 0 ? "Free" : fmt(deliveryFee)}</span>
-          </div>
-          <div className="ck-final-divider" />
-          <div className="ck-final-row ck-final-row--total">
-            <span>Total to Pay</span>
-            <strong>{fmt(grandTotal)}</strong>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* ── Contextual notes ── */}
-      {isCOD && (
-        <div className="ck-cod-note" role="note">
-          💵 Have exact change ready — <strong>{fmt(grandTotal)}</strong>
-        </div>
-      )}
-
-      {isOnline && (
-        <div className="ck-online-note" role="note">
-          🔒 You'll be redirected to Flutterwave to complete payment securely.
-        </div>
-      )}
-
-      {!normSelected && (
-        <div className="ck-payment-hint" role="status">
-          👆 Please select a payment method above
-        </div>
-      )}
-
-      {/* ── Error banner with debug details ── */}
+      {/* ══ ERROR BANNER ══ */}
       <ErrorBanner
         error={error}
         errorDebug={errorDebug}
         onDismiss={onDismissError}
       />
 
-      {/* ── Navigation ── */}
-      <div className="ck-nav-btns">
+      {/* ══ HINT ══ */}
+      {!normSelected && paymentOptions.length > 0 && (
+        <div className="ps-hint" role="status">
+          <Icon.Info />
+          <span>Select a payment method to continue</span>
+        </div>
+      )}
+
+      {/* ══ NAVIGATION ══ */}
+      <div className="ps-nav">
         <button
-          className="ck-btn-back"
+          type="button"
+          className="ps-btn-back"
           onClick={onBack}
           disabled={loading}
-          aria-label="Go back"
         >
-          ← Back
+          <Icon.ArrowLeft /> Back
         </button>
 
         <button
-          className={`ck-place-order-btn ${
-            loading ? "ck-place-order-btn--loading" : ""
-          }`}
+          type="button"
+          className={`ps-btn-next ${loading ? "ps-btn-next--loading" : ""}`}
           onClick={onPlaceOrder}
-          disabled={!paymentMethod || loading}
+          disabled={!paymentMethod || loading || !calculation}
           aria-busy={loading}
         >
-          {loading ? (
-            <span style={{
-              display        : "flex",
-              alignItems     : "center",
-              gap            : "0.6rem",
-              justifyContent : "center",
-            }}>
-              <Spinner />
-              Placing Order…
+          {isOnline && !loading && (
+            <span className="ps-btn-next__lock" aria-hidden="true">
+              <Icon.Lock size={13} />
             </span>
-          ) : isCOD ? (
-            "Place Order — Pay on Delivery"
-          ) : isOnline ? (
-            `Pay ${fmt(grandTotal)} →`
-          ) : (
-            "Place Order"
           )}
+          {loading && <Spinner />}
+          {ctaLabel}
         </button>
       </div>
     </div>
