@@ -1,17 +1,14 @@
 /**
  * src/pages/Checkout/AddressStep.jsx
  *
- * Step 1 of checkout — delivery address selection & management.
+ * Flat Jumia-style delivery address section.
  *
- * v2 — WhatsApp notice + all transparent SVG icons
- * ──────────────────────────────────────────────────────────────
- * ✓ WhatsApp notice at top (delivery-scoped, not global)
- * ✓ "Change" button + Terms link inline in notice
- * ✓ All emoji icons replaced with transparent SVGs (currentColor)
- * ✓ All styles in styles/AddressStep.css
- * ✓ Zones fetched WITHOUT auth (endpoint is public)
- * ✓ Cross-device address sync
- * ✓ ErrorToast with inline retry
+ * v3 — Redesigned to match Jumia:
+ *   • Grey section header bar with "Change" link on right
+ *   • Selected address shown as plain summary text
+ *   • "Change" opens address picker or form
+ *   • WhatsApp notice is plain text at top (no colored box)
+ *   • Orange used only for links and CTA button
  */
 
 import {
@@ -56,32 +53,9 @@ const BLANK = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SVG ICONS  (all transparent — use currentColor)
+   SVG ICONS  (transparent — currentColor)
 ═══════════════════════════════════════════════════════════════ */
 const Icon = {
-  Truck: ({ size = 32 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="1" y="3" width="15" height="13" rx="1" />
-      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
-      <circle cx="5.5" cy="18.5" r="2.5" />
-      <circle cx="18.5" cy="18.5" r="2.5" />
-    </svg>
-  ),
-
-  BusStop: ({ size = 20 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 6v6M15 6v6M2 12h19.6" />
-      <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3" />
-      <circle cx="7" cy="18" r="2" />
-      <path d="M9 18h5" />
-      <circle cx="16" cy="18" r="2" />
-    </svg>
-  ),
-
   Home: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
@@ -90,22 +64,14 @@ const Icon = {
       <polyline points="9 22 9 12 15 12 15 22" />
     </svg>
   ),
-
   Office: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="4" y="2" width="16" height="20" rx="2" />
-      <line x1="9"  y1="6"  x2="9"  y2="6" />
-      <line x1="15" y1="6"  x2="15" y2="6" />
-      <line x1="9"  y1="10" x2="9"  y2="10" />
-      <line x1="15" y1="10" x2="15" y2="10" />
-      <line x1="9"  y1="14" x2="9"  y2="14" />
-      <line x1="15" y1="14" x2="15" y2="14" />
       <path d="M10 22V17h4v5" />
     </svg>
   ),
-
   Pin: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
@@ -114,33 +80,6 @@ const Icon = {
       <circle cx="12" cy="10" r="3" />
     </svg>
   ),
-
-  Phone: ({ size = 12 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-    </svg>
-  ),
-
-  Check: ({ size = 12 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="3"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-
-  Info: ({ size = 12 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  ),
-
   Trash: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
@@ -148,10 +87,8 @@ const Icon = {
       <polyline points="3 6 5 6 21 6" />
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6M14 11v6" />
-      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
     </svg>
   ),
-
   Edit: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
@@ -160,7 +97,6 @@ const Icon = {
       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
     </svg>
   ),
-
   Star: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
@@ -168,8 +104,7 @@ const Icon = {
       <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
     </svg>
   ),
-
-  MoreVertical: ({ size = 18 }) => (
+  More: ({ size = 18 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -178,7 +113,6 @@ const Icon = {
       <circle cx="12" cy="19" r="1.5" />
     </svg>
   ),
-
   X: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2.5"
@@ -187,27 +121,16 @@ const Icon = {
       <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   ),
-
   Alert: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <line x1="12" y1="9"  x2="12" y2="13" />
+      <line x1="12" y1="9" x2="12" y2="13" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
     </svg>
   ),
-
-  ArrowRight: ({ size = 16 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="2.5"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <line x1="5" y1="12" x2="19" y2="12" />
-      <polyline points="12 5 19 12 12 19" />
-    </svg>
-  ),
-
-  Plus: ({ size = 16 }) => (
+  Plus: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2.5"
       strokeLinecap="round" aria-hidden="true">
@@ -215,22 +138,9 @@ const Icon = {
       <line x1="5"  y1="12" x2="19" y2="12" />
     </svg>
   ),
-
-  /* WhatsApp brand — filled currentColor */
-  WhatsApp: ({ size = 20 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="currentColor" aria-hidden="true">
-      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.002-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-    </svg>
-  ),
 };
 
-/* Map label → icon component */
-const LABEL_ICON_COMPONENT = {
-  Home   : Icon.Home,
-  Office : Icon.Office,
-  Other  : Icon.Pin,
-};
+const LABEL_ICON = { Home: Icon.Home, Office: Icon.Office, Other: Icon.Pin };
 
 /* ═══════════════════════════════════════════════════════════════
    VALIDATION
@@ -265,33 +175,45 @@ const validatePhone = (phone = "") => {
 
 const validate = (form) => {
   const errors = {};
-
   if (!form.recipient_name?.trim())
     errors.recipient_name = "Recipient name is required";
-  else if (form.recipient_name.trim().length < 2)
-    errors.recipient_name = "Enter a full name";
-
   const phoneErr = validatePhone(form.phone);
   if (phoneErr) errors.phone = phoneErr;
-
   if (!form.state?.trim()) errors.state = "Select a state";
   if (!form.city?.trim())  errors.city  = "Select a city";
-
   if (!form.address_line?.trim())
     errors.address_line = "Street address is required";
   else if (isFake(form.address_line, 10))
-    errors.address_line = "Enter a real address (e.g. No. 5, Oba Adesida Road)";
-
+    errors.address_line = "Enter a real address";
   if (!form.bus_stop?.trim())
-    errors.bus_stop = "Bus stop is required — helps our rider find you";
+    errors.bus_stop = "Bus stop is required";
   else if (isFake(form.bus_stop, 5))
-    errors.bus_stop = "Enter a real bus stop (e.g. Oja Oba bus stop)";
-
+    errors.bus_stop = "Enter a real bus stop";
   return errors;
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   ERROR TOAST
+   FORMAT ADDRESS SUMMARY (Jumia style)
+   ─────────────────────────────────────────────────────────────
+   "Adeloye Joshua"
+   "No 3 | Ondo - Ondo Town - Yaba | +234 8137246483"
+═══════════════════════════════════════════════════════════════ */
+function formatSummaryLine(addr) {
+  const parts = [];
+  if (addr.address_line) parts.push(addr.address_line);
+  if (addr.state || addr.city) {
+    parts.push([addr.state, addr.city, addr.bus_stop || addr.landmark]
+      .filter(Boolean).join(" - "));
+  }
+  const phone = addr.phone?.startsWith("0")
+    ? "+234 " + addr.phone.slice(1)
+    : addr.phone;
+  if (phone) parts.push(phone);
+  return parts.join(" | ");
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TOAST
 ═══════════════════════════════════════════════════════════════ */
 function ErrorToast({ message, onDismiss, action }) {
   if (!message) return null;
@@ -300,22 +222,14 @@ function ErrorToast({ message, onDismiss, action }) {
       <span className="as-toast__icon"><Icon.Alert /></span>
       <span className="as-toast__msg">{message}</span>
       {action && (
-        <button
-          type="button"
-          onClick={action.onClick}
-          className="as-toast__action"
-        >
+        <button type="button" onClick={action.onClick} className="as-toast__action">
           {action.label}
         </button>
       )}
       {onDismiss && (
-        <button
-          onClick={onDismiss}
-          type="button"
-          className="as-toast__dismiss"
-          aria-label="Dismiss error"
-        >
-          <Icon.X size={14} />
+        <button onClick={onDismiss} type="button"
+          className="as-toast__dismiss" aria-label="Dismiss">
+          <Icon.X />
         </button>
       )}
     </div>
@@ -342,31 +256,17 @@ function DeleteModal({ address, onConfirm, onCancel }) {
 
   if (!address) return null;
 
-  const busStop = address.bus_stop || address.landmark || "";
-
   return (
-    <div
-      className="as-modal-overlay"
-      onClick={onCancel}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Delete address"
-    >
+    <div className="as-modal-overlay" onClick={onCancel}
+      role="dialog" aria-modal="true">
       <div className="as-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="as-modal__icon"><Icon.Trash size={24} /></div>
+        <div className="as-modal__icon"><Icon.Trash size={20} /></div>
         <h3 className="as-modal__title">Delete this address?</h3>
-
         <div className="as-modal__body">
           <p className="as-modal__addr">{address.address_line}</p>
-          {busStop && (
-            <p className="as-modal__busstop">
-              <Icon.BusStop size={14} /> {busStop}
-            </p>
-          )}
           <p className="as-modal__city">{address.city}, {address.state}</p>
           <p className="as-modal__warn">This cannot be undone.</p>
         </div>
-
         <div className="as-modal__actions">
           <button className="as-modal__cancel" onClick={onCancel}
             disabled={busy} type="button">
@@ -391,12 +291,10 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
 
   useEffect(() => {
     if (!open) return;
-
     const close = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     };
     const esc = (e) => { if (e.key === "Escape") setOpen(false); };
-
     document.addEventListener("mousedown", close);
     window.addEventListener("keydown", esc);
     return () => {
@@ -406,39 +304,27 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
   }, [open]);
 
   return (
-    <div
-      className="as-card__menu"
-      ref={ref}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <button
-        className="as-menu-btn"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="Address options"
-        aria-expanded={open}
-        type="button"
-      >
-        <Icon.MoreVertical />
+    <div className="as-card__menu" ref={ref}
+      onClick={(e) => e.stopPropagation()}>
+      <button className="as-menu-btn" onClick={() => setOpen((v) => !v)}
+        aria-label="Address options" type="button">
+        <Icon.More />
       </button>
-
       {open && (
         <div className="as-menu-dropdown" role="menu">
           <button className="as-menu-item"
-            onClick={() => { setOpen(false); onEdit(address); }}
-            role="menuitem">
-            <Icon.Edit size={15} /> Edit Address
+            onClick={() => { setOpen(false); onEdit(address); }}>
+            <Icon.Edit /> Edit
           </button>
           {!address.is_default && (
             <button className="as-menu-item"
-              onClick={() => { setOpen(false); onSetDefault(address); }}
-              role="menuitem">
-              <Icon.Star size={15} /> Set as Default
+              onClick={() => { setOpen(false); onSetDefault(address); }}>
+              <Icon.Star /> Set as Default
             </button>
           )}
           <button className="as-menu-item as-menu-item--danger"
-            onClick={() => { setOpen(false); onDelete(address); }}
-            role="menuitem">
-            <Icon.Trash size={15} /> Delete Address
+            onClick={() => { setOpen(false); onDelete(address); }}>
+            <Icon.Trash /> Delete
           </button>
         </div>
       )}
@@ -453,16 +339,9 @@ function AddressSkeleton() {
   return (
     <div className="as-root">
       <div className="as-skeleton">
-        {[1, 2].map((i) => (
-          <div key={i} className="as-skel-card">
-            <div className="as-skel-dot as-shimmer" />
-            <div className="as-skel-lines">
-              <div className="as-skel-line as-skel-line--80 as-shimmer" />
-              <div className="as-skel-line as-skel-line--60 as-shimmer" />
-              <div className="as-skel-line as-skel-line--45 as-shimmer" />
-            </div>
-          </div>
-        ))}
+        <div className="as-skel-line as-skel-line--80 as-shimmer" />
+        <div className="as-skel-line as-skel-line--60 as-shimmer" />
+        <div className="as-skel-line as-skel-line--45 as-shimmer" />
       </div>
     </div>
   );
@@ -480,26 +359,22 @@ const AddressStep = memo(function AddressStep({
   onEdit,
   onNext,
   user,
-  onChangeNumber,          /* WhatsApp notice "Change" handler */
-  termsHref = "/terms",    /* Terms & Conditions URL */
+  onChangeNumber,
+  termsHref = "/terms",
 }) {
-  /* ── Zones ── */
   const [zones,      setZones]      = useState({});
   const [zonesError, setZonesError] = useState(null);
   const [zonesReady, setZonesReady] = useState(false);
 
-  /* ── Form ── */
-  const [showForm,  setShowForm]  = useState(false);
+  /* mode: "summary" | "picker" | "form" */
+  const [mode,      setMode]      = useState("summary");
   const [editingId, setEditingId] = useState(null);
   const [form,      setForm]      = useState(BLANK);
   const [errors,    setErrors]    = useState({});
   const [saving,    setSaving]    = useState(false);
 
-  /* ── Delete + inline error ── */
   const [delTarget, setDelTarget] = useState(null);
   const [actionErr, setActionErr] = useState(null);
-
-  const formOpened = useRef(false);
 
   const makeBlank = useCallback(() => ({
     ...BLANK,
@@ -507,20 +382,16 @@ const AddressStep = memo(function AddressStep({
     phone          : user?.phone_number ?? "",
   }), [user]);
 
-  /* ══════════════════════════════════════════════════════════
-     LOAD ZONES
-  ══════════════════════════════════════════════════════════ */
+  /* Load zones */
   const loadZones = useCallback(() => {
     setZonesReady(false);
     setZonesError(null);
-
     let cancelled = false;
 
     axios
       .get(`${API}/checkout/address/zones`)
       .then((res) => {
         if (cancelled) return;
-
         const raw = res.data;
         const z =
           raw?.data?.zones ??
@@ -528,24 +399,16 @@ const AddressStep = memo(function AddressStep({
           raw?.data        ??
           (typeof raw === "object" && !("success" in raw) ? raw : {}) ??
           {};
-
-        if (Object.keys(z).length === 0) {
-          setZonesError(
-            "Delivery zones could not be loaded. Please refresh the page."
-          );
-        }
+        if (Object.keys(z).length === 0)
+          setZonesError("Delivery zones could not be loaded.");
         setZones(z);
       })
       .catch((err) => {
         if (cancelled) return;
         console.error("[AddressStep] zones fetch failed:", err.message);
-        setZonesError(
-          "Could not load delivery zones. Check your connection and try again."
-        );
+        setZonesError("Could not load delivery zones.");
       })
-      .finally(() => {
-        if (!cancelled) setZonesReady(true);
-      });
+      .finally(() => { if (!cancelled) setZonesReady(true); });
 
     return () => { cancelled = true; };
   }, []);
@@ -555,16 +418,17 @@ const AddressStep = memo(function AddressStep({
     return cleanup;
   }, [loadZones]);
 
+  /* If no addresses exist, jump straight into form */
   useEffect(() => {
     if (!zonesReady) return;
-    if (addresses.length === 0 && !formOpened.current) {
-      formOpened.current = true;
-      setShowForm(true);
+    if (addresses.length === 0 && mode === "summary") {
       setEditingId(null);
       setForm(makeBlank());
+      setMode("form");
     }
-  }, [zonesReady, addresses.length, makeBlank]);
+  }, [zonesReady, addresses.length, mode, makeBlank]);
 
+  /* Auto-select default */
   useEffect(() => {
     if (!selected && addresses.length > 0) {
       const def = addresses.find((a) => a.is_default) ?? addresses[0];
@@ -609,20 +473,15 @@ const AddressStep = memo(function AddressStep({
       is_default            : addr.is_default            ?? false,
     });
     setErrors({});
-    setShowForm(true);
-    setTimeout(() => {
-      document
-        .querySelector(".as-form")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 100);
+    setMode("form");
   }, []);
 
   const handleCancel = useCallback(() => {
-    setShowForm(false);
     setEditingId(null);
     setErrors({});
     setForm(makeBlank());
-  }, [makeBlank]);
+    setMode(addresses.length > 0 ? "summary" : "form");
+  }, [makeBlank, addresses.length]);
 
   const handleSave = useCallback(async () => {
     if (saving) return;
@@ -630,12 +489,6 @@ const AddressStep = memo(function AddressStep({
     const errs = validate(form);
     if (Object.keys(errs).length) {
       setErrors(errs);
-      setTimeout(() => {
-        document
-          .querySelector(".as-field-error")
-          ?.closest(".as-field")
-          ?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 50);
       return;
     }
 
@@ -669,9 +522,9 @@ const AddressStep = memo(function AddressStep({
         onSelect(created);
       }
 
-      setShowForm(false);
       setEditingId(null);
       setForm(makeBlank());
+      setMode("summary");
 
     } catch (err) {
       if (err.response?.data?.errors) {
@@ -693,23 +546,17 @@ const AddressStep = memo(function AddressStep({
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!delTarget) return;
-
     try {
-      await axios.delete(
-        `${API}/checkout/address/${delTarget.id}`,
-        { headers: authHeader() }
-      );
-
+      await axios.delete(`${API}/checkout/address/${delTarget.id}`,
+        { headers: authHeader() });
       setAddresses?.((prev) => {
         const next = prev.filter((a) => a.id !== delTarget.id);
         if (selected?.id === delTarget.id) onSelect(next[0] ?? null);
         return next;
       });
     } catch (err) {
-      setActionErr(
-        err.response?.data?.message ??
-        "Failed to delete address. Please try again."
-      );
+      setActionErr(err.response?.data?.message ??
+        "Failed to delete address.");
     } finally {
       setDelTarget(null);
     }
@@ -717,22 +564,21 @@ const AddressStep = memo(function AddressStep({
 
   const handleSetDefault = useCallback(async (addr) => {
     try {
-      await axios.patch(
-        `${API}/checkout/address/${addr.id}/default`,
-        {},
-        { headers: authHeader() }
-      );
+      await axios.patch(`${API}/checkout/address/${addr.id}/default`,
+        {}, { headers: authHeader() });
       setAddresses?.((prev) =>
-        prev.map((a) => ({ ...a, is_default: a.id === addr.id }))
-      );
+        prev.map((a) => ({ ...a, is_default: a.id === addr.id })));
       onSelect({ ...addr, is_default: true });
     } catch (err) {
-      setActionErr(
-        err.response?.data?.message ??
-        "Failed to set default address."
-      );
+      setActionErr(err.response?.data?.message ??
+        "Failed to set default.");
     }
   }, [setAddresses, onSelect]);
+
+  const handlePickAddress = useCallback((addr) => {
+    onSelect(addr);
+    setMode("summary");
+  }, [onSelect]);
 
   if (!zonesReady) return <AddressSkeleton />;
 
@@ -742,255 +588,143 @@ const AddressStep = memo(function AddressStep({
   return (
     <div className="as-root">
 
-      {/* ══════ WHATSAPP NOTICE (delivery-scoped) ══════ */}
-      <div className="as-wa-notice" role="note">
-        <div className="as-wa-notice__icon">
-          <Icon.WhatsApp />
-        </div>
-
-        <div className="as-wa-notice__body">
-          <p className="as-wa-notice__text">
-            Please use a <strong>WhatsApp-enabled number</strong> to receive
-            faster delivery updates and support.
-
-            {onChangeNumber && (
-              <>
-                {" "}Tap
-                <button
-                  type="button"
-                  onClick={onChangeNumber}
-                  className="as-wa-notice__change-btn"
-                  aria-label="Change WhatsApp number"
-                >
-                  <Icon.Edit size={11} /> Change
-                </button>
-                to update your number before checkout.
-              </>
-            )}
-
-            {" "}By proceeding, you are automatically accepting the{" "}
-            <a
-              href={termsHref}
-              className="as-wa-notice__terms-link"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Terms &amp; Conditions
-            </a>.
-          </p>
-        </div>
-      </div>
-
-      {/* ══════ HERO BANNER ══════ */}
-      <div className="as-hero">
-        <div className="as-hero__pattern" />
-        <div className="as-hero__content">
-          <div className="as-hero__icon">
-            <Icon.Truck size={40} />
-          </div>
-          <div className="as-hero__text">
-            <h2>Where should we deliver?</h2>
-            <p>
-              Fast delivery to Osun &amp; Ondo States ·
-              Meet our rider at your bus stop
-            </p>
-          </div>
-        </div>
+      {/* ══════ WHATSAPP NOTICE (plain paragraph) ══════ */}
+      <div className="as-wa-notice">
+        <p className="as-wa-notice__text">
+          Please use a WhatsApp-enabled number to receive faster
+          delivery updates and support.
+          {onChangeNumber && (
+            <>
+              {" "}Tap{" "}
+              <button
+                type="button"
+                onClick={onChangeNumber}
+                className="as-wa-notice__change"
+              >
+                "Change"
+              </button>
+              {" "}to update your number before checkout.
+            </>
+          )}
+          {" "}By proceeding, you are automatically accepting the{" "}
+          <a href={termsHref}
+            className="as-wa-notice__terms"
+            target="_blank" rel="noopener noreferrer">
+            Terms &amp; Conditions
+          </a>.
+        </p>
       </div>
 
       {/* ══════ TOASTS ══════ */}
-      <ErrorToast
-        message={actionErr}
-        onDismiss={() => setActionErr(null)}
-      />
-      <ErrorToast
-        message={zonesError}
+      <ErrorToast message={actionErr}
+        onDismiss={() => setActionErr(null)} />
+      <ErrorToast message={zonesError}
         onDismiss={() => setZonesError(null)}
-        action={zonesError ? { label: "Retry", onClick: loadZones } : null}
-      />
+        action={zonesError ? { label: "Retry", onClick: loadZones } : null} />
 
-      {/* ══════ INFO STRIP ══════ */}
-      <div className="as-info-strip">
-        <span className="as-info-strip__icon">
-          <Icon.BusStop size={20} />
-        </span>
-        <div className="as-info-strip__text">
-          We deliver to your <strong>nearest bus stop</strong>.
-          You'll meet the rider there to collect your package —
-          they'll call before arriving.
-        </div>
+      {/* ══════ CUSTOMER ADDRESS SECTION ══════ */}
+      <div className="as-section-header">
+        <h3 className="as-section-header__title">
+          Customer Address
+        </h3>
+        {selected && mode === "summary" && (
+          <button
+            className="as-section-header__action"
+            onClick={() => {
+              if (addresses.length > 1) setMode("picker");
+              else handleEdit(selected);
+            }}
+            type="button"
+          >
+            Change
+          </button>
+        )}
+        {mode === "picker" && (
+          <button
+            className="as-section-header__action"
+            onClick={() => setMode("summary")}
+            type="button"
+          >
+            Done
+          </button>
+        )}
       </div>
 
-      {/* ══════ ADDRESS CARDS ══════ */}
-      {addresses.length > 0 && (
-        <div className="as-section-title">
-          <span>Saved Addresses</span>
-          <span className="as-section-title__count">
-            {addresses.length} / {MAX_ADDRESSES}
-          </span>
+      {/* ══════ SUMMARY VIEW ══════ */}
+      {mode === "summary" && selected && (
+        <div className="as-section-body">
+          <p className="as-summary__name">{selected.recipient_name}</p>
+          <p className="as-summary__line">{formatSummaryLine(selected)}</p>
         </div>
       )}
 
-      {addresses.map((addr) => {
-        const isSelected  = selected?.id === addr.id;
-        const isBeingEdit = editingId === addr.id;
-        const busStop     = addr.bus_stop || addr.landmark || null;
-        const LabelIcon   = LABEL_ICON_COMPONENT[addr.label] ?? Icon.Pin;
-
-        return (
-          <div
-            key={addr.id}
-            className={[
-              "as-card",
-              isSelected  ? "as-card--selected" : "",
-              isBeingEdit ? "as-card--editing"  : "",
-            ].filter(Boolean).join(" ")}
-            onClick={() => {
-              if (!isBeingEdit) {
-                onSelect(addr);
-                if (showForm && editingId && editingId !== addr.id)
-                  handleCancel();
-              }
-            }}
-            role="radio"
-            aria-checked={isSelected}
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if ((e.key === "Enter" || e.key === " ") && !isBeingEdit)
-                onSelect(addr);
-            }}
-          >
-            <div className="as-card__radio" aria-hidden="true">
-              <div className="as-card__radio-dot" />
+      {/* ══════ PICKER VIEW ══════ */}
+      {mode === "picker" && (
+        <>
+          <div className="as-section-body">
+            <div className="as-picker">
+              {addresses.map((addr) => {
+                const isSel = selected?.id === addr.id;
+                return (
+                  <button
+                    key={addr.id}
+                    className={`as-picker__item ${isSel ? "as-picker__item--selected" : ""}`}
+                    onClick={() => handlePickAddress(addr)}
+                    type="button"
+                  >
+                    <div className="as-picker__radio">
+                      <div className="as-picker__radio-dot" />
+                    </div>
+                    <div className="as-picker__info">
+                      <p className="as-picker__name">
+                        {addr.recipient_name}
+                        {addr.is_default && (
+                          <span className="as-picker__default">Default</span>
+                        )}
+                      </p>
+                      <p className="as-picker__addr">
+                        {formatSummaryLine(addr)}
+                      </p>
+                    </div>
+                    <CardMenu
+                      address={addr}
+                      onEdit={handleEdit}
+                      onDelete={setDelTarget}
+                      onSetDefault={handleSetDefault}
+                    />
+                  </button>
+                );
+              })}
             </div>
-
-            <div className="as-card__info">
-              <div className="as-card__tags">
-                <span className="as-card__label">
-                  <span className="as-card__label-icon">
-                    <LabelIcon />
-                  </span>
-                  {addr.label}
-                </span>
-                {addr.is_default && (
-                  <span className="as-tag as-tag--default">Default</span>
-                )}
-                {addr.call_before_delivery && (
-                  <span className="as-tag as-tag--call">
-                    <Icon.Phone size={10} /> Call first
-                  </span>
-                )}
-              </div>
-
-              <p className="as-card__name">{addr.recipient_name}</p>
-              <p className="as-card__phone">{addr.phone}</p>
-              <p className="as-card__street">{addr.address_line}</p>
-
-              {busStop && (
-                <div className="as-card__busstop">
-                  <Icon.BusStop size={14} /> {busStop}
-                </div>
-              )}
-
-              {addr.additional_directions && (
-                <p className="as-card__directions">
-                  <Icon.Info size={11} /> {addr.additional_directions}
-                </p>
-              )}
-
-              <p className="as-card__location">
-                {addr.city}, {addr.state}
-              </p>
-
-              {isSelected && (
-                <span className="as-card__deliver-here">
-                  <Icon.Check size={12} /> Deliver Here
-                </span>
-              )}
-            </div>
-
-            <CardMenu
-              address={addr}
-              onEdit={handleEdit}
-              onDelete={setDelTarget}
-              onSetDefault={handleSetDefault}
-            />
           </div>
-        );
-      })}
 
-      {/* ══════ USAGE BAR ══════ */}
-      {addresses.length > 0 && (
-        <div className="as-usage">
-          <span className="as-usage__text">
-            {addresses.length === MAX_ADDRESSES
-              ? "You've reached the maximum"
-              : `Add up to ${MAX_ADDRESSES - addresses.length} more`}
-          </span>
-          <div className="as-usage__bar">
-            {Array.from({ length: MAX_ADDRESSES }).map((_, i) => (
-              <div
-                key={i}
-                className={`as-usage__seg ${
-                  i < addresses.length ? "as-usage__seg--on" : ""
-                }`}
-              />
-            ))}
-          </div>
-        </div>
+          {!atLimit && (
+            <button
+              className="as-add-link"
+              onClick={() => {
+                setEditingId(null);
+                setForm(makeBlank());
+                setErrors({});
+                setMode("form");
+              }}
+              type="button"
+            >
+              <Icon.Plus /> Add New Address
+            </button>
+          )}
+        </>
       )}
 
-      {/* ══════ ADD ADDRESS BUTTON ══════ */}
-      {!showForm && !atLimit && addresses.length > 0 && (
-        <button
-          className="as-add-btn"
-          onClick={() => {
-            formOpened.current = true;
-            setEditingId(null);
-            setForm(makeBlank());
-            setErrors({});
-            setShowForm(true);
-          }}
-          type="button"
-        >
-          <Icon.Plus /> Add New Address
-        </button>
-      )}
-
-      {/* ══════ LIMIT NOTICE ══════ */}
-      {atLimit && !showForm && (
-        <p className="as-limit">
-          You've saved the maximum of {MAX_ADDRESSES} addresses.
-          Use the menu on any address to edit or remove it.
-        </p>
-      )}
-
-      {/* ══════ FORM ══════ */}
-      {showForm && (
-        <div
-          className="as-form"
-          role="form"
-          aria-label={isEditing ? "Edit address" : "Add address"}
-        >
-          <div className="as-form__header">
-            <h3 className="as-form__title">
-              {isEditing
-                ? "Edit Address"
-                : addresses.length === 0
-                  ? "Add Your Delivery Address"
-                  : "New Address"}
-            </h3>
-            {addresses.length > 0 && (
-              <button className="as-form__close" onClick={handleCancel}
-                type="button" aria-label="Close">
-                <Icon.X size={16} />
-              </button>
-            )}
-          </div>
+      {/* ══════ FORM VIEW ══════ */}
+      {mode === "form" && (
+        <div className="as-form" role="form">
+          <h3 className="as-form__title">
+            {isEditing ? "Edit Address" : "Add Delivery Address"}
+          </h3>
 
           {errors.general && (
-            <div className="as-form__banner-error" role="alert">
-              <Icon.Alert /> {errors.general}
+            <div className="as-form__banner-error">
+              {errors.general}
             </div>
           )}
 
@@ -999,14 +733,12 @@ const AddressStep = memo(function AddressStep({
             <label className="as-label">Address Type</label>
             <div className="as-chips">
               {LABELS.map((l) => {
-                const ChipIcon = LABEL_ICON_COMPONENT[l] ?? Icon.Pin;
+                const ChipIcon = LABEL_ICON[l] ?? Icon.Pin;
                 return (
                   <button
                     key={l}
                     type="button"
-                    className={`as-chip ${
-                      form.label === l ? "as-chip--active" : ""
-                    }`}
+                    className={`as-chip ${form.label === l ? "as-chip--active" : ""}`}
                     onClick={() => setForm((p) => ({ ...p, label: l }))}
                   >
                     <ChipIcon /> {l}
@@ -1018,7 +750,6 @@ const AddressStep = memo(function AddressStep({
 
           <div className="as-form-grid">
 
-            {/* Recipient */}
             <div className="as-field">
               <label className="as-label">
                 Recipient Name <span className="as-label__required">*</span>
@@ -1034,7 +765,6 @@ const AddressStep = memo(function AddressStep({
               )}
             </div>
 
-            {/* Phone */}
             <div className="as-field">
               <label className="as-label">
                 Phone <span className="as-label__required">*</span>
@@ -1052,35 +782,25 @@ const AddressStep = memo(function AddressStep({
                 inputMode="numeric"
                 maxLength={11}
               />
-              {errors.phone ? (
+              {errors.phone && (
                 <span className="as-field-error">{errors.phone}</span>
-              ) : (
-                <span className="as-field-hint">Rider calls this number</span>
               )}
             </div>
 
-            {/* State */}
             <div className="as-field">
-              <label className="as-label" htmlFor="as-state-select">
+              <label className="as-label">
                 State <span className="as-label__required">*</span>
               </label>
-
               {stateOptions.length === 0 ? (
                 <div className="as-zones-error">
-                  <span className="as-zones-error__msg">
-                    No states loaded
-                  </span>
-                  <button
-                    type="button"
-                    onClick={loadZones}
-                    className="as-zones-error__retry"
-                  >
+                  <span className="as-zones-error__msg">No states loaded</span>
+                  <button type="button" onClick={loadZones}
+                    className="as-zones-error__retry">
                     Retry
                   </button>
                 </div>
               ) : (
                 <select
-                  id="as-state-select"
                   className={`as-select ${errors.state ? "as-input--error" : ""}`}
                   value={form.state}
                   onChange={handleStateChange}
@@ -1091,30 +811,23 @@ const AddressStep = memo(function AddressStep({
                   ))}
                 </select>
               )}
-
               {errors.state && (
                 <span className="as-field-error">{errors.state}</span>
               )}
             </div>
 
-            {/* City */}
             <div className="as-field">
-              <label className="as-label" htmlFor="as-city-select">
+              <label className="as-label">
                 City <span className="as-label__required">*</span>
               </label>
               <select
-                id="as-city-select"
                 className={`as-select ${errors.city ? "as-input--error" : ""}`}
                 value={form.city}
                 onChange={set("city")}
                 disabled={!form.state || cityOptions.length === 0}
               >
                 <option value="">
-                  {!form.state
-                    ? "Select a state first"
-                    : cityOptions.length === 0
-                      ? "No cities"
-                      : "Select city"}
+                  {!form.state ? "Select state first" : "Select city"}
                 </option>
                 {cityOptions.map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -1125,7 +838,6 @@ const AddressStep = memo(function AddressStep({
               )}
             </div>
 
-            {/* Street */}
             <div className="as-field as-field--full">
               <label className="as-label">
                 Street Address <span className="as-label__required">*</span>
@@ -1141,32 +853,25 @@ const AddressStep = memo(function AddressStep({
               )}
             </div>
 
-            {/* Bus stop */}
             <div className="as-field as-field--full">
               <label className="as-label">
-                <Icon.BusStop size={16} />
                 Nearest Bus Stop <span className="as-label__required">*</span>
               </label>
-              <div className="as-field-note">
-                Enter the bus stop closest to you.
-                Our rider will deliver there.
-              </div>
               <input
                 className={`as-input ${errors.bus_stop ? "as-input--error" : ""}`}
                 value={form.bus_stop}
                 onChange={set("bus_stop")}
-                placeholder="e.g. Oja Oba bus stop, Olaiya junction"
+                placeholder="e.g. Oja Oba bus stop"
               />
               {errors.bus_stop ? (
                 <span className="as-field-error">{errors.bus_stop}</span>
               ) : (
                 <span className="as-field-hint">
-                  "Oja Oba bus stop" · "Olaiya junction" · "Beside First Bank"
+                  Our rider will deliver to this bus stop
                 </span>
               )}
             </div>
 
-            {/* Extra directions */}
             <div className="as-field as-field--full">
               <label className="as-label">
                 Extra Directions{" "}
@@ -1176,7 +881,7 @@ const AddressStep = memo(function AddressStep({
                 className="as-textarea"
                 value={form.additional_directions}
                 onChange={set("additional_directions")}
-                placeholder="e.g. I'll wear a blue shirt. Call when you arrive."
+                placeholder="e.g. Call when you arrive"
                 rows={2}
                 maxLength={300}
               />
@@ -1184,23 +889,18 @@ const AddressStep = memo(function AddressStep({
 
           </div>
 
-          {/* Call before delivery */}
-          <label className="as-check as-check--highlight">
+          <label className="as-check">
             <input
               type="checkbox"
               checked={form.call_before_delivery}
               onChange={set("call_before_delivery")}
             />
             <span className="as-check__text">
-              <span className="as-check__text-row">
-                <Icon.Phone size={13} />
-                Call me before arriving at the bus stop
-              </span>
+              Call me before arriving at the bus stop
               <small>Rider will call when they are on the way</small>
             </span>
           </label>
 
-          {/* Set as default */}
           {!form.is_default && addresses.length > 0 && (
             <label className="as-check">
               <input
@@ -1214,10 +914,10 @@ const AddressStep = memo(function AddressStep({
             </label>
           )}
 
-          {/* Actions */}
           <div className="as-actions">
             {addresses.length > 0 && (
-              <button className="as-btn-cancel" onClick={handleCancel} type="button">
+              <button className="as-btn-cancel" onClick={handleCancel}
+                type="button">
                 Cancel
               </button>
             )}
@@ -1234,16 +934,14 @@ const AddressStep = memo(function AddressStep({
         </div>
       )}
 
-      {/* ══════ CONTINUE BUTTON ══════ */}
-      {addresses.length > 0 && (
+      {/* ══════ CONTINUE CTA ══════ */}
+      {selected && mode === "summary" && (
         <button
           className="as-next"
-          onClick={() => { if (selected) onNext(); }}
-          disabled={!selected}
+          onClick={onNext}
           type="button"
         >
-          {!selected ? "Select an address to continue" : "Continue"}
-          {selected && <Icon.ArrowRight />}
+          Continue
         </button>
       )}
 
