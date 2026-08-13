@@ -1,28 +1,11 @@
 /**
  * src/pages/Checkout/Payment/FlutterwaveRedirect.jsx
  *
- * Landing page after Flutterwave redirects the user post-payment.
- * URL format:
- *   /payment/callback?status=successful&tx_ref=ORD-123&transaction_id=456789
- *
- * Flow:
- *   1. Read redirect params (status, tx_ref, transaction_id)
- *   2. Handle explicit cancellations/failures immediately
- *   3. Otherwise POST to backend to verify (never trust URL alone)
- *   4. Route to /order-success/:orderId or /payment-failed/:orderId
- *
- * v2 — Flat Jumia design + production hardening
+ * v3 — Fixed top-level await build error
  * ─────────────────────────────────────────────────────
- * ✓ Transparent SVG icons (no emoji)
- * ✓ External CSS matching checkout aesthetic
- * ✓ Progress indicator (indeterminate)
- * ✓ Trust signal shown while verifying
- * ✓ Handles all Flutterwave status variants
- * ✓ Missing/invalid params fail gracefully
- * ✓ Case-insensitive status matching
- * ✓ Guard against React StrictMode double-fire
- * ✓ Uses correct route prefixes (/shop/...)
- * ✓ Optional support for react-hot-toast (falls back gracefully)
+ * ✓ Removed top-level await (breaks Vite's es2020 target)
+ * ✓ Lazy-loads react-hot-toast on first use
+ * ✓ Falls back to console if package not installed
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -37,7 +20,6 @@ const BASE_URL     = import.meta.env.VITE_API_BASE_URL;
 const PAYMENTS_API = `${BASE_URL}/api/payments`;
 const TOKEN_KEY    = "marketplace_token";
 
-/* Statuses Flutterwave returns for failed / cancelled payments */
 const FLW_FAILURE_STATUSES = new Set([
   "cancelled",
   "failed",
@@ -45,29 +27,40 @@ const FLW_FAILURE_STATUSES = new Set([
   "declined",
 ]);
 
-/* Statuses that indicate the user completed something */
-const FLW_SUCCESS_STATUSES = new Set([
-  "successful",
-  "completed",
-  "success",
-]);
-
 /* ═══════════════════════════════════════════════════════════════
-   OPTIONAL TOAST (falls back to console if not installed)
+   LAZY TOAST — loaded on first use, cached after
+   ─────────────────────────────────────────────────────────────
+   Avoids top-level await (which breaks Vite's es2020 target).
+   If react-hot-toast isn't installed, falls back to console.
 ═══════════════════════════════════════════════════════════════ */
-let toast = null;
-try {
-  /* eslint-disable-next-line */
-  toast = (await import("react-hot-toast")).default;
-} catch {
-  toast = {
-    success: (msg) => console.log("[toast]", msg),
-    error  : (msg) => console.warn("[toast]", msg),
-  };
+let _toastPromise = null;
+
+function getToast() {
+  if (!_toastPromise) {
+    _toastPromise = import("react-hot-toast")
+      .then((mod) => mod.default)
+      .catch(() => ({
+        success: (msg) => console.log("[toast]", msg),
+        error  : (msg) => console.warn("[toast]", msg),
+      }));
+  }
+  return _toastPromise;
+}
+
+/* Helper — fire-and-forget toast call */
+async function showToast(type, message) {
+  try {
+    const t = await getToast();
+    if (typeof t?.[type] === "function") {
+      t[type](message);
+    }
+  } catch (err) {
+    console.warn("[toast] failed:", err.message);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SVG ICONS (transparent, currentColor)
+   SVG ICONS
 ═══════════════════════════════════════════════════════════════ */
 const Icon = {
   Shield: ({ size = 14 }) => (
@@ -124,12 +117,10 @@ export default function FlutterwaveRedirect() {
   const [searchParams] = useSearchParams();
   const navigate       = useNavigate();
   const [state, setState] = useState("verifying");
-  /* state: "verifying" | "success" | "failed" */
 
   const verifiedRef = useRef(false);
 
   useEffect(() => {
-    /* Guard against React StrictMode double-invocation in dev */
     if (verifiedRef.current) return;
     verifiedRef.current = true;
 
@@ -138,20 +129,16 @@ export default function FlutterwaveRedirect() {
     const txRef         = searchParams.get("tx_ref");
     const transactionId = searchParams.get("transaction_id");
 
-    /* Extract order group ID from tx_ref if it follows LOEMART-xxx pattern */
     const extractOrderId = (ref) => {
       if (!ref) return "unknown";
-      /* tx_ref format from backend: LOEMART-<uuid_prefix>-<timestamp> */
       const match = ref.match(/^LOEMART-([A-F0-9]+)/i);
       return match ? match[1] : ref;
     };
 
-    /* ── 1. Flutterwave explicitly reports failure ── */
+    /* ── 1. Explicit failure from Flutterwave ── */
     if (status && FLW_FAILURE_STATUSES.has(status)) {
       setState("failed");
-      toast.error("Payment was not completed.");
-
-      /* Small delay so user sees the failed state before redirect */
+      showToast("error", "Payment was not completed.");
       setTimeout(() => {
         navigate(
           `/payment-failed/${encodeURIComponent(extractOrderId(txRef))}`,
@@ -161,17 +148,17 @@ export default function FlutterwaveRedirect() {
       return;
     }
 
-    /* ── 2. Missing required params — can't verify ── */
+    /* ── 2. Missing params ── */
     if (!transactionId || !txRef) {
       setState("failed");
-      toast.error("Missing payment reference.");
+      showToast("error", "Missing payment reference.");
       setTimeout(() => {
         navigate("/payment-failed/unknown", { replace: true });
       }, 1200);
       return;
     }
 
-    /* ── 3. Verify with backend (never trust URL alone) ── */
+    /* ── 3. Verify with backend ── */
     const token = localStorage.getItem(TOKEN_KEY);
 
     axios
@@ -189,13 +176,13 @@ export default function FlutterwaveRedirect() {
 
         if (verified) {
           setState("success");
-          toast.success("Payment confirmed!");
+          showToast("success", "Payment confirmed!");
           setTimeout(() => {
             navigate(`/order-success/${finalOrderId}`, { replace: true });
           }, 1200);
         } else {
           setState("failed");
-          toast.error("We couldn't confirm this payment.");
+          showToast("error", "We couldn't confirm this payment.");
           setTimeout(() => {
             navigate(`/payment-failed/${finalOrderId}`, { replace: true });
           }, 1200);
@@ -204,7 +191,8 @@ export default function FlutterwaveRedirect() {
       .catch((err) => {
         console.error("[FlutterwaveRedirect] verify failed:", err.message);
         setState("failed");
-        toast.error(
+        showToast(
+          "error",
           err.response?.data?.message ??
           "Something went wrong verifying your payment."
         );
@@ -226,7 +214,6 @@ export default function FlutterwaveRedirect() {
     <div className="fwr-wrapper">
       <div className="fwr-card">
 
-        {/* ══ VERIFYING ══ */}
         {state === "verifying" && (
           <div
             className="fwr-state"
@@ -255,31 +242,23 @@ export default function FlutterwaveRedirect() {
           </div>
         )}
 
-        {/* ══ SUCCESS (brief flash before redirect) ══ */}
         {state === "success" && (
           <div className="fwr-state">
             <div className="fwr-icon-wrap fwr-icon-wrap--success">
               <Icon.Check />
             </div>
-
             <h1 className="fwr-title">Payment Confirmed</h1>
-            <p className="fwr-subtitle">
-              Redirecting to your order…
-            </p>
+            <p className="fwr-subtitle">Redirecting to your order…</p>
           </div>
         )}
 
-        {/* ══ FAILED (brief flash before redirect) ══ */}
         {state === "failed" && (
           <div className="fwr-state">
             <div className="fwr-icon-wrap fwr-icon-wrap--danger">
               <Icon.X />
             </div>
-
             <h1 className="fwr-title">Payment Not Confirmed</h1>
-            <p className="fwr-subtitle">
-              Redirecting to next steps…
-            </p>
+            <p className="fwr-subtitle">Redirecting to next steps…</p>
           </div>
         )}
 
