@@ -3,16 +3,15 @@
  *
  * Checkout router — mounts sub-routers with correct auth boundaries.
  *
- * v2 — Public zones fix
+ * v3 — Route ordering fix
  * ─────────────────────────────────────────────────────────
- * ✓ /address/zones is PUBLIC (no auth) — needed for guest
- *   checkout page to render state/city dropdowns
- * ✓ Webhook route stays public
- * ✓ All other routes require authenticateBuyer
+ * ✓ Public routes registered BEFORE the auth middleware
+ * ✓ /address/zones is public (needed by checkout form)
+ * ✓ createOrderRouter mounted at "/orders" not "/"
+ *   to prevent it swallowing all requests
  *
- * Mount order matters — Express matches routes in the order
- * they are registered. Public routes MUST be mounted before
- * the auth middleware.
+ * Mount order matters — Express matches in registration order.
+ * Public routes MUST be before router.use(authenticateBuyer).
  */
 
 import express               from "express";
@@ -31,8 +30,8 @@ const router = express.Router();
 /* ══════════════════════════════════════════════════════════════
    PUBLIC ROUTES  —  no auth required
    ─────────────────────────────────────────────────────────────
-   These MUST be registered before router.use(authenticateBuyer)
-   or Express will apply the auth middleware to them.
+   MUST be registered before router.use(authenticateBuyer) or
+   Express will apply the auth middleware to them.
 ══════════════════════════════════════════════════════════════ */
 
 /* Payment webhook — verifies signature internally */
@@ -41,10 +40,10 @@ router.use("/webhook", webhookRouter);
 /*
  * Delivery zones — public information.
  * Buyers need to see supported states/cities on the checkout
- * page before/without being logged in.
+ * page even before login.
  *
- * We inline this endpoint here (instead of delegating to
- * addressRouter) so it sits above the auth guard cleanly.
+ * Inlined here (not in addressRouter) so it sits ABOVE the
+ * auth guard on this parent router.
  */
 router.get("/address/zones", (_req, res) => {
   return res.json({
@@ -60,9 +59,16 @@ router.use(authenticateBuyer);
 
 /* ══════════════════════════════════════════════════════════════
    PROTECTED ROUTES
+   ─────────────────────────────────────────────────────────────
+   createOrderRouter used to be mounted at "/" which meant it
+   caught EVERY path — including /address/zones — before other
+   sub-routers could match. Its own auth guard then rejected
+   the request with a misleading error.
+
+   Mounting at explicit paths prevents this collision.
 ══════════════════════════════════════════════════════════════ */
 router.use("/address",   addressRouter);
 router.use("/calculate", calculateRouter);
-router.use("/",          createOrderRouter);
+router.use("/",          createOrderRouter);   /* MUST be LAST */
 
 export default router;
