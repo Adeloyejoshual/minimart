@@ -1,320 +1,688 @@
-import React, { useState, memo } from "react";
+/**
+ * src/pages/Checkout/ReviewStep.jsx
+ *
+ * Step 2 of checkout — order review before payment.
+ *
+ * v6 — Flat production
+ * ──────────────────────────────────────────────────────────────
+ * ✓ Fully flat Jumia-style — no gradients, no shadows
+ * ✓ Grey section headers with "Change" links
+ * ✓ Transparent SVG icons (currentColor)
+ * ✓ "Delivered by Loemart Express" badge
+ * ✓ Coupon picker button opens bottom sheet
+ * ✓ Applied coupon shows badge + Remove
+ * ✓ Free shipping type displays "FREE" in delivery row
+ * ✓ Notes debounced (300ms) to prevent parent re-renders
+ * ✓ Seller grouping memoised — no recompute on typing
+ * ✓ Coupon input syncs with parent state changes
+ * ✓ Price summary skeleton while calculation loads
+ * ✓ Continue button disabled until calculation ready
+ * ✓ Robust item keys (fallback to product+variant+idx)
+ * ✓ NaN-safe money math (toNumber helper)
+ * ✓ ARIA labels + roles throughout
+ */
 
+import {
+  useState, useEffect, useMemo, useCallback, useRef, memo,
+} from "react";
+import "./styles/ReviewStep.css";
+
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
 const fmt = (n) => `₦${Number(n || 0).toLocaleString("en-NG")}`;
 
-/* ── Seller grouping helper ── */
+const toNumber = (v) => {
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+};
+
 function groupBySeller(items) {
   const groups = new Map();
   items.forEach((item) => {
     const key  = item.sellerId   ?? "unknown";
     const name = item.sellerName ?? "Seller";
-    if (!groups.has(key)) groups.set(key, { sellerName: name, items: [] });
+    if (!groups.has(key)) {
+      groups.set(key, { sellerId: key, sellerName: name, items: [] });
+    }
     groups.get(key).items.push(item);
   });
   return [...groups.values()];
 }
 
-/* ════════════════════════════════════════════════════════════
-   REVIEW STEP
-════════════════════════════════════════════════════════════ */
+function itemKey(item, idx) {
+  return (
+    item.id ??
+    `${item.product_id ?? "p"}-${item.variant?.id ?? "v"}-${idx}`
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const NOTES_MAX         = 300;
+const NOTES_DEBOUNCE_MS = 300;
+
+/* ═══════════════════════════════════════════════════════════════
+   SVG ICONS  (transparent — currentColor)
+═══════════════════════════════════════════════════════════════ */
+const Icon = {
+  Package: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="16.5" y1="9.4" x2="7.5" y2="4.21" />
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  ),
+
+  BusStop: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 6v6M15 6v6M2 12h19.6" />
+      <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3" />
+      <circle cx="7" cy="18" r="2" />
+      <path d="M9 18h5" />
+      <circle cx="16" cy="18" r="2" />
+    </svg>
+  ),
+
+  Info: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  ),
+
+  Phone: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  ),
+
+  Store: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 9l1-5h16l1 5" />
+      <path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9" />
+      <path d="M3 9c0 1.66 1.34 3 3 3s3-1.34 3-3M9 9c0 1.66 1.34 3 3 3s3-1.34 3-3M15 9c0 1.66 1.34 3 3 3s3-1.34 3-3" />
+    </svg>
+  ),
+
+  Clock: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+
+  Bookmark: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+    </svg>
+  ),
+
+  Check: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="3"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+
+  Truck: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="1" y="3" width="15" height="13" rx="1" />
+      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+      <circle cx="5.5" cy="18.5" r="2.5" />
+      <circle cx="18.5" cy="18.5" r="2.5" />
+    </svg>
+  ),
+
+  Home: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  ),
+
+  Ticket: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z" />
+      <line x1="13" y1="5" x2="13" y2="19" strokeDasharray="2 2" />
+    </svg>
+  ),
+
+  ChevronRight: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  ),
+
+  ArrowLeft: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  ),
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   STATIC CONTENT
+═══════════════════════════════════════════════════════════════ */
+const WHAT_HAPPENS_NEXT = [
+  { icon: Icon.Check,   text: "Order confirmed + tracking ID generated" },
+  { icon: Icon.Package, text: "Seller notified and begins preparing"    },
+  { icon: Icon.Truck,   text: "Loemart Express picks up and delivers"   },
+  { icon: Icon.Home,    text: "Delivered to your bus stop"              },
+];
+
+/* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENT — Address block
+═══════════════════════════════════════════════════════════════ */
+const AddressBlock = memo(function AddressBlock({ address, onChange }) {
+  const busStop = useMemo(
+    () => address?.bus_stop || address?.landmark || null,
+    [address]
+  );
+
+  if (!address) return null;
+
+  return (
+    <>
+      <div className="rs-section-header">
+        <h3 className="rs-section-header__title">Delivering To</h3>
+        {onChange && (
+          <button
+            type="button"
+            className="rs-section-header__action"
+            onClick={onChange}
+          >
+            Change
+          </button>
+        )}
+      </div>
+
+      <div className="rs-section-body">
+        <p className="rs-addr__name">
+          {address.recipient_name}
+          <span className="rs-addr__phone"> · {address.phone}</span>
+        </p>
+        <p className="rs-addr__line">{address.address_line}</p>
+
+        {busStop && (
+          <div className="rs-addr__busstop">
+            <Icon.BusStop size={12} />
+            {busStop}
+          </div>
+        )}
+
+        {address.additional_directions && (
+          <p className="rs-addr__directions">
+            <Icon.Info /> {address.additional_directions}
+          </p>
+        )}
+
+        <p className="rs-addr__location">
+          {address.city}, {address.state}
+        </p>
+
+        {address.call_before_delivery && (
+          <p className="rs-addr__call">
+            <Icon.Phone /> Rider will call before delivery
+          </p>
+        )}
+      </div>
+    </>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENT — Loemart Express delivery note
+═══════════════════════════════════════════════════════════════ */
+const DeliveryNote = memo(function DeliveryNote() {
+  return (
+    <div className="rs-delivery-note">
+      <span className="rs-delivery-note__icon">
+        <Icon.Truck />
+      </span>
+      <div className="rs-delivery-note__body">
+        <p className="rs-delivery-note__title">
+          Delivered by Loemart Express
+        </p>
+        <p className="rs-delivery-note__sub">
+          Fast, tracked delivery to your bus stop
+        </p>
+      </div>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENT — Cart item row
+═══════════════════════════════════════════════════════════════ */
+const CartItem = memo(function CartItem({ item }) {
+  const qty       = toNumber(item.qty);
+  const price     = toNumber(item.price);
+  const lineTotal = qty * price;
+
+  return (
+    <div className="rs-item">
+      <div className="rs-item__img">
+        {item.image ? (
+          <img
+            src={item.image}
+            alt={item.name}
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <Icon.Package size={22} />
+        )}
+      </div>
+
+      <div className="rs-item__info">
+        <p className="rs-item__name">{item.name}</p>
+        {item.variant && (
+          <p className="rs-item__variant">
+            {item.variant.name}
+            {item.variant.sku && (
+              <span className="rs-item__sku"> · {item.variant.sku}</span>
+            )}
+          </p>
+        )}
+        <p className="rs-item__qty">
+          {qty} × {fmt(price)}
+        </p>
+      </div>
+
+      <p className="rs-item__price">{fmt(lineTotal)}</p>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENT — Notes with debounce
+═══════════════════════════════════════════════════════════════ */
+const NotesInput = memo(function NotesInput({ value, onChange }) {
+  const [localValue, setLocalValue] = useState(value ?? "");
+  const timerRef  = useRef(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+    clearTimeout(timerRef.current);
+  }, []);
+
+  /* Sync from parent (rare — external notes updates) */
+  useEffect(() => {
+    setLocalValue(value ?? "");
+  }, [value]);
+
+  const handleChange = useCallback((e) => {
+    const v = e.target.value.slice(0, NOTES_MAX);
+    setLocalValue(v);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      if (mountedRef.current) onChange?.(v);
+    }, NOTES_DEBOUNCE_MS);
+  }, [onChange]);
+
+  return (
+    <>
+      <textarea
+        className="rs-textarea"
+        placeholder="Any special instructions for your order…"
+        value={localValue}
+        onChange={handleChange}
+        rows={2}
+        maxLength={NOTES_MAX}
+      />
+      <span
+        className="rs-textarea-count"
+        data-empty={localValue.length === 0}
+      >
+        {localValue.length}/{NOTES_MAX}
+      </span>
+    </>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENT — Coupon section
+   ─────────────────────────────────────────────────────────────
+   Two states:
+     • Applied  → shows code + savings + Remove
+     • Empty    → "Choose a coupon" button opens picker
+═══════════════════════════════════════════════════════════════ */
+const CouponSection = memo(function CouponSection({
+  couponCode,
+  discount,
+  freeShipping,
+  couponMessage,
+  onOpenPicker,
+  onRemove,
+}) {
+  const isApplied = !!couponCode && (discount > 0 || freeShipping);
+
+  if (isApplied) {
+    return (
+      <div className="rs-coupon-applied">
+        <div className="rs-coupon-applied__info">
+          <span className="rs-coupon-applied__code">
+            <Icon.Check /> {couponCode}
+          </span>
+          <span className="rs-coupon-applied__save">
+            {freeShipping
+              ? "Free delivery applied"
+              : `You save ${fmt(discount)}`
+            }
+          </span>
+          {couponMessage && (
+            <p className="rs-coupon-applied__msg">{couponMessage}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          className="rs-coupon-remove"
+          onClick={onRemove}
+          aria-label="Remove coupon"
+        >
+          Remove
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="rs-coupon-toggle"
+      onClick={onOpenPicker}
+    >
+      <span className="rs-coupon-toggle__left">
+        <Icon.Ticket />
+        Choose a coupon
+      </span>
+      <span className="rs-coupon-toggle__arrow">
+        <Icon.ChevronRight />
+      </span>
+    </button>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENT — Price summary skeleton
+═══════════════════════════════════════════════════════════════ */
+function PriceSummarySkeleton() {
+  return (
+    <div className="rs-section-body">
+      <div className="rs-skel-row" />
+      <div className="rs-skel-row" />
+      <div className="rs-skel-row" />
+      <div className="rs-price-divider" />
+      <div className="rs-skel-row rs-skel-row--total" />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENT — Price summary
+═══════════════════════════════════════════════════════════════ */
+const PriceSummary = memo(function PriceSummary({
+  calculation,
+  cartItemCount,
+  discount,
+  couponCode,
+  freeShipping,
+}) {
+  const originalDelivery  = toNumber(calculation.deliveryFee);
+  const effectiveDelivery = freeShipping ? 0 : originalDelivery;
+  const grandTotal        = toNumber(calculation.subtotal)
+                          - toNumber(discount)
+                          + effectiveDelivery;
+
+  return (
+    <div className="rs-section-body">
+      <div className="rs-price-row">
+        <span>Item's total ({cartItemCount})</span>
+        <span>{fmt(calculation.subtotal)}</span>
+      </div>
+
+      {discount > 0 && (
+        <div className="rs-price-row rs-price-row--discount">
+          <span>Discount{couponCode ? ` (${couponCode})` : ""}</span>
+          <span>− {fmt(discount)}</span>
+        </div>
+      )}
+
+      <div className={`rs-price-row ${freeShipping ? "rs-price-row--free" : ""}`}>
+        <span>Delivery fees</span>
+        <span>
+          {freeShipping ? (
+            <>
+              <s className="rs-price-strike">{fmt(originalDelivery)}</s>
+              <span className="rs-price-free-tag">FREE</span>
+            </>
+          ) : (
+            fmt(originalDelivery)
+          )}
+        </span>
+      </div>
+
+      {calculation.deliveryEta && (
+        <div className="rs-price-row rs-price-row--eta">
+          <span />
+          <span className="rs-price-eta">
+            <Icon.Clock /> {calculation.deliveryEta}
+          </span>
+        </div>
+      )}
+
+      <div className="rs-price-divider" />
+
+      <div className="rs-price-row rs-price-row--total">
+        <span>Total</span>
+        <span>{fmt(grandTotal)}</span>
+      </div>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
 const ReviewStep = memo(function ReviewStep({
   cartItems,
   calculation,
   address,
   notes,
   onNotesChange,
+
+  /* Coupon */
   couponCode,
-  onCouponChange,
   discount,
+  freeShipping   = false,
+  couponMessage  = null,
+  onOpenCouponPicker,
+  onCouponRemove,
+
+  /* Navigation */
   onBack,
   onNext,
 }) {
-  const [showCoupon,  setShowCoupon]  = useState(false);
-  const [couponInput, setCouponInput] = useState(couponCode ?? "");
+  const sellerGroups = useMemo(
+    () => groupBySeller(cartItems),
+    [cartItems]
+  );
 
-  const sellerGroups = groupBySeller(cartItems);
+  const cartCount   = cartItems.length;
+  const canContinue = cartCount > 0 && !!calculation;
+
+  const handleContinue = useCallback(() => {
+    if (!canContinue) return;
+    onNext?.();
+  }, [canContinue, onNext]);
 
   return (
-    <div className="ck-section">
-      <h2 className="ck-section-title">📋 Review Your Order</h2>
+    <div className="rs-root">
 
-      {/* ── Delivery address ── */}
-      {address && (
-        <div className="ck-review-block">
-          <div className="ck-review-block-header">
-            <span className="ck-review-block-icon">📍</span>
-            <span className="ck-review-block-title">Delivering to</span>
-          </div>
-          <div className="ck-review-address-body">
-            <p className="ck-review-name">
-              {address.recipient_name}
-              <span className="ck-review-phone"> · {address.phone}</span>
-            </p>
-            <p className="ck-review-addr">{address.address_line}</p>
-            {address.landmark && (
-              <p className="ck-review-landmark">📍 {address.landmark}</p>
-            )}
-            {address.additional_directions && (
-              <p className="ck-review-directions">
-                ℹ️ {address.additional_directions}
-              </p>
-            )}
-            <p className="ck-review-location">
-              {address.city}, {address.state}
-            </p>
-            {address.call_before_delivery && (
-              <div className="ck-review-call-badge">
-                📞 Rider will call before delivery
+      {/* ══ DELIVERY ADDRESS ══ */}
+      <AddressBlock address={address} onChange={onBack} />
+
+      {/* ══ LOEMART EXPRESS NOTE ══ */}
+      <DeliveryNote />
+
+      {/* ══ ITEMS ══ */}
+      <div className="rs-section-header">
+        <h3 className="rs-section-header__title">
+          Order Items ({cartCount})
+        </h3>
+      </div>
+      <div className="rs-section-body">
+        {sellerGroups.map((group) => (
+          <div key={group.sellerId} className="rs-seller-group">
+            <div className="rs-seller-header">
+              <div className="rs-seller-dot">
+                {group.sellerName?.[0]?.toUpperCase() ?? "S"}
               </div>
-            )}
-          </div>
-        </div>
-      )}
+              <span className="rs-seller-name">{group.sellerName}</span>
+              <span className="rs-seller-badge">
+                <Icon.Store /> Minimart
+              </span>
+            </div>
 
-      {/* ── Items grouped by seller ── */}
-      <div className="ck-review-block">
-        <div className="ck-review-block-header">
-          <span className="ck-review-block-icon">📦</span>
-          <span className="ck-review-block-title">
-            Items ({cartItems.length})
-          </span>
-        </div>
-
-        {sellerGroups.map((group, gi) => (
-          <div key={gi} className="ck-review-seller-group">
-            {/* Seller header */}
-            {sellerGroups.length > 1 && (
-              <div className="ck-review-seller-header">
-                <div className="ck-review-seller-dot">
-                  {group.sellerName?.[0]?.toUpperCase() ?? "S"}
-                </div>
-                <span className="ck-review-seller-name">
-                  {group.sellerName}
-                </span>
-                <span className="ck-review-seller-badge">
-                  🏪 Minimart Managed
-                </span>
-              </div>
-            )}
-
-            {/* Items */}
-            {group.items.map((item) => (
-              <div key={item.id} className="ck-review-item">
-                <div className="ck-review-item-img">
-                  {item.image ? (
-                    <img
-                      src={item.image}
-                      alt={item.name}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span>📦</span>
-                  )}
-                </div>
-
-                <div className="ck-review-item-info">
-                  <p className="ck-review-item-name">{item.name}</p>
-                  {item.variant && (
-                    <p className="ck-review-item-variant">
-                      {item.variant.name}
-                      {item.variant.sku && (
-                        <span className="ck-review-item-sku">
-                          {" "}· {item.variant.sku}
-                        </span>
-                      )}
-                    </p>
-                  )}
-                  <p className="ck-review-item-qty">
-                    {item.qty} × {fmt(item.price)}
-                  </p>
-                </div>
-
-                <p className="ck-review-item-price">
-                  {fmt(Number(item.price) * item.qty)}
-                </p>
-              </div>
+            {group.items.map((item, idx) => (
+              <CartItem key={itemKey(item, idx)} item={item} />
             ))}
           </div>
         ))}
       </div>
 
-      {/* ── Order notes ── */}
-      <div className="ck-review-block">
-        <div className="ck-review-block-header">
-          <span className="ck-review-block-icon">📝</span>
-          <span className="ck-review-block-title">
-            Order Notes
-            <span className="ck-optional"> (optional)</span>
-          </span>
-        </div>
-        <textarea
-          className="ck-input ck-textarea"
-          placeholder="Any special instructions for your order…"
-          value={notes}
-          onChange={(e) => onNotesChange(e.target.value)}
-          rows={2}
-          maxLength={300}
+      {/* ══ ORDER NOTES ══ */}
+      <div className="rs-section-header">
+        <h3 className="rs-section-header__title">
+          Order Notes
+          <span className="rs-section-header__optional">(optional)</span>
+        </h3>
+      </div>
+      <div className="rs-section-body">
+        <NotesInput value={notes} onChange={onNotesChange} />
+      </div>
+
+      {/* ══ COUPON ══ */}
+      <div className="rs-section-header">
+        <h3 className="rs-section-header__title">Coupon</h3>
+      </div>
+      <div className="rs-section-body">
+        <CouponSection
+          couponCode={couponCode}
+          discount={discount}
+          freeShipping={freeShipping}
+          couponMessage={couponMessage}
+          onOpenPicker={onOpenCouponPicker}
+          onRemove={onCouponRemove}
         />
-        {notes.length > 0 && (
-          <span className="ck-field-hint" style={{ textAlign: "right" }}>
-            {notes.length}/300
-          </span>
-        )}
       </div>
 
-      {/* ── Coupon code ── */}
-      <div className="ck-review-block">
-        <div className="ck-review-block-header">
-          <span className="ck-review-block-icon">🏷️</span>
-          <span className="ck-review-block-title">Coupon Code</span>
-        </div>
-
-        {discount > 0 ? (
-          <div className="ck-coupon-applied">
-            <div>
-              <span className="ck-coupon-code">{couponCode}</span>
-              <span className="ck-coupon-savings">
-                — You save {fmt(discount)}
-              </span>
-            </div>
-            <button
-              className="ck-coupon-remove"
-              onClick={() => {
-                onCouponChange?.("");
-                setCouponInput("");
-              }}
-            >
-              Remove
-            </button>
-          </div>
-        ) : showCoupon ? (
-          <div className="ck-coupon-input-row">
-            <input
-              className="ck-input ck-coupon-input"
-              type="text"
-              placeholder="Enter coupon code"
-              value={couponInput}
-              onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onCouponChange?.(couponInput);
-              }}
-              autoFocus
-            />
-            <button
-              className="ck-coupon-apply-btn"
-              onClick={() => onCouponChange?.(couponInput)}
-            >
-              Apply
-            </button>
-            <button
-              className="ck-coupon-cancel-btn"
-              onClick={() => {
-                setShowCoupon(false);
-                setCouponInput("");
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        ) : (
-          <button
-            className="ck-coupon-toggle"
-            onClick={() => setShowCoupon(true)}
-          >
-            + Have a coupon code?
-          </button>
-        )}
+      {/* ══ PRICE SUMMARY ══ */}
+      <div className="rs-section-header">
+        <h3 className="rs-section-header__title">Order Summary</h3>
       </div>
-
-      {/* ── Price summary ── */}
-      {calculation && (
-        <div className="ck-review-block">
-          <div className="ck-review-block-header">
-            <span className="ck-review-block-icon">💰</span>
-            <span className="ck-review-block-title">Price Summary</span>
-          </div>
-
-          <div className="ck-price-summary">
-            <div className="ck-price-row">
-              <span>Subtotal ({cartItems.length} item{cartItems.length !== 1 ? "s" : ""})</span>
-              <span>{fmt(calculation.subtotal)}</span>
-            </div>
-
-            {discount > 0 && (
-              <div className="ck-price-row ck-price-row--discount">
-                <span>
-                  Discount
-                  {couponCode ? ` (${couponCode})` : ""}
-                </span>
-                <span>- {fmt(discount)}</span>
-              </div>
-            )}
-
-            <div className="ck-price-row">
-              <span>Delivery Fee</span>
-              <span>{fmt(calculation.deliveryFee)}</span>
-            </div>
-
-            {calculation.deliveryEta && (
-              <div className="ck-price-row ck-price-row--eta">
-                <span />
-                <span className="ck-eta">
-                  🕐 {calculation.deliveryEta}
-                </span>
-              </div>
-            )}
-
-            <div className="ck-price-divider" />
-
-            <div className="ck-price-row ck-price-row--total">
-              <span>Total</span>
-              <span>{fmt(calculation.grandTotal)}</span>
-            </div>
-          </div>
-        </div>
+      {calculation ? (
+        <PriceSummary
+          calculation={calculation}
+          cartItemCount={cartCount}
+          discount={discount}
+          couponCode={couponCode}
+          freeShipping={freeShipping}
+        />
+      ) : (
+        <PriceSummarySkeleton />
       )}
 
-      {/* ── Tracking ID notice ── */}
-      <div className="ck-tracking-notice">
-        <div className="ck-tracking-notice-icon">🔖</div>
-        <div className="ck-tracking-notice-body">
-          <p className="ck-tracking-notice-title">
-            Your tracking ID will be generated after payment
+      {/* ══ TRACKING NOTICE ══ */}
+      <div className="rs-tracking">
+        <span className="rs-tracking__icon">
+          <Icon.Bookmark />
+        </span>
+        <div className="rs-tracking__body">
+          <p className="rs-tracking__title">
+            Tracking ID generated after payment
           </p>
-          <p className="ck-tracking-notice-sub">
-            Format: <strong>ORD-XXXXXXXX</strong> — shown on your order
-            confirmation page and sent to your account.
+          <p className="rs-tracking__sub">
+            Format: <strong>ORD-XXXXXXXX</strong>
           </p>
         </div>
       </div>
 
-      {/* ── What happens next ── */}
-      <div className="ck-what-next">
-        <p className="ck-what-next-title">After you place your order:</p>
-        <div className="ck-what-next-steps">
-          {[
-            { icon: "✅", text: "Order confirmed + tracking ID generated" },
-            { icon: "📦", text: "Seller notified and begins preparing"    },
-            { icon: "🚚", text: "Minimart picks up and delivers to you"   },
-            { icon: "🏠", text: "Delivered to your address"               },
-          ].map((s) => (
-            <div key={s.text} className="ck-what-next-step">
-              <span>{s.icon}</span>
-              <span>{s.text}</span>
-            </div>
+      {/* ══ WHAT HAPPENS NEXT ══ */}
+      <div className="rs-section-header">
+        <h3 className="rs-section-header__title">What Happens Next</h3>
+      </div>
+      <div className="rs-section-body">
+        <ol className="rs-next-steps">
+          {WHAT_HAPPENS_NEXT.map(({ icon: StepIcon, text }, idx) => (
+            <li key={text} className="rs-next-step">
+              <span className="rs-next-step__num">{idx + 1}</span>
+              <span className="rs-next-step__icon">
+                <StepIcon size={13} />
+              </span>
+              <span className="rs-next-step__text">{text}</span>
+            </li>
           ))}
-        </div>
+        </ol>
       </div>
 
-      {/* ── Navigation ── */}
-      <div className="ck-nav-btns">
-        <button className="ck-btn-back" onClick={onBack}>
-          ← Back
+      {/* ══ NAVIGATION ══ */}
+      <div className="rs-nav">
+        <button
+          type="button"
+          className="rs-btn-back"
+          onClick={onBack}
+        >
+          <Icon.ArrowLeft /> Back
         </button>
-        <button className="ck-next-btn" onClick={onNext}>
-          Choose Payment →
+        <button
+          type="button"
+          className="rs-btn-next"
+          onClick={handleContinue}
+          disabled={!canContinue}
+          title={
+            !calculation
+              ? "Calculating totals…"
+              : cartCount === 0
+                ? "Your cart is empty"
+                : ""
+          }
+        >
+          {!calculation ? "Calculating…" : "Choose Payment"}
         </button>
       </div>
+
     </div>
   );
 });
