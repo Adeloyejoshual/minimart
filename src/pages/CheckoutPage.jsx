@@ -2,19 +2,19 @@
  * src/pages/CheckoutPage.jsx
  * Route: /shop/checkout
  *
- * v5 — INLINE debug panel at top of page
+ * v6 — Premium CheckoutHeader integration
  * ────────────────────────────────────────
- * ✓ Debug panel visible ALWAYS at top (like your cart debug panel)
- * ✓ Shows config, cart, addresses, calculation, last request, last error
- * ✓ Red SQL error block appears immediately after failed order
- * ✓ Retry button in panel triggers place order
- * ✓ User can close panel with ✕
+ * ✓ Replaced inline top bar with <CheckoutHeader />
+ * ✓ WhatsApp notice + Terms link now shown above steps
+ * ✓ "Change" button routes to phone edit page
+ * ✓ All other behavior unchanged (debug panel, steps, etc.)
  */
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
+import CheckoutHeader      from "./Checkout/CheckoutHeader";
 import AddressStep         from "./Checkout/AddressStep";
 import ReviewStep          from "./Checkout/ReviewStep";
 import PaymentStep         from "./Checkout/PaymentStep";
@@ -41,6 +41,16 @@ const STEPS = [
   { id: 2, label: "Review"  },
   { id: 3, label: "Payment" },
 ];
+
+/*
+ * Titles per step — shown in the CheckoutHeader.
+ * Keeps the header contextual as the user progresses.
+ */
+const STEP_TITLES = {
+  1: "Delivery Address",
+  2: "Review Order",
+  3: "Place your order",
+};
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
@@ -198,6 +208,34 @@ export default function CheckoutPage({ user }) {
   }, []);
 
   /* ════════════════════════════════════════════════════
+     HEADER HANDLERS
+  ════════════════════════════════════════════════════ */
+
+  /*
+   * Back button behavior:
+   *   Step 1 → return to cart
+   *   Step 2 → return to step 1
+   *   Step 3 → return to step 2
+   */
+  const handleHeaderBack = useCallback(() => {
+    if (step > 1) {
+      setError(null);
+      setErrorDebug(null);
+      setStep(step - 1);
+    } else {
+      navigate("/shop/cart");
+    }
+  }, [step, navigate]);
+
+  const handleChangeNumber = useCallback(() => {
+    /*
+     * Route the user to their profile page to update phone.
+     * Adjust the path if your app uses a different one.
+     */
+    navigate("/profile/edit");
+  }, [navigate]);
+
+  /* ════════════════════════════════════════════════════
      PLACE ORDER — with debug capture
   ════════════════════════════════════════════════════ */
   const handlePlaceOrder = useCallback(async () => {
@@ -336,22 +374,24 @@ export default function CheckoutPage({ user }) {
   return (
     <div className="ck-page">
 
-      {/* ── Top Bar ── */}
-      <div className="ck-topbar">
-        <button
-          className="ck-back-btn"
-          onClick={() => navigate("/shop/cart")}
-          aria-label="Back to cart"
-        >
-          ←
-        </button>
-        <h1 className="ck-topbar-title">Checkout</h1>
-        <div />
-      </div>
+      {/* ══════════════════════════════════════════════════
+          PREMIUM HEADER
+          ────────────────────────────────────────────────
+          Replaces the old inline top bar.
+          - Sticky top with back button + step-aware title
+          - WhatsApp notice with inline "Change" button
+          - Terms & Conditions link
+          - All icons are transparent SVGs (no emoji)
+      ══════════════════════════════════════════════════ */}
+      <CheckoutHeader
+        title={STEP_TITLES[step] ?? "Checkout"}
+        onBack={handleHeaderBack}
+        onChangeNumber={handleChangeNumber}
+        termsHref="/terms"
+      />
 
       {/* ══════════════════════════════════════════════════
-          ✅ DEBUG PANEL — ALWAYS VISIBLE AT TOP
-          Like your cart debug panel
+          DEBUG PANEL — ALWAYS VISIBLE AT TOP
       ══════════════════════════════════════════════════ */}
       <CheckoutDebugPanel
         apiBase={`${API}/checkout`}
@@ -419,6 +459,7 @@ export default function CheckoutPage({ user }) {
         {!cartLoading && step === 1 && (
           <AddressStep
             addresses={addresses}
+            setAddresses={setAddresses}
             selected={selectedAddress}
             onSelect={handleSelectAddress}
             onAdd={handleAddAddress}
