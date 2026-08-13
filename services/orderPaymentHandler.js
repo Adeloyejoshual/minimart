@@ -1,45 +1,58 @@
 /**
  * services/orderPaymentHandler.js
  *
- * v3 — Rich notifications with items, images, addresses
+ * v4 — Delegates notifications to checkoutNotificationService
  * ──────────────────────────────────────────────────────
  * ✓ Verifies payment with Flutterwave API
  * ✓ Amount tampering protection (₦1 tolerance)
  * ✓ Idempotent (skip if already paid)
  * ✓ Marks order group as paid
- * ✓ BUYER: rich payment confirmation email with items + address
- * ✓ SELLERS: dedicated "New Order Received" email per seller
- * ✓ In-app notifications for buyer + all sellers
- * ✓ Non-blocking (email failures don't fail the order)
- * ✓ Comprehensive logging for Render debugging
+ * ✓ Delegates ALL notifications to checkoutNotificationService
+ * ✓ Single source of truth for email templates + orchestration
+ * ✓ Non-blocking (notification failures don't fail the order)
+ * ✓ Structured JSON logging for Render
+ *
+ * What this file OWNS:
+ *   - Flutterwave transaction verification
+ *   - Amount tampering detection
+ *   - Idempotency enforcement
+ *   - Marking order paid in DB
+ *
+ * What this file DELEGATES:
+ *   - All email templates → checkoutNotificationService
+ *   - All in-app notifications → checkoutNotificationService
+ *   - Address fetching + formatting → checkoutNotificationService
+ *
+ * Previous v3 had ~300 lines of notification logic here.
+ * v4 delegates that to the dedicated service. Result: cleaner,
+ * consistent COD/Online branching, one place to update templates.
  */
 
 import axios from "axios";
 import { pool } from "../config/db.js";
 import { markOrderGroupPaid } from "./orderService.js";
-import {
-  sendPaymentNotification,
-  sendNewOrderToSeller,
-  createNotification,
-} from "./notificationService.js";
+import { dispatchOrderNotifications } from "./checkoutNotificationService.js";
 
 /* ════════════════════════════════════════════════════════════
    STRUCTURED LOGGER
 ════════════════════════════════════════════════════════════ */
 const log = (level, tag, data = {}) => {
   const line = JSON.stringify({
-    ts: new Date().toISOString(),
+    ts : new Date().toISOString(),
     src: "ORDER-PAYMENT",
     tag,
     ...data,
   });
-  if (level === "error")     console.error(line);
-  else if (level === "warn") console.warn(line);
-  else                       console.log(line);
+  if      (level === "error") console.error(line);
+  else if (level === "warn")  console.warn(line);
+  else                        console.log(line);
 };
 
 /* ════════════════════════════════════════════════════════════
-   VERIFY TRANSACTION WITH FLUTTERWAVE
+   FLUTTERWAVE VERIFICATION
+   ─────────────────────────────────────────────────────
+   Re-verifies the transaction directly with Flutterwave.
+   Never trust webhook data alone — it could be spoofed.
 ════════════════════════════════════════════════════════════ */
 async function verifyWithFLW(txId) {
   const key = process.env.FLW_SECRET_KEY;
@@ -61,40 +74,36 @@ async function verifyWithFLW(txId) {
     log("error", "FLW_VERIFY_ERROR", {
       txId,
       status: err.response?.status,
-      msg:    err.response?.data?.message ?? err.message,
+      msg   : err.response?.data?.message ?? err.message,
     });
     return null;
   }
 }
 
 /* ════════════════════════════════════════════════════════════
-   FETCH FULL ORDER CONTEXT
+   FETCH ORDER SNAPSHOT FOR NOTIFICATIONS
    ─────────────────────────────────────────────────────
-   Returns everything needed for rich notifications:
-   - Buyer info + email
-   - Delivery address
-   - All sub-orders per seller
-   - All order items with product images
+   Fetches ONLY the data needed to dispatch notifications.
+   The notification service handles address fetching itself.
 ════════════════════════════════════════════════════════════ */
-async function fetchOrderContext(orderGroupId) {
+async function fetchOrderSnapshot(orderGroupId) {
 
-  /* ── 1. Fetch order group + buyer info ── */
+  /* ── 1. Order group + buyer info ── */
   const { rows: [group] } = await pool.query(
     `SELECT
        og.id,
        og.tracking_id,
        og.grand_total,
        og.delivery_fee,
-       og.total_amount,
+       og.total_amount   AS subtotal,
        og.discount,
+       og.coupon_code,
        og.payment_method,
        og.payment_status,
-       og.notes,
        og.address_id,
        og.user_id,
-       og.created_at,
-       u.email AS buyer_email,
-       u.name  AS buyer_name
+       u.email           AS buyer_email,
+       u.name            AS buyer_name
      FROM public.order_groups og
      LEFT JOIN market.users u ON u.id = og.user_id
      WHERE og.id = $1`,
@@ -103,66 +112,26 @@ async function fetchOrderContext(orderGroupId) {
 
   if (!group) return null;
 
-  /* ── 2. Fetch delivery address ── */
-  let deliveryAddress = null;
-  if (group.address_id) {
-    try {
-      const { rows: [addr] } = await pool.query(
-        `SELECT
-           recipient_name,
-           phone,
-           address_line,
-           landmark,
-           city,
-           state
-         FROM public.user_addresses
-         WHERE id = $1`,
-        [group.address_id]
-      );
-
-      if (addr) {
-        deliveryAddress = [
-          addr.recipient_name,
-          addr.address_line,
-          addr.landmark ? `(${addr.landmark})` : "",
-          addr.city,
-          addr.state,
-        ].filter(Boolean).join(", ");
-      }
-    } catch (err) {
-      log("warn", "ADDRESS_FETCH_FAILED", {
-        addressId: group.address_id,
-        error:     err.message,
-      });
-    }
-  }
-
-  /* ── 3. Fetch sub-orders (one per seller) with counts ── */
+  /* ── 2. Sub-orders (one per seller) ── */
   const { rows: subOrders } = await pool.query(
     `SELECT
        o.id       AS order_id,
        o.seller_id,
-       o.subtotal,
-       u.email    AS seller_email,
-       u.name     AS seller_name,
-       COUNT(oi.id)::int AS item_count
+       o.subtotal
      FROM public.orders o
-     LEFT JOIN market.users     u  ON u.id = o.seller_id
-     LEFT JOIN public.order_items oi ON oi.order_id = o.id
      WHERE o.order_group_id = $1
-     GROUP BY o.id, o.seller_id, o.subtotal, u.email, u.name
      ORDER BY o.created_at ASC`,
     [orderGroupId]
   );
 
-  /* ── 4. Fetch ALL order items with product info ── */
+  /* ── 3. All items with product info ── */
   const { rows: allItems } = await pool.query(
     `SELECT
        oi.id,
        oi.order_id,
        oi.product_id,
        oi.seller_id,
-       oi.quantity AS qty,
+       oi.quantity              AS qty,
        oi.price,
        oi.image,
        oi.variant_name,
@@ -175,216 +144,64 @@ async function fetchOrderContext(orderGroupId) {
          LIMIT 1
        ) AS product_image
      FROM public.order_items oi
-     LEFT JOIN public.orders   o  ON o.id  = oi.order_id
-     LEFT JOIN market.products p  ON p.id  = oi.product_id
+     LEFT JOIN public.orders   o ON o.id = oi.order_id
+     LEFT JOIN market.products p ON p.id = oi.product_id
      WHERE o.order_group_id = $1
      ORDER BY oi.id`,
     [orderGroupId]
   );
 
-  /* Enrich items with best available image */
-  const enrichedItems = allItems.map((item) => ({
-    ...item,
-    image:   item.image || item.product_image || null,
-    variant: item.variant_name || null,
-  }));
-
-  /* Attach items to their respective sub-orders */
+  /* ── 4. Attach items to sub-orders (structured for orchestrator) ── */
   const subOrdersWithItems = subOrders.map((sub) => ({
-    ...sub,
-    items: enrichedItems.filter((it) => it.order_id === sub.order_id),
+    orderId  : sub.order_id,
+    sellerId : sub.seller_id,
+    subtotal : Number(sub.subtotal),
+    items    : allItems
+      .filter((it) => it.order_id === sub.order_id)
+      .map((it) => ({
+        name    : it.name,
+        qty     : it.qty,
+        price   : it.price,
+        image   : it.image || it.product_image || null,
+        variant : it.variant_name
+          ? { name: it.variant_name, sku: it.sku }
+          : null,
+      })),
   }));
 
   return {
-    group,
-    subOrders: subOrdersWithItems,
-    allItems:  enrichedItems,
-    deliveryAddress,
+    /* Shape matches dispatchOrderNotifications() signature */
+    user: {
+      id   : group.user_id,
+      email: group.buyer_email,
+      name : group.buyer_name,
+    },
+    orderGroupId : group.id,
+    trackingId   : group.tracking_id,
+    subtotal     : Number(group.subtotal),
+    deliveryFee  : Number(group.delivery_fee),
+    discount     : Number(group.discount || 0),
+    couponCode   : group.coupon_code,
+    grandTotal   : Number(group.grand_total),
+    freeShipping : Number(group.delivery_fee) === 0
+                   && Number(group.discount) === 0
+                   ? false
+                   : /* free_shipping coupon type detection is done in orderService,
+                        but here we infer from delivery_fee = 0 with a coupon */
+                     Number(group.delivery_fee) === 0
+                     && !!group.coupon_code,
+    addressId    : group.address_id,
+    orders       : subOrdersWithItems,
   };
-}
-
-/* ════════════════════════════════════════════════════════════
-   SEND ALL POST-PAYMENT NOTIFICATIONS
-   ─────────────────────────────────────────────────────
-   Runs in parallel via Promise.allSettled.
-   Individual failures don't stop other notifications.
-════════════════════════════════════════════════════════════ */
-async function sendPaymentNotifications({
-  group,
-  subOrders,
-  allItems,
-  deliveryAddress,
-  paymentRef,
-}) {
-  const jobs        = [];
-  const trackingId  = group.tracking_id ?? group.id.slice(0, 8).toUpperCase();
-  const grandTotal  = Number(group.grand_total);
-
-  log("info", "DISPATCHING_NOTIFICATIONS", {
-    orderGroupId: group.id,
-    trackingId,
-    buyer_email:  group.buyer_email,
-    seller_count: subOrders.length,
-    item_count:   allItems.length,
-  });
-
-  /* ══════════════════════════════════════════════════
-     BUYER — Rich payment confirmation email
-  ══════════════════════════════════════════════════ */
-  if (group.buyer_email) {
-    jobs.push(
-      sendPaymentNotification({
-        to:              group.buyer_email,
-        name:            group.buyer_name,
-        amount:          grandTotal,
-        orderId:         trackingId,
-        reference:       paymentRef,
-        items:           allItems,
-        paymentMethod:   "Online Payment (Card / Bank Transfer)",
-        deliveryAddress,
-        isCOD:           false,
-      })
-        .then(() => ({ ok: true, task: "buyer_email" }))
-        .catch((err) => {
-          log("warn", "BUYER_EMAIL_FAILED", {
-            email: group.buyer_email,
-            error: err.message,
-          });
-          return { ok: false, task: "buyer_email", error: err.message };
-        })
-    );
-  } else {
-    log("warn", "NO_BUYER_EMAIL", { userId: group.user_id });
-  }
-
-  /* ══════════════════════════════════════════════════
-     BUYER — In-app notification
-  ══════════════════════════════════════════════════ */
-  if (group.user_id) {
-    jobs.push(
-      createNotification({
-        userId:  group.user_id,
-        type:    "order_paid",
-        title:   "Payment Confirmed! 🎉",
-        message: `Your payment of ₦${grandTotal.toLocaleString("en-NG")} for order ${trackingId} has been confirmed. Your order is being prepared.`,
-        link:    `/shop/orders/${group.id}`,
-        meta:    {
-          orderGroupId: group.id,
-          amount:       grandTotal,
-          trackingId,
-          itemCount:    allItems.length,
-        },
-      })
-        .then(() => ({ ok: true, task: "buyer_notif" }))
-        .catch((err) => {
-          log("warn", "BUYER_NOTIF_FAILED", {
-            userId: group.user_id,
-            error:  err.message,
-          });
-          return { ok: false, task: "buyer_notif", error: err.message };
-        })
-    );
-  }
-
-  /* ══════════════════════════════════════════════════
-     SELLERS — Rich new order email + in-app per seller
-  ══════════════════════════════════════════════════ */
-  for (const sub of subOrders) {
-    const sellerAmount = Number(sub.subtotal);
-
-    /* ── Seller email (rich template) ── */
-    if (sub.seller_email) {
-      jobs.push(
-        sendNewOrderToSeller({
-          to:              sub.seller_email,
-          sellerName:      sub.seller_name,
-          buyerName:       group.buyer_name,
-          orderId:         trackingId,
-          amount:          sellerAmount,
-          itemCount:       sub.item_count,
-          items:           sub.items,
-          isCOD:           false,
-          deliveryAddress,
-        })
-          .then(() => ({ ok: true, task: `seller_email_${sub.seller_id}` }))
-          .catch((err) => {
-            log("warn", "SELLER_EMAIL_FAILED", {
-              sellerId: sub.seller_id,
-              email:    sub.seller_email,
-              error:    err.message,
-            });
-            return { ok: false, task: `seller_email_${sub.seller_id}`, error: err.message };
-          })
-      );
-    } else {
-      log("warn", "NO_SELLER_EMAIL", {
-        sellerId: sub.seller_id,
-        orderId:  sub.order_id,
-      });
-    }
-
-    /* ── Seller in-app notification ── */
-    if (sub.seller_id) {
-      jobs.push(
-        createNotification({
-          userId:  sub.seller_id,
-          type:    "new_order",
-          title:   "New Order Received 📦",
-          message: `New paid order ${trackingId} — ${sub.item_count} item(s) worth ₦${sellerAmount.toLocaleString("en-NG")}. Prepare for shipping.`,
-          link:    `/seller-dashboard/orders/${sub.order_id}`,
-          meta:    {
-            orderId:      sub.order_id,
-            orderGroupId: group.id,
-            amount:       sellerAmount,
-            itemCount:    sub.item_count,
-            trackingId,
-            paymentType:  "ONLINE",
-          },
-        })
-          .then(() => ({ ok: true, task: `seller_notif_${sub.seller_id}` }))
-          .catch((err) => {
-            log("warn", "SELLER_NOTIF_FAILED", {
-              sellerId: sub.seller_id,
-              error:    err.message,
-            });
-            return { ok: false, task: `seller_notif_${sub.seller_id}`, error: err.message };
-          })
-      );
-    }
-  }
-
-  /* ══════════════════════════════════════════════════
-     Run all notifications in parallel
-  ══════════════════════════════════════════════════ */
-  const results = await Promise.allSettled(jobs);
-
-  const succeeded = results.filter(
-    (r) => r.status === "fulfilled" && r.value?.ok
-  ).length;
-  const failed = results.filter(
-    (r) => r.status === "rejected" || !r.value?.ok
-  ).length;
-
-  log("info", "NOTIFICATIONS_SENT", {
-    orderGroupId: group.id,
-    trackingId,
-    total:        jobs.length,
-    succeeded,
-    failed,
-    buyer:        group.buyer_email,
-    sellerCount:  subOrders.length,
-  });
-
-  return { total: jobs.length, succeeded, failed };
 }
 
 /* ════════════════════════════════════════════════════════════
    MAIN HANDLER — CALLED BY WEBHOOK
    ─────────────────────────────────────────────────────
    Returns:
-     { handled: true }                    → order payment processed
+     { handled: true }                    → payment processed
      { handled: true, alreadyPaid: true } → idempotent success
-     { handled: false }                   → not an order payment or failed
+     { handled: false }                   → not an order or failed
 ════════════════════════════════════════════════════════════ */
 export async function handleOrderPayment(data) {
   const txId         = data?.id;
@@ -415,8 +232,7 @@ export async function handleOrderPayment(data) {
   }
 
   /* ══════════════════════════════════════════════════
-     STEP 1: Verify with Flutterwave API
-     (Prevents webhook spoofing)
+     STEP 1: Verify with Flutterwave API (anti-spoofing)
   ══════════════════════════════════════════════════ */
   log("info", "VERIFYING_WITH_FLW", { txId, orderGroupId });
   const verifyRes = await verifyWithFLW(txId);
@@ -456,6 +272,11 @@ export async function handleOrderPayment(data) {
 
   /* ══════════════════════════════════════════════════
      STEP 3: Idempotency check
+     ─────────────────────────────────────────────
+     Flutterwave retries webhooks. If this order is
+     already paid, skip everything — including
+     notifications (buyer already got email on first
+     successful call).
   ══════════════════════════════════════════════════ */
   if (order.payment_status === "paid") {
     log("info", "ALREADY_PAID_SKIPPING", { orderGroupId, txRef });
@@ -464,19 +285,22 @@ export async function handleOrderPayment(data) {
 
   /* ══════════════════════════════════════════════════
      STEP 4: Amount tampering check (₦1 tolerance)
+     ─────────────────────────────────────────────
+     Prevents scenario where a malicious webhook claims
+     ₦100 was paid for a ₦100,000 order.
   ══════════════════════════════════════════════════ */
   if (Math.abs(Number(v.amount) - Number(order.grand_total)) > 1) {
     log("error", "AMOUNT_MISMATCH", {
       orderGroupId,
       expected: order.grand_total,
-      paid:     v.amount,
+      paid    : v.amount,
       txRef,
     });
     return { handled: false };
   }
 
   /* ══════════════════════════════════════════════════
-     STEP 5: Mark as paid
+     STEP 5: Mark order as paid
   ══════════════════════════════════════════════════ */
   const paymentRef = v.tx_ref ?? txRef;
 
@@ -485,7 +309,7 @@ export async function handleOrderPayment(data) {
 
     log("info", "ORDER_MARKED_PAID", {
       orderGroupId,
-      amount:   v.amount,
+      amount  : v.amount,
       currency: v.currency,
       txId,
       txRef,
@@ -495,40 +319,60 @@ export async function handleOrderPayment(data) {
     log("error", "MARK_PAID_FAILED", {
       orderGroupId,
       error: err.message,
-      code:  err.code,
+      code : err.code,
     });
     return { handled: false };
   }
 
   /* ══════════════════════════════════════════════════
-     STEP 6: Send notifications (non-blocking)
-     Fire-and-forget — response returns before emails complete
+     STEP 6: Dispatch notifications (fire-and-forget)
+     ─────────────────────────────────────────────
+     Delegates to checkoutNotificationService which
+     handles:
+       - Rich buyer email with items, address, breakdown
+       - Rich seller emails per seller with pickup info
+       - In-app notifications for buyer + all sellers
+       - Address fetching + formatting
+       - Delivery date calculation
+       - Non-blocking (never throws)
+     
+     We don't await — the webhook must respond fast.
+     Failures are logged inside the service.
   ══════════════════════════════════════════════════ */
   try {
-    const context = await fetchOrderContext(orderGroupId);
+    const snapshot = await fetchOrderSnapshot(orderGroupId);
 
-    if (context) {
-      /* Run notifications in background — don't await */
-      sendPaymentNotifications({
-        group:           context.group,
-        subOrders:       context.subOrders,
-        allItems:        context.allItems,
-        deliveryAddress: context.deliveryAddress,
-        paymentRef,
-      }).catch((err) => {
+    if (!snapshot) {
+      log("warn", "NO_SNAPSHOT_FOR_NOTIFICATIONS", { orderGroupId });
+      return { handled: true };
+    }
+
+    /* Fire notifications in background — return response ASAP */
+    dispatchOrderNotifications({
+      ...snapshot,
+      paymentMethod   : "ONLINE_PAYMENT",
+      paymentReference: paymentRef,
+    })
+      .then((result) => {
+        log("info", "NOTIFICATIONS_DISPATCHED", {
+          orderGroupId,
+          succeeded: result?.succeeded ?? 0,
+          failed   : result?.failed ?? 0,
+        });
+      })
+      .catch((err) => {
         log("error", "NOTIFICATIONS_DISPATCH_FAILED", {
           orderGroupId,
           error: err.message,
         });
       });
-    } else {
-      log("warn", "NO_CONTEXT_FOR_NOTIFICATIONS", { orderGroupId });
-    }
+
   } catch (err) {
-    log("error", "FETCH_CONTEXT_FAILED", {
+    log("error", "FETCH_SNAPSHOT_FAILED", {
       orderGroupId,
       error: err.message,
     });
+    /* Order is still marked paid — return success */
   }
 
   return { handled: true };
