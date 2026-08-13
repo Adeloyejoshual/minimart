@@ -2,19 +2,21 @@
  * src/pages/CheckoutPage.jsx
  * Route: /shop/checkout
  *
- * v8 — Single-page checkout (no steps)
+ * v9 — Step-based rendering (one section at a time)
  * ────────────────────────────────────────
- * ✓ All sections stacked on one page:
- *   1. Delivery Address (with WhatsApp notice inside)
- *   2. Review Order
- *   3. Payment
- * ✓ No step state, no step indicator, no step titles
+ * ✓ User sees ONLY the active step:
+ *     1. Delivery Address
+ *     2. Review Order
+ *     3. Payment
+ * ✓ Continue button advances to the next step
+ * ✓ Back button returns to the previous step (or cart on step 1)
+ * ✓ No visual step indicator — the current section IS the context
  * ✓ WhatsApp notice scoped to AddressStep only
  * ✓ Debug panel unchanged
- * ✓ Header is just back button + title
+ * ✓ Scroll resets to top on step change
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -41,6 +43,17 @@ const authHeaders = () => ({
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   STEP CONSTANTS
+   ─────────────────────────────────────────────────────────────
+   Numbered so we can advance/rewind with simple math.
+═══════════════════════════════════════════════════════════════ */
+const STEP = {
+  ADDRESS : 1,
+  REVIEW  : 2,
+  PAYMENT : 3,
+};
+
+/* ═══════════════════════════════════════════════════════════════
    COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function CheckoutPage({ user }) {
@@ -50,7 +63,10 @@ export default function CheckoutPage({ user }) {
     if (!user) navigate("/auth", { state: { from: "/shop/checkout" } });
   }, [user, navigate]);
 
-  /* ── State ── */
+  /* ── Step state ── */
+  const [step, setStep] = useState(STEP.ADDRESS);
+
+  /* ── Data state ── */
   const [addresses,       setAddresses]       = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [cartItems,       setCartItems]       = useState([]);
@@ -68,6 +84,21 @@ export default function CheckoutPage({ user }) {
   const [lastRequest,  setLastRequest]  = useState(null);
   const [lastResponse, setLastResponse] = useState(null);
   const [lastError,    setLastError]    = useState(null);
+
+  /* Scroll target — the content wrapper */
+  const contentRef = useRef(null);
+
+  /* ════════════════════════════════════════════════════
+     SCROLL TO TOP ON STEP CHANGE
+     ─────────────────────────────────────────────────
+     Whenever the step changes, scroll the window back
+     to the top so the user sees the new section from
+     the beginning — not stuck at the previous scroll
+     position.
+  ════════════════════════════════════════════════════ */
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
 
   /* ════════════════════════════════════════════════════
      LOAD ADDRESSES
@@ -199,6 +230,42 @@ export default function CheckoutPage({ user }) {
   }, [navigate]);
 
   /* ════════════════════════════════════════════════════
+     STEP NAVIGATION
+     ─────────────────────────────────────────────────
+     goNext  — advance to next step (validates first)
+     goBack  — return to previous step (or cart if step 1)
+  ════════════════════════════════════════════════════ */
+  const goNext = useCallback(() => {
+    setError(null);
+    setErrorDebug(null);
+
+    /* Guard: can't proceed past step 1 without an address */
+    if (step === STEP.ADDRESS && !selectedAddress) {
+      setError("Please select a delivery address.");
+      return;
+    }
+
+    /* Guard: can't proceed past step 2 without a payment method */
+    if (step === STEP.REVIEW && !paymentMethod) {
+      setError("Please select a payment method.");
+      return;
+    }
+
+    if (step < STEP.PAYMENT) setStep((s) => s + 1);
+  }, [step, selectedAddress, paymentMethod]);
+
+  const goBack = useCallback(() => {
+    setError(null);
+    setErrorDebug(null);
+
+    if (step > STEP.ADDRESS) {
+      setStep((s) => s - 1);
+    } else {
+      navigate("/shop/cart");
+    }
+  }, [step, navigate]);
+
+  /* ════════════════════════════════════════════════════
      PLACE ORDER
   ════════════════════════════════════════════════════ */
   const handlePlaceOrder = useCallback(async () => {
@@ -209,13 +276,12 @@ export default function CheckoutPage({ user }) {
 
     if (!selectedAddress) {
       setError("Please select a delivery address.");
-      /* Scroll to the address section */
-      document.querySelector(".as-root")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setStep(STEP.ADDRESS);
       return;
     }
     if (!paymentMethod) {
       setError("Please select a payment method.");
+      setStep(STEP.REVIEW);
       return;
     }
     if (!cartItems.length) {
@@ -267,6 +333,7 @@ export default function CheckoutPage({ user }) {
 
       const orderData = data.data ?? data;
 
+      /* Online payment → redirect to Flutterwave */
       if (orderData.requiresPayment && orderData.paymentLink) {
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
@@ -274,6 +341,7 @@ export default function CheckoutPage({ user }) {
         return;
       }
 
+      /* Online payment but Flutterwave failed */
       if (orderData.requiresPayment && !orderData.paymentLink) {
         setError("Order created but payment link failed. Visit your orders to retry.");
         setErrorDebug(orderData);
@@ -283,6 +351,7 @@ export default function CheckoutPage({ user }) {
         return;
       }
 
+      /* Cash on delivery → order page */
       if (orderData.orderGroupId) {
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
@@ -328,18 +397,18 @@ export default function CheckoutPage({ user }) {
   if (!user) return null;
 
   /* ════════════════════════════════════════════════════
-     RENDER — all sections stacked
+     RENDER — one step at a time
   ════════════════════════════════════════════════════ */
   return (
     <div className="ck-page">
 
-      {/* Minimal header — back button + title */}
+      {/* Minimal header — back button always goes to previous step */}
       <CheckoutHeader
         title="Checkout"
-        onBack={() => navigate("/shop/cart")}
+        onBack={goBack}
       />
 
-      {/* Debug panel */}
+      {/* Debug panel — always visible */}
       <CheckoutDebugPanel
         apiBase={`${API}/checkout`}
         token={getToken()}
@@ -369,8 +438,14 @@ export default function CheckoutPage({ user }) {
         </div>
       )}
 
-      {/* Stacked content — everything on one page */}
-      <div className="ck-content">
+      {/* ══════════════════════════════════════════════════
+          STEP CONTENT
+          ────────────────────────────────────────────────
+          Only ONE step is rendered at any time. Clicking
+          Continue advances step state → this block swaps
+          to the next component.
+      ══════════════════════════════════════════════════ */}
+      <div className="ck-content" ref={contentRef}>
 
         {cartLoading ? (
           <div className="ck-loading" role="status" aria-live="polite">
@@ -379,26 +454,24 @@ export default function CheckoutPage({ user }) {
           </div>
         ) : (
           <>
-            {/* ══ DELIVERY ADDRESS (includes WhatsApp notice) ══ */}
-            <AddressStep
-              addresses={addresses}
-              setAddresses={setAddresses}
-              selected={selectedAddress}
-              onSelect={handleSelectAddress}
-              onAdd={handleAddAddress}
-              onEdit={handleEditAddress}
-              onNext={() => {
-                /* Scroll to review section instead of switching steps */
-                document.querySelector("[data-checkout-review]")
-                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
-              user={user}
-              onChangeNumber={handleChangeNumber}
-              termsHref="/terms"
-            />
+            {/* ══ STEP 1: DELIVERY ADDRESS ══ */}
+            {step === STEP.ADDRESS && (
+              <AddressStep
+                addresses={addresses}
+                setAddresses={setAddresses}
+                selected={selectedAddress}
+                onSelect={handleSelectAddress}
+                onAdd={handleAddAddress}
+                onEdit={handleEditAddress}
+                onNext={goNext}         /* advances to Review */
+                user={user}
+                onChangeNumber={handleChangeNumber}
+                termsHref="/terms"
+              />
+            )}
 
-            {/* ══ REVIEW ══ */}
-            <div data-checkout-review>
+            {/* ══ STEP 2: REVIEW ══ */}
+            {step === STEP.REVIEW && (
               <ReviewStep
                 cartItems={cartItems}
                 calculation={calculation}
@@ -409,19 +482,13 @@ export default function CheckoutPage({ user }) {
                 onDiscountChange={setDiscount}
                 notes={notes}
                 onNotesChange={setNotes}
-                onBack={() => {
-                  document.querySelector(".as-root")
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-                onNext={() => {
-                  document.querySelector("[data-checkout-payment]")
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
+                onBack={goBack}         /* returns to Address */
+                onNext={goNext}         /* advances to Payment */
               />
-            </div>
+            )}
 
-            {/* ══ PAYMENT ══ */}
-            <div data-checkout-payment>
+            {/* ══ STEP 3: PAYMENT ══ */}
+            {step === STEP.PAYMENT && (
               <PaymentStep
                 calculation={calculation}
                 paymentMethod={paymentMethod}
@@ -433,15 +500,10 @@ export default function CheckoutPage({ user }) {
                   setError(null);
                   setErrorDebug(null);
                 }}
-                onBack={() => {
-                  setError(null);
-                  setErrorDebug(null);
-                  document.querySelector("[data-checkout-review]")
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
+                onBack={goBack}         /* returns to Review */
                 onPlaceOrder={handlePlaceOrder}
               />
-            </div>
+            )}
           </>
         )}
       </div>
