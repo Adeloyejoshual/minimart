@@ -1,0 +1,619 @@
+/**
+ * src/pages/Checkout/Payment/styles/OrderSuccessPage.css
+ *
+ * Flat Jumia-style success screen matching the checkout flow.
+ * Warm orange accents, grey section headers, no shadows.
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+═══════════════════════════════════════════════════════════════ */
+.osp-wrapper {
+  --osp-orange     : #f68b1e;
+  --osp-orange-dk  : #e07a10;
+  --osp-orange-lt  : #fff5eb;
+  --osp-orange-bd  : #ffd6b3;
+  --osp-orange-ink : #9a3412;
+
+  --osp-ink        : #2b2b2b;
+  --osp-ink-2      : #4a4a4a;
+  --osp-muted      : #6a6a6a;
+  --osp-faint      : #b8b8b8;
+
+  --osp-bg         : #f5f5f5;
+  --osp-card-bg    : #ffffff;
+  --osp-section-bg : #ededed;
+  --osp-soft       : #f7f7f7;
+
+  --osp-border     : #e5e5e5;
+  --osp-border-lt  : #f0f0f0;
+
+  --osp-success    : #16a34a;
+  --osp-success-lt : #ecfdf5;
+  --osp-success-bd : #86efac;
+
+  --osp-warning    : #f59e0b;
+  --osp-warning-lt : #fef3c7;
+  --osp-warning-bd : #fde68a;
+  --osp-warning-ink: #92400e;
+
+  --osp-danger     : #dc2626;
+  --osp-danger-lt  : #fef2f2;
+  --osp-danger-bd  : #fecaca;
+
+  --osp-info       : #0284c7;
+  --osp-info-lt    : #f0f9ff;
+
+  min-height     : 100vh;
+  background     : var(--osp-bg);
+  padding        : 1rem;
+  display        : flex;
+  justify-content: center;
+  align-items    : flex-start;
+  font-family    : system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color          : var(--osp-ink);
+  line-height    : 1.5;
+}
+
+@media (min-width: 640px) {
+  .osp-wrapper {
+    padding      : 2rem 1rem;
+    align-items  : center;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD
+═══════════════════════════════════════════════════════════════ */
+.osp-card {
+  width        : 100%;
+  max-width    : 560px;
+  background   : var(--osp-card-bg);
+  border-radius: 12px;
+  overflow     : hidden;
+  border       : 1px solid var(--osp-border);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ICON WRAP (top of card)
+═══════════════════════════════════════════════════════════════ */
+.osp-icon-wrap {
+  width          : 84px;
+  height         : 84px;
+  border-radius  : 50%;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  margin         : 2rem auto 1rem;
+}
+
+.osp-icon-wrap--success {
+  background: var(--osp-success-lt);
+  color     : var(--osp-success);
+}
+
+.osp-icon-wrap--pending {
+  background: var(--osp-warning-lt);
+  color     : var(--osp-warning);
+}
+
+.osp-icon-wrap--error {
+  background: var(--osp-danger-lt);
+  color     : var(--osp-danger);
+}
+
+/* Animated check icon */
+.osp-check__ring {
+  stroke-dasharray : 166;
+  stroke-dashoffset: 166;
+  animation        : osp-ring 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.osp-check__tick {
+  stroke-dasharray : 48;
+  stroke-dashoffset: 48;
+  animation        : osp-tick 0.4s 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+@keyframes osp-ring {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes osp-tick {
+  to { stroke-dashoffset: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEADING
+═══════════════════════════════════════════════════════════════ */
+.osp-title {
+  font-size     : 1.4rem;
+  font-weight   : 800;
+  color         : var(--osp-ink);
+  margin        : 0 1rem 0.5rem;
+  text-align    : center;
+  letter-spacing: -0.01em;
+}
+
+.osp-subtitle {
+  font-size  : 0.9rem;
+  color      : var(--osp-muted);
+  margin     : 0 1rem 1.5rem;
+  text-align : center;
+  line-height: 1.5;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TRACKING ID REFERENCE
+═══════════════════════════════════════════════════════════════ */
+.osp-ref {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  gap            : 0.75rem;
+  margin         : 0 1rem 1rem;
+  padding        : 0.85rem 1rem;
+  background     : var(--osp-soft);
+  border         : 1px dashed var(--osp-border);
+  border-radius  : 8px;
+}
+
+.osp-ref__body {
+  display       : flex;
+  flex-direction: column;
+  gap           : 0.15rem;
+  min-width     : 0;
+  flex          : 1;
+}
+
+.osp-ref__label {
+  font-size     : 0.68rem;
+  font-weight   : 700;
+  color         : var(--osp-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.osp-ref__value {
+  font-size    : 0.95rem;
+  font-weight  : 800;
+  color        : var(--osp-orange);
+  font-family  : ui-monospace, "SF Mono", Consolas, monospace;
+  letter-spacing: 0.02em;
+  overflow     : hidden;
+  text-overflow: ellipsis;
+  white-space  : nowrap;
+}
+
+.osp-ref__copy {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 0.3rem;
+  padding      : 0.4rem 0.7rem;
+  background   : white;
+  border       : 1px solid var(--osp-border);
+  border-radius: 6px;
+  font-size    : 0.78rem;
+  font-weight  : 600;
+  color        : var(--osp-ink-2);
+  cursor       : pointer;
+  font-family  : inherit;
+  transition   : all 0.15s;
+  flex-shrink  : 0;
+}
+
+.osp-ref__copy:hover {
+  border-color: var(--osp-orange);
+  color       : var(--osp-orange);
+}
+
+.osp-ref__copy--done {
+  background  : var(--osp-success-lt);
+  border-color: var(--osp-success-bd);
+  color       : var(--osp-success);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RETRY PAYMENT BOX (when online payment still pending)
+═══════════════════════════════════════════════════════════════ */
+.osp-retry {
+  margin       : 0 1rem 1rem;
+  padding      : 1rem;
+  background   : var(--osp-warning-lt);
+  border       : 1px solid var(--osp-warning-bd);
+  border-radius: 8px;
+}
+
+.osp-retry__msg {
+  font-size  : 0.85rem;
+  color      : var(--osp-warning-ink);
+  margin     : 0 0 0.75rem;
+  font-weight: 500;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SECTION HEADER (grey bar)
+═══════════════════════════════════════════════════════════════ */
+.osp-section-header {
+  padding        : 0.75rem 1rem;
+  background     : var(--osp-section-bg);
+  border-top     : 1px solid var(--osp-border-lt);
+  border-bottom  : 1px solid var(--osp-border-lt);
+}
+
+.osp-section-header__title {
+  font-size     : 0.72rem;
+  font-weight   : 700;
+  color         : var(--osp-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin        : 0;
+}
+
+.osp-section-body {
+  padding: 1rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ITEMS
+═══════════════════════════════════════════════════════════════ */
+.osp-items {
+  display       : flex;
+  flex-direction: column;
+  margin-bottom : 1rem;
+}
+
+.osp-items-empty {
+  font-size : 0.85rem;
+  color     : var(--osp-muted);
+  text-align: center;
+  padding   : 1rem;
+  margin    : 0;
+}
+
+.osp-item {
+  display      : flex;
+  gap          : 0.75rem;
+  padding      : 0.75rem 0;
+  border-bottom: 1px solid var(--osp-border-lt);
+}
+
+.osp-item:first-child { padding-top   : 0; }
+.osp-item:last-child  {
+  padding-bottom: 0;
+  border-bottom : none;
+}
+
+.osp-item__img {
+  width          : 52px;
+  height         : 52px;
+  border-radius  : 4px;
+  background     : var(--osp-soft);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+  overflow       : hidden;
+  color          : var(--osp-faint);
+}
+
+.osp-item__img img {
+  width     : 100%;
+  height    : 100%;
+  object-fit: cover;
+}
+
+.osp-item__info {
+  flex     : 1;
+  min-width: 0;
+}
+
+.osp-item__name {
+  font-size         : 0.85rem;
+  font-weight       : 600;
+  color             : var(--osp-ink);
+  margin            : 0 0 0.2rem;
+  line-height       : 1.35;
+  display           : -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow          : hidden;
+}
+
+.osp-item__variant {
+  font-size: 0.72rem;
+  color    : var(--osp-muted);
+  margin   : 0 0 0.2rem;
+}
+
+.osp-item__qty {
+  font-size: 0.78rem;
+  color    : var(--osp-muted);
+  margin   : 0;
+}
+
+.osp-item__price {
+  font-size  : 0.88rem;
+  font-weight: 700;
+  color      : var(--osp-ink);
+  align-self : center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TOTALS
+═══════════════════════════════════════════════════════════════ */
+.osp-totals {
+  padding-top: 0.75rem;
+  border-top : 1px solid var(--osp-border-lt);
+}
+
+.osp-total-row {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : center;
+  padding        : 0.35rem 0;
+  font-size      : 0.85rem;
+  color          : var(--osp-ink-2);
+}
+
+.osp-total-row--discount {
+  color: var(--osp-success);
+}
+
+.osp-total-divider {
+  height    : 1px;
+  background: var(--osp-border-lt);
+  margin    : 0.5rem 0;
+}
+
+.osp-total-row--grand {
+  font-size  : 1rem;
+  font-weight: 800;
+  color      : var(--osp-ink);
+  padding    : 0.5rem 0 0.2rem;
+}
+
+.osp-free-tag {
+  color         : var(--osp-success);
+  font-weight   : 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAYMENT BADGE
+═══════════════════════════════════════════════════════════════ */
+.osp-payment-badge {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 0.4rem;
+  margin-top   : 0.85rem;
+  padding      : 0.4rem 0.75rem;
+  border-radius: 4px;
+  font-size    : 0.78rem;
+  font-weight  : 600;
+}
+
+.osp-payment-badge--cod {
+  background: var(--osp-orange-lt);
+  color     : var(--osp-orange-ink);
+  border    : 1px solid var(--osp-orange-bd);
+}
+
+.osp-payment-badge--online {
+  background: var(--osp-success-lt);
+  color     : var(--osp-success);
+  border    : 1px solid var(--osp-success-bd);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DELIVERY ADDRESS
+═══════════════════════════════════════════════════════════════ */
+.osp-addr__name {
+  font-size  : 0.9rem;
+  font-weight: 600;
+  color      : var(--osp-ink);
+  margin     : 0 0 0.3rem;
+}
+
+.osp-addr__phone {
+  color      : var(--osp-muted);
+  font-weight: 400;
+}
+
+.osp-addr__line {
+  font-size  : 0.85rem;
+  color      : var(--osp-ink-2);
+  margin     : 0 0 0.25rem;
+}
+
+.osp-addr__landmark {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 0.3rem;
+  font-size  : 0.78rem;
+  color      : var(--osp-orange-dk);
+  background : var(--osp-orange-lt);
+  padding    : 0.25rem 0.55rem;
+  border-radius: 4px;
+  margin     : 0.35rem 0 0.25rem;
+  font-weight: 500;
+}
+
+.osp-addr__location {
+  font-size: 0.82rem;
+  color    : var(--osp-muted);
+  margin   : 0.35rem 0 0;
+}
+
+.osp-eta {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 0.35rem;
+  margin-top : 0.75rem;
+  padding    : 0.4rem 0.7rem;
+  background : var(--osp-orange-lt);
+  border     : 1px solid var(--osp-orange-bd);
+  color      : var(--osp-orange-dk);
+  border-radius: 4px;
+  font-size  : 0.78rem;
+  font-weight: 600;
+}
+
+.osp-eta svg {
+  color: var(--osp-orange);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WHAT HAPPENS NEXT
+═══════════════════════════════════════════════════════════════ */
+.osp-steps {
+  list-style    : none;
+  padding       : 0;
+  margin        : 0;
+  display       : flex;
+  flex-direction: column;
+  gap           : 0.6rem;
+}
+
+.osp-step {
+  display    : flex;
+  align-items: center;
+  gap        : 0.55rem;
+  font-size  : 0.85rem;
+  color      : var(--osp-ink-2);
+}
+
+.osp-step__num {
+  width          : 22px;
+  height         : 22px;
+  border-radius  : 50%;
+  background     : var(--osp-orange-lt);
+  color          : var(--osp-orange);
+  font-size      : 0.7rem;
+  font-weight    : 800;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.osp-step__icon {
+  color      : var(--osp-orange);
+  display    : flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.osp-step__text {
+  flex: 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ACTION BUTTONS
+═══════════════════════════════════════════════════════════════ */
+.osp-actions {
+  display       : flex;
+  flex-direction: column;
+  gap           : 0.6rem;
+  padding       : 1rem;
+  border-top    : 1px solid var(--osp-border-lt);
+  background    : white;
+}
+
+@media (min-width: 480px) {
+  .osp-actions {
+    flex-direction: row;
+  }
+}
+
+.osp-btn {
+  display        : inline-flex;
+  align-items    : center;
+  justify-content: center;
+  flex           : 1;
+  padding        : 0.85rem 1rem;
+  border-radius  : 4px;
+  font-size      : 0.88rem;
+  font-weight    : 700;
+  cursor         : pointer;
+  font-family    : inherit;
+  text-decoration: none;
+  transition     : all 0.15s;
+  border         : none;
+  letter-spacing : 0.01em;
+}
+
+.osp-btn--primary {
+  background: var(--osp-orange);
+  color     : white;
+}
+
+.osp-btn--primary:hover {
+  background: var(--osp-orange-dk);
+}
+
+.osp-btn--secondary {
+  background: white;
+  color     : var(--osp-ink-2);
+  border    : 1px solid var(--osp-border);
+}
+
+.osp-btn--secondary:hover {
+  background: var(--osp-soft);
+}
+
+.osp-btn--full {
+  width: 100%;
+  flex : none;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LOADING SKELETON
+═══════════════════════════════════════════════════════════════ */
+.osp-skel {
+  background   : linear-gradient(
+    90deg,
+    var(--osp-soft)  25%,
+    #e5e5e5          50%,
+    var(--osp-soft)  75%
+  );
+  background-size: 400px 100%;
+  animation      : osp-shimmer 1.4s infinite;
+  border-radius  : 6px;
+  margin         : 1rem;
+}
+
+.osp-skel--icon {
+  width      : 84px;
+  height     : 84px;
+  border-radius: 50%;
+  margin     : 2rem auto 1rem;
+}
+
+.osp-skel--title {
+  height: 28px;
+  width : 60%;
+  margin: 0 auto 0.75rem;
+}
+
+.osp-skel--sub {
+  height: 16px;
+  width : 80%;
+  margin: 0 auto 1.5rem;
+}
+
+.osp-skel--box {
+  height: 60px;
+}
+
+.osp-skel--summary {
+  height: 240px;
+}
+
+@keyframes osp-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
