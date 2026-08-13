@@ -1,0 +1,695 @@
+/**
+ * src/pages/Checkout/styles/ReviewStep.css
+ *
+ * Flat Jumia-minimal styling for the review step.
+ * v6 — Clean rewrite matching HowToUseRewards + CouponPicker
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+═══════════════════════════════════════════════════════════════ */
+.rs-root {
+  --rs-orange     : #f68b1e;
+  --rs-orange-dk  : #e07a10;
+  --rs-orange-lt  : #fff5eb;
+  --rs-orange-bd  : #ffd6b3;
+
+  --rs-ink        : #2b2b2b;
+  --rs-ink-2      : #4a4a4a;
+  --rs-muted      : #6a6a6a;
+  --rs-faint      : #b8b8b8;
+
+  --rs-bg         : #ffffff;
+  --rs-bg-soft    : #f7f7f7;
+  --rs-section-bg : #ededed;
+
+  --rs-border     : #e5e5e5;
+  --rs-border-lt  : #f0f0f0;
+
+  --rs-danger     : #dc2626;
+  --rs-success    : #16a34a;
+  --rs-success-lt : #ecfdf5;
+  --rs-success-bd : #86efac;
+
+  font-family : system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color       : var(--rs-ink);
+  line-height : 1.5;
+  background  : var(--rs-bg);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SECTION HEADER (grey bar with optional action)
+═══════════════════════════════════════════════════════════════ */
+.rs-section-header {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  padding        : 0.85rem 1rem;
+  background     : var(--rs-section-bg);
+  border-top     : 1px solid var(--rs-border-lt);
+  border-bottom  : 1px solid var(--rs-border-lt);
+}
+
+.rs-section-header__title {
+  font-size     : 0.78rem;
+  font-weight   : 700;
+  color         : var(--rs-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin        : 0;
+}
+
+.rs-section-header__optional {
+  font-size     : 0.68rem;
+  color         : var(--rs-faint);
+  font-weight   : 500;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left   : 0.35rem;
+}
+
+.rs-section-header__action {
+  background : none;
+  border     : none;
+  color      : var(--rs-orange);
+  font-weight: 700;
+  font-size  : 0.85rem;
+  cursor     : pointer;
+  padding    : 0;
+  font-family: inherit;
+}
+
+.rs-section-header__action:hover {
+  color: var(--rs-orange-dk);
+}
+
+.rs-section-body {
+  padding    : 1rem;
+  background : white;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DELIVERY ADDRESS
+═══════════════════════════════════════════════════════════════ */
+.rs-addr__name {
+  font-size  : 0.95rem;
+  font-weight: 600;
+  color      : var(--rs-ink);
+  margin     : 0 0 0.35rem;
+}
+
+.rs-addr__phone {
+  color      : var(--rs-muted);
+  font-weight: 400;
+  font-size  : 0.85rem;
+}
+
+.rs-addr__line {
+  font-size  : 0.85rem;
+  color      : var(--rs-ink-2);
+  margin     : 0 0 0.25rem;
+  line-height: 1.5;
+}
+
+.rs-addr__busstop {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 0.35rem;
+  padding      : 0.25rem 0.55rem;
+  background   : var(--rs-orange-lt);
+  border-radius: 4px;
+  font-size    : 0.78rem;
+  color        : var(--rs-orange-dk);
+  margin       : 0.35rem 0 0.25rem;
+  font-weight  : 500;
+}
+
+.rs-addr__directions {
+  display      : flex;
+  align-items  : center;
+  gap          : 0.35rem;
+  font-size    : 0.78rem;
+  color        : var(--rs-muted);
+  font-style   : italic;
+  margin       : 0.35rem 0 0;
+  padding      : 0.4rem 0.6rem;
+  background   : var(--rs-bg-soft);
+  border-radius: 4px;
+  line-height  : 1.4;
+}
+
+.rs-addr__location {
+  font-size: 0.82rem;
+  color    : var(--rs-muted);
+  margin   : 0.35rem 0 0;
+}
+
+.rs-addr__call {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 0.35rem;
+  margin     : 0.5rem 0 0;
+  font-size  : 0.78rem;
+  color      : var(--rs-success);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LOEMART EXPRESS DELIVERY NOTE
+═══════════════════════════════════════════════════════════════ */
+.rs-delivery-note {
+  display      : flex;
+  align-items  : center;
+  gap          : 0.7rem;
+  padding      : 0.85rem 1rem;
+  background   : var(--rs-orange-lt);
+  border-top   : 1px solid var(--rs-orange-bd);
+  border-bottom: 1px solid var(--rs-orange-bd);
+}
+
+.rs-delivery-note__icon {
+  width          : 32px;
+  height         : 32px;
+  border-radius  : 50%;
+  background     : white;
+  color          : var(--rs-orange);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.rs-delivery-note__body {
+  flex: 1;
+}
+
+.rs-delivery-note__title {
+  font-size  : 0.85rem;
+  font-weight: 700;
+  color      : #9a3412;
+  margin     : 0 0 0.1rem;
+}
+
+.rs-delivery-note__sub {
+  font-size: 0.72rem;
+  color    : #c2410c;
+  margin   : 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SELLER GROUPING
+═══════════════════════════════════════════════════════════════ */
+.rs-seller-group {
+  margin-bottom: 1rem;
+}
+
+.rs-seller-group:last-child {
+  margin-bottom: 0;
+}
+
+.rs-seller-header {
+  display       : flex;
+  align-items   : center;
+  gap           : 0.5rem;
+  padding-bottom: 0.6rem;
+  margin-bottom : 0.6rem;
+  border-bottom : 1px solid var(--rs-border-lt);
+}
+
+.rs-seller-dot {
+  width          : 24px;
+  height         : 24px;
+  border-radius  : 50%;
+  background     : var(--rs-orange);
+  color          : white;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  font-size      : 0.7rem;
+  font-weight    : 700;
+  flex-shrink    : 0;
+}
+
+.rs-seller-name {
+  font-size  : 0.85rem;
+  font-weight: 600;
+  color      : var(--rs-ink);
+  flex       : 1;
+}
+
+.rs-seller-badge {
+  display       : inline-flex;
+  align-items   : center;
+  gap           : 0.25rem;
+  padding       : 0.15rem 0.45rem;
+  background    : var(--rs-orange-lt);
+  color         : var(--rs-orange-dk);
+  border-radius : 3px;
+  font-size     : 0.65rem;
+  font-weight   : 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CART ITEMS
+═══════════════════════════════════════════════════════════════ */
+.rs-item {
+  display      : flex;
+  gap          : 0.75rem;
+  padding      : 0.75rem 0;
+  border-bottom: 1px solid var(--rs-border-lt);
+}
+
+.rs-item:last-child {
+  border-bottom : none;
+  padding-bottom: 0;
+}
+
+.rs-item:first-child {
+  padding-top: 0;
+}
+
+.rs-item__img {
+  width          : 56px;
+  height         : 56px;
+  border-radius  : 4px;
+  background     : var(--rs-bg-soft);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+  overflow       : hidden;
+  color          : var(--rs-faint);
+}
+
+.rs-item__img img {
+  width     : 100%;
+  height    : 100%;
+  object-fit: cover;
+}
+
+.rs-item__info {
+  flex     : 1;
+  min-width: 0;
+}
+
+.rs-item__name {
+  font-size    : 0.85rem;
+  font-weight  : 500;
+  color        : var(--rs-ink);
+  margin       : 0 0 0.25rem;
+  line-height  : 1.4;
+  display      : -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow     : hidden;
+}
+
+.rs-item__variant {
+  font-size: 0.72rem;
+  color    : var(--rs-muted);
+  margin   : 0 0 0.2rem;
+}
+
+.rs-item__sku {
+  color: var(--rs-faint);
+}
+
+.rs-item__qty {
+  font-size: 0.78rem;
+  color    : var(--rs-muted);
+  margin   : 0;
+}
+
+.rs-item__price {
+  font-size  : 0.9rem;
+  font-weight: 700;
+  color      : var(--rs-ink);
+  margin     : 0;
+  align-self : center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NOTES TEXTAREA
+═══════════════════════════════════════════════════════════════ */
+.rs-textarea {
+  width        : 100%;
+  padding      : 0.75rem 0.85rem;
+  border       : 1px solid var(--rs-border);
+  border-radius: 4px;
+  font-size    : 0.9rem;
+  color        : var(--rs-ink);
+  background   : white;
+  box-sizing   : border-box;
+  font-family  : inherit;
+  resize       : vertical;
+  min-height   : 60px;
+  line-height  : 1.5;
+  transition   : border-color 0.15s;
+}
+
+.rs-textarea:focus {
+  outline     : none;
+  border-color: var(--rs-orange);
+}
+
+.rs-textarea-count {
+  display    : block;
+  text-align : right;
+  font-size  : 0.72rem;
+  color      : var(--rs-muted);
+  margin-top : 0.3rem;
+}
+
+.rs-textarea-count[data-empty="true"] {
+  opacity: 0.4;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COUPON — toggle button (opens picker)
+═══════════════════════════════════════════════════════════════ */
+.rs-coupon-toggle {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  width          : 100%;
+  padding        : 0.85rem;
+  background     : white;
+  border         : 1px solid var(--rs-border);
+  border-radius  : 4px;
+  cursor         : pointer;
+  font-family    : inherit;
+  transition     : all 0.15s;
+}
+
+.rs-coupon-toggle:hover {
+  border-color: var(--rs-orange);
+  background  : var(--rs-orange-lt);
+}
+
+.rs-coupon-toggle__left {
+  display    : flex;
+  align-items: center;
+  gap        : 0.5rem;
+  color      : var(--rs-orange);
+  font-weight: 700;
+  font-size  : 0.88rem;
+}
+
+.rs-coupon-toggle__arrow {
+  color      : var(--rs-muted);
+  display    : flex;
+  align-items: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COUPON — applied badge
+═══════════════════════════════════════════════════════════════ */
+.rs-coupon-applied {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  gap            : 0.5rem;
+  padding        : 0.75rem 0.9rem;
+  background     : var(--rs-success-lt);
+  border         : 1px solid var(--rs-success-bd);
+  border-radius  : 4px;
+}
+
+.rs-coupon-applied__info {
+  flex     : 1;
+  min-width: 0;
+}
+
+.rs-coupon-applied__code {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 0.35rem;
+  font-weight: 700;
+  color      : var(--rs-success);
+  font-size  : 0.88rem;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+}
+
+.rs-coupon-applied__save {
+  font-size  : 0.78rem;
+  color      : var(--rs-ink-2);
+  margin-left: 0.5rem;
+}
+
+.rs-coupon-applied__msg {
+  font-size  : 0.72rem;
+  color      : var(--rs-success);
+  margin     : 0.3rem 0 0;
+  line-height: 1.4;
+}
+
+.rs-coupon-remove {
+  background : none;
+  border     : none;
+  color      : var(--rs-danger);
+  font-weight: 700;
+  font-size  : 0.8rem;
+  cursor     : pointer;
+  padding    : 0.25rem 0.5rem;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.rs-coupon-remove:hover {
+  text-decoration: underline;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PRICE SUMMARY
+═══════════════════════════════════════════════════════════════ */
+.rs-price-row {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : center;
+  padding        : 0.4rem 0;
+  font-size      : 0.88rem;
+  color          : var(--rs-ink-2);
+}
+
+.rs-price-row--discount {
+  color: var(--rs-success);
+}
+
+.rs-price-row--free {
+  color: var(--rs-success);
+}
+
+.rs-price-strike {
+  color      : var(--rs-faint);
+  text-decoration: line-through;
+  margin-right: 0.5rem;
+  font-weight: 400;
+}
+
+.rs-price-free-tag {
+  color          : var(--rs-success);
+  font-weight    : 800;
+  text-transform : uppercase;
+  letter-spacing : 0.05em;
+}
+
+.rs-price-row--eta {
+  padding-top: 0;
+  font-size  : 0.75rem;
+  color      : var(--rs-muted);
+}
+
+.rs-price-eta {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 0.3rem;
+}
+
+.rs-price-divider {
+  height    : 1px;
+  background: var(--rs-border-lt);
+  margin    : 0.5rem 0;
+}
+
+.rs-price-row--total {
+  font-size  : 1rem;
+  font-weight: 800;
+  color      : var(--rs-ink);
+  padding    : 0.5rem 0 0.2rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TRACKING NOTICE
+═══════════════════════════════════════════════════════════════ */
+.rs-tracking {
+  display     : flex;
+  gap         : 0.65rem;
+  padding     : 0.85rem 1rem;
+  background  : white;
+  border-top  : 1px solid var(--rs-border-lt);
+  border-bottom: 1px solid var(--rs-border-lt);
+}
+
+.rs-tracking__icon {
+  color      : var(--rs-orange);
+  flex-shrink: 0;
+  margin-top : 2px;
+}
+
+.rs-tracking__body {
+  flex: 1;
+}
+
+.rs-tracking__title {
+  font-size  : 0.85rem;
+  font-weight: 600;
+  color      : var(--rs-ink);
+  margin     : 0 0 0.15rem;
+}
+
+.rs-tracking__sub {
+  font-size: 0.75rem;
+  color    : var(--rs-muted);
+  margin   : 0;
+}
+
+.rs-tracking__sub strong {
+  color        : var(--rs-ink-2);
+  font-weight  : 700;
+  font-family  : ui-monospace, "SF Mono", Consolas, monospace;
+  padding      : 0.05rem 0.35rem;
+  background   : var(--rs-bg-soft);
+  border-radius: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WHAT HAPPENS NEXT
+═══════════════════════════════════════════════════════════════ */
+.rs-next-steps {
+  list-style    : none;
+  padding       : 0;
+  margin        : 0;
+  display       : flex;
+  flex-direction: column;
+  gap           : 0.6rem;
+}
+
+.rs-next-step {
+  display    : flex;
+  align-items: center;
+  gap        : 0.55rem;
+  font-size  : 0.82rem;
+  color      : var(--rs-ink-2);
+}
+
+.rs-next-step__num {
+  width          : 22px;
+  height         : 22px;
+  border-radius  : 50%;
+  background     : var(--rs-orange-lt);
+  color          : var(--rs-orange);
+  font-size      : 0.7rem;
+  font-weight    : 800;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.rs-next-step__icon {
+  color      : var(--rs-orange);
+  display    : flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.rs-next-step__text {
+  flex: 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════════════════ */
+.rs-nav {
+  display    : flex;
+  gap        : 0.6rem;
+  padding    : 1rem;
+  background : white;
+  border-top : 1px solid var(--rs-border-lt);
+}
+
+.rs-btn-back {
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 0.35rem;
+  padding        : 0.85rem 1.2rem;
+  background     : white;
+  border         : 1px solid var(--rs-border);
+  color          : var(--rs-ink-2);
+  border-radius  : 4px;
+  font-weight    : 700;
+  font-size      : 0.88rem;
+  cursor         : pointer;
+  font-family    : inherit;
+  transition     : all 0.15s;
+}
+
+.rs-btn-back:hover {
+  background: var(--rs-bg-soft);
+}
+
+.rs-btn-next {
+  flex         : 1;
+  padding      : 0.85rem;
+  background   : var(--rs-orange);
+  color        : white;
+  border       : none;
+  border-radius: 4px;
+  font-weight  : 700;
+  font-size    : 0.9rem;
+  cursor       : pointer;
+  font-family  : inherit;
+  transition   : background 0.15s;
+}
+
+.rs-btn-next:hover:not(:disabled) {
+  background: var(--rs-orange-dk);
+}
+
+.rs-btn-next:disabled {
+  background: var(--rs-faint);
+  cursor    : not-allowed;
+  opacity   : 0.7;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PRICE SKELETON
+═══════════════════════════════════════════════════════════════ */
+.rs-skel-row {
+  height       : 14px;
+  margin       : 0.6rem 0;
+  border-radius: 3px;
+  background   : linear-gradient(
+    90deg,
+    var(--rs-bg-soft)  25%,
+    #e5e5e5            50%,
+    var(--rs-bg-soft)  75%
+  );
+  background-size: 400px 100%;
+  animation      : rs-shimmer 1.4s infinite;
+}
+
+.rs-skel-row--total {
+  height     : 20px;
+  width      : 60%;
+  margin-left: auto;
+}
+
+@keyframes rs-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
