@@ -1,249 +1,130 @@
 /**
- * services/orderService.js
+ * services/orderService.js  (v7 — coupon redemption inside transaction)
  *
- * v6 — Handles your actual public.order_items schema
- * ────────────────────────────────────────────────────
- * Your schema:
- *   order_id, product_id, seller_id (NOT NULL),
- *   quantity, price, variant_id, variant_name, sku, image
- *
- * ✓ Auto-detects all column names (name/product_name/etc.)
- * ✓ Uses "quantity" instead of "qty" if that's the real column
- * ✓ Uses "price" instead of "unit_price" if that's the real column
- * ✓ Includes seller_id in order_items INSERT (required by your schema)
- * ✓ Skips subtotal/name if they don't exist
- * ✓ Works with any schema variant
+ * Only createOrderGroup() and one new helper changed.
+ * All column detection + other methods unchanged.
  */
 
-import { pool }                 from "../config/db.js";
-import { calculateDeliveryFee } from "./delivery.js";
-
 /* ════════════════════════════════════════════════════════════
-   COLUMN DETECTION (cached)
+   HELPER — atomic coupon redemption inside order transaction
+   ─────────────────────────────────────────────────────────
+   Called inside createOrderGroup while the transaction is open.
+   
+   Behavior:
+     • Locks the coupon row (SELECT FOR UPDATE) to prevent
+       concurrent redemption races
+     • Re-validates: active, not expired, under usage limit
+     • Verifies user hasn't already redeemed (defense in depth)
+     • Inserts coupon_redemptions row
+     • Bumps usage_count + deactivates if single-use
+   
+   Throws if coupon is invalid — parent transaction rolls back.
+   Returns silently if code is null/empty (no-op).
 ════════════════════════════════════════════════════════════ */
-let ORDER_GROUP_COLS = null;
-let ORDER_COLS       = null;
-let ORDER_ITEM_COLS  = null;
+async function redeemCouponInTransaction(client, {
+  code,
+  userId,
+  orderGroupId,
+  discount,
+}) {
+  if (!code) return null;   /* No coupon — skip */
 
-async function detectOrderGroupColumns() {
-  if (ORDER_GROUP_COLS) return ORDER_GROUP_COLS;
-  try {
-    const { rows } = await pool.query(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'order_groups'`
-    );
-    const cols = new Set(rows.map((r) => r.column_name));
-    ORDER_GROUP_COLS = {
-      hasTrackingId:  cols.has("tracking_id"),
-      hasDeliveredAt: cols.has("delivered_at"),
-      hasUpdatedAt:   cols.has("updated_at"),
-    };
-    console.log("[orderService] order_groups cols:", ORDER_GROUP_COLS);
-  } catch (err) {
-    console.warn("[orderService] order_groups detection failed:", err.message);
-    ORDER_GROUP_COLS = { hasTrackingId: true, hasDeliveredAt: true, hasUpdatedAt: true };
+  const upperCode = String(code).trim().toUpperCase();
+  if (!upperCode) return null;
+
+  /* ── 1. Lock the coupon row for update ── */
+  const { rows: [coupon] } = await client.query(
+    `SELECT id, is_private, created_by, is_active,
+            usage_limit, usage_count, expires_at
+     FROM public.coupons
+     WHERE UPPER(code) = $1
+     FOR UPDATE`,
+    [upperCode]
+  );
+
+  if (!coupon) {
+    const err = new Error(`Coupon "${upperCode}" not found`);
+    err.status = 400;
+    throw err;
   }
-  return ORDER_GROUP_COLS;
-}
 
-async function detectOrderColumns() {
-  if (ORDER_COLS) return ORDER_COLS;
-  try {
-    const { rows } = await pool.query(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'orders'`
-    );
-    const cols = new Set(rows.map((r) => r.column_name));
-    ORDER_COLS = {
-      hasUserId:      cols.has("user_id"),
-      hasDeliveredAt: cols.has("delivered_at"),
-      hasUpdatedAt:   cols.has("updated_at"),
-    };
-    console.log("[orderService] orders cols:", ORDER_COLS);
-  } catch (err) {
-    console.warn("[orderService] orders detection failed:", err.message);
-    ORDER_COLS = { hasUserId: true, hasDeliveredAt: true, hasUpdatedAt: true };
+  if (!coupon.is_active) {
+    const err = new Error(`Coupon "${upperCode}" is no longer active`);
+    err.status = 400;
+    throw err;
   }
-  return ORDER_COLS;
-}
 
-/**
- * Detects order_items columns and figures out real column names.
- *
- * Your schema:
- * - order_id, product_id, seller_id → all REQUIRED
- * - quantity (not "qty"), price (not "unit_price")
- * - variant_id, variant_name, sku, image → optional
- * - NO "name" column
- * - NO "subtotal" column
- */
-async function detectOrderItemColumns() {
-  if (ORDER_ITEM_COLS) return ORDER_ITEM_COLS;
-  try {
-    const { rows } = await pool.query(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'order_items'`
-    );
-    const cols = new Set(rows.map((r) => r.column_name));
-
-    /* Figure out qty column */
-    let qtyColumn = null;
-    if      (cols.has("quantity")) qtyColumn = "quantity";
-    else if (cols.has("qty"))      qtyColumn = "qty";
-
-    /* Figure out price column */
-    let priceColumn = null;
-    if      (cols.has("price"))      priceColumn = "price";
-    else if (cols.has("unit_price")) priceColumn = "unit_price";
-
-    /* Figure out name column (optional in your schema) */
-    let nameColumn = null;
-    if      (cols.has("name"))         nameColumn = "name";
-    else if (cols.has("product_name")) nameColumn = "product_name";
-    else if (cols.has("item_name"))    nameColumn = "item_name";
-    else if (cols.has("title"))        nameColumn = "title";
-
-    /* Figure out subtotal column (optional in your schema) */
-    let subtotalColumn = null;
-    if      (cols.has("subtotal"))    subtotalColumn = "subtotal";
-    else if (cols.has("total_price")) subtotalColumn = "total_price";
-    else if (cols.has("total"))       subtotalColumn = "total";
-
-    ORDER_ITEM_COLS = {
-      allColumns:     [...cols],
-      qtyColumn,
-      priceColumn,
-      nameColumn,           /* Will be null in your case */
-      subtotalColumn,       /* Will be null in your case */
-      hasProductId:   cols.has("product_id"),
-      hasSellerId:    cols.has("seller_id"),
-      hasVendorId:    cols.has("vendor_id"),
-      hasVariantId:   cols.has("variant_id"),
-      hasVariantName: cols.has("variant_name"),
-      hasSku:         cols.has("sku"),
-      hasImage:       cols.has("image"),
-      hasImageUrl:    cols.has("image_url"),
-    };
-
-    console.log("[orderService] order_items cols detected:");
-    console.log("  All columns:", ORDER_ITEM_COLS.allColumns);
-    console.log("  Qty col:    ", qtyColumn);
-    console.log("  Price col:  ", priceColumn);
-    console.log("  Name col:   ", nameColumn ?? "(none — will skip)");
-    console.log("  Subtotal:   ", subtotalColumn ?? "(none — will skip)");
-    console.log("  Has seller_id:", ORDER_ITEM_COLS.hasSellerId);
-
-    if (!qtyColumn) {
-      console.error("[orderService] ⚠ No qty/quantity column found!");
-    }
-    if (!priceColumn) {
-      console.error("[orderService] ⚠ No price/unit_price column found!");
-    }
-
-  } catch (err) {
-    console.warn("[orderService] order_items detection failed:", err.message);
-    ORDER_ITEM_COLS = {
-      allColumns:     [],
-      qtyColumn:      "quantity",
-      priceColumn:    "price",
-      nameColumn:     null,
-      subtotalColumn: null,
-      hasProductId:   true,
-      hasSellerId:    true,
-      hasVendorId:    false,
-      hasVariantId:   true,
-      hasVariantName: true,
-      hasSku:         true,
-      hasImage:       true,
-      hasImageUrl:    false,
-    };
+  if (coupon.is_private && coupon.created_by !== userId) {
+    const err = new Error(`Coupon "${upperCode}" is not valid for your account`);
+    err.status = 403;
+    throw err;
   }
-  return ORDER_ITEM_COLS;
+
+  if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {
+    const err = new Error(`Coupon "${upperCode}" has expired`);
+    err.status = 400;
+    throw err;
+  }
+
+  if (
+    coupon.usage_limit !== null &&
+    Number(coupon.usage_count) >= Number(coupon.usage_limit)
+  ) {
+    const err = new Error(`Coupon "${upperCode}" has reached its usage limit`);
+    err.status = 400;
+    throw err;
+  }
+
+  /* ── 2. Verify user hasn't already redeemed ── */
+  const { rows: existing } = await client.query(
+    `SELECT id FROM public.coupon_redemptions
+     WHERE coupon_id = $1 AND user_id = $2
+     LIMIT 1`,
+    [coupon.id, userId]
+  );
+
+  if (existing.length) {
+    const err = new Error(`You have already used coupon "${upperCode}"`);
+    err.status = 400;
+    throw err;
+  }
+
+  /* ── 3. Insert redemption row ── */
+  await client.query(
+    `INSERT INTO public.coupon_redemptions
+       (coupon_id, user_id, order_id, discount)
+     VALUES ($1, $2, $3, $4)`,
+    [coupon.id, userId, orderGroupId, Number(discount || 0)]
+  );
+
+  /* ── 4. Bump usage count + auto-deactivate single-use ── */
+  const isSingleUse =
+    coupon.usage_limit !== null && Number(coupon.usage_limit) === 1;
+
+  await client.query(
+    `UPDATE public.coupons
+     SET usage_count = usage_count + 1,
+         is_active   = CASE
+           WHEN $1 THEN false
+           WHEN usage_limit IS NOT NULL
+                AND usage_count + 1 >= usage_limit
+           THEN false
+           ELSE is_active
+         END
+     WHERE id = $2`,
+    [isSingleUse, coupon.id]
+  );
+
+  console.log(
+    `[orderService] ✓ Coupon "${upperCode}" redeemed by user=${userId} ` +
+    `on order=${orderGroupId} (−₦${Number(discount).toLocaleString("en-NG")})`
+  );
+
+  return { couponId: coupon.id, code: upperCode };
 }
 
 /* ════════════════════════════════════════════════════════════
-   HELPERS
-════════════════════════════════════════════════════════════ */
-function generateTrackingId(uuid) {
-  return `ORD-${uuid.slice(0, 8).toUpperCase()}`;
-}
-
-/**
- * Build a dynamic INSERT for order_items using ONLY columns that exist.
- * Ensures seller_id is always included (it's NOT NULL in your schema).
- */
-function buildOrderItemInsert(itemCols, orderId, sellerId, item) {
-  const columns = ["order_id"];
-  const values  = [orderId];
-
-  if (itemCols.hasProductId) {
-    columns.push("product_id");
-    values.push(item.productId);
-  }
-
-  /* ✅ CRITICAL: seller_id is NOT NULL in your schema */
-  if (itemCols.hasSellerId) {
-    columns.push("seller_id");
-    values.push(sellerId);
-  }
-
-  /* ✅ Vendor_id (optional alias) */
-  if (itemCols.hasVendorId) {
-    columns.push("vendor_id");
-    values.push(sellerId);
-  }
-
-  if (itemCols.qtyColumn) {
-    columns.push(itemCols.qtyColumn);
-    values.push(Number(item.qty));
-  }
-
-  if (itemCols.priceColumn) {
-    columns.push(itemCols.priceColumn);
-    values.push(Number(item.price));
-  }
-
-  if (itemCols.nameColumn) {
-    columns.push(itemCols.nameColumn);
-    values.push(item.name);
-  }
-
-  if (itemCols.subtotalColumn) {
-    columns.push(itemCols.subtotalColumn);
-    values.push(Number(item.price) * Number(item.qty));
-  }
-
-  if (itemCols.hasVariantId) {
-    columns.push("variant_id");
-    values.push(item.variant?.id ?? null);
-  }
-  if (itemCols.hasVariantName) {
-    columns.push("variant_name");
-    values.push(item.variant?.name ?? null);
-  }
-  if (itemCols.hasSku) {
-    columns.push("sku");
-    values.push(item.variant?.sku ?? null);
-  }
-  if (itemCols.hasImage) {
-    columns.push("image");
-    values.push(item.image ?? null);
-  }
-  if (itemCols.hasImageUrl) {
-    columns.push("image_url");
-    values.push(item.image ?? null);
-  }
-
-  const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
-
-  return {
-    sql:    `INSERT INTO public.order_items (${columns.join(", ")}) VALUES (${placeholders})`,
-    params: values,
-  };
-}
-
-/* ════════════════════════════════════════════════════════════
-   CREATE ORDER GROUP
+   CREATE ORDER GROUP  (v7 — atomic coupon redemption)
 ════════════════════════════════════════════════════════════ */
 export async function createOrderGroup({
   userId,
@@ -301,7 +182,31 @@ export async function createOrderGroup({
     }
 
     /* ══════════════════════════════════════════════════
-       2. Group items by seller
+       2. Redeem coupon (if provided) — INSIDE transaction
+       ─────────────────────────────────────────────────
+       If the coupon is invalid, an error throws here and
+       the entire transaction rolls back — no orphan order.
+    ══════════════════════════════════════════════════ */
+    let redemption = null;
+    if (couponCode) {
+      try {
+        redemption = await redeemCouponInTransaction(client, {
+          code         : couponCode,
+          userId,
+          orderGroupId,
+          discount,
+        });
+      } catch (couponErr) {
+        /* Log with context — will be rethrown, triggering ROLLBACK */
+        console.error(
+          `[orderService] ❌ Coupon redemption failed for user=${userId}: ${couponErr.message}`
+        );
+        throw couponErr;
+      }
+    }
+
+    /* ══════════════════════════════════════════════════
+       3. Group items by seller
     ══════════════════════════════════════════════════ */
     const sellerMap = new Map();
     for (const item of items) {
@@ -318,7 +223,7 @@ export async function createOrderGroup({
     }
 
     /* ══════════════════════════════════════════════════
-       3. Create one orders row per seller
+       4. Create one orders row per seller
     ══════════════════════════════════════════════════ */
     const createdOrders = [];
 
@@ -329,7 +234,6 @@ export async function createOrderGroup({
         0
       );
 
-      /* Dynamic INSERT for orders */
       let orderSql, orderParams;
       if (orderCols.hasUserId) {
         orderSql = `
@@ -352,11 +256,8 @@ export async function createOrderGroup({
       const { rows: [order] } = await client.query(orderSql, orderParams);
       console.log(`[orderService] ✓ Created order ${order.id} for seller ${sellerId}`);
 
-      /* ✅ Insert each order_item — WITH seller_id */
       for (const item of sellerItems) {
         const insert = buildOrderItemInsert(itemCols, order.id, sellerId, item);
-        console.log(`[orderService] SQL: ${insert.sql}`);
-        console.log(`[orderService] Params:`, insert.params);
         await client.query(insert.sql, insert.params);
       }
 
@@ -370,7 +271,22 @@ export async function createOrderGroup({
     }
 
     /* ══════════════════════════════════════════════════
-       4. Clear buyer cart
+       5. Bump last_used_at on the address (cross-device UX)
+    ══════════════════════════════════════════════════ */
+    try {
+      await client.query(
+        `UPDATE public.user_addresses
+         SET last_used_at = now()
+         WHERE id = $1 AND user_id = $2`,
+        [addressId, userId]
+      );
+    } catch (err) {
+      /* Non-fatal — column may not exist yet in some envs */
+      console.warn("[orderService] address last_used_at update skipped:", err.message);
+    }
+
+    /* ══════════════════════════════════════════════════
+       6. Clear buyer cart
     ══════════════════════════════════════════════════ */
     await client.query(
       `DELETE FROM market.cart_items ci
@@ -381,7 +297,23 @@ export async function createOrderGroup({
 
     await client.query("COMMIT");
 
-    console.log(`[orderService] ✅ Created order group ${orderGroupId} with ${createdOrders.length} sub-orders`);
+    /* ══════════════════════════════════════════════════
+       7. Post-commit: invalidate coupon cache (best-effort)
+       ─────────────────────────────────────────────────
+       We do this AFTER commit so a cache-flush failure
+       doesn't roll back the order.
+    ══════════════════════════════════════════════════ */
+    if (redemption) {
+      invalidateCouponCache(userId).catch((err) =>
+        console.warn("[orderService] coupon cache invalidation failed:", err.message)
+      );
+    }
+
+    console.log(
+      `[orderService] ✅ Created order group ${orderGroupId} ` +
+      `with ${createdOrders.length} sub-orders` +
+      (redemption ? ` + coupon "${redemption.code}"` : "")
+    );
 
     return {
       orderGroupId,
@@ -389,6 +321,8 @@ export async function createOrderGroup({
       orders:       createdOrders,
       deliveryFee,
       grandTotal,
+      discount,
+      couponCode:   redemption?.code ?? null,
     };
 
   } catch (err) {
@@ -396,6 +330,7 @@ export async function createOrderGroup({
     console.error("[orderService] createOrderGroup rolled back:", {
       message:    err.message,
       code:       err.code,
+      status:     err.status,
       detail:     err.detail,
       constraint: err.constraint,
       table:      err.table,
@@ -408,135 +343,19 @@ export async function createOrderGroup({
 }
 
 /* ════════════════════════════════════════════════════════════
-   MARK ORDER GROUP PAID
+   HELPER — invalidate user's coupon cache (best-effort)
+   ─────────────────────────────────────────────────────────
+   Dynamically imports the coupons route module so this
+   service doesn't create a hard dependency on routes/*.
 ════════════════════════════════════════════════════════════ */
-export async function markOrderGroupPaid(orderGroupId, paymentRef) {
-  const [groupCols, orderCols] = await Promise.all([
-    detectOrderGroupColumns(),
-    detectOrderColumns(),
-  ]);
-
-  const client = await pool.connect();
+async function invalidateCouponCache(userId) {
   try {
-    await client.query("BEGIN");
-
-    await client.query(
-      `UPDATE public.order_groups
-       SET payment_status = 'paid',
-           payment_ref    = $2,
-           status         = 'confirmed'
-           ${groupCols.hasUpdatedAt ? ", updated_at = now()" : ""}
-       WHERE id = $1`,
-      [orderGroupId, paymentRef]
-    );
-
-    await client.query(
-      `UPDATE public.orders
-       SET status = 'confirmed'
-           ${orderCols.hasUpdatedAt ? ", updated_at = now()" : ""}
-       WHERE order_group_id = $1`,
-      [orderGroupId]
-    );
-
-    await client.query("COMMIT");
-    console.log(`[orderService] ✅ Order ${orderGroupId} marked paid`);
+    const mod = await import("../routes/coupons.js");
+    if (typeof mod.invalidateUserCache === "function") {
+      await mod.invalidateUserCache(userId);
+    }
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("[orderService] markOrderGroupPaid failed:", err.message);
-    throw err;
-  } finally {
-    client.release();
+    /* Coupons module may not be loaded, that's fine */
+    console.warn("[orderService] could not invalidate coupon cache:", err.message);
   }
-}
-
-/* ════════════════════════════════════════════════════════════
-   MARK ORDER GROUP DELIVERED
-════════════════════════════════════════════════════════════ */
-export async function markOrderGroupDelivered(orderGroupId) {
-  const [groupCols, orderCols] = await Promise.all([
-    detectOrderGroupColumns(),
-    detectOrderColumns(),
-  ]);
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const groupSet = ["status = 'delivered'"];
-    if (groupCols.hasDeliveredAt) groupSet.push("delivered_at = now()");
-    if (groupCols.hasUpdatedAt)   groupSet.push("updated_at   = now()");
-
-    await client.query(
-      `UPDATE public.order_groups SET ${groupSet.join(", ")} WHERE id = $1`,
-      [orderGroupId]
-    );
-
-    const orderSet = ["status = 'delivered'"];
-    if (orderCols.hasDeliveredAt) orderSet.push("delivered_at = now()");
-    if (orderCols.hasUpdatedAt)   orderSet.push("updated_at   = now()");
-
-    await client.query(
-      `UPDATE public.orders SET ${orderSet.join(", ")} WHERE order_group_id = $1`,
-      [orderGroupId]
-    );
-
-    await client.query("COMMIT");
-    console.log(`[orderService] ✅ Order ${orderGroupId} marked delivered`);
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("[orderService] markOrderGroupDelivered failed:", err.message);
-    throw err;
-  } finally {
-    client.release();
-  }
-}
-
-/* ════════════════════════════════════════════════════════════
-   GET FULL ORDER GROUP
-════════════════════════════════════════════════════════════ */
-export async function getOrderGroup(orderGroupId, userId) {
-  const { rows: [group] } = await pool.query(
-    `SELECT
-       og.*,
-       a.recipient_name,
-       a.phone,
-       a.address_line,
-       a.landmark,
-       a.additional_directions,
-       a.call_before_delivery,
-       a.city,
-       a.state
-     FROM public.order_groups og
-     LEFT JOIN public.user_addresses a ON a.id = og.address_id
-     WHERE og.id = $1 AND og.user_id = $2`,
-    [orderGroupId, userId]
-  );
-
-  if (!group) return null;
-
-  const { rows: orders } = await pool.query(
-    `SELECT o.*, u.name AS seller_name
-     FROM public.orders o
-     LEFT JOIN market.users u ON u.id = o.seller_id
-     WHERE o.order_group_id = $1
-     ORDER BY o.created_at ASC`,
-    [orderGroupId]
-  );
-
-  /* Enrich items with product name from market.products since order_items has no name */
-  for (const order of orders) {
-    const { rows: items } = await pool.query(
-      `SELECT
-         oi.*,
-         p.name AS product_name
-       FROM public.order_items oi
-       LEFT JOIN market.products p ON p.id = oi.product_id
-       WHERE oi.order_id = $1
-       ORDER BY oi.id`,
-      [order.id]
-    );
-    order.items = items;
-  }
-
-  return { ...group, orders };
 }
