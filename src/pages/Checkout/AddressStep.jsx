@@ -3,12 +3,15 @@
  *
  * Flat Jumia-style delivery address section.
  *
- * v3 — Redesigned to match Jumia:
- *   • Grey section header bar with "Change" link on right
- *   • Selected address shown as plain summary text
- *   • "Change" opens address picker or form
- *   • WhatsApp notice is plain text at top (no colored box)
- *   • Orange used only for links and CTA button
+ * v4 — Add New Address always accessible
+ * ─────────────────────────────────────────────────────
+ * ✓ "Add New Address" button visible in summary + picker views
+ * ✓ Uses external validators/addressValidator.js
+ * ✓ Duplicate address detection
+ * ✓ Summary shows total address count
+ * ✓ Cleaner mode transitions (summary → picker → form)
+ * ✓ Form knows if it's adding vs editing
+ * ✓ All previous v3 features (WhatsApp notice, delete, default)
  */
 
 import {
@@ -17,6 +20,7 @@ import {
 } from "react";
 import axios from "axios";
 import "./styles/AddressStep.css";
+import { validateForm } from "./validators/addressValidator";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
@@ -53,7 +57,7 @@ const BLANK = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SVG ICONS  (transparent — currentColor)
+   SVG ICONS
 ═══════════════════════════════════════════════════════════════ */
 const Icon = {
   Home: ({ size = 14 }) => (
@@ -138,65 +142,19 @@ const Icon = {
       <line x1="5"  y1="12" x2="19" y2="12" />
     </svg>
   ),
+  ChevronRight: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  ),
 };
 
 const LABEL_ICON = { Home: Icon.Home, Office: Icon.Office, Other: Icon.Pin };
 
 /* ═══════════════════════════════════════════════════════════════
-   VALIDATION
-═══════════════════════════════════════════════════════════════ */
-const FAKE_PATTERNS = [
-  /^(abc|xyz|test|house|street|road|address|home|here|there|nil|na|none|bus|stop|busstop)$/i,
-  /^(.)\1{4,}$/,
-  /^[0-9]+$/,
-  /^[a-z]{1,3}$/i,
-];
-
-const isFake = (value = "", minLen = 5) => {
-  const t = value.trim();
-  if (t.length < minLen) return true;
-  return FAKE_PATTERNS.some((p) => p.test(t));
-};
-
-function normalisePhone(raw = "") {
-  let c = raw.replace(/[\s\-()]/g, "");
-  if (c.startsWith("+234")) c = "0" + c.slice(4);
-  if (c.startsWith("234") && c.length === 13) c = "0" + c.slice(3);
-  return c;
-}
-
-const validatePhone = (phone = "") => {
-  const c = normalisePhone(phone);
-  if (!c) return "Phone number is required";
-  if (!/^0[7-9][01]\d{8}$/.test(c))
-    return "Enter a valid Nigerian number (e.g. 08012345678)";
-  return null;
-};
-
-const validate = (form) => {
-  const errors = {};
-  if (!form.recipient_name?.trim())
-    errors.recipient_name = "Recipient name is required";
-  const phoneErr = validatePhone(form.phone);
-  if (phoneErr) errors.phone = phoneErr;
-  if (!form.state?.trim()) errors.state = "Select a state";
-  if (!form.city?.trim())  errors.city  = "Select a city";
-  if (!form.address_line?.trim())
-    errors.address_line = "Street address is required";
-  else if (isFake(form.address_line, 10))
-    errors.address_line = "Enter a real address";
-  if (!form.bus_stop?.trim())
-    errors.bus_stop = "Bus stop is required";
-  else if (isFake(form.bus_stop, 5))
-    errors.bus_stop = "Enter a real bus stop";
-  return errors;
-};
-
-/* ═══════════════════════════════════════════════════════════════
    FORMAT ADDRESS SUMMARY (Jumia style)
-   ─────────────────────────────────────────────────────────────
-   "Adeloye Joshua"
-   "No 3 | Ondo - Ondo Town - Yaba | +234 8137246483"
 ═══════════════════════════════════════════════════════════════ */
 function formatSummaryLine(addr) {
   const parts = [];
@@ -348,6 +306,23 @@ function AddressSkeleton() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   ADD ADDRESS BUTTON (reusable)
+═══════════════════════════════════════════════════════════════ */
+function AddAddressButton({ onClick, disabled }) {
+  return (
+    <button
+      type="button"
+      className="as-add-link"
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <Icon.Plus />
+      <span>Add New Address</span>
+    </button>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 const AddressStep = memo(function AddressStep({
@@ -382,7 +357,7 @@ const AddressStep = memo(function AddressStep({
     phone          : user?.phone_number ?? "",
   }), [user]);
 
-  /* Load zones */
+  /* ── Load delivery zones ── */
   const loadZones = useCallback(() => {
     setZonesReady(false);
     setZonesError(null);
@@ -418,7 +393,7 @@ const AddressStep = memo(function AddressStep({
     return cleanup;
   }, [loadZones]);
 
-  /* If no addresses exist, jump straight into form */
+  /* ── If no addresses, jump into form ── */
   useEffect(() => {
     if (!zonesReady) return;
     if (addresses.length === 0 && mode === "summary") {
@@ -428,7 +403,7 @@ const AddressStep = memo(function AddressStep({
     }
   }, [zonesReady, addresses.length, mode, makeBlank]);
 
-  /* Auto-select default */
+  /* ── Auto-select default address ── */
   useEffect(() => {
     if (!selected && addresses.length > 0) {
       const def = addresses.find((a) => a.is_default) ?? addresses[0];
@@ -436,15 +411,18 @@ const AddressStep = memo(function AddressStep({
     }
   }, [addresses, selected, onSelect]);
 
+  /* ── Derived ── */
   const stateOptions = useMemo(() => Object.keys(zones).sort(), [zones]);
   const cityOptions  = useMemo(
     () => (form.state ? (zones[form.state]?.cities ?? []) : []),
     [zones, form.state]
   );
 
-  const atLimit   = addresses.length >= MAX_ADDRESSES;
-  const isEditing = !!editingId;
+  const atLimit    = addresses.length >= MAX_ADDRESSES;
+  const isEditing  = !!editingId;
+  const hasMultiple = addresses.length > 1;
 
+  /* ── Field setters ── */
   const set = useCallback((k) => (e) => {
     const val = e.target.type === "checkbox"
       ? e.target.checked
@@ -458,6 +436,7 @@ const AddressStep = memo(function AddressStep({
     setErrors((p) => ({ ...p, state: "", city: "" }));
   }, []);
 
+  /* ── Enter form for editing ── */
   const handleEdit = useCallback((addr) => {
     setEditingId(addr.id);
     setForm({
@@ -476,6 +455,19 @@ const AddressStep = memo(function AddressStep({
     setMode("form");
   }, []);
 
+  /* ── Enter form for new address ── */
+  const handleAddNew = useCallback(() => {
+    if (atLimit) {
+      setActionErr(`You can only save up to ${MAX_ADDRESSES} addresses. Delete one first.`);
+      return;
+    }
+    setEditingId(null);
+    setForm(makeBlank());
+    setErrors({});
+    setMode("form");
+  }, [atLimit, makeBlank]);
+
+  /* ── Cancel form ── */
   const handleCancel = useCallback(() => {
     setEditingId(null);
     setErrors({});
@@ -483,12 +475,19 @@ const AddressStep = memo(function AddressStep({
     setMode(addresses.length > 0 ? "summary" : "form");
   }, [makeBlank, addresses.length]);
 
+  /* ── Save form ── */
   const handleSave = useCallback(async () => {
     if (saving) return;
 
-    const errs = validate(form);
-    if (Object.keys(errs).length) {
-      setErrors(errs);
+    /* Use external validator */
+    const { valid, errors: validationErrors } = validateForm(
+      form,
+      addresses,
+      editingId
+    );
+
+    if (!valid) {
+      setErrors(validationErrors);
       return;
     }
 
@@ -540,10 +539,11 @@ const AddressStep = memo(function AddressStep({
       setSaving(false);
     }
   }, [
-    saving, form, editingId, selected, onSelect,
+    saving, form, addresses, editingId, selected, onSelect,
     setAddresses, onAdd, onEdit, makeBlank,
   ]);
 
+  /* ── Delete address ── */
   const handleDeleteConfirm = useCallback(async () => {
     if (!delTarget) return;
     try {
@@ -562,6 +562,7 @@ const AddressStep = memo(function AddressStep({
     }
   }, [delTarget, selected, onSelect, setAddresses]);
 
+  /* ── Set default ── */
   const handleSetDefault = useCallback(async (addr) => {
     try {
       await axios.patch(`${API}/checkout/address/${addr.id}/default`,
@@ -575,10 +576,20 @@ const AddressStep = memo(function AddressStep({
     }
   }, [setAddresses, onSelect]);
 
+  /* ── Pick address in picker view ── */
   const handlePickAddress = useCallback((addr) => {
     onSelect(addr);
     setMode("summary");
   }, [onSelect]);
+
+  /* ── Open picker (also acts as "manage addresses") ── */
+  const handleOpenPicker = useCallback(() => {
+    if (hasMultiple) {
+      setMode("picker");
+    } else if (selected) {
+      handleEdit(selected);
+    }
+  }, [hasMultiple, selected, handleEdit]);
 
   if (!zonesReady) return <AddressSkeleton />;
 
@@ -588,7 +599,7 @@ const AddressStep = memo(function AddressStep({
   return (
     <div className="as-root">
 
-      {/* ══════ WHATSAPP NOTICE (plain paragraph) ══════ */}
+      {/* ══════ WHATSAPP NOTICE ══════ */}
       <div className="as-wa-notice">
         <p className="as-wa-notice__text">
           Please use a WhatsApp-enabled number to receive faster
@@ -626,19 +637,23 @@ const AddressStep = memo(function AddressStep({
       <div className="as-section-header">
         <h3 className="as-section-header__title">
           Customer Address
+          {addresses.length > 0 && (
+            <span className="as-section-header__count">
+              {addresses.length} of {MAX_ADDRESSES}
+            </span>
+          )}
         </h3>
+
         {selected && mode === "summary" && (
           <button
             className="as-section-header__action"
-            onClick={() => {
-              if (addresses.length > 1) setMode("picker");
-              else handleEdit(selected);
-            }}
+            onClick={handleOpenPicker}
             type="button"
           >
             Change
           </button>
         )}
+
         {mode === "picker" && (
           <button
             className="as-section-header__action"
@@ -652,10 +667,36 @@ const AddressStep = memo(function AddressStep({
 
       {/* ══════ SUMMARY VIEW ══════ */}
       {mode === "summary" && selected && (
-        <div className="as-section-body">
-          <p className="as-summary__name">{selected.recipient_name}</p>
-          <p className="as-summary__line">{formatSummaryLine(selected)}</p>
-        </div>
+        <>
+          <div className="as-section-body">
+            <p className="as-summary__name">
+              {selected.recipient_name}
+              {selected.is_default && (
+                <span className="as-summary__default-tag">Default</span>
+              )}
+            </p>
+            <p className="as-summary__line">{formatSummaryLine(selected)}</p>
+          </div>
+
+          {/*
+            Persistent "Add New Address" button in summary view.
+            Users can add more addresses without going into picker.
+            Hidden when at limit.
+          */}
+          {!atLimit && (
+            <AddAddressButton onClick={handleAddNew} />
+          )}
+
+          {atLimit && (
+            <div className="as-limit-notice">
+              <Icon.Alert />
+              <span>
+                You've saved the maximum of {MAX_ADDRESSES} addresses.
+                Delete one to add a new address.
+              </span>
+            </div>
+          )}
+        </>
       )}
 
       {/* ══════ PICKER VIEW ══════ */}
@@ -666,51 +707,52 @@ const AddressStep = memo(function AddressStep({
               {addresses.map((addr) => {
                 const isSel = selected?.id === addr.id;
                 return (
-                  <button
+                  <div
                     key={addr.id}
                     className={`as-picker__item ${isSel ? "as-picker__item--selected" : ""}`}
-                    onClick={() => handlePickAddress(addr)}
-                    type="button"
                   >
-                    <div className="as-picker__radio">
-                      <div className="as-picker__radio-dot" />
-                    </div>
-                    <div className="as-picker__info">
-                      <p className="as-picker__name">
-                        {addr.recipient_name}
-                        {addr.is_default && (
-                          <span className="as-picker__default">Default</span>
-                        )}
-                      </p>
-                      <p className="as-picker__addr">
-                        {formatSummaryLine(addr)}
-                      </p>
-                    </div>
+                    <button
+                      type="button"
+                      className="as-picker__main"
+                      onClick={() => handlePickAddress(addr)}
+                    >
+                      <div className="as-picker__radio">
+                        <div className="as-picker__radio-dot" />
+                      </div>
+                      <div className="as-picker__info">
+                        <p className="as-picker__name">
+                          {addr.recipient_name}
+                          {addr.is_default && (
+                            <span className="as-picker__default">Default</span>
+                          )}
+                        </p>
+                        <p className="as-picker__addr">
+                          {formatSummaryLine(addr)}
+                        </p>
+                      </div>
+                    </button>
+
                     <CardMenu
                       address={addr}
                       onEdit={handleEdit}
                       onDelete={setDelTarget}
                       onSetDefault={handleSetDefault}
                     />
-                  </button>
+                  </div>
                 );
               })}
             </div>
           </div>
 
           {!atLimit && (
-            <button
-              className="as-add-link"
-              onClick={() => {
-                setEditingId(null);
-                setForm(makeBlank());
-                setErrors({});
-                setMode("form");
-              }}
-              type="button"
-            >
-              <Icon.Plus /> Add New Address
-            </button>
+            <AddAddressButton onClick={handleAddNew} />
+          )}
+
+          {atLimit && (
+            <div className="as-limit-notice">
+              <Icon.Alert />
+              <span>Maximum {MAX_ADDRESSES} addresses. Delete one to add more.</span>
+            </div>
           )}
         </>
       )}
@@ -718,13 +760,25 @@ const AddressStep = memo(function AddressStep({
       {/* ══════ FORM VIEW ══════ */}
       {mode === "form" && (
         <div className="as-form" role="form">
-          <h3 className="as-form__title">
-            {isEditing ? "Edit Address" : "Add Delivery Address"}
-          </h3>
+          <div className="as-form__header">
+            <h3 className="as-form__title">
+              {isEditing ? "Edit Address" : "Add New Address"}
+            </h3>
+            {addresses.length > 0 && (
+              <button
+                type="button"
+                className="as-form__close"
+                onClick={handleCancel}
+                aria-label="Close form"
+              >
+                <Icon.X />
+              </button>
+            )}
+          </div>
 
           {errors.general && (
             <div className="as-form__banner-error">
-              {errors.general}
+              <Icon.Alert /> {errors.general}
             </div>
           )}
 
@@ -942,6 +996,7 @@ const AddressStep = memo(function AddressStep({
           type="button"
         >
           Continue
+          <Icon.ChevronRight />
         </button>
       )}
 
