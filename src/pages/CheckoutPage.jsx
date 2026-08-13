@@ -2,21 +2,26 @@
  * src/pages/CheckoutPage.jsx
  * Route: /shop/checkout
  *
- * v9 — Step-based rendering (one section at a time)
- * ────────────────────────────────────────
- * ✓ User sees ONLY the active step:
- *     1. Delivery Address
- *     2. Review Order
- *     3. Payment
- * ✓ Continue button advances to the next step
- * ✓ Back button returns to the previous step (or cart on step 1)
- * ✓ No visual step indicator — the current section IS the context
- * ✓ WhatsApp notice scoped to AddressStep only
- * ✓ Debug panel unchanged
- * ✓ Scroll resets to top on step change
+ * v11 — Full production integration
+ * ──────────────────────────────────────────────────────────────
+ * ✓ Step-based navigation (Address → Review → Payment)
+ * ✓ Idempotency-Key header prevents duplicate orders on retry
+ * ✓ Client sends ONLY couponCode (backend calculates discount)
+ * ✓ Fresh idempotency key on cart/address/coupon changes
+ * ✓ Coupon picker bottom-sheet integration
+ * ✓ Coupon errors at order time clear coupon + return to Review
+ * ✓ Stock errors surfaced with proper message
+ * ✓ In-flight guard prevents double-click order duplication
+ * ✓ Cross-device address fetch
+ * ✓ Fresh cart on mount
+ * ✓ Auto-scroll to top on step change
+ * ✓ Debug panel intact
+ * ✓ All errors mapped by err.source for smart routing
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  useState, useEffect, useCallback, useMemo, useRef,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -24,6 +29,7 @@ import CheckoutHeader      from "./Checkout/CheckoutHeader";
 import AddressStep         from "./Checkout/AddressStep";
 import ReviewStep          from "./Checkout/ReviewStep";
 import PaymentStep         from "./Checkout/PaymentStep";
+import CouponPicker        from "./Checkout/CouponPicker";
 import CheckoutDebugPanel  from "./Checkout/CheckoutDebugPanel";
 
 import "../styles/Checkout.css";
@@ -44,14 +50,25 @@ const authHeaders = () => ({
 
 /* ═══════════════════════════════════════════════════════════════
    STEP CONSTANTS
-   ─────────────────────────────────────────────────────────────
-   Numbered so we can advance/rewind with simple math.
 ═══════════════════════════════════════════════════════════════ */
 const STEP = {
   ADDRESS : 1,
   REVIEW  : 2,
   PAYMENT : 3,
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   IDEMPOTENCY KEY GENERATOR
+   ─────────────────────────────────────────────────────────────
+   Uses crypto.randomUUID() where available, falls back to
+   timestamp+random for older browsers.
+═══════════════════════════════════════════════════════════════ */
+function generateIdempotencyKey() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 15)}`;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
@@ -66,49 +83,69 @@ export default function CheckoutPage({ user }) {
   /* ── Step state ── */
   const [step, setStep] = useState(STEP.ADDRESS);
 
-  /* ── Data state ── */
+  /* ── Address state ── */
   const [addresses,       setAddresses]       = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
+
+  /* ── Cart + calculation state ── */
   const [cartItems,       setCartItems]       = useState([]);
   const [cartLoading,     setCartLoading]     = useState(true);
   const [calculation,     setCalculation]     = useState(null);
   const [paymentMethod,   setPaymentMethod]   = useState(null);
-  const [couponCode,      setCouponCode]      = useState("");
-  const [discount,        setDiscount]        = useState(0);
   const [notes,           setNotes]           = useState("");
-  const [loading,         setLoading]         = useState(false);
-  const [error,           setError]           = useState(null);
-  const [errorDebug,      setErrorDebug]      = useState(null);
+
+  /* ── Coupon state ── */
+  const [couponCode,       setCouponCode]       = useState("");
+  const [couponDiscount,   setCouponDiscount]   = useState(0);
+  const [freeShipping,     setFreeShipping]     = useState(false);
+  const [couponMessage,    setCouponMessage]    = useState(null);
+  const [couponPickerOpen, setCouponPickerOpen] = useState(false);
+
+  /* ── Order flow state ── */
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState(null);
+  const [errorDebug,  setErrorDebug]  = useState(null);
 
   /* ── Debug state ── */
   const [lastRequest,  setLastRequest]  = useState(null);
   const [lastResponse, setLastResponse] = useState(null);
   const [lastError,    setLastError]    = useState(null);
 
-  /* Scroll target — the content wrapper */
-  const contentRef = useRef(null);
+  /*
+   * ── Idempotency key ──
+   * Generated fresh when cart/address/coupon changes.
+   * Reused across retries of the same order attempt so backend
+   * can detect duplicate submissions and return existing order.
+   */
+  const idempotencyKeyRef = useRef(null);
+
+  /*
+   * ── In-flight guard ──
+   * Backup to prevent rapid double-clicks from triggering
+   * multiple order creations. The backend also has its own
+   * lock but this saves a round-trip.
+   */
+  const inFlightRef = useRef(false);
 
   /* ════════════════════════════════════════════════════
      SCROLL TO TOP ON STEP CHANGE
-     ─────────────────────────────────────────────────
-     Whenever the step changes, scroll the window back
-     to the top so the user sees the new section from
-     the beginning — not stuck at the previous scroll
-     position.
   ════════════════════════════════════════════════════ */
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
 
   /* ════════════════════════════════════════════════════
-     LOAD ADDRESSES
+     LOAD ADDRESSES  (cross-device)
   ════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
 
     axios
-      .get(`${API}/checkout/address`, { headers: authHeaders() })
+      .get(`${API}/checkout/address`, {
+        headers: authHeaders(),
+        timeout: 10_000,
+      })
       .then(({ data }) => {
         if (cancelled) return;
         const list = data.data ?? [];
@@ -138,7 +175,10 @@ export default function CheckoutPage({ user }) {
     };
 
     axios
-      .get(`${API}/cart`, { headers: authHeaders() })
+      .get(`${API}/cart`, {
+        headers: authHeaders(),
+        timeout: 10_000,
+      })
       .then(({ data }) => {
         if (cancelled) return;
         const serverItems = data.data?.items ?? [];
@@ -166,7 +206,7 @@ export default function CheckoutPage({ user }) {
   }, [cartLoading, cartItems.length, user, navigate]);
 
   /* ════════════════════════════════════════════════════
-     SUBTOTAL
+     SUBTOTAL  (client-side for UI only — server recomputes)
   ════════════════════════════════════════════════════ */
   const subtotal = useMemo(
     () => cartItems.reduce(
@@ -177,7 +217,7 @@ export default function CheckoutPage({ user }) {
   );
 
   /* ════════════════════════════════════════════════════
-     CALCULATE
+     CALCULATE — recalcs when subtotal, coupon, or shipping changes
   ════════════════════════════════════════════════════ */
   useEffect(() => {
     if (subtotal <= 0) return;
@@ -186,8 +226,15 @@ export default function CheckoutPage({ user }) {
     axios
       .post(
         `${API}/checkout/calculate`,
-        { subtotal, discount },
-        { headers: authHeaders() }
+        {
+          subtotal,
+          discount    : couponDiscount,
+          freeShipping,
+        },
+        {
+          headers: authHeaders(),
+          timeout: 10_000,
+        }
       )
       .then(({ data }) => {
         if (cancelled) return;
@@ -206,10 +253,22 @@ export default function CheckoutPage({ user }) {
       });
 
     return () => { cancelled = true; };
-  }, [subtotal, discount]);
+  }, [subtotal, couponDiscount, freeShipping]);
 
   /* ════════════════════════════════════════════════════
-     HANDLERS
+     RESET IDEMPOTENCY KEY on inputs change
+     ─────────────────────────────────────────────────
+     Any change that would produce a legitimately different
+     order gets a new idempotency key. Retries of the SAME
+     order (same cart, same address, same coupon) reuse the
+     same key so the backend can detect + reject duplicates.
+  ════════════════════════════════════════════════════ */
+  useEffect(() => {
+    idempotencyKeyRef.current = null;
+  }, [subtotal, selectedAddress?.id, couponCode]);
+
+  /* ════════════════════════════════════════════════════
+     ADDRESS HANDLERS
   ════════════════════════════════════════════════════ */
   const handleAddAddress = useCallback((addr) => {
     setAddresses((prev) => [addr, ...prev]);
@@ -230,27 +289,67 @@ export default function CheckoutPage({ user }) {
   }, [navigate]);
 
   /* ════════════════════════════════════════════════════
-     STEP NAVIGATION
+     COUPON HANDLERS
      ─────────────────────────────────────────────────
-     goNext  — advance to next step (validates first)
-     goBack  — return to previous step (or cart if step 1)
+     handleCouponApply is called by BOTH the CouponPicker
+     (when user picks or types a code) and returns
+     { ok, message } for inline feedback.
+  ════════════════════════════════════════════════════ */
+  const handleCouponApply = useCallback(async (code) => {
+    try {
+      const { data } = await axios.post(
+        `${API}/checkout/coupons/apply`,
+        { code, subtotal },
+        {
+          headers: authHeaders(),
+          timeout: 10_000,
+        }
+      );
+
+      if (data.success) {
+        setCouponCode(data.coupon.code);
+        setCouponDiscount(Number(data.discount || 0));
+        setFreeShipping(data.coupon.type === "free_shipping");
+        setCouponMessage(data.message || null);
+        return { ok: true, message: data.message };
+      }
+
+      return {
+        ok      : false,
+        message : data.message ?? "Coupon could not be applied.",
+      };
+
+    } catch (err) {
+      const message =
+        err.response?.data?.message ??
+        err.message ??
+        "Failed to apply coupon. Please try again.";
+      return { ok: false, message };
+    }
+  }, [subtotal]);
+
+  const handleCouponRemove = useCallback(() => {
+    setCouponCode("");
+    setCouponDiscount(0);
+    setFreeShipping(false);
+    setCouponMessage(null);
+  }, []);
+
+  /* ════════════════════════════════════════════════════
+     STEP NAVIGATION
   ════════════════════════════════════════════════════ */
   const goNext = useCallback(() => {
     setError(null);
     setErrorDebug(null);
 
-    /* Guard: can't proceed past step 1 without an address */
     if (step === STEP.ADDRESS && !selectedAddress) {
       setError("Please select a delivery address.");
       return;
     }
-
-    /* Guard: can't proceed past step 2 without a payment method */
     if (step === STEP.REVIEW && !paymentMethod) {
       setError("Please select a payment method.");
       return;
     }
-
     if (step < STEP.PAYMENT) setStep((s) => s + 1);
   }, [step, selectedAddress, paymentMethod]);
 
@@ -267,8 +366,18 @@ export default function CheckoutPage({ user }) {
 
   /* ════════════════════════════════════════════════════
      PLACE ORDER
+     ─────────────────────────────────────────────────
+     Uses idempotency key from ref. If ref is null (fresh
+     attempt), generates a new one. Same key is reused for
+     retries of the same order.
   ════════════════════════════════════════════════════ */
   const handlePlaceOrder = useCallback(async () => {
+    /* ── Prevent double-click ── */
+    if (inFlightRef.current) {
+      console.warn("[Checkout] Order already in flight — ignoring click");
+      return;
+    }
+
     setError(null);
     setErrorDebug(null);
     setLastError(null);
@@ -294,33 +403,55 @@ export default function CheckoutPage({ user }) {
       return;
     }
 
+    inFlightRef.current = true;
     setLoading(true);
 
+    /*
+     * Generate idempotency key if not already set for this attempt.
+     * The key persists across retries so backend can detect them.
+     */
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateIdempotencyKey();
+    }
+
+    /*
+     * Payload — NOTICE what's NOT here:
+     *   - discount     (server recalculates from coupon)
+     *   - freeShipping (server derives from coupon type)
+     * Sending these would let a malicious user forge them.
+     */
     const payload = {
-      addressId : selectedAddress.id,
+      addressId    : selectedAddress.id,
       paymentMethod,
-      couponCode: couponCode || undefined,
-      discount,
-      notes     : notes || undefined,
+      couponCode   : couponCode || undefined,
+      notes        : notes || undefined,
     };
 
     const requestSnapshot = {
-      url    : `${API}/checkout`,
+      url            : `${API}/checkout`,
       payload,
-      time   : new Date().toISOString(),
+      idempotencyKey : idempotencyKeyRef.current,
+      time           : new Date().toISOString(),
     };
     setLastRequest(requestSnapshot);
 
     console.group("🛒 [Checkout] Place Order");
-    console.log("URL:    ", requestSnapshot.url);
-    console.log("Payload:", payload);
+    console.log("URL:            ", requestSnapshot.url);
+    console.log("Idempotency-Key:", requestSnapshot.idempotencyKey);
+    console.log("Payload:        ", payload);
     console.groupEnd();
 
     try {
       const { data, status } = await axios.post(
         `${API}/checkout`,
         payload,
-        { headers: authHeaders(), timeout: 30_000 }
+        {
+          headers: {
+            ...authHeaders(),
+            "Idempotency-Key": idempotencyKeyRef.current,
+          },
+          timeout: 30_000,
+        }
       );
 
       setLastResponse({
@@ -333,6 +464,9 @@ export default function CheckoutPage({ user }) {
 
       const orderData = data.data ?? data;
 
+      /* ── Success path: reset idempotency key ── */
+      idempotencyKeyRef.current = null;
+
       /* Online payment → redirect to Flutterwave */
       if (orderData.requiresPayment && orderData.paymentLink) {
         localStorage.removeItem(CART_KEY);
@@ -343,11 +477,17 @@ export default function CheckoutPage({ user }) {
 
       /* Online payment but Flutterwave failed */
       if (orderData.requiresPayment && !orderData.paymentLink) {
-        setError("Order created but payment link failed. Visit your orders to retry.");
+        setError(
+          "Order created but payment link failed. " +
+          "Visit your orders to retry."
+        );
         setErrorDebug(orderData);
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
-        setTimeout(() => navigate(`/shop/orders/${orderData.orderGroupId}`), 3000);
+        setTimeout(
+          () => navigate(`/shop/orders/${orderData.orderGroupId}`),
+          3000
+        );
         return;
       }
 
@@ -366,6 +506,7 @@ export default function CheckoutPage({ user }) {
         status      : err.response?.status,
         message     : err.response?.data?.message || err.message,
         debug       : err.response?.data?.debug,
+        source      : err.response?.data?.debug?.source,
         fullResponse: err.response?.data,
         time        : new Date().toISOString(),
       };
@@ -373,11 +514,79 @@ export default function CheckoutPage({ user }) {
 
       console.group("❌ [Checkout] Failed");
       console.log("Status:  ", errorSnapshot.status);
+      console.log("Source:  ", errorSnapshot.source);
       console.log("Message: ", errorSnapshot.message);
       console.log("Debug:   ", errorSnapshot.debug);
       console.log("Full:    ", errorSnapshot.fullResponse);
       console.groupEnd();
 
+      /*
+       * ── Duplicate request (in-flight guard tripped) ──
+       * Backend detected same idempotency key mid-flight.
+       * User just needs to wait.
+       */
+      if (errorSnapshot.status === 429) {
+        setError(errorSnapshot.message);
+        /* Don't reset idempotency key — same order attempt */
+        return;
+      }
+
+      /*
+       * ── Coupon error at order time ──
+       * Backend rejected the coupon during atomic redemption.
+       * Clear the coupon so user can retry without it.
+       */
+      if (
+        errorSnapshot.status >= 400 &&
+        errorSnapshot.status < 500 &&
+        errorSnapshot.source === "coupon_redemption"
+      ) {
+        setCouponCode("");
+        setCouponDiscount(0);
+        setFreeShipping(false);
+        setCouponMessage(null);
+
+        /* New idempotency key since order details changed */
+        idempotencyKeyRef.current = null;
+
+        setError(
+          `${errorSnapshot.message} The coupon has been removed — please try again.`
+        );
+        setStep(STEP.REVIEW);
+        return;
+      }
+
+      /*
+       * ── Stock error ──
+       * Item went out of stock between validation and order.
+       * Send user back to cart to remove/adjust.
+       */
+      if (
+        errorSnapshot.status === 409 &&
+        (errorSnapshot.source === "stock_insufficient" ||
+         errorSnapshot.fullResponse?.data?.outOfStockIds)
+      ) {
+        setError(
+          `${errorSnapshot.message} Please update your cart and try again.`
+        );
+        /* New idempotency key needed */
+        idempotencyKeyRef.current = null;
+        setTimeout(() => navigate("/shop/cart"), 3000);
+        return;
+      }
+
+      /*
+       * ── Address not found ──
+       * Address was deleted between selection and checkout.
+       */
+      if (errorSnapshot.status === 404) {
+        setError(errorSnapshot.message);
+        idempotencyKeyRef.current = null;
+        setStep(STEP.ADDRESS);
+        return;
+      }
+
+      /* ── Generic error ── */
       const displayMessage =
         errorSnapshot.debug?.message
           ? `${errorSnapshot.message} (${errorSnapshot.debug.message})`
@@ -387,28 +596,29 @@ export default function CheckoutPage({ user }) {
       setErrorDebug(errorSnapshot.debug ?? errorSnapshot.fullResponse);
 
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   }, [
     selectedAddress, paymentMethod, cartItems, calculation,
-    couponCode, discount, notes, navigate,
+    couponCode, notes, navigate,
   ]);
 
   if (!user) return null;
 
   /* ════════════════════════════════════════════════════
-     RENDER — one step at a time
+     RENDER
   ════════════════════════════════════════════════════ */
   return (
     <div className="ck-page">
 
-      {/* Minimal header — back button always goes to previous step */}
+      {/* ══ HEADER ══ */}
       <CheckoutHeader
         title="Checkout"
         onBack={goBack}
       />
 
-      {/* Debug panel — always visible */}
+      {/* ══ DEBUG PANEL (dev-only visibility ideally controlled inside) ══ */}
       <CheckoutDebugPanel
         apiBase={`${API}/checkout`}
         token={getToken()}
@@ -419,14 +629,18 @@ export default function CheckoutPage({ user }) {
         cartLoading={cartLoading}
         calculation={calculation}
         paymentMethod={paymentMethod}
+        couponCode={couponCode}
+        couponDiscount={couponDiscount}
+        freeShipping={freeShipping}
+        idempotencyKey={idempotencyKeyRef.current}
         lastRequest={lastRequest}
         lastResponse={lastResponse}
         lastError={lastError}
         onRetry={handlePlaceOrder}
       />
 
-      {/* Global error banner */}
-      {error && (
+      {/* ══ GLOBAL ERROR BANNER ══ */}
+      {error && step !== STEP.PAYMENT && (
         <div className="ck-error" role="alert">
           ⚠️ {error}
           <button
@@ -438,15 +652,8 @@ export default function CheckoutPage({ user }) {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          STEP CONTENT
-          ────────────────────────────────────────────────
-          Only ONE step is rendered at any time. Clicking
-          Continue advances step state → this block swaps
-          to the next component.
-      ══════════════════════════════════════════════════ */}
-      <div className="ck-content" ref={contentRef}>
-
+      {/* ══ STEP CONTENT ══ */}
+      <div className="ck-content">
         {cartLoading ? (
           <div className="ck-loading" role="status" aria-live="polite">
             <div className="ck-loading-spinner" />
@@ -454,7 +661,7 @@ export default function CheckoutPage({ user }) {
           </div>
         ) : (
           <>
-            {/* ══ STEP 1: DELIVERY ADDRESS ══ */}
+            {/* ── STEP 1: DELIVERY ADDRESS ── */}
             {step === STEP.ADDRESS && (
               <AddressStep
                 addresses={addresses}
@@ -463,31 +670,36 @@ export default function CheckoutPage({ user }) {
                 onSelect={handleSelectAddress}
                 onAdd={handleAddAddress}
                 onEdit={handleEditAddress}
-                onNext={goNext}         /* advances to Review */
+                onNext={goNext}
                 user={user}
                 onChangeNumber={handleChangeNumber}
                 termsHref="/terms"
               />
             )}
 
-            {/* ══ STEP 2: REVIEW ══ */}
+            {/* ── STEP 2: REVIEW ── */}
             {step === STEP.REVIEW && (
               <ReviewStep
                 cartItems={cartItems}
                 calculation={calculation}
                 address={selectedAddress}
-                couponCode={couponCode}
-                onCouponChange={setCouponCode}
-                discount={discount}
-                onDiscountChange={setDiscount}
                 notes={notes}
                 onNotesChange={setNotes}
-                onBack={goBack}         /* returns to Address */
-                onNext={goNext}         /* advances to Payment */
+
+                /* Coupon */
+                couponCode={couponCode}
+                discount={couponDiscount}
+                freeShipping={freeShipping}
+                couponMessage={couponMessage}
+                onOpenCouponPicker={() => setCouponPickerOpen(true)}
+                onCouponRemove={handleCouponRemove}
+
+                onBack={goBack}
+                onNext={goNext}
               />
             )}
 
-            {/* ══ STEP 3: PAYMENT ══ */}
+            {/* ── STEP 3: PAYMENT ── */}
             {step === STEP.PAYMENT && (
               <PaymentStep
                 calculation={calculation}
@@ -500,13 +712,21 @@ export default function CheckoutPage({ user }) {
                   setError(null);
                   setErrorDebug(null);
                 }}
-                onBack={goBack}         /* returns to Review */
+                onBack={goBack}
                 onPlaceOrder={handlePlaceOrder}
               />
             )}
           </>
         )}
       </div>
+
+      {/* ══ COUPON PICKER (bottom sheet) ══ */}
+      <CouponPicker
+        isOpen={couponPickerOpen}
+        subtotal={subtotal}
+        onClose={() => setCouponPickerOpen(false)}
+        onApply={handleCouponApply}
+      />
 
     </div>
   );
