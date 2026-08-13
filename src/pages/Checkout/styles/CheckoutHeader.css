@@ -1,42 +1,24 @@
 /**
  * src/pages/Checkout/styles/CheckoutHeader.css
  *
- * Premium checkout page header — Jumia-inspired.
- * - Back button + centered title
- * - WhatsApp notice with inline "Change" link
- * - Terms & Conditions link
- * - All icons transparent SVG (currentColor)
+ * Minimal checkout header — back button + title.
+ *
+ * v3 — Removed WhatsApp notice styles.
+ *      Kept only top bar rules.
  */
 
 .ch-header {
-  --ch-orange     : #ff6c00;
-  --ch-orange-dk  : #e85f00;
-  --ch-orange-lt  : #fff4eb;
-  --ch-orange-bd  : #ffd6b3;
-
-  --ch-whatsapp   : #25d366;
-  --ch-whatsapp-lt: #e8f9ef;
-
   --ch-ink        : #1a1a1a;
-  --ch-ink-2      : #4a4a4a;
-  --ch-muted      : #6a6a6a;
   --ch-faint      : #b8b8b8;
-
   --ch-bg         : #ffffff;
   --ch-bg-soft    : #f7f7f7;
-
   --ch-border     : #e5e5e5;
   --ch-border-lt  : #f0f0f0;
-
-  --ch-link       : #0284c7;
-  --ch-link-dk    : #0369a1;
-
-  --ch-radius     : 12px;
   --ch-radius-sm  : 8px;
 
-  font-family : system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color       : var(--ch-ink);
-  background  : var(--ch-bg);
+  font-family  : system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color        : var(--ch-ink);
+  background   : var(--ch-bg);
   margin-bottom: 0.75rem;
 }
 
@@ -44,31 +26,31 @@
    TOP BAR
 ═══════════════════════════════════════════════════════════════ */
 .ch-topbar {
-  display      : grid;
+  display              : grid;
   grid-template-columns: 40px 1fr 40px;
-  align-items  : center;
-  gap          : 0.5rem;
-  padding      : 0.85rem 1rem;
-  border-bottom: 1px solid var(--ch-border-lt);
-  background   : var(--ch-bg);
-  position     : sticky;
-  top          : 0;
-  z-index      : 40;
+  align-items          : center;
+  gap                  : 0.5rem;
+  padding              : 0.85rem 1rem;
+  border-bottom        : 1px solid var(--ch-border-lt);
+  background           : var(--ch-bg);
+  position             : sticky;
+  top                  : 0;
+  z-index              : 40;
 }
 
 .ch-topbar__back {
-  width         : 40px;
-  height        : 40px;
-  border        : 1.5px solid var(--ch-border);
-  background    : white;
-  color         : var(--ch-ink);
-  border-radius : var(--ch-radius-sm);
-  cursor        : pointer;
-  display       : flex;
-  align-items   : center;
+  width          : 40px;
+  height         : 40px;
+  border         : 1.5px solid var(--ch-border);
+  background     : white;
+  color          : var(--ch-ink);
+  border-radius  : var(--ch-radius-sm);
+  cursor         : pointer;
+  display        : flex;
+  align-items    : center;
   justify-content: center;
-  transition    : all 0.15s;
-  padding       : 0;
+  transition     : all 0.15s;
+  padding        : 0;
 }
 
 .ch-topbar__back:hover {
@@ -81,11 +63,11 @@
 }
 
 .ch-topbar__title {
-  font-size    : 1.05rem;
-  font-weight  : 800;
-  color        : var(--ch-ink);
-  margin       : 0;
-  text-align   : center;
+  font-size     : 1.05rem;
+  font-weight   : 800;
+  color         : var(--ch-ink);
+  margin        : 0;
+  text-align    : center;
   letter-spacing: -0.01em;
 }
 
@@ -94,118 +76,10 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   WHATSAPP NOTICE
-═══════════════════════════════════════════════════════════════ */
-.ch-notice {
-  display      : flex;
-  align-items  : flex-start;
-  gap          : 0.7rem;
-  padding      : 0.9rem 1rem;
-  background   : var(--ch-whatsapp-lt);
-  border-bottom: 1px solid #c8f0d6;
-}
-
-.ch-notice__icon {
-  flex-shrink  : 0;
-  width        : 32px;
-  height       : 32px;
-  border-radius: 8px;
-  background   : white;
-  display      : flex;
-  align-items  : center;
-  justify-content: center;
-  color        : var(--ch-whatsapp);
-  box-shadow   : 0 1px 3px rgba(37,211,102,0.15);
-}
-
-.ch-notice__body {
-  flex     : 1;
-  min-width: 0;
-}
-
-.ch-notice__text {
-  font-size  : 0.8rem;
-  color      : #0f5132;
-  margin     : 0;
-  line-height: 1.5;
-}
-
-.ch-notice__text strong {
-  color      : #064e2e;
-  font-weight: 700;
-}
-
-.ch-notice__change-btn {
-  display        : inline-flex;
-  align-items    : center;
-  gap            : 0.25rem;
-  background     : white;
-  border         : 1.5px solid var(--ch-whatsapp);
-  color          : #0f5132;
-  padding        : 0.25rem 0.6rem;
-  border-radius  : 100px;
-  font-size      : 0.72rem;
-  font-weight    : 700;
-  cursor         : pointer;
-  transition     : all 0.15s;
-  font-family    : inherit;
-  margin         : 0 0.25rem;
-  vertical-align : baseline;
-  line-height    : 1.2;
-}
-
-.ch-notice__change-btn:hover {
-  background: var(--ch-whatsapp);
-  color     : white;
-}
-
-.ch-notice__terms-link {
-  color         : var(--ch-link);
-  text-decoration: none;
-  font-weight   : 600;
-}
-
-.ch-notice__terms-link:hover {
-  color         : var(--ch-link-dk);
-  text-decoration: underline;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   PHONE PREVIEW  (shows current WhatsApp number)
-═══════════════════════════════════════════════════════════════ */
-.ch-phone-preview {
-  display      : flex;
-  align-items  : center;
-  gap          : 0.5rem;
-  padding      : 0.5rem 0.75rem;
-  background   : white;
-  border       : 1px solid #c8f0d6;
-  border-radius: var(--ch-radius-sm);
-  margin-top   : 0.6rem;
-  font-size    : 0.82rem;
-  color        : var(--ch-ink);
-  width        : fit-content;
-}
-
-.ch-phone-preview__icon {
-  color: var(--ch-whatsapp);
-  flex-shrink: 0;
-}
-
-.ch-phone-preview__number {
-  font-weight    : 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing : 0.02em;
-}
-
-/* ═══════════════════════════════════════════════════════════════
    RESPONSIVE
 ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 380px) {
   .ch-topbar__title {
     font-size: 0.95rem;
-  }
-  .ch-notice__text {
-    font-size: 0.75rem;
   }
 }
