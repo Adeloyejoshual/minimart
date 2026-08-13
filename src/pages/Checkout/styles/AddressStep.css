@@ -3,12 +3,16 @@
  *
  * Flat Jumia-style delivery address section.
  *
- * v3 — Simplified to match Jumia's minimal design:
- *   • Grey section header bars (ORDER SUMMARY style)
- *   • Plain white content sections separated by dividers
- *   • Orange used ONLY for "Change" links + main CTA button
- *   • No hero banners, no card shadows, no color-heavy notices
- *   • WhatsApp notice = plain text paragraph (not a green box)
+ * v4 — Persistent Add Address + polished picker
+ * ─────────────────────────────────────────────────
+ * • "Add New Address" button in both summary + picker views
+ * • Address count badge in section header ("2 of 3")
+ * • DEFAULT tag next to name in summary
+ * • Form header with close button
+ * • Fixed picker: split main pickable area from menu
+ * • Limit warning when max addresses reached
+ * • Continue button with animated arrow
+ * • Grey section headers, orange accent, no shadows
  */
 
 /* ═══════════════════════════════════════════════════════════════
@@ -17,6 +21,8 @@
 .as-root {
   --as-orange     : #f68b1e;
   --as-orange-dk  : #e07a10;
+  --as-orange-lt  : #fff5eb;
+  --as-orange-bd  : #ffd6b3;
 
   --as-ink        : #2b2b2b;
   --as-ink-2      : #4a4a4a;
@@ -31,9 +37,15 @@
   --as-border-lt  : #f0f0f0;
 
   --as-link       : #0284c7;
+
   --as-danger     : #dc2626;
   --as-danger-lt  : #fef2f2;
   --as-danger-bd  : #fecaca;
+  --as-danger-ink : #991b1b;
+
+  --as-warning-lt : #fef3c7;
+  --as-warning-bd : #fde68a;
+  --as-warning-ink: #92400e;
 
   font-family : system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color       : var(--as-ink);
@@ -45,8 +57,8 @@
    WHATSAPP NOTICE  (plain paragraph, no box)
 ═══════════════════════════════════════════════════════════════ */
 .as-wa-notice {
-  padding      : 1rem;
-  background   : white;
+  padding    : 1rem;
+  background : white;
 }
 
 .as-wa-notice__text {
@@ -83,7 +95,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SECTION HEADER BAR  (Jumia's grey strip)
+   SECTION HEADER BAR  (grey strip)
 ═══════════════════════════════════════════════════════════════ */
 .as-section-header {
   display        : flex;
@@ -102,17 +114,29 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin        : 0;
+  display       : flex;
+  align-items   : center;
+  gap           : 0.5rem;
+}
+
+/* v4 — Address count badge ("2 of 3") */
+.as-section-header__count {
+  font-size     : 0.68rem;
+  font-weight   : 500;
+  color         : var(--as-faint);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .as-section-header__action {
-  background     : none;
-  border         : none;
-  color          : var(--as-orange);
-  font-weight    : 700;
-  font-size      : 0.85rem;
-  cursor         : pointer;
-  padding        : 0;
-  font-family    : inherit;
+  background : none;
+  border     : none;
+  color      : var(--as-orange);
+  font-weight: 700;
+  font-size  : 0.85rem;
+  cursor     : pointer;
+  padding    : 0;
+  font-family: inherit;
 }
 
 .as-section-header__action:hover {
@@ -137,6 +161,21 @@
   margin     : 0 0 0.4rem;
 }
 
+/* v4 — DEFAULT tag next to name */
+.as-summary__default-tag {
+  display       : inline-block;
+  margin-left   : 0.5rem;
+  padding       : 0.1rem 0.45rem;
+  font-size     : 0.62rem;
+  font-weight   : 700;
+  color         : var(--as-orange);
+  border        : 1px solid var(--as-orange);
+  border-radius : 3px;
+  text-transform: uppercase;
+  vertical-align: middle;
+  letter-spacing: 0.03em;
+}
+
 .as-summary__line {
   font-size  : 0.85rem;
   color      : var(--as-ink-2);
@@ -145,47 +184,68 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ADDRESS PICKER (when multiple addresses exist)
+   ADDRESS PICKER (v4 — split main + menu)
+   ─────────────────────────────────────────────────────────────
+   Previously the whole row was a <button>, but the menu button
+   inside was also a <button> — invalid HTML. Split cleanly:
+     .as-picker__item = container div
+     .as-picker__main = pickable button
+     .as-card__menu   = separate menu button
 ═══════════════════════════════════════════════════════════════ */
 .as-picker {
   display       : flex;
   flex-direction: column;
-  gap           : 0;
+  gap           : 0.5rem;
 }
 
 .as-picker__item {
-  display       : flex;
-  gap           : 0.75rem;
-  padding       : 0.85rem 0;
-  border-bottom : 1px solid var(--as-border-lt);
-  cursor        : pointer;
-  background    : transparent;
-  border-left   : none;
-  border-right  : none;
-  border-top    : none;
-  width         : 100%;
-  text-align    : left;
-  font-family   : inherit;
-  transition    : opacity 0.15s;
-}
-
-.as-picker__item:last-child {
-  border-bottom: none;
+  display      : flex;
+  align-items  : stretch;
+  gap          : 0;
+  background   : white;
+  border       : 1px solid var(--as-border-lt);
+  border-radius: 6px;
+  overflow     : hidden;
+  transition   : all 0.15s;
 }
 
 .as-picker__item:hover {
-  opacity: 0.85;
+  border-color: var(--as-orange-bd);
+}
+
+.as-picker__item--selected {
+  border-color: var(--as-orange);
+  background  : var(--as-orange-lt);
+}
+
+.as-picker__main {
+  flex        : 1;
+  display     : flex;
+  align-items : flex-start;
+  gap         : 0.75rem;
+  padding     : 0.85rem 1rem;
+  background  : transparent;
+  border      : none;
+  cursor      : pointer;
+  font-family : inherit;
+  text-align  : left;
+  min-width   : 0;
+  transition  : background 0.15s;
+}
+
+.as-picker__main:hover {
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .as-picker__radio {
-  width        : 20px;
-  height       : 20px;
-  border       : 2px solid var(--as-faint);
-  border-radius: 50%;
-  flex-shrink  : 0;
-  margin-top   : 2px;
-  display      : flex;
-  align-items  : center;
+  width          : 20px;
+  height         : 20px;
+  border         : 2px solid var(--as-faint);
+  border-radius  : 50%;
+  flex-shrink    : 0;
+  margin-top     : 2px;
+  display        : flex;
+  align-items    : center;
   justify-content: center;
 }
 
@@ -226,40 +286,80 @@
 }
 
 .as-picker__default {
-  display      : inline-block;
-  margin-left  : 0.4rem;
-  padding      : 0.1rem 0.45rem;
-  font-size    : 0.65rem;
-  font-weight  : 700;
-  color        : var(--as-orange);
-  border       : 1px solid var(--as-orange);
-  border-radius: 3px;
+  display       : inline-block;
+  margin-left   : 0.4rem;
+  padding       : 0.1rem 0.45rem;
+  font-size     : 0.62rem;
+  font-weight   : 700;
+  color         : var(--as-orange);
+  border        : 1px solid var(--as-orange);
+  border-radius : 3px;
   text-transform: uppercase;
   vertical-align: middle;
+  letter-spacing: 0.03em;
+}
+
+/* Menu positioned within picker item */
+.as-picker__item .as-card__menu {
+  align-self : center;
+  padding    : 0 0.5rem 0 0;
+  flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ADD NEW ADDRESS LINK
+   ADD NEW ADDRESS BUTTON (v4 — dashed orange, always visible)
 ═══════════════════════════════════════════════════════════════ */
 .as-add-link {
-  display    : flex;
-  align-items: center;
-  gap        : 0.4rem;
-  padding    : 0.85rem 1rem;
-  background : white;
-  border     : none;
-  border-top : 1px solid var(--as-border-lt);
-  color      : var(--as-orange);
-  font-weight: 700;
-  font-size  : 0.88rem;
-  cursor     : pointer;
-  width      : 100%;
-  text-align : left;
-  font-family: inherit;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  gap            : 0.4rem;
+  width          : 100%;
+  padding        : 0.85rem 1rem;
+  background     : white;
+  border         : 1px dashed var(--as-orange);
+  border-radius  : 0;
+  cursor         : pointer;
+  font-family    : inherit;
+  color          : var(--as-orange);
+  font-weight    : 700;
+  font-size      : 0.88rem;
+  transition     : all 0.15s;
 }
 
-.as-add-link:hover {
-  color: var(--as-orange-dk);
+.as-add-link:hover:not(:disabled) {
+  background: var(--as-orange-lt);
+}
+
+.as-add-link:disabled {
+  opacity: 0.5;
+  cursor : not-allowed;
+}
+
+.as-add-link svg {
+  color: var(--as-orange);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LIMIT NOTICE (v4)
+═══════════════════════════════════════════════════════════════ */
+.as-limit-notice {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 0.5rem;
+  padding      : 0.75rem 1rem;
+  background   : var(--as-warning-lt);
+  border-top   : 1px solid var(--as-warning-bd);
+  border-bottom: 1px solid var(--as-warning-bd);
+  color        : var(--as-warning-ink);
+  font-size    : 0.8rem;
+  line-height  : 1.4;
+}
+
+.as-limit-notice svg {
+  color      : #d97706;
+  flex-shrink: 0;
+  margin-top : 2px;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -267,22 +367,22 @@
 ═══════════════════════════════════════════════════════════════ */
 .as-card__menu {
   position   : relative;
-  align-self : flex-start;
   flex-shrink: 0;
 }
 
 .as-menu-btn {
-  width         : 28px;
-  height        : 28px;
-  border        : none;
-  background    : transparent;
-  color         : var(--as-muted);
-  cursor        : pointer;
-  border-radius : 50%;
-  display       : flex;
-  align-items   : center;
+  width          : 28px;
+  height         : 28px;
+  border         : none;
+  background     : transparent;
+  color          : var(--as-muted);
+  cursor         : pointer;
+  border-radius  : 50%;
+  display        : flex;
+  align-items    : center;
   justify-content: center;
-  padding       : 0;
+  padding        : 0;
+  transition     : all 0.15s;
 }
 
 .as-menu-btn:hover {
@@ -298,24 +398,24 @@
   background   : white;
   border       : 1px solid var(--as-border);
   border-radius: 6px;
-  box-shadow   : 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow   : 0 4px 12px rgba(0, 0, 0, 0.1);
   overflow     : hidden;
   z-index      : 10;
 }
 
 .as-menu-item {
-  display      : flex;
-  align-items  : center;
-  gap          : 0.6rem;
-  width        : 100%;
-  padding      : 0.7rem 0.9rem;
-  border       : none;
-  background   : white;
-  cursor       : pointer;
-  font-size    : 0.85rem;
-  color        : var(--as-ink);
-  text-align   : left;
-  font-family  : inherit;
+  display    : flex;
+  align-items: center;
+  gap        : 0.6rem;
+  width      : 100%;
+  padding    : 0.7rem 0.9rem;
+  border     : none;
+  background : white;
+  cursor     : pointer;
+  font-size  : 0.85rem;
+  color      : var(--as-ink);
+  text-align : left;
+  font-family: inherit;
 }
 
 .as-menu-item:hover {
@@ -338,27 +438,67 @@
    FORM
 ═══════════════════════════════════════════════════════════════ */
 .as-form {
-  padding: 1rem;
-  background: white;
+  padding    : 1rem;
+  background : white;
+}
+
+/* v4 — Form header with close button */
+.as-form__header {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  gap            : 0.5rem;
+  margin-bottom  : 1rem;
+  padding-bottom : 0.75rem;
+  border-bottom  : 1px solid var(--as-border-lt);
 }
 
 .as-form__title {
-  font-size    : 0.95rem;
+  font-size    : 1rem;
   font-weight  : 700;
   color        : var(--as-ink);
-  margin       : 0 0 1rem;
-  padding-bottom: 0.7rem;
-  border-bottom: 1px solid var(--as-border-lt);
+  margin       : 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
+.as-form__close {
+  width          : 32px;
+  height         : 32px;
+  border         : none;
+  background     : transparent;
+  color          : var(--as-muted);
+  cursor         : pointer;
+  border-radius  : 4px;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  transition     : all 0.15s;
+  flex-shrink    : 0;
+}
+
+.as-form__close:hover {
+  background: var(--as-bg-soft);
+  color     : var(--as-ink);
+}
+
+/* v4 — Form banner error with icon */
 .as-form__banner-error {
+  display      : flex;
+  align-items  : center;
+  gap          : 0.5rem;
   padding      : 0.7rem 0.9rem;
   background   : var(--as-danger-lt);
   border       : 1px solid var(--as-danger-bd);
   border-radius: 6px;
-  color        : #991b1b;
-  font-size    : 0.82rem;
+  color        : var(--as-danger-ink);
+  font-size    : 0.85rem;
   margin-bottom: 1rem;
+}
+
+.as-form__banner-error svg {
+  flex-shrink: 0;
+  color      : var(--as-danger);
 }
 
 .as-field {
@@ -405,7 +545,7 @@
 .as-input:focus,
 .as-select:focus,
 .as-textarea:focus {
-  outline    : none;
+  outline     : none;
   border-color: var(--as-orange);
 }
 
@@ -462,24 +602,24 @@
 
 /* Address type radio-like chips */
 .as-chips {
-  display: flex;
-  gap    : 0.4rem;
+  display  : flex;
+  gap      : 0.4rem;
   flex-wrap: wrap;
 }
 
 .as-chip {
-  display    : flex;
-  align-items: center;
-  gap        : 0.35rem;
-  padding    : 0.5rem 0.85rem;
-  border     : 1px solid var(--as-border);
+  display      : flex;
+  align-items  : center;
+  gap          : 0.35rem;
+  padding      : 0.5rem 0.85rem;
+  border       : 1px solid var(--as-border);
   border-radius: 4px;
-  background : white;
-  cursor     : pointer;
-  font-size  : 0.82rem;
-  color      : var(--as-ink-2);
-  font-family: inherit;
-  transition : all 0.15s;
+  background   : white;
+  cursor       : pointer;
+  font-size    : 0.82rem;
+  color        : var(--as-ink-2);
+  font-family  : inherit;
+  transition   : all 0.15s;
 }
 
 .as-chip svg {
@@ -494,34 +634,34 @@
 
 /* Checkboxes */
 .as-check {
-  display      : flex;
-  align-items  : flex-start;
-  gap          : 0.55rem;
-  padding      : 0.6rem 0;
-  cursor       : pointer;
+  display    : flex;
+  align-items: flex-start;
+  gap        : 0.55rem;
+  padding    : 0.6rem 0;
+  cursor     : pointer;
 }
 
 .as-check input[type="checkbox"] {
-  width        : 16px;
-  height       : 16px;
-  accent-color : var(--as-orange);
-  cursor       : pointer;
-  flex-shrink  : 0;
-  margin-top   : 2px;
+  width       : 16px;
+  height      : 16px;
+  accent-color: var(--as-orange);
+  cursor      : pointer;
+  flex-shrink : 0;
+  margin-top  : 2px;
 }
 
 .as-check__text {
-  font-size  : 0.85rem;
-  color      : var(--as-ink);
-  line-height: 1.4;
-  display    : flex;
+  font-size    : 0.85rem;
+  color        : var(--as-ink);
+  line-height  : 1.4;
+  display      : flex;
   flex-direction: column;
-  gap        : 0.1rem;
+  gap          : 0.1rem;
 }
 
 .as-check__text small {
-  color      : var(--as-muted);
-  font-size  : 0.72rem;
+  color    : var(--as-muted);
+  font-size: 0.72rem;
 }
 
 /* Form actions */
@@ -535,18 +675,18 @@
 
 .as-btn-cancel,
 .as-btn-save {
-  flex         : 1;
-  padding      : 0.8rem;
-  border-radius: 4px;
-  font-size    : 0.88rem;
-  font-weight  : 700;
-  cursor       : pointer;
-  font-family  : inherit;
-  border       : none;
-  display      : flex;
-  align-items  : center;
+  flex           : 1;
+  padding        : 0.8rem;
+  border-radius  : 4px;
+  font-size      : 0.88rem;
+  font-weight    : 700;
+  cursor         : pointer;
+  font-family    : inherit;
+  border         : none;
+  display        : flex;
+  align-items    : center;
   justify-content: center;
-  gap          : 0.4rem;
+  gap            : 0.4rem;
 }
 
 .as-btn-cancel {
@@ -576,25 +716,26 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN CTA (Confirm / Continue) — bottom sticky style
+   MAIN CTA (Continue) — v4 with animated arrow
 ═══════════════════════════════════════════════════════════════ */
 .as-next {
-  display       : flex;
-  align-items   : center;
+  display        : flex;
+  align-items    : center;
   justify-content: center;
-  width         : 100%;
-  padding       : 1rem;
-  background    : var(--as-orange);
-  color         : white;
-  border        : none;
-  border-radius : 4px;
-  font-size     : 0.95rem;
-  font-weight   : 700;
-  cursor        : pointer;
-  margin        : 1rem;
-  width         : calc(100% - 2rem);
-  font-family   : inherit;
-  letter-spacing: 0.01em;
+  gap            : 0.4rem;
+  padding        : 1rem;
+  background     : var(--as-orange);
+  color          : white;
+  border         : none;
+  border-radius  : 4px;
+  font-size      : 0.95rem;
+  font-weight    : 700;
+  cursor         : pointer;
+  margin         : 1rem;
+  width          : calc(100% - 2rem);
+  font-family    : inherit;
+  letter-spacing : 0.01em;
+  transition     : background 0.15s;
 }
 
 .as-next:hover:not(:disabled) {
@@ -604,6 +745,14 @@
 .as-next:disabled {
   background: var(--as-faint);
   cursor    : not-allowed;
+}
+
+.as-next svg {
+  transition: transform 0.15s;
+}
+
+.as-next:hover:not(:disabled) svg {
+  transform: translateX(3px);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -616,7 +765,7 @@
   padding      : 0.7rem 0.9rem;
   background   : var(--as-danger-lt);
   border-bottom: 1px solid var(--as-danger-bd);
-  color        : #991b1b;
+  color        : var(--as-danger-ink);
   font-size    : 0.82rem;
   flex-wrap    : wrap;
 }
@@ -627,32 +776,32 @@
 }
 
 .as-toast__msg {
-  flex: 1;
+  flex     : 1;
   min-width: 0;
 }
 
 .as-toast__action {
   background   : white;
-  border       : 1px solid #991b1b;
+  border       : 1px solid var(--as-danger-ink);
   border-radius: 4px;
   padding      : 0.2rem 0.55rem;
   cursor       : pointer;
-  color        : #991b1b;
+  color        : var(--as-danger-ink);
   font-weight  : 600;
   font-size    : 0.78rem;
   font-family  : inherit;
 }
 
 .as-toast__dismiss {
-  background: none;
-  border    : none;
-  cursor    : pointer;
-  color     : #991b1b;
-  padding   : 0.15rem;
-  display   : flex;
-  align-items: center;
+  background     : none;
+  border         : none;
+  cursor         : pointer;
+  color          : var(--as-danger-ink);
+  padding        : 0.15rem;
+  display        : flex;
+  align-items    : center;
   justify-content: center;
-  margin-left: auto;
+  margin-left    : auto;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -669,7 +818,7 @@
 }
 
 .as-zones-error__msg {
-  color    : #991b1b;
+  color    : var(--as-danger-ink);
   font-size: 0.83rem;
   flex     : 1;
 }
@@ -690,14 +839,14 @@
    MODAL
 ═══════════════════════════════════════════════════════════════ */
 .as-modal-overlay {
-  position     : fixed;
-  inset        : 0;
-  background   : rgba(0,0,0,0.5);
-  display      : flex;
-  align-items  : center;
+  position       : fixed;
+  inset          : 0;
+  background     : rgba(0, 0, 0, 0.5);
+  display        : flex;
+  align-items    : center;
   justify-content: center;
-  padding      : 1rem;
-  z-index      : 1000;
+  padding        : 1rem;
+  z-index        : 1000;
 }
 
 .as-modal {
@@ -706,19 +855,19 @@
   width        : 100%;
   max-width    : 400px;
   padding      : 1.25rem;
-  box-shadow   : 0 12px 40px rgba(0,0,0,0.2);
+  box-shadow   : 0 12px 40px rgba(0, 0, 0, 0.2);
 }
 
 .as-modal__icon {
-  width      : 48px;
-  height     : 48px;
-  border-radius: 50%;
-  background : var(--as-danger-lt);
-  color      : var(--as-danger);
-  display    : flex;
-  align-items: center;
+  width          : 48px;
+  height         : 48px;
+  border-radius  : 50%;
+  background     : var(--as-danger-lt);
+  color          : var(--as-danger);
+  display        : flex;
+  align-items    : center;
   justify-content: center;
-  margin     : 0 auto 0.85rem;
+  margin         : 0 auto 0.85rem;
 }
 
 .as-modal__title {
@@ -742,15 +891,15 @@
 }
 
 .as-modal__city {
-  font-size : 0.82rem;
-  color     : var(--as-muted);
-  margin    : 0.2rem 0 0.75rem;
+  font-size: 0.82rem;
+  color    : var(--as-muted);
+  margin   : 0.2rem 0 0.75rem;
 }
 
 .as-modal__warn {
-  font-size : 0.78rem;
-  color     : var(--as-danger);
-  margin    : 0.5rem 0 0;
+  font-size  : 0.78rem;
+  color      : var(--as-danger);
+  margin     : 0.5rem 0 0;
   font-weight: 600;
 }
 
@@ -831,16 +980,34 @@
 }
 
 .as-spinner {
-  display     : inline-block;
-  width       : 14px;
-  height      : 14px;
-  border      : 2px solid rgba(255,255,255,0.3);
-  border-top  : 2px solid white;
+  display      : inline-block;
+  width        : 14px;
+  height       : 14px;
+  border       : 2px solid rgba(255, 255, 255, 0.3);
+  border-top   : 2px solid white;
   border-radius: 50%;
-  animation   : as-spin 0.7s linear infinite;
-  flex-shrink : 0;
+  animation    : as-spin 0.7s linear infinite;
+  flex-shrink  : 0;
 }
 
 @keyframes as-spin {
   to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .as-summary__default-tag,
+  .as-picker__default {
+    font-size: 0.58rem;
+    padding  : 0.08rem 0.35rem;
+  }
+  .as-section-header__count {
+    font-size: 0.65rem;
+  }
+  .as-next {
+    font-size: 0.9rem;
+    padding  : 0.9rem;
+  }
 }
