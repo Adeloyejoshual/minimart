@@ -2,15 +2,19 @@
  * src/pages/CheckoutPage.jsx
  * Route: /shop/checkout
  *
- * v6 — Premium CheckoutHeader integration
+ * v8 — Single-page checkout (no steps)
  * ────────────────────────────────────────
- * ✓ Replaced inline top bar with <CheckoutHeader />
- * ✓ WhatsApp notice + Terms link now shown above steps
- * ✓ "Change" button routes to phone edit page
- * ✓ All other behavior unchanged (debug panel, steps, etc.)
+ * ✓ All sections stacked on one page:
+ *   1. Delivery Address (with WhatsApp notice inside)
+ *   2. Review Order
+ *   3. Payment
+ * ✓ No step state, no step indicator, no step titles
+ * ✓ WhatsApp notice scoped to AddressStep only
+ * ✓ Debug panel unchanged
+ * ✓ Header is just back button + title
  */
 
-import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -36,22 +40,6 @@ const authHeaders = () => ({
   Authorization: `Bearer ${getToken()}`,
 });
 
-const STEPS = [
-  { id: 1, label: "Address" },
-  { id: 2, label: "Review"  },
-  { id: 3, label: "Payment" },
-];
-
-/*
- * Titles per step — shown in the CheckoutHeader.
- * Keeps the header contextual as the user progresses.
- */
-const STEP_TITLES = {
-  1: "Delivery Address",
-  2: "Review Order",
-  3: "Place your order",
-};
-
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
 ═══════════════════════════════════════════════════════════════ */
@@ -63,7 +51,6 @@ export default function CheckoutPage({ user }) {
   }, [user, navigate]);
 
   /* ── State ── */
-  const [step,            setStep]            = useState(1);
   const [addresses,       setAddresses]       = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [cartItems,       setCartItems]       = useState([]);
@@ -191,7 +178,7 @@ export default function CheckoutPage({ user }) {
   }, [subtotal, discount]);
 
   /* ════════════════════════════════════════════════════
-     ADDRESS HANDLERS
+     HANDLERS
   ════════════════════════════════════════════════════ */
   const handleAddAddress = useCallback((addr) => {
     setAddresses((prev) => [addr, ...prev]);
@@ -207,36 +194,12 @@ export default function CheckoutPage({ user }) {
     setSelectedAddress(addr);
   }, []);
 
-  /* ════════════════════════════════════════════════════
-     HEADER HANDLERS
-  ════════════════════════════════════════════════════ */
-
-  /*
-   * Back button behavior:
-   *   Step 1 → return to cart
-   *   Step 2 → return to step 1
-   *   Step 3 → return to step 2
-   */
-  const handleHeaderBack = useCallback(() => {
-    if (step > 1) {
-      setError(null);
-      setErrorDebug(null);
-      setStep(step - 1);
-    } else {
-      navigate("/shop/cart");
-    }
-  }, [step, navigate]);
-
   const handleChangeNumber = useCallback(() => {
-    /*
-     * Route the user to their profile page to update phone.
-     * Adjust the path if your app uses a different one.
-     */
     navigate("/profile/edit");
   }, [navigate]);
 
   /* ════════════════════════════════════════════════════
-     PLACE ORDER — with debug capture
+     PLACE ORDER
   ════════════════════════════════════════════════════ */
   const handlePlaceOrder = useCallback(async () => {
     setError(null);
@@ -246,7 +209,9 @@ export default function CheckoutPage({ user }) {
 
     if (!selectedAddress) {
       setError("Please select a delivery address.");
-      setStep(1);
+      /* Scroll to the address section */
+      document.querySelector(".as-root")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (!paymentMethod) {
@@ -273,7 +238,6 @@ export default function CheckoutPage({ user }) {
       notes     : notes || undefined,
     };
 
-    /* Capture request for debug panel */
     const requestSnapshot = {
       url    : `${API}/checkout`,
       payload,
@@ -293,7 +257,6 @@ export default function CheckoutPage({ user }) {
         { headers: authHeaders(), timeout: 30_000 }
       );
 
-      /* Capture success for debug panel */
       setLastResponse({
         status,
         data,
@@ -304,7 +267,6 @@ export default function CheckoutPage({ user }) {
 
       const orderData = data.data ?? data;
 
-      /* Online payment → redirect to Flutterwave */
       if (orderData.requiresPayment && orderData.paymentLink) {
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
@@ -312,7 +274,6 @@ export default function CheckoutPage({ user }) {
         return;
       }
 
-      /* Online payment but Flutterwave failed */
       if (orderData.requiresPayment && !orderData.paymentLink) {
         setError("Order created but payment link failed. Visit your orders to retry.");
         setErrorDebug(orderData);
@@ -322,7 +283,6 @@ export default function CheckoutPage({ user }) {
         return;
       }
 
-      /* Cash on delivery → order page */
       if (orderData.orderGroupId) {
         localStorage.removeItem(CART_KEY);
         window.dispatchEvent(new Event("cart-updated"));
@@ -333,7 +293,6 @@ export default function CheckoutPage({ user }) {
       throw new Error("Unexpected response from server.");
 
     } catch (err) {
-      /* Capture full error for debug panel */
       const errorSnapshot = {
         status      : err.response?.status,
         message     : err.response?.data?.message || err.message,
@@ -369,30 +328,18 @@ export default function CheckoutPage({ user }) {
   if (!user) return null;
 
   /* ════════════════════════════════════════════════════
-     RENDER
+     RENDER — all sections stacked
   ════════════════════════════════════════════════════ */
   return (
     <div className="ck-page">
 
-      {/* ══════════════════════════════════════════════════
-          PREMIUM HEADER
-          ────────────────────────────────────────────────
-          Replaces the old inline top bar.
-          - Sticky top with back button + step-aware title
-          - WhatsApp notice with inline "Change" button
-          - Terms & Conditions link
-          - All icons are transparent SVGs (no emoji)
-      ══════════════════════════════════════════════════ */}
+      {/* Minimal header — back button + title */}
       <CheckoutHeader
-        title={STEP_TITLES[step] ?? "Checkout"}
-        onBack={handleHeaderBack}
-        onChangeNumber={handleChangeNumber}
-        termsHref="/terms"
+        title="Checkout"
+        onBack={() => navigate("/shop/cart")}
       />
 
-      {/* ══════════════════════════════════════════════════
-          DEBUG PANEL — ALWAYS VISIBLE AT TOP
-      ══════════════════════════════════════════════════ */}
+      {/* Debug panel */}
       <CheckoutDebugPanel
         apiBase={`${API}/checkout`}
         token={getToken()}
@@ -409,33 +356,8 @@ export default function CheckoutPage({ user }) {
         onRetry={handlePlaceOrder}
       />
 
-      {/* ── Step Indicator ── */}
-      <div className="ck-steps">
-        {STEPS.map((s, i) => (
-          <Fragment key={s.id}>
-            <div className={[
-              "ck-step",
-              step === s.id ? "ck-step--active" : "",
-              step >  s.id  ? "ck-step--done"   : "",
-            ].join(" ").trim()}>
-              <div className="ck-step-dot">
-                {step > s.id ? "✓" : s.id}
-              </div>
-              <span className="ck-step-label">{s.label}</span>
-            </div>
-
-            {i < STEPS.length - 1 && (
-              <div className={[
-                "ck-step-line",
-                step > s.id ? "ck-step-line--done" : "",
-              ].join(" ").trim()} />
-            )}
-          </Fragment>
-        ))}
-      </div>
-
-      {/* ── Global Error Banner (steps 1 & 2 only) ── */}
-      {error && step !== 3 && (
+      {/* Global error banner */}
+      {error && (
         <div className="ck-error" role="alert">
           ⚠️ {error}
           <button
@@ -447,63 +369,80 @@ export default function CheckoutPage({ user }) {
         </div>
       )}
 
-      {/* ── Step Content ── */}
+      {/* Stacked content — everything on one page */}
       <div className="ck-content">
-        {cartLoading && (
+
+        {cartLoading ? (
           <div className="ck-loading" role="status" aria-live="polite">
             <div className="ck-loading-spinner" />
             <p>Loading your cart…</p>
           </div>
-        )}
+        ) : (
+          <>
+            {/* ══ DELIVERY ADDRESS (includes WhatsApp notice) ══ */}
+            <AddressStep
+              addresses={addresses}
+              setAddresses={setAddresses}
+              selected={selectedAddress}
+              onSelect={handleSelectAddress}
+              onAdd={handleAddAddress}
+              onEdit={handleEditAddress}
+              onNext={() => {
+                /* Scroll to review section instead of switching steps */
+                document.querySelector("[data-checkout-review]")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              user={user}
+              onChangeNumber={handleChangeNumber}
+              termsHref="/terms"
+            />
 
-        {!cartLoading && step === 1 && (
-          <AddressStep
-            addresses={addresses}
-            setAddresses={setAddresses}
-            selected={selectedAddress}
-            onSelect={handleSelectAddress}
-            onAdd={handleAddAddress}
-            onEdit={handleEditAddress}
-            onNext={() => setStep(2)}
-            user={user}
-          />
-        )}
+            {/* ══ REVIEW ══ */}
+            <div data-checkout-review>
+              <ReviewStep
+                cartItems={cartItems}
+                calculation={calculation}
+                address={selectedAddress}
+                couponCode={couponCode}
+                onCouponChange={setCouponCode}
+                discount={discount}
+                onDiscountChange={setDiscount}
+                notes={notes}
+                onNotesChange={setNotes}
+                onBack={() => {
+                  document.querySelector(".as-root")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                onNext={() => {
+                  document.querySelector("[data-checkout-payment]")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              />
+            </div>
 
-        {!cartLoading && step === 2 && (
-          <ReviewStep
-            cartItems={cartItems}
-            calculation={calculation}
-            address={selectedAddress}
-            couponCode={couponCode}
-            onCouponChange={setCouponCode}
-            discount={discount}
-            onDiscountChange={setDiscount}
-            notes={notes}
-            onNotesChange={setNotes}
-            onBack={() => setStep(1)}
-            onNext={() => setStep(3)}
-          />
-        )}
-
-        {!cartLoading && step === 3 && (
-          <PaymentStep
-            calculation={calculation}
-            paymentMethod={paymentMethod}
-            onSelectPayment={setPaymentMethod}
-            loading={loading}
-            error={error}
-            errorDebug={errorDebug}
-            onDismissError={() => {
-              setError(null);
-              setErrorDebug(null);
-            }}
-            onBack={() => {
-              setError(null);
-              setErrorDebug(null);
-              setStep(2);
-            }}
-            onPlaceOrder={handlePlaceOrder}
-          />
+            {/* ══ PAYMENT ══ */}
+            <div data-checkout-payment>
+              <PaymentStep
+                calculation={calculation}
+                paymentMethod={paymentMethod}
+                onSelectPayment={setPaymentMethod}
+                loading={loading}
+                error={error}
+                errorDebug={errorDebug}
+                onDismissError={() => {
+                  setError(null);
+                  setErrorDebug(null);
+                }}
+                onBack={() => {
+                  setError(null);
+                  setErrorDebug(null);
+                  document.querySelector("[data-checkout-review]")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                onPlaceOrder={handlePlaceOrder}
+              />
+            </div>
+          </>
         )}
       </div>
 
