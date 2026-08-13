@@ -2,7 +2,13 @@
  * src/pages/Checkout/styles/ReviewStep.css
  *
  * Flat Jumia-minimal styling for the review step.
- * v6 — Clean rewrite matching HowToUseRewards + CouponPicker
+ *
+ * v7 — Delivery date badge + delivery note refinements
+ * ────────────────────────────────────────────────────
+ * • Dynamic delivery date range shown as orange badge
+ * • Loemart Express note supports <strong> highlights
+ * • ETA row redesigned as standalone badge (rs-price-eta-row)
+ * • All previous v6 features intact
  */
 
 /* ═══════════════════════════════════════════════════════════════
@@ -13,6 +19,8 @@
   --rs-orange-dk  : #e07a10;
   --rs-orange-lt  : #fff5eb;
   --rs-orange-bd  : #ffd6b3;
+  --rs-orange-ink : #9a3412;
+  --rs-orange-ink-2: #c2410c;
 
   --rs-ink        : #2b2b2b;
   --rs-ink-2      : #4a4a4a;
@@ -155,7 +163,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   LOEMART EXPRESS DELIVERY NOTE
+   LOEMART EXPRESS DELIVERY NOTE  (v7 — supports bold dates)
 ═══════════════════════════════════════════════════════════════ */
 .rs-delivery-note {
   display      : flex;
@@ -186,14 +194,20 @@
 .rs-delivery-note__title {
   font-size  : 0.85rem;
   font-weight: 700;
-  color      : #9a3412;
+  color      : var(--rs-orange-ink);
   margin     : 0 0 0.1rem;
 }
 
 .rs-delivery-note__sub {
-  font-size: 0.72rem;
-  color    : #c2410c;
-  margin   : 0;
+  font-size  : 0.78rem;
+  color      : var(--rs-orange-ink-2);
+  margin     : 0;
+  line-height: 1.4;
+}
+
+.rs-delivery-note__sub strong {
+  color      : var(--rs-orange-ink);
+  font-weight: 700;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -295,15 +309,15 @@
 }
 
 .rs-item__name {
-  font-size    : 0.85rem;
-  font-weight  : 500;
-  color        : var(--rs-ink);
-  margin       : 0 0 0.25rem;
-  line-height  : 1.4;
-  display      : -webkit-box;
+  font-size         : 0.85rem;
+  font-weight       : 500;
+  color             : var(--rs-ink);
+  margin            : 0 0 0.25rem;
+  line-height       : 1.4;
+  display           : -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  overflow     : hidden;
+  overflow          : hidden;
 }
 
 .rs-item__variant {
@@ -484,29 +498,48 @@
 }
 
 .rs-price-strike {
-  color      : var(--rs-faint);
+  color          : var(--rs-faint);
   text-decoration: line-through;
-  margin-right: 0.5rem;
-  font-weight: 400;
+  margin-right   : 0.5rem;
+  font-weight    : 400;
 }
 
 .rs-price-free-tag {
-  color          : var(--rs-success);
-  font-weight    : 800;
-  text-transform : uppercase;
-  letter-spacing : 0.05em;
+  color         : var(--rs-success);
+  font-weight   : 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.rs-price-row--eta {
-  padding-top: 0;
-  font-size  : 0.75rem;
-  color      : var(--rs-muted);
+/* ═══════════════════════════════════════════════════════════════
+   DELIVERY ETA BADGE  (v7 — dedicated row)
+   ─────────────────────────────────────────────────────────────
+   Right-aligned orange pill showing the delivery window.
+   Replaces the old inline .rs-price-row--eta approach for
+   better visual weight and consistency with badges elsewhere.
+═══════════════════════════════════════════════════════════════ */
+.rs-price-eta-row {
+  display        : flex;
+  justify-content: flex-end;
+  padding        : 0.25rem 0 0.5rem;
 }
 
 .rs-price-eta {
-  display    : inline-flex;
-  align-items: center;
-  gap        : 0.3rem;
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 0.35rem;
+  font-size      : 0.75rem;
+  color          : var(--rs-orange-dk);
+  font-weight    : 600;
+  background     : var(--rs-orange-lt);
+  border         : 1px solid var(--rs-orange-bd);
+  padding        : 0.3rem 0.6rem;
+  border-radius  : 4px;
+  white-space    : nowrap;
+}
+
+.rs-price-eta svg {
+  color: var(--rs-orange);
 }
 
 .rs-price-divider {
@@ -526,11 +559,11 @@
    TRACKING NOTICE
 ═══════════════════════════════════════════════════════════════ */
 .rs-tracking {
-  display     : flex;
-  gap         : 0.65rem;
-  padding     : 0.85rem 1rem;
-  background  : white;
-  border-top  : 1px solid var(--rs-border-lt);
+  display      : flex;
+  gap          : 0.65rem;
+  padding      : 0.85rem 1rem;
+  background   : white;
+  border-top   : 1px solid var(--rs-border-lt);
   border-bottom: 1px solid var(--rs-border-lt);
 }
 
@@ -623,19 +656,19 @@
 }
 
 .rs-btn-back {
-  display        : inline-flex;
-  align-items    : center;
-  gap            : 0.35rem;
-  padding        : 0.85rem 1.2rem;
-  background     : white;
-  border         : 1px solid var(--rs-border);
-  color          : var(--rs-ink-2);
-  border-radius  : 4px;
-  font-weight    : 700;
-  font-size      : 0.88rem;
-  cursor         : pointer;
-  font-family    : inherit;
-  transition     : all 0.15s;
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 0.35rem;
+  padding      : 0.85rem 1.2rem;
+  background   : white;
+  border       : 1px solid var(--rs-border);
+  color        : var(--rs-ink-2);
+  border-radius: 4px;
+  font-weight  : 700;
+  font-size    : 0.88rem;
+  cursor       : pointer;
+  font-family  : inherit;
+  transition   : all 0.15s;
 }
 
 .rs-btn-back:hover {
@@ -692,4 +725,23 @@
 @keyframes rs-shimmer {
   0%   { background-position: -400px 0; }
   100% { background-position:  400px 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .rs-item__img {
+    width : 48px;
+    height: 48px;
+  }
+  .rs-item__name {
+    font-size: 0.82rem;
+  }
+  .rs-item__price {
+    font-size: 0.85rem;
+  }
+  .rs-price-eta {
+    font-size: 0.72rem;
+  }
 }
