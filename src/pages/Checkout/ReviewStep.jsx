@@ -3,29 +3,22 @@
  *
  * Step 2 of checkout — order review before payment.
  *
- * v6 — Flat production
+ * v7 — Dynamic delivery dates
  * ──────────────────────────────────────────────────────────────
- * ✓ Fully flat Jumia-style — no gradients, no shadows
- * ✓ Grey section headers with "Change" links
- * ✓ Transparent SVG icons (currentColor)
- * ✓ "Delivered by Loemart Express" badge
- * ✓ Coupon picker button opens bottom sheet
- * ✓ Applied coupon shows badge + Remove
- * ✓ Free shipping type displays "FREE" in delivery row
- * ✓ Notes debounced (300ms) to prevent parent re-renders
- * ✓ Seller grouping memoised — no recompute on typing
- * ✓ Coupon input syncs with parent state changes
- * ✓ Price summary skeleton while calculation loads
- * ✓ Continue button disabled until calculation ready
- * ✓ Robust item keys (fallback to product+variant+idx)
- * ✓ NaN-safe money math (toNumber helper)
- * ✓ ARIA labels + roles throughout
+ * ✓ Dynamic delivery date range (e.g. "5 August — 11 August")
+ * ✓ Auto-skips Sundays (non-delivery days)
+ * ✓ 3pm cutoff — post-cutoff orders count from next day
+ * ✓ Loemart Express note shows delivery window prominently
+ * ✓ Order summary ETA row also shows the date range
+ * ✓ All v6 features: flat design, coupon picker, free shipping,
+ *   memoisation, debounced notes, seller grouping, skeletons
  */
 
 import {
   useState, useEffect, useMemo, useCallback, useRef, memo,
 } from "react";
 import "./styles/ReviewStep.css";
+import { getDeliveryRange } from "./utils/deliveryDates";
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -118,12 +111,14 @@ const Icon = {
     </svg>
   ),
 
-  Clock: ({ size = 12 }) => (
+  Calendar: ({ size = 12 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="2"
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
 
@@ -262,8 +257,10 @@ const AddressBlock = memo(function AddressBlock({ address, onChange }) {
 
 /* ═══════════════════════════════════════════════════════════════
    SUB-COMPONENT — Loemart Express delivery note
+   ─────────────────────────────────────────────────────────────
+   Shows dynamic delivery date range instead of static "1-3 days".
 ═══════════════════════════════════════════════════════════════ */
-const DeliveryNote = memo(function DeliveryNote() {
+const DeliveryNote = memo(function DeliveryNote({ deliveryRange }) {
   return (
     <div className="rs-delivery-note">
       <span className="rs-delivery-note__icon">
@@ -274,7 +271,18 @@ const DeliveryNote = memo(function DeliveryNote() {
           Delivered by Loemart Express
         </p>
         <p className="rs-delivery-note__sub">
-          Fast, tracked delivery to your bus stop
+          {deliveryRange.isSameDay ? (
+            <>
+              Arriving <strong>{deliveryRange.startFormatted}</strong>
+            </>
+          ) : (
+            <>
+              Delivery between{" "}
+              <strong>{deliveryRange.startFormatted}</strong>
+              {" "}and{" "}
+              <strong>{deliveryRange.endFormatted}</strong>
+            </>
+          )}
         </p>
       </div>
     </div>
@@ -329,7 +337,7 @@ const CartItem = memo(function CartItem({ item }) {
 ═══════════════════════════════════════════════════════════════ */
 const NotesInput = memo(function NotesInput({ value, onChange }) {
   const [localValue, setLocalValue] = useState(value ?? "");
-  const timerRef  = useRef(null);
+  const timerRef   = useRef(null);
   const mountedRef = useRef(true);
 
   useEffect(() => () => {
@@ -337,7 +345,6 @@ const NotesInput = memo(function NotesInput({ value, onChange }) {
     clearTimeout(timerRef.current);
   }, []);
 
-  /* Sync from parent (rare — external notes updates) */
   useEffect(() => {
     setLocalValue(value ?? "");
   }, [value]);
@@ -373,10 +380,6 @@ const NotesInput = memo(function NotesInput({ value, onChange }) {
 
 /* ═══════════════════════════════════════════════════════════════
    SUB-COMPONENT — Coupon section
-   ─────────────────────────────────────────────────────────────
-   Two states:
-     • Applied  → shows code + savings + Remove
-     • Empty    → "Choose a coupon" button opens picker
 ═══════════════════════════════════════════════════════════════ */
 const CouponSection = memo(function CouponSection({
   couponCode,
@@ -458,6 +461,7 @@ const PriceSummary = memo(function PriceSummary({
   discount,
   couponCode,
   freeShipping,
+  deliveryRange,
 }) {
   const originalDelivery  = toNumber(calculation.deliveryFee);
   const effectiveDelivery = freeShipping ? 0 : originalDelivery;
@@ -493,14 +497,13 @@ const PriceSummary = memo(function PriceSummary({
         </span>
       </div>
 
-      {calculation.deliveryEta && (
-        <div className="rs-price-row rs-price-row--eta">
-          <span />
-          <span className="rs-price-eta">
-            <Icon.Clock /> {calculation.deliveryEta}
-          </span>
-        </div>
-      )}
+      {/* Delivery ETA badge — always shown */}
+      <div className="rs-price-eta-row">
+        <span className="rs-price-eta">
+          <Icon.Calendar />
+          {deliveryRange.short}
+        </span>
+      </div>
 
       <div className="rs-price-divider" />
 
@@ -542,6 +545,18 @@ const ReviewStep = memo(function ReviewStep({
   const cartCount   = cartItems.length;
   const canContinue = cartCount > 0 && !!calculation;
 
+  /*
+   * Compute delivery range once for the whole review screen.
+   * Recalculates only when address state changes (in case we
+   * add zone-based SLAs later). Currently uses default rules
+   * from utils/deliveryDates.js.
+   */
+  const deliveryRange = useMemo(
+    () => getDeliveryRange(),
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+    [address?.state]
+  );
+
   const handleContinue = useCallback(() => {
     if (!canContinue) return;
     onNext?.();
@@ -553,8 +568,8 @@ const ReviewStep = memo(function ReviewStep({
       {/* ══ DELIVERY ADDRESS ══ */}
       <AddressBlock address={address} onChange={onBack} />
 
-      {/* ══ LOEMART EXPRESS NOTE ══ */}
-      <DeliveryNote />
+      {/* ══ LOEMART EXPRESS NOTE — with dynamic dates ══ */}
+      <DeliveryNote deliveryRange={deliveryRange} />
 
       {/* ══ ITEMS ══ */}
       <div className="rs-section-header">
@@ -619,6 +634,7 @@ const ReviewStep = memo(function ReviewStep({
           discount={discount}
           couponCode={couponCode}
           freeShipping={freeShipping}
+          deliveryRange={deliveryRange}
         />
       ) : (
         <PriceSummarySkeleton />
