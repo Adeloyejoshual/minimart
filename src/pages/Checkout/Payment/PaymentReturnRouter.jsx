@@ -2,229 +2,415 @@
  * src/pages/Checkout/Payment/PaymentReturnRouter.jsx
  * Route: /shop/orders/:groupId
  *
- * Landing page after Flutterwave redirect.
- * Reads ?verify=true, checks payment status,
- * then routes to Success / Failed / Order detail.
+ * Landing page after Flutterwave redirects the user back.
+ * Reads ?verify=true, polls order status, then routes to
+ * OrderSuccessPage / PaymentFailedPage / OrderDetail.
+ *
+ * v2 — Flat Jumia design + production hardening
+ * ─────────────────────────────────────────────────────
+ * ✓ Transparent SVG icons (no emoji)
+ * ✓ External CSS matching checkout aesthetic
+ * ✓ Fixed polling bug (attempt state race condition)
+ * ✓ Proper cleanup on unmount
+ * ✓ Progress bar shows verification progress
+ * ✓ Handles all Flutterwave return statuses
+ * ✓ Graceful timeout with retry option
+ * ✓ Accessible loading state (aria-live)
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import axios from "axios";
+import "./styles/PaymentReturnRouter.css";
 
+/* ═══════════════════════════════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════════════════════════════ */
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token");
 
-const MAX_ATTEMPTS = 15; // 15 × 2s = 30 seconds
+const MAX_ATTEMPTS  = 15;    /* 15 × 2s = 30 seconds */
+const POLL_INTERVAL = 2000;  /* 2 seconds */
 
-export default function PaymentReturnRouter() {
-  const { groupId }        = useParams();
-  const [searchParams]     = useSearchParams();
-  const navigate           = useNavigate();
+/* Statuses Flutterwave might return in the URL */
+const FLW_FAILURE_STATUSES = new Set([
+  "cancelled",
+  "failed",
+  "error",
+]);
 
-  const [status, setStatus]     = useState("verifying");
-  const [attempt, setAttempt]   = useState(0);
-  const [order, setOrder]       = useState(null);
-  const [error, setError]       = useState(null);
+/* ═══════════════════════════════════════════════════════════════
+   SVG ICONS  (transparent — currentColor)
+═══════════════════════════════════════════════════════════════ */
+const Icon = {
+  Clock: ({ size = 48 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+  Alert: ({ size = 48 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  ),
+  Refresh: ({ size = 15 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+    </svg>
+  ),
+  List: ({ size = 15 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="8"  y1="6"  x2="21" y2="6" />
+      <line x1="8"  y1="12" x2="21" y2="12" />
+      <line x1="8"  y1="18" x2="21" y2="18" />
+      <line x1="3"  y1="6"  x2="3.01" y2="6" />
+      <line x1="3"  y1="12" x2="3.01" y2="12" />
+      <line x1="3"  y1="18" x2="3.01" y2="18" />
+    </svg>
+  ),
+  Eye: ({ size = 15 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  Shield: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  ),
+  Mail: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <polyline points="22,4 12,13 2,4" />
+    </svg>
+  ),
+};
 
-  const isVerifying = searchParams.get("verify") === "true";
-  const flwStatus   = searchParams.get("status");
-
-  /* ── Handle Flutterwave-reported cancellations immediately ── */
-  useEffect(() => {
-    if (flwStatus === "cancelled" || flwStatus === "failed") {
-      navigate(`/payment-failed/${groupId}`, { replace: true });
-    }
-  }, [flwStatus, groupId, navigate]);
-
-  /* ── Poll order status ── */
-  useEffect(() => {
-    if (!groupId) return;
-    if (flwStatus === "cancelled" || flwStatus === "failed") return;
-
-    let cancelled = false;
-
-    const checkStatus = async () => {
-      try {
-        const { data } = await axios.get(
-          `${API}/checkout/orders/${groupId}`,
-          { headers: { Authorization: `Bearer ${getToken()}` } }
-        );
-
-        if (cancelled) return;
-
-        const orderData = data.data ?? data;
-        setOrder(orderData);
-
-        /* ── Payment confirmed → go to success ── */
-        if (orderData.payment_status === "paid") {
-          navigate(`/order-success/${groupId}`, { replace: true });
-          return;
-        }
-
-        /* ── Payment failed → go to failed ── */
-        if (orderData.payment_status === "failed") {
-          navigate(`/payment-failed/${groupId}`, { replace: true });
-          return;
-        }
-
-        /* ── COD orders don't need payment verification ── */
-        if (orderData.payment_method === "CASH_ON_DELIVERY") {
-          navigate(`/order-success/${groupId}`, { replace: true });
-          return;
-        }
-
-        /* ── Still pending — retry if we're verifying ── */
-        if (isVerifying && attempt < MAX_ATTEMPTS) {
-          setStatus("verifying");
-          setTimeout(() => {
-            if (!cancelled) setAttempt((n) => n + 1);
-          }, 2000);
-        } else if (isVerifying) {
-          /* Ran out of attempts */
-          setStatus("timeout");
-        } else {
-          /* Not verifying, just show order status */
-          setStatus("pending");
-        }
-
-      } catch (err) {
-        if (cancelled) return;
-        console.error("[PaymentReturn] fetch error:", err.message);
-        setError(err.response?.data?.message || err.message);
-        setStatus("error");
-      }
-    };
-
-    checkStatus();
-
-    return () => { cancelled = true; };
-  }, [groupId, attempt, isVerifying, flwStatus, navigate]);
-
-  /* ── Render ── */
+/* ═══════════════════════════════════════════════════════════════
+   SPINNER (large, for the verifying state)
+═══════════════════════════════════════════════════════════════ */
+function LargeSpinner() {
   return (
-    <div style={centerStyle}>
-      {status === "verifying" && (
-        <>
-          <div style={spinnerStyle} />
-          <h2 style={{ marginTop: 20 }}>Confirming your payment...</h2>
-          <p style={{ marginTop: 8, color: "#64748b" }}>
-            This usually takes a few seconds
-          </p>
-          <p style={{ marginTop: 24, fontSize: 12, color: "#94a3b8" }}>
-            Attempt {attempt + 1} of {MAX_ATTEMPTS}
-          </p>
-        </>
-      )}
-
-      {status === "timeout" && (
-        <>
-          <div style={{ fontSize: 60 }}>⏳</div>
-          <h2 style={{ marginTop: 16 }}>Still waiting for confirmation</h2>
-          <p style={{ marginTop: 8, color: "#64748b", maxWidth: 400 }}>
-            Your payment may still be processing.
-            You'll receive an email once it's confirmed.
-          </p>
-          <button
-            onClick={() => navigate("/orders")}
-            style={btnPrimary}
-          >
-            View My Orders
-          </button>
-          <button
-            onClick={() => window.location.reload()}
-            style={btnSecondary}
-          >
-            Check Again
-          </button>
-        </>
-      )}
-
-      {status === "pending" && (
-        <>
-          <div style={{ fontSize: 60 }}>⏳</div>
-          <h2 style={{ marginTop: 16 }}>Payment Pending</h2>
-          <p style={{ marginTop: 8, color: "#64748b" }}>
-            Your order is awaiting payment confirmation.
-          </p>
-          <button
-            onClick={() => navigate(`/orders/${groupId}`)}
-            style={btnPrimary}
-          >
-            View Order Details
-          </button>
-        </>
-      )}
-
-      {status === "error" && (
-        <>
-          <div style={{ fontSize: 60 }}>⚠️</div>
-          <h2 style={{ marginTop: 16 }}>Something went wrong</h2>
-          <p style={{ marginTop: 8, color: "#64748b" }}>{error}</p>
-          <button
-            onClick={() => navigate("/orders")}
-            style={btnPrimary}
-          >
-            View My Orders
-          </button>
-        </>
-      )}
+    <div className="prr-spinner" aria-hidden="true">
+      <div className="prr-spinner__ring" />
     </div>
   );
 }
 
-/* ── Styles ── */
-const centerStyle = {
-  minHeight       : "100vh",
-  display         : "flex",
-  flexDirection   : "column",
-  alignItems      : "center",
-  justifyContent  : "center",
-  padding         : "40px 20px",
-  textAlign       : "center",
-  fontFamily      : "system-ui, sans-serif",
-  background      : "#f8fafc",
-};
+/* ═══════════════════════════════════════════════════════════════
+   PROGRESS BAR (verification attempts)
+═══════════════════════════════════════════════════════════════ */
+function ProgressBar({ current, total }) {
+  const pct = Math.min(100, Math.max(0, (current / total) * 100));
 
-const spinnerStyle = {
-  width           : 48,
-  height          : 48,
-  border          : "4px solid #e5e7eb",
-  borderTopColor  : "#ff5722",
-  borderRadius    : "50%",
-  animation       : "spin 0.8s linear infinite",
-};
+  return (
+    <div className="prr-progress" aria-hidden="true">
+      <div
+        className="prr-progress__fill"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
 
-const btnPrimary = {
-  marginTop       : 24,
-  padding         : "12px 32px",
-  background      : "linear-gradient(135deg, #ff5722, #f68b1e)",
-  color           : "#fff",
-  border          : "none",
-  borderRadius    : 8,
-  fontSize        : 15,
-  fontWeight      : 700,
-  cursor          : "pointer",
-};
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
+export default function PaymentReturnRouter() {
+  const { groupId }    = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate       = useNavigate();
 
-const btnSecondary = {
-  marginTop       : 12,
-  padding         : "10px 24px",
-  background      : "transparent",
-  color           : "#64748b",
-  border          : "1.5px solid #cbd5e1",
-  borderRadius    : 8,
-  fontSize        : 14,
-  fontWeight      : 600,
-  cursor          : "pointer",
-};
+  const [status,   setStatus]   = useState("verifying");
+  const [attempt,  setAttempt]  = useState(0);
+  const [error,    setError]    = useState(null);
 
-/* Inject spinner keyframes */
-if (typeof document !== "undefined" && !document.getElementById("payment-spinner-css")) {
-  const style = document.createElement("style");
-  style.id = "payment-spinner-css";
-  style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
-  document.head.appendChild(style);
+  const isVerifying = searchParams.get("verify") === "true";
+  const flwStatus   = searchParams.get("status");
+
+  /* Refs for cleanup */
+  const mountedRef   = useRef(true);
+  const pollTimerRef = useRef(null);
+
+  /* Track when the polling loop needs to stop */
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(pollTimerRef.current);
+    };
+  }, []);
+
+  /* ── Handle Flutterwave-reported failure statuses immediately ── */
+  useEffect(() => {
+    if (flwStatus && FLW_FAILURE_STATUSES.has(flwStatus.toLowerCase())) {
+      navigate(`/payment-failed/${groupId}`, { replace: true });
+    }
+  }, [flwStatus, groupId, navigate]);
+
+  /* ═════════════════════════════════════════════════════════════
+     POLL ORDER STATUS
+     ─────────────────────────────────────────────────────────
+     Instead of relying on state changes to schedule the next
+     poll (race-condition prone), we track attempts in a ref and
+     use a single recursive setTimeout that respects mounted state.
+  ═════════════════════════════════════════════════════════════ */
+  const pollOrderStatus = useCallback(async (attemptNum) => {
+    if (!mountedRef.current) return;
+
+    try {
+      const { data } = await axios.get(
+        `${API}/checkout/orders/${groupId}`,
+        {
+          headers: { Authorization: `Bearer ${getToken()}` },
+          timeout: 10_000,
+        }
+      );
+
+      if (!mountedRef.current) return;
+
+      const orderData = data.data ?? data;
+
+      /* ── COD orders: skip payment verification entirely ── */
+      if (orderData.payment_method === "CASH_ON_DELIVERY") {
+        navigate(`/order-success/${groupId}`, { replace: true });
+        return;
+      }
+
+      /* ── Payment confirmed → success ── */
+      if (orderData.payment_status === "paid") {
+        navigate(`/order-success/${groupId}`, { replace: true });
+        return;
+      }
+
+      /* ── Payment explicitly failed → failure page ── */
+      if (orderData.payment_status === "failed") {
+        navigate(`/payment-failed/${groupId}`, { replace: true });
+        return;
+      }
+
+      /* ── Still pending: continue polling if verifying ── */
+      if (isVerifying) {
+        if (attemptNum < MAX_ATTEMPTS - 1) {
+          /* Schedule next attempt */
+          setAttempt(attemptNum + 1);
+          pollTimerRef.current = setTimeout(
+            () => pollOrderStatus(attemptNum + 1),
+            POLL_INTERVAL
+          );
+        } else {
+          /* Exhausted attempts */
+          setStatus("timeout");
+        }
+      } else {
+        /*
+         * Not in verification mode (e.g. user landed here directly)
+         * — just show the current pending state.
+         */
+        setStatus("pending");
+      }
+
+    } catch (err) {
+      if (!mountedRef.current) return;
+
+      console.error("[PaymentReturn] fetch error:", err.message);
+      setError(
+        err.response?.data?.message ??
+        err.message ??
+        "Could not check order status."
+      );
+      setStatus("error");
+    }
+  }, [groupId, isVerifying, navigate]);
+
+  /* ── Start polling once on mount ── */
+  useEffect(() => {
+    if (!groupId) {
+      navigate("/", { replace: true });
+      return;
+    }
+
+    /* Don't poll if Flutterwave already reported failure */
+    if (flwStatus && FLW_FAILURE_STATUSES.has(flwStatus.toLowerCase())) {
+      return;
+    }
+
+    /* Kick off the first poll immediately */
+    pollOrderStatus(0);
+
+    return () => {
+      clearTimeout(pollTimerRef.current);
+    };
+  }, [groupId, flwStatus, pollOrderStatus, navigate]);
+
+  /* ── Manual retry (used from timeout screen) ── */
+  const handleCheckAgain = () => {
+    setStatus("verifying");
+    setAttempt(0);
+    setError(null);
+    pollOrderStatus(0);
+  };
+
+  /* ═════════════════════════════════════════════════════════════
+     RENDER
+  ═════════════════════════════════════════════════════════════ */
+  return (
+    <div className="prr-wrapper">
+      <div className="prr-card">
+
+        {/* ══ VERIFYING ══ */}
+        {status === "verifying" && (
+          <div
+            className="prr-state"
+            role="status"
+            aria-live="polite"
+            aria-label="Confirming your payment"
+          >
+            <LargeSpinner />
+
+            <h1 className="prr-title">Confirming your payment</h1>
+            <p className="prr-subtitle">
+              This usually takes just a few seconds.
+              Please don't close this page.
+            </p>
+
+            <ProgressBar current={attempt + 1} total={MAX_ATTEMPTS} />
+
+            <p className="prr-attempt">
+              Checking status… <strong>{attempt + 1} of {MAX_ATTEMPTS}</strong>
+            </p>
+
+            <div className="prr-trust">
+              <Icon.Shield />
+              <span>Secured by Flutterwave</span>
+            </div>
+          </div>
+        )}
+
+        {/* ══ TIMEOUT ══ */}
+        {status === "timeout" && (
+          <div className="prr-state">
+            <div className="prr-icon-wrap prr-icon-wrap--warning">
+              <Icon.Clock size={44} />
+            </div>
+
+            <h1 className="prr-title">Still waiting for confirmation</h1>
+            <p className="prr-subtitle">
+              Your payment may still be processing at the bank.
+              You'll receive an email confirmation once it's approved.
+            </p>
+
+            <div className="prr-info">
+              <Icon.Mail />
+              <span>Check your email for updates</span>
+            </div>
+
+            <div className="prr-actions">
+              <button
+                type="button"
+                className="prr-btn prr-btn--primary"
+                onClick={handleCheckAgain}
+              >
+                <Icon.Refresh /> Check Again
+              </button>
+              <button
+                type="button"
+                className="prr-btn prr-btn--secondary"
+                onClick={() => navigate("/shop/orders")}
+              >
+                <Icon.List /> View My Orders
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ══ PENDING (not verifying) ══ */}
+        {status === "pending" && (
+          <div className="prr-state">
+            <div className="prr-icon-wrap prr-icon-wrap--warning">
+              <Icon.Clock size={44} />
+            </div>
+
+            <h1 className="prr-title">Payment Pending</h1>
+            <p className="prr-subtitle">
+              Your order is awaiting payment confirmation.
+              Complete payment to activate this order.
+            </p>
+
+            <div className="prr-actions">
+              <button
+                type="button"
+                className="prr-btn prr-btn--primary"
+                onClick={() => navigate(`/shop/orders/${groupId}`)}
+              >
+                <Icon.Eye /> View Order Details
+              </button>
+              <button
+                type="button"
+                className="prr-btn prr-btn--secondary"
+                onClick={() => navigate("/shop/orders")}
+              >
+                <Icon.List /> My Orders
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ══ ERROR ══ */}
+        {status === "error" && (
+          <div className="prr-state">
+            <div className="prr-icon-wrap prr-icon-wrap--danger">
+              <Icon.Alert size={44} />
+            </div>
+
+            <h1 className="prr-title">Something went wrong</h1>
+            <p className="prr-subtitle">
+              {error ?? "We couldn't check your order status right now."}
+            </p>
+
+            <div className="prr-actions">
+              <button
+                type="button"
+                className="prr-btn prr-btn--primary"
+                onClick={handleCheckAgain}
+              >
+                <Icon.Refresh /> Try Again
+              </button>
+              <button
+                type="button"
+                className="prr-btn prr-btn--secondary"
+                onClick={() => navigate("/shop/orders")}
+              >
+                <Icon.List /> View My Orders
+              </button>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
 }
