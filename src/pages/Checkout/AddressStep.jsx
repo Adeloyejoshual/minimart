@@ -3,16 +3,15 @@
  *
  * Step 1 of checkout — delivery address selection & management.
  *
- * v5 — Premium redesign
+ * v2 — WhatsApp notice + all transparent SVG icons
  * ──────────────────────────────────────────────────────────────
- * ✓ Jumia-inspired hero banner
+ * ✓ WhatsApp notice at top (delivery-scoped, not global)
+ * ✓ "Change" button + Terms link inline in notice
+ * ✓ All emoji icons replaced with transparent SVGs (currentColor)
  * ✓ All styles in styles/AddressStep.css
- * ✓ Elevated card design with orange accent
- * ✓ Clear visual hierarchy — hero → info → cards → form
  * ✓ Zones fetched WITHOUT auth (endpoint is public)
- * ✓ Cross-device address sync (fresh fetch on mount)
- * ✓ Handles multiple response shapes defensively
- * ✓ ErrorToast with inline retry action
+ * ✓ Cross-device address sync
+ * ✓ ErrorToast with inline retry
  */
 
 import {
@@ -43,12 +42,6 @@ const authHeader = () => {
 const LABELS        = ["Home", "Office", "Other"];
 const MAX_ADDRESSES = 3;
 
-const LABEL_ICON = {
-  Home   : "🏠",
-  Office : "🏢",
-  Other  : "📍",
-};
-
 const BLANK = {
   label                 : "Home",
   recipient_name        : "",
@@ -60,6 +53,183 @@ const BLANK = {
   additional_directions : "",
   call_before_delivery  : false,
   is_default            : false,
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SVG ICONS  (all transparent — use currentColor)
+═══════════════════════════════════════════════════════════════ */
+const Icon = {
+  Truck: ({ size = 32 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="1" y="3" width="15" height="13" rx="1" />
+      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+      <circle cx="5.5" cy="18.5" r="2.5" />
+      <circle cx="18.5" cy="18.5" r="2.5" />
+    </svg>
+  ),
+
+  BusStop: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 6v6M15 6v6M2 12h19.6" />
+      <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3" />
+      <circle cx="7" cy="18" r="2" />
+      <path d="M9 18h5" />
+      <circle cx="16" cy="18" r="2" />
+    </svg>
+  ),
+
+  Home: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  ),
+
+  Office: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="2" width="16" height="20" rx="2" />
+      <line x1="9"  y1="6"  x2="9"  y2="6" />
+      <line x1="15" y1="6"  x2="15" y2="6" />
+      <line x1="9"  y1="10" x2="9"  y2="10" />
+      <line x1="15" y1="10" x2="15" y2="10" />
+      <line x1="9"  y1="14" x2="9"  y2="14" />
+      <line x1="15" y1="14" x2="15" y2="14" />
+      <path d="M10 22V17h4v5" />
+    </svg>
+  ),
+
+  Pin: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  ),
+
+  Phone: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  ),
+
+  Check: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="3"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+
+  Info: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  ),
+
+  Trash: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
+  ),
+
+  Edit: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  ),
+
+  Star: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  ),
+
+  MoreVertical: ({ size = 18 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="12" cy="5"  r="1.5" />
+      <circle cx="12" cy="19" r="1.5" />
+    </svg>
+  ),
+
+  X: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  ),
+
+  Alert: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9"  x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  ),
+
+  ArrowRight: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="12 5 19 12 12 19" />
+    </svg>
+  ),
+
+  Plus: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" aria-hidden="true">
+      <line x1="12" y1="5"  x2="12" y2="19" />
+      <line x1="5"  y1="12" x2="19" y2="12" />
+    </svg>
+  ),
+
+  /* WhatsApp brand — filled currentColor */
+  WhatsApp: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill="currentColor" aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.002-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+    </svg>
+  ),
+};
+
+/* Map label → icon component */
+const LABEL_ICON_COMPONENT = {
+  Home   : Icon.Home,
+  Office : Icon.Office,
+  Other  : Icon.Pin,
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -121,13 +291,14 @@ const validate = (form) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   ERROR TOAST  (replaces alert())
+   ERROR TOAST
 ═══════════════════════════════════════════════════════════════ */
 function ErrorToast({ message, onDismiss, action }) {
   if (!message) return null;
   return (
     <div role="alert" className="as-toast">
-      <span className="as-toast__msg">⚠️ {message}</span>
+      <span className="as-toast__icon"><Icon.Alert /></span>
+      <span className="as-toast__msg">{message}</span>
       {action && (
         <button
           type="button"
@@ -144,7 +315,7 @@ function ErrorToast({ message, onDismiss, action }) {
           className="as-toast__dismiss"
           aria-label="Dismiss error"
         >
-          ✕
+          <Icon.X size={14} />
         </button>
       )}
     </div>
@@ -182,12 +353,16 @@ function DeleteModal({ address, onConfirm, onCancel }) {
       aria-label="Delete address"
     >
       <div className="as-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="as-modal__icon">🗑️</div>
+        <div className="as-modal__icon"><Icon.Trash size={24} /></div>
         <h3 className="as-modal__title">Delete this address?</h3>
 
         <div className="as-modal__body">
           <p className="as-modal__addr">{address.address_line}</p>
-          {busStop && <p className="as-modal__busstop">🚏 {busStop}</p>}
+          {busStop && (
+            <p className="as-modal__busstop">
+              <Icon.BusStop size={14} /> {busStop}
+            </p>
+          )}
           <p className="as-modal__city">{address.city}, {address.state}</p>
           <p className="as-modal__warn">This cannot be undone.</p>
         </div>
@@ -243,7 +418,7 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
         aria-expanded={open}
         type="button"
       >
-        ⋮
+        <Icon.MoreVertical />
       </button>
 
       {open && (
@@ -251,19 +426,19 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
           <button className="as-menu-item"
             onClick={() => { setOpen(false); onEdit(address); }}
             role="menuitem">
-            <span>✏️</span> Edit Address
+            <Icon.Edit size={15} /> Edit Address
           </button>
           {!address.is_default && (
             <button className="as-menu-item"
               onClick={() => { setOpen(false); onSetDefault(address); }}
               role="menuitem">
-              <span>⭐</span> Set as Default
+              <Icon.Star size={15} /> Set as Default
             </button>
           )}
           <button className="as-menu-item as-menu-item--danger"
             onClick={() => { setOpen(false); onDelete(address); }}
             role="menuitem">
-            <span>🗑️</span> Delete Address
+            <Icon.Trash size={15} /> Delete Address
           </button>
         </div>
       )}
@@ -305,6 +480,8 @@ const AddressStep = memo(function AddressStep({
   onEdit,
   onNext,
   user,
+  onChangeNumber,          /* WhatsApp notice "Change" handler */
+  termsHref = "/terms",    /* Terms & Conditions URL */
 }) {
   /* ── Zones ── */
   const [zones,      setZones]      = useState({});
@@ -331,7 +508,7 @@ const AddressStep = memo(function AddressStep({
   }), [user]);
 
   /* ══════════════════════════════════════════════════════════
-     LOAD ZONES  (public endpoint — no auth)
+     LOAD ZONES
   ══════════════════════════════════════════════════════════ */
   const loadZones = useCallback(() => {
     setZonesReady(false);
@@ -378,7 +555,6 @@ const AddressStep = memo(function AddressStep({
     return cleanup;
   }, [loadZones]);
 
-  /* Auto-open form when no addresses */
   useEffect(() => {
     if (!zonesReady) return;
     if (addresses.length === 0 && !formOpened.current) {
@@ -389,7 +565,6 @@ const AddressStep = memo(function AddressStep({
     }
   }, [zonesReady, addresses.length, makeBlank]);
 
-  /* Auto-select default */
   useEffect(() => {
     if (!selected && addresses.length > 0) {
       const def = addresses.find((a) => a.is_default) ?? addresses[0];
@@ -397,7 +572,6 @@ const AddressStep = memo(function AddressStep({
     }
   }, [addresses, selected, onSelect]);
 
-  /* Derived */
   const stateOptions = useMemo(() => Object.keys(zones).sort(), [zones]);
   const cityOptions  = useMemo(
     () => (form.state ? (zones[form.state]?.cities ?? []) : []),
@@ -407,7 +581,6 @@ const AddressStep = memo(function AddressStep({
   const atLimit   = addresses.length >= MAX_ADDRESSES;
   const isEditing = !!editingId;
 
-  /* Field setter */
   const set = useCallback((k) => (e) => {
     const val = e.target.type === "checkbox"
       ? e.target.checked
@@ -569,11 +742,52 @@ const AddressStep = memo(function AddressStep({
   return (
     <div className="as-root">
 
+      {/* ══════ WHATSAPP NOTICE (delivery-scoped) ══════ */}
+      <div className="as-wa-notice" role="note">
+        <div className="as-wa-notice__icon">
+          <Icon.WhatsApp />
+        </div>
+
+        <div className="as-wa-notice__body">
+          <p className="as-wa-notice__text">
+            Please use a <strong>WhatsApp-enabled number</strong> to receive
+            faster delivery updates and support.
+
+            {onChangeNumber && (
+              <>
+                {" "}Tap
+                <button
+                  type="button"
+                  onClick={onChangeNumber}
+                  className="as-wa-notice__change-btn"
+                  aria-label="Change WhatsApp number"
+                >
+                  <Icon.Edit size={11} /> Change
+                </button>
+                to update your number before checkout.
+              </>
+            )}
+
+            {" "}By proceeding, you are automatically accepting the{" "}
+            <a
+              href={termsHref}
+              className="as-wa-notice__terms-link"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Terms &amp; Conditions
+            </a>.
+          </p>
+        </div>
+      </div>
+
       {/* ══════ HERO BANNER ══════ */}
       <div className="as-hero">
         <div className="as-hero__pattern" />
         <div className="as-hero__content">
-          <div className="as-hero__icon">🚚</div>
+          <div className="as-hero__icon">
+            <Icon.Truck size={40} />
+          </div>
           <div className="as-hero__text">
             <h2>Where should we deliver?</h2>
             <p>
@@ -597,7 +811,9 @@ const AddressStep = memo(function AddressStep({
 
       {/* ══════ INFO STRIP ══════ */}
       <div className="as-info-strip">
-        <span className="as-info-strip__icon">🚏</span>
+        <span className="as-info-strip__icon">
+          <Icon.BusStop size={20} />
+        </span>
         <div className="as-info-strip__text">
           We deliver to your <strong>nearest bus stop</strong>.
           You'll meet the rider there to collect your package —
@@ -619,6 +835,7 @@ const AddressStep = memo(function AddressStep({
         const isSelected  = selected?.id === addr.id;
         const isBeingEdit = editingId === addr.id;
         const busStop     = addr.bus_stop || addr.landmark || null;
+        const LabelIcon   = LABEL_ICON_COMPONENT[addr.label] ?? Icon.Pin;
 
         return (
           <div
@@ -650,13 +867,18 @@ const AddressStep = memo(function AddressStep({
             <div className="as-card__info">
               <div className="as-card__tags">
                 <span className="as-card__label">
-                  {LABEL_ICON[addr.label] ?? "📍"} {addr.label}
+                  <span className="as-card__label-icon">
+                    <LabelIcon />
+                  </span>
+                  {addr.label}
                 </span>
                 {addr.is_default && (
                   <span className="as-tag as-tag--default">Default</span>
                 )}
                 {addr.call_before_delivery && (
-                  <span className="as-tag as-tag--call">📞 Call first</span>
+                  <span className="as-tag as-tag--call">
+                    <Icon.Phone size={10} /> Call first
+                  </span>
                 )}
               </div>
 
@@ -666,13 +888,13 @@ const AddressStep = memo(function AddressStep({
 
               {busStop && (
                 <div className="as-card__busstop">
-                  🚏 {busStop}
+                  <Icon.BusStop size={14} /> {busStop}
                 </div>
               )}
 
               {addr.additional_directions && (
                 <p className="as-card__directions">
-                  ℹ️ {addr.additional_directions}
+                  <Icon.Info size={11} /> {addr.additional_directions}
                 </p>
               )}
 
@@ -682,7 +904,7 @@ const AddressStep = memo(function AddressStep({
 
               {isSelected && (
                 <span className="as-card__deliver-here">
-                  ✓ Deliver Here
+                  <Icon.Check size={12} /> Deliver Here
                 </span>
               )}
             </div>
@@ -731,7 +953,7 @@ const AddressStep = memo(function AddressStep({
           }}
           type="button"
         >
-          ＋ Add New Address
+          <Icon.Plus /> Add New Address
         </button>
       )}
 
@@ -739,7 +961,7 @@ const AddressStep = memo(function AddressStep({
       {atLimit && !showForm && (
         <p className="as-limit">
           You've saved the maximum of {MAX_ADDRESSES} addresses.
-          Use the ⋮ menu on any address to edit or remove it.
+          Use the menu on any address to edit or remove it.
         </p>
       )}
 
@@ -761,14 +983,14 @@ const AddressStep = memo(function AddressStep({
             {addresses.length > 0 && (
               <button className="as-form__close" onClick={handleCancel}
                 type="button" aria-label="Close">
-                ✕
+                <Icon.X size={16} />
               </button>
             )}
           </div>
 
           {errors.general && (
             <div className="as-form__banner-error" role="alert">
-              ⚠️ {errors.general}
+              <Icon.Alert /> {errors.general}
             </div>
           )}
 
@@ -776,18 +998,21 @@ const AddressStep = memo(function AddressStep({
           <div className="as-field">
             <label className="as-label">Address Type</label>
             <div className="as-chips">
-              {LABELS.map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  className={`as-chip ${
-                    form.label === l ? "as-chip--active" : ""
-                  }`}
-                  onClick={() => setForm((p) => ({ ...p, label: l }))}
-                >
-                  {LABEL_ICON[l]} {l}
-                </button>
-              ))}
+              {LABELS.map((l) => {
+                const ChipIcon = LABEL_ICON_COMPONENT[l] ?? Icon.Pin;
+                return (
+                  <button
+                    key={l}
+                    type="button"
+                    className={`as-chip ${
+                      form.label === l ? "as-chip--active" : ""
+                    }`}
+                    onClick={() => setForm((p) => ({ ...p, label: l }))}
+                  >
+                    <ChipIcon /> {l}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -919,7 +1144,8 @@ const AddressStep = memo(function AddressStep({
             {/* Bus stop */}
             <div className="as-field as-field--full">
               <label className="as-label">
-                🚏 Nearest Bus Stop <span className="as-label__required">*</span>
+                <Icon.BusStop size={16} />
+                Nearest Bus Stop <span className="as-label__required">*</span>
               </label>
               <div className="as-field-note">
                 Enter the bus stop closest to you.
@@ -966,7 +1192,10 @@ const AddressStep = memo(function AddressStep({
               onChange={set("call_before_delivery")}
             />
             <span className="as-check__text">
-              📞 Call me before arriving at the bus stop
+              <span className="as-check__text-row">
+                <Icon.Phone size={13} />
+                Call me before arriving at the bus stop
+              </span>
               <small>Rider will call when they are on the way</small>
             </span>
           </label>
@@ -1014,7 +1243,7 @@ const AddressStep = memo(function AddressStep({
           type="button"
         >
           {!selected ? "Select an address to continue" : "Continue"}
-          {selected && <span className="as-next__arrow">→</span>}
+          {selected && <Icon.ArrowRight />}
         </button>
       )}
 
