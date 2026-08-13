@@ -1,199 +1,219 @@
-// src/pages/components/HowToUseRewards.jsx
-import { useState, useEffect } from "react";
-import { useNavigate }         from "react-router-dom";
+/**
+ * src/pages/Profile/components/HowToUseRewards.jsx
+ *
+ * Flat minimal guide explaining how to use coupons + airtime.
+ * Collapsible — starts open by default (parent controls via prop).
+ *
+ * Explains the ACTUAL flow:
+ *   1. User taps "Copy" on any coupon here
+ *   2. Goes to checkout
+ *   3. Taps "Choose a coupon" in Review step
+ *   4. Pastes code OR picks from the list
+ *   5. Backend validates + applies discount
+ *   6. Discount locks in when order is placed
+ */
+
+import { useState } from "react";
 import "../styles/HowToUseRewards.css";
 
-/*
- * Seller identifier used for the in-app profile route.
- * We navigate to /seller/:username so the user stays inside the app
- * instead of leaving via an external link.
- */
-const SELLER_USERNAME = "loemart";
+/* ═══════════════════════════════════════════════════════════════
+   ICONS  (transparent SVG, currentColor)
+═══════════════════════════════════════════════════════════════ */
+const Icon = {
+  ChevronDown: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  ),
+  Info: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  ),
+  Copy: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+    </svg>
+  ),
+  Cart: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <circle cx="9" cy="21" r="1" />
+      <circle cx="20" cy="21" r="1" />
+      <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+    </svg>
+  ),
+  Ticket: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 9a3 3 0 010 6v2a2 2 0 002 2h16a2 2 0 002-2v-2a3 3 0 010-6V7a2 2 0 00-2-2H4a2 2 0 00-2 2z" />
+      <line x1="13" y1="5" x2="13" y2="19" strokeDasharray="2 2" />
+    </svg>
+  ),
+  Check: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  Phone: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <rect x="5" y="2" width="14" height="20" rx="2" />
+      <line x1="12" y1="18" x2="12.01" y2="18" />
+    </svg>
+  ),
+  Mail: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <polyline points="22,4 12,13 2,4" />
+    </svg>
+  ),
+  Zap: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  ),
+};
 
-/*
- * localStorage key used to remember the user's open/closed choice.
- * Bumping the suffix (v1 → v2) is a clean way to force the panel
- * open again after a major content update.
- */
-const STORAGE_KEY = "htu_panel_open_v1";
+/* ═══════════════════════════════════════════════════════════════
+   STEPS DATA
+═══════════════════════════════════════════════════════════════ */
+const DISCOUNT_STEPS = [
+  {
+    icon : Icon.Copy,
+    title: "Copy your code",
+    text : "Tap the copy button on any available coupon on this page.",
+  },
+  {
+    icon : Icon.Cart,
+    title: "Go to checkout",
+    text : "Add items to your cart, then proceed to checkout.",
+  },
+  {
+    icon : Icon.Ticket,
+    title: "Apply the coupon",
+    text : "In the Review step, tap \"Choose a coupon\" and paste your code — or pick one from your saved list.",
+  },
+  {
+    icon : Icon.Check,
+    title: "Discount locks in",
+    text : "Your discount applies instantly and is locked when you place the order.",
+  },
+];
 
-/*
- * Read the persisted open/closed state from localStorage.
- * Runs synchronously during initial render via useState's lazy initializer
- * so there's no flash of the wrong state.
- */
-function readPersistedState(fallback) {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === "1") return true;
-    if (raw === "0") return false;
-  } catch { /* ignore quota / privacy-mode errors */ }
-  return fallback;
-}
+const AIRTIME_STEPS = [
+  {
+    icon : Icon.Mail,
+    title: "Verify your email",
+    text : "One-time step to prevent fraud. Takes 30 seconds.",
+  },
+  {
+    icon : Icon.Phone,
+    title: "Enter your number",
+    text : "Tap \"Claim Airtime\" on any coupon and enter any Nigerian number.",
+  },
+  {
+    icon : Icon.Zap,
+    title: "Get credited",
+    text : "Airtime is sent to your phone within minutes.",
+  },
+];
 
-export default function HowToUseRewards({
-  defaultOpen    = true,
-  sellerUsername = SELLER_USERNAME,
-  /*
-   * persist=true  → remember the user's choice across page loads (default)
-   * persist=false → always start from defaultOpen, ignore localStorage
-   */
-  persist        = true,
-}) {
-  /*
-   * Lazy initializer reads from storage exactly once on mount.
-   * If persistence is disabled we just use defaultOpen.
-   */
-  const [open, setOpen] = useState(() =>
-    persist ? readPersistedState(defaultOpen) : defaultOpen
-  );
-
-  const navigate = useNavigate();
-
-  /*
-   * Write the current state back to storage whenever it changes.
-   * Wrapped in try/catch because localStorage can throw in:
-   *   – Safari private mode
-   *   – iframes with cookies disabled
-   *   – enterprise browsers with storage locked down
-   */
-  useEffect(() => {
-    if (!persist) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, open ? "1" : "0");
-    } catch { /* non-fatal */ }
-  }, [open, persist]);
-
-  /*
-   * Navigate to the seller profile inside the app.
-   * Using useNavigate keeps the user in the SPA — no page reload,
-   * no external tab, back button works as expected.
-   */
-  const goToSeller = (e) => {
-    e.preventDefault();
-    navigate(`/seller/${sellerUsername}`);
-  };
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENT
+═══════════════════════════════════════════════════════════════ */
+export default function HowToUseRewards({ defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <section className="htu-panel" aria-labelledby="htu-title">
-      {/* ═══ Toggle header ═══ */}
+    <section className="how-root">
       <button
-        type          ="button"
-        className     ="htu-header"
-        onClick       ={() => setOpen((v) => !v)}
-        aria-expanded ={open}
-        aria-controls ="htu-body"
+        type="button"
+        className="how-header"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
       >
-        <span className="htu-header-left">
-          <span className="htu-header-emoji" aria-hidden="true">🎟️</span>
-          <span id="htu-title" className="htu-header-title">
-            How to Use Your Rewards
-          </span>
+        <span className="how-header__icon">
+          <Icon.Info />
         </span>
-
-        <span
-          className ={`htu-chevron ${open ? "htu-chevron--open" : ""}`}
-          aria-hidden="true"
-        >
-          ⌄
+        <span className="how-header__title">How to use your rewards</span>
+        <span className={`how-header__chevron ${open ? "how-header__chevron--open" : ""}`}>
+          <Icon.ChevronDown />
         </span>
       </button>
 
-      {/* ═══ Body ═══ */}
       {open && (
-        <div id="htu-body" className="htu-body">
+        <div className="how-body">
 
-          {/* ─── Discount Coupons ─── */}
-          <div className="htu-section">
-            <div className="htu-section-header">
-              <span
-                className  ="htu-section-icon htu-section-icon--discount"
-                aria-hidden="true"
-              >
-                🏷️
-              </span>
-              <h3 className="htu-section-title">Discount Coupons</h3>
-            </div>
-
-            <ol className="htu-steps">
-              <li>
-                Copy your coupon code by tapping the{" "}
-                <span className="htu-inline-btn">Copy</span> button.
-              </li>
-              <li>
-                Browse products and choose the item you want from the{" "}
-                <strong>official Loemart seller store</strong>.
-              </li>
-              <li>
-                Open the seller profile:{" "}
-                {/*
-                  href is kept as the real path so users can:
-                  – right-click "Open in new tab"
-                  – copy the link
-                  – have proper accessibility semantics
-                  onClick intercepts the normal click and navigates
-                  inside the SPA via react-router.
-                */}
-                <a
-                  href      ={`/seller/${sellerUsername}`}
-                  onClick   ={goToSeller}
-                  className ="htu-link"
-                >
-                  @{sellerUsername}
-                </a>
-              </li>
-              <li>
-                Tap <strong>"Chat with Seller"</strong> and send:
-                <ul className="htu-sublist">
-                  <li>Your coupon code</li>
-                  <li>The product you want to buy</li>
-                </ul>
-              </li>
-              <li>
-                Our team will verify your coupon and apply the discount
-                if it is valid.
-              </li>
+          {/* ══ DISCOUNT COUPONS ══ */}
+          <div className="how-section">
+            <h3 className="how-section__title">Discount coupons</h3>
+            <ol className="how-steps">
+              {DISCOUNT_STEPS.map(({ icon: StepIcon, title, text }, i) => (
+                <li key={title} className="how-step">
+                  <span className="how-step__num">{i + 1}</span>
+                  <div className="how-step__body">
+                    <div className="how-step__title">
+                      <span className="how-step__title-icon">
+                        <StepIcon />
+                      </span>
+                      {title}
+                    </div>
+                    <p className="how-step__text">{text}</p>
+                  </div>
+                </li>
+              ))}
             </ol>
           </div>
 
-          {/* ─── Airtime Rewards ─── */}
-          <div className="htu-section">
-            <div className="htu-section-header">
-              <span
-                className  ="htu-section-icon htu-section-icon--airtime"
-                aria-hidden="true"
-              >
-                📱
-              </span>
-              <h3 className="htu-section-title">Airtime Rewards</h3>
-            </div>
-
-            <ol className="htu-steps">
-              <li>Tap <strong>Claim Airtime</strong>.</li>
-              <li>Enter the phone number you want to receive the airtime on.</li>
-              <li>Tap <strong>Claim</strong>.</li>
-              <li>
-                Once your request is verified, the airtime will be credited
-                to your phone number.
-              </li>
+          {/* ══ AIRTIME COUPONS ══ */}
+          <div className="how-section">
+            <h3 className="how-section__title">Airtime coupons</h3>
+            <ol className="how-steps">
+              {AIRTIME_STEPS.map(({ icon: StepIcon, title, text }, i) => (
+                <li key={title} className="how-step">
+                  <span className="how-step__num">{i + 1}</span>
+                  <div className="how-step__body">
+                    <div className="how-step__title">
+                      <span className="how-step__title-icon">
+                        <StepIcon />
+                      </span>
+                      {title}
+                    </div>
+                    <p className="how-step__text">{text}</p>
+                  </div>
+                </li>
+              ))}
             </ol>
           </div>
 
-          {/* ─── Important notes ─── */}
-          <div className="htu-important">
-            <div className="htu-important-header">
-              <span className="htu-important-icon" aria-hidden="true">⚠️</span>
-              <span className="htu-important-title">Important</span>
-            </div>
-
-            <ul className="htu-important-list">
-              <li>Coupons can only be used <strong>before they expire</strong>.</li>
-              <li>Each coupon can only be used <strong>once</strong>.</li>
-              <li>Airtime rewards can only be claimed <strong>once</strong>.</li>
-              <li>
-                <strong>Do not share</strong> your coupon code with anyone else.
-              </li>
+          {/* ══ TIPS ══ */}
+          <div className="how-tips">
+            <p className="how-tips__title">Good to know</p>
+            <ul className="how-tips__list">
+              <li>Each coupon can only be used once per account</li>
+              <li>Check the minimum order amount before applying</li>
+              <li>Free-shipping coupons waive your delivery fee at checkout</li>
+              <li>Coupons and discounts cannot be combined on the same order</li>
+              <li>Expired coupons show a red badge — they can't be applied</li>
             </ul>
           </div>
 
