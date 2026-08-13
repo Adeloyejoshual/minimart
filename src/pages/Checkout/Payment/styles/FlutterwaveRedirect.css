@@ -1,0 +1,245 @@
+/**
+ * src/pages/Checkout/Payment/styles/FlutterwaveRedirect.css
+ *
+ * Flat Jumia-style transient verification screen.
+ * Matches OrderSuccessPage + PaymentFailedPage + PaymentReturnRouter.
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+═══════════════════════════════════════════════════════════════ */
+.fwr-wrapper {
+  --fwr-orange     : #f68b1e;
+  --fwr-orange-dk  : #e07a10;
+  --fwr-orange-lt  : #fff5eb;
+  --fwr-orange-bd  : #ffd6b3;
+
+  --fwr-ink        : #2b2b2b;
+  --fwr-ink-2      : #4a4a4a;
+  --fwr-muted      : #6a6a6a;
+  --fwr-faint      : #b8b8b8;
+
+  --fwr-bg         : #f5f5f5;
+  --fwr-card-bg    : #ffffff;
+  --fwr-soft       : #f7f7f7;
+
+  --fwr-border     : #e5e5e5;
+  --fwr-border-lt  : #f0f0f0;
+
+  --fwr-success    : #16a34a;
+  --fwr-success-lt : #ecfdf5;
+
+  --fwr-danger     : #dc2626;
+  --fwr-danger-lt  : #fef2f2;
+
+  min-height     : 100vh;
+  background     : var(--fwr-bg);
+  padding        : 1rem;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  font-family    : system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color          : var(--fwr-ink);
+  line-height    : 1.5;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD
+═══════════════════════════════════════════════════════════════ */
+.fwr-card {
+  width        : 100%;
+  max-width    : 440px;
+  background   : var(--fwr-card-bg);
+  border-radius: 12px;
+  border       : 1px solid var(--fwr-border);
+  overflow     : hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STATE CONTAINER
+═══════════════════════════════════════════════════════════════ */
+.fwr-state {
+  padding       : 2.5rem 1.5rem;
+  display       : flex;
+  flex-direction: column;
+  align-items   : center;
+  text-align    : center;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SPINNER (verifying state)
+═══════════════════════════════════════════════════════════════ */
+.fwr-spinner {
+  width        : 72px;
+  height       : 72px;
+  margin-bottom: 1.5rem;
+}
+
+.fwr-spinner__ring {
+  width        : 100%;
+  height       : 100%;
+  border       : 4px solid var(--fwr-border-lt);
+  border-top   : 4px solid var(--fwr-orange);
+  border-radius: 50%;
+  animation    : fwr-spin 0.8s linear infinite;
+}
+
+@keyframes fwr-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESULT ICON WRAPPERS (success / failed)
+═══════════════════════════════════════════════════════════════ */
+.fwr-icon-wrap {
+  width          : 84px;
+  height         : 84px;
+  border-radius  : 50%;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  margin-bottom  : 1.25rem;
+}
+
+.fwr-icon-wrap--success {
+  background: var(--fwr-success-lt);
+  color     : var(--fwr-success);
+}
+
+.fwr-icon-wrap--danger {
+  background: var(--fwr-danger-lt);
+  color     : var(--fwr-danger);
+}
+
+/* Animated check */
+.fwr-check__ring {
+  stroke-dasharray : 166;
+  stroke-dashoffset: 166;
+  animation        : fwr-ring 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.fwr-check__tick {
+  stroke-dasharray : 48;
+  stroke-dashoffset: 48;
+  animation        : fwr-tick 0.4s 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+/* Animated X */
+.fwr-x__ring {
+  stroke-dasharray : 166;
+  stroke-dashoffset: 166;
+  animation        : fwr-ring 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.fwr-x__mark {
+  stroke-dasharray : 40;
+  stroke-dashoffset: 40;
+  animation        : fwr-tick 0.4s 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+@keyframes fwr-ring {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes fwr-tick {
+  to { stroke-dashoffset: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEADING
+═══════════════════════════════════════════════════════════════ */
+.fwr-title {
+  font-size     : 1.4rem;
+  font-weight   : 800;
+  color         : var(--fwr-ink);
+  margin        : 0 0 0.5rem;
+  letter-spacing: -0.01em;
+}
+
+.fwr-subtitle {
+  font-size  : 0.9rem;
+  color      : var(--fwr-muted);
+  margin     : 0 0 1.5rem;
+  line-height: 1.5;
+  max-width  : 340px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INDETERMINATE PROGRESS BAR (verifying state)
+   ─────────────────────────────────────────────────────────────
+   Instead of a fake attempt counter, show a sweeping animation
+   that reassures the user that something is happening.
+═══════════════════════════════════════════════════════════════ */
+.fwr-progress {
+  width        : 100%;
+  max-width    : 260px;
+  height       : 4px;
+  background   : var(--fwr-border-lt);
+  border-radius: 100px;
+  overflow     : hidden;
+  margin       : 0 0 1.5rem;
+  position     : relative;
+}
+
+.fwr-progress__fill {
+  position     : absolute;
+  top          : 0;
+  left         : 0;
+  height       : 100%;
+  width        : 40%;
+  background   : linear-gradient(90deg,
+    transparent 0%,
+    var(--fwr-orange) 50%,
+    transparent 100%
+  );
+  border-radius: 100px;
+  animation    : fwr-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes fwr-sweep {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TRUST STRIP
+═══════════════════════════════════════════════════════════════ */
+.fwr-trust {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 0.4rem;
+  padding      : 0.5rem 0.9rem;
+  background   : var(--fwr-soft);
+  border       : 1px solid var(--fwr-border-lt);
+  border-radius: 100px;
+  font-size    : 0.72rem;
+  color        : var(--fwr-muted);
+  font-weight  : 500;
+}
+
+.fwr-trust svg {
+  color: var(--fwr-success);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .fwr-state {
+    padding: 2rem 1.25rem;
+  }
+  .fwr-title {
+    font-size: 1.2rem;
+  }
+  .fwr-subtitle {
+    font-size: 0.85rem;
+  }
+  .fwr-spinner {
+    width : 60px;
+    height: 60px;
+  }
+  .fwr-icon-wrap {
+    width : 72px;
+    height: 72px;
+  }
+}
