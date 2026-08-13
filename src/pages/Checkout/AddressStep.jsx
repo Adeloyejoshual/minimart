@@ -3,19 +3,16 @@
  *
  * Step 1 of checkout — delivery address selection & management.
  *
- * v4 — Final
+ * v5 — Premium redesign
  * ──────────────────────────────────────────────────────────────
- * ✓ Zones fetched WITHOUT auth header (endpoint is now public)
- * ✓ Zones fetch resolves before form renders (skeleton gate)
+ * ✓ Jumia-inspired hero banner
+ * ✓ All styles in styles/AddressStep.css
+ * ✓ Elevated card design with orange accent
+ * ✓ Clear visual hierarchy — hero → info → cards → form
+ * ✓ Zones fetched WITHOUT auth (endpoint is public)
+ * ✓ Cross-device address sync (fresh fetch on mount)
  * ✓ Handles multiple response shapes defensively
- * ✓ Fresh addresses fetched from API on mount (cross-device sync)
- * ✓ Auto-selects default / most-recent address
- * ✓ alert() replaced with inline error toast
- * ✓ Functional setters — no stale closures
- * ✓ Keyframes injected once into <head>
- * ✓ Phone normalisation (+234 → 0) before validation
- * ✓ stateOptions / cityOptions memoised
- * ✓ Retry button when zones fail to load
+ * ✓ ErrorToast with inline retry action
  */
 
 import {
@@ -23,15 +20,13 @@ import {
   useRef, useMemo, memo,
 } from "react";
 import axios from "axios";
+import "./styles/AddressStep.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
 ═══════════════════════════════════════════════════════════════ */
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
-/* ═══════════════════════════════════════════════════════════════
-   AUTH HELPERS
-═══════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token")             ||
@@ -68,35 +63,6 @@ const BLANK = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   KEYFRAMES  —  injected once into <head>
-═══════════════════════════════════════════════════════════════ */
-const STYLE_ID = "ck-address-styles";
-
-function ensureKeyframes() {
-  if (document.getElementById(STYLE_ID)) return;
-  const el = document.createElement("style");
-  el.id = STYLE_ID;
-  el.textContent = `
-    @keyframes ck-spin {
-      to { transform: rotate(360deg); }
-    }
-    @keyframes ck-shimmer {
-      0%   { background-position: -300px 0; }
-      100% { background-position:  300px 0; }
-    }
-    @keyframes ck-modal-in {
-      from { opacity: 0; transform: scale(0.96) translateY(6px); }
-      to   { opacity: 1; transform: scale(1) translateY(0); }
-    }
-    @keyframes ck-dropdown-in {
-      from { opacity: 0; transform: translateY(-4px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-  `;
-  document.head.appendChild(el);
-}
-
-/* ═══════════════════════════════════════════════════════════════
    VALIDATION
 ═══════════════════════════════════════════════════════════════ */
 const FAKE_PATTERNS = [
@@ -112,10 +78,6 @@ const isFake = (value = "", minLen = 5) => {
   return FAKE_PATTERNS.some((p) => p.test(t));
 };
 
-/**
- * Normalise a phone string.
- * Strips spaces/dashes, converts +234 prefix to leading 0.
- */
 function normalisePhone(raw = "") {
   let c = raw.replace(/[\s\-()]/g, "");
   if (c.startsWith("+234")) c = "0" + c.slice(4);
@@ -159,64 +121,18 @@ const validate = (form) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SPINNER
-═══════════════════════════════════════════════════════════════ */
-function Spinner({ size = 14 }) {
-  return (
-    <span
-      style={{
-        display      : "inline-block",
-        width        : size,
-        height       : size,
-        border       : "2px solid rgba(255,255,255,0.3)",
-        borderTop    : "2px solid white",
-        borderRadius : "50%",
-        animation    : "ck-spin 0.7s linear infinite",
-        flexShrink   : 0,
-      }}
-      aria-hidden="true"
-    />
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
    ERROR TOAST  (replaces alert())
 ═══════════════════════════════════════════════════════════════ */
 function ErrorToast({ message, onDismiss, action }) {
   if (!message) return null;
   return (
-    <div
-      role="alert"
-      style={{
-        background   : "#fef2f2",
-        border       : "1px solid #fecaca",
-        borderRadius : 10,
-        padding      : "0.75rem 1rem",
-        color        : "#991b1b",
-        fontSize     : "0.85rem",
-        display      : "flex",
-        alignItems   : "center",
-        gap          : "0.5rem",
-        marginBottom : "0.75rem",
-        flexWrap     : "wrap",
-      }}
-    >
-      <span>⚠️ {message}</span>
+    <div role="alert" className="as-toast">
+      <span className="as-toast__msg">⚠️ {message}</span>
       {action && (
         <button
           type="button"
           onClick={action.onClick}
-          style={{
-            marginLeft     : "0.25rem",
-            background     : "none",
-            border         : "1px solid #991b1b",
-            borderRadius   : 6,
-            padding        : "0.2rem 0.6rem",
-            cursor         : "pointer",
-            color          : "#991b1b",
-            fontWeight     : 600,
-            fontSize       : "0.8rem",
-          }}
+          className="as-toast__action"
         >
           {action.label}
         </button>
@@ -225,16 +141,7 @@ function ErrorToast({ message, onDismiss, action }) {
         <button
           onClick={onDismiss}
           type="button"
-          style={{
-            marginLeft : "auto",
-            background : "none",
-            border     : "none",
-            cursor     : "pointer",
-            color      : "#991b1b",
-            fontWeight : 700,
-            fontSize   : "1rem",
-            lineHeight : 1,
-          }}
+          className="as-toast__dismiss"
           aria-label="Dismiss error"
         >
           ✕
@@ -268,29 +175,29 @@ function DeleteModal({ address, onConfirm, onCancel }) {
 
   return (
     <div
-      className="ck-modal-overlay"
+      className="as-modal-overlay"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
       aria-label="Delete address"
     >
-      <div className="ck-modal" onClick={(e) => e.stopPropagation()}>
-        <span className="ck-modal-icon">🗑️</span>
-        <h3 className="ck-modal-title">Delete this address?</h3>
+      <div className="as-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="as-modal__icon">🗑️</div>
+        <h3 className="as-modal__title">Delete this address?</h3>
 
-        <div className="ck-modal-body">
-          <p className="ck-modal-addr">{address.address_line}</p>
-          {busStop && <p className="ck-modal-busstop">🚏 {busStop}</p>}
-          <p className="ck-modal-city">{address.city}, {address.state}</p>
-          <p className="ck-modal-warn">This cannot be undone.</p>
+        <div className="as-modal__body">
+          <p className="as-modal__addr">{address.address_line}</p>
+          {busStop && <p className="as-modal__busstop">🚏 {busStop}</p>}
+          <p className="as-modal__city">{address.city}, {address.state}</p>
+          <p className="as-modal__warn">This cannot be undone.</p>
         </div>
 
-        <div className="ck-modal-actions">
-          <button className="ck-modal-cancel" onClick={onCancel}
+        <div className="as-modal__actions">
+          <button className="as-modal__cancel" onClick={onCancel}
             disabled={busy} type="button">
             Keep Address
           </button>
-          <button className="ck-modal-delete" onClick={handleYes}
+          <button className="as-modal__delete" onClick={handleYes}
             disabled={busy} type="button">
             {busy ? "Deleting…" : "Yes, Delete"}
           </button>
@@ -301,7 +208,7 @@ function DeleteModal({ address, onConfirm, onCancel }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ADDRESS CARD MENU
+   CARD MENU
 ═══════════════════════════════════════════════════════════════ */
 function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
   const [open, setOpen] = useState(false);
@@ -325,12 +232,12 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
 
   return (
     <div
-      className="ck-card-menu"
+      className="as-card__menu"
       ref={ref}
       onClick={(e) => e.stopPropagation()}
     >
       <button
-        className="ck-card-menu-btn"
+        className="as-menu-btn"
         onClick={() => setOpen((v) => !v)}
         aria-label="Address options"
         aria-expanded={open}
@@ -340,23 +247,23 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
       </button>
 
       {open && (
-        <div className="ck-card-dropdown" role="menu">
-          <button className="ck-drop-item"
+        <div className="as-menu-dropdown" role="menu">
+          <button className="as-menu-item"
             onClick={() => { setOpen(false); onEdit(address); }}
             role="menuitem">
-            ✏️ Edit Address
+            <span>✏️</span> Edit Address
           </button>
           {!address.is_default && (
-            <button className="ck-drop-item"
+            <button className="as-menu-item"
               onClick={() => { setOpen(false); onSetDefault(address); }}
               role="menuitem">
-              ⭐ Set as Default
+              <span>⭐</span> Set as Default
             </button>
           )}
-          <button className="ck-drop-item ck-drop-item--danger"
+          <button className="as-menu-item as-menu-item--danger"
             onClick={() => { setOpen(false); onDelete(address); }}
             role="menuitem">
-            🗑️ Delete Address
+            <span>🗑️</span> Delete Address
           </button>
         </div>
       )}
@@ -369,18 +276,16 @@ function CardMenu({ address, onEdit, onDelete, onSetDefault }) {
 ═══════════════════════════════════════════════════════════════ */
 function AddressSkeleton() {
   return (
-    <div className="ck-section">
-      <h2 className="ck-section-title">📍 Delivery Address</h2>
-      <div className="ck-addr-skeleton">
+    <div className="as-root">
+      <div className="as-skeleton">
         {[1, 2].map((i) => (
-          <div key={i} className="ck-addr-sk-card">
-            <div className="ck-addr-sk-dot ck-shimmer" />
-            <div className="ck-addr-sk-lines">
-              <div className="ck-addr-sk-line ck-addr-sk-w80 ck-shimmer" />
-              <div className="ck-addr-sk-line ck-addr-sk-w60 ck-shimmer" />
-              <div className="ck-addr-sk-line ck-addr-sk-w45 ck-shimmer" />
+          <div key={i} className="as-skel-card">
+            <div className="as-skel-dot as-shimmer" />
+            <div className="as-skel-lines">
+              <div className="as-skel-line as-skel-line--80 as-shimmer" />
+              <div className="as-skel-line as-skel-line--60 as-shimmer" />
+              <div className="as-skel-line as-skel-line--45 as-shimmer" />
             </div>
-            <div className="ck-addr-sk-btn ck-shimmer" />
           </div>
         ))}
       </div>
@@ -396,12 +301,12 @@ const AddressStep = memo(function AddressStep({
   setAddresses,
   selected,
   onSelect,
-  onAdd,        /* legacy — kept for backward compatibility */
-  onEdit,       /* legacy — kept for backward compatibility */
+  onAdd,
+  onEdit,
   onNext,
   user,
 }) {
-  /* ── Zones (public endpoint, no auth) ── */
+  /* ── Zones ── */
   const [zones,      setZones]      = useState({});
   const [zonesError, setZonesError] = useState(null);
   const [zonesReady, setZonesReady] = useState(false);
@@ -419,10 +324,6 @@ const AddressStep = memo(function AddressStep({
 
   const formOpened = useRef(false);
 
-  /* Inject keyframes once */
-  useEffect(() => { ensureKeyframes(); }, []);
-
-  /* Pre-filled blank */
   const makeBlank = useCallback(() => ({
     ...BLANK,
     recipient_name : user?.name         ?? "",
@@ -430,11 +331,7 @@ const AddressStep = memo(function AddressStep({
   }), [user]);
 
   /* ══════════════════════════════════════════════════════════
-     LOAD ZONES
-     ─────────────────────────────────────────────────────────
-     Public endpoint — no auth header sent. Handles multiple
-     response shapes defensively so the frontend keeps working
-     if the backend ever changes its wrapper.
+     LOAD ZONES  (public endpoint — no auth)
   ══════════════════════════════════════════════════════════ */
   const loadZones = useCallback(() => {
     setZonesReady(false);
@@ -443,17 +340,10 @@ const AddressStep = memo(function AddressStep({
     let cancelled = false;
 
     axios
-      .get(`${API}/checkout/address/zones`)   /* no auth header — public route */
+      .get(`${API}/checkout/address/zones`)
       .then((res) => {
         if (cancelled) return;
 
-        /*
-         * Defensively unwrap the response. Supported shapes:
-         *   Shape A: { success: true, data: { Osun: {...} } }        ← current
-         *   Shape B: { success: true, zones: { Osun: {...} } }
-         *   Shape C: { Osun: {...} }                                  ← bare object
-         *   Shape D: { success: true, data: { zones: { ... } } }      ← nested
-         */
         const raw = res.data;
         const z =
           raw?.data?.zones ??
@@ -462,16 +352,9 @@ const AddressStep = memo(function AddressStep({
           (typeof raw === "object" && !("success" in raw) ? raw : {}) ??
           {};
 
-        if (import.meta.env.DEV) {
-          console.log("[AddressStep] zones raw:", raw);
-          console.log("[AddressStep] zones extracted:", z);
-          console.log("[AddressStep] zone keys:", Object.keys(z));
-        }
-
         if (Object.keys(z).length === 0) {
           setZonesError(
-            "Delivery zones could not be loaded. " +
-            "Please refresh the page."
+            "Delivery zones could not be loaded. Please refresh the page."
           );
         }
         setZones(z);
@@ -480,8 +363,7 @@ const AddressStep = memo(function AddressStep({
         if (cancelled) return;
         console.error("[AddressStep] zones fetch failed:", err.message);
         setZonesError(
-          "Could not load delivery zones. " +
-          "Check your connection and try again."
+          "Could not load delivery zones. Check your connection and try again."
         );
       })
       .finally(() => {
@@ -496,9 +378,7 @@ const AddressStep = memo(function AddressStep({
     return cleanup;
   }, [loadZones]);
 
-  /* ══════════════════════════════════════════════════════════
-     AUTO-OPEN FORM WHEN NO ADDRESSES EXIST
-  ══════════════════════════════════════════════════════════ */
+  /* Auto-open form when no addresses */
   useEffect(() => {
     if (!zonesReady) return;
     if (addresses.length === 0 && !formOpened.current) {
@@ -509,9 +389,7 @@ const AddressStep = memo(function AddressStep({
     }
   }, [zonesReady, addresses.length, makeBlank]);
 
-  /* ══════════════════════════════════════════════════════════
-     AUTO-SELECT DEFAULT / MOST-RECENT ADDRESS
-  ══════════════════════════════════════════════════════════ */
+  /* Auto-select default */
   useEffect(() => {
     if (!selected && addresses.length > 0) {
       const def = addresses.find((a) => a.is_default) ?? addresses[0];
@@ -519,12 +397,9 @@ const AddressStep = memo(function AddressStep({
     }
   }, [addresses, selected, onSelect]);
 
-  /* ══════════════════════════════════════════════════════════
-     DERIVED (memoised)
-  ══════════════════════════════════════════════════════════ */
+  /* Derived */
   const stateOptions = useMemo(() => Object.keys(zones).sort(), [zones]);
-
-  const cityOptions = useMemo(
+  const cityOptions  = useMemo(
     () => (form.state ? (zones[form.state]?.cities ?? []) : []),
     [zones, form.state]
   );
@@ -532,9 +407,7 @@ const AddressStep = memo(function AddressStep({
   const atLimit   = addresses.length >= MAX_ADDRESSES;
   const isEditing = !!editingId;
 
-  /* ══════════════════════════════════════════════════════════
-     STABLE FIELD SETTER
-  ══════════════════════════════════════════════════════════ */
+  /* Field setter */
   const set = useCallback((k) => (e) => {
     const val = e.target.type === "checkbox"
       ? e.target.checked
@@ -548,9 +421,6 @@ const AddressStep = memo(function AddressStep({
     setErrors((p) => ({ ...p, state: "", city: "" }));
   }, []);
 
-  /* ══════════════════════════════════════════════════════════
-     EDIT
-  ══════════════════════════════════════════════════════════ */
   const handleEdit = useCallback((addr) => {
     setEditingId(addr.id);
     setForm({
@@ -569,14 +439,11 @@ const AddressStep = memo(function AddressStep({
     setShowForm(true);
     setTimeout(() => {
       document
-        .querySelector(".ck-address-form")
+        .querySelector(".as-form")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 100);
   }, []);
 
-  /* ══════════════════════════════════════════════════════════
-     CANCEL
-  ══════════════════════════════════════════════════════════ */
   const handleCancel = useCallback(() => {
     setShowForm(false);
     setEditingId(null);
@@ -584,9 +451,6 @@ const AddressStep = memo(function AddressStep({
     setForm(makeBlank());
   }, [makeBlank]);
 
-  /* ══════════════════════════════════════════════════════════
-     SAVE
-  ══════════════════════════════════════════════════════════ */
   const handleSave = useCallback(async () => {
     if (saving) return;
 
@@ -595,8 +459,8 @@ const AddressStep = memo(function AddressStep({
       setErrors(errs);
       setTimeout(() => {
         document
-          .querySelector(".ck-field-error")
-          ?.closest(".ck-form-field")
+          .querySelector(".as-field-error")
+          ?.closest(".as-field")
           ?.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 50);
       return;
@@ -605,7 +469,6 @@ const AddressStep = memo(function AddressStep({
     setSaving(true);
     setErrors({});
 
-    /* Send both bus_stop AND landmark for backend compatibility */
     const payload = { ...form, landmark: form.bus_stop };
 
     try {
@@ -616,14 +479,11 @@ const AddressStep = memo(function AddressStep({
           { headers: authHeader() }
         );
         const updated = data.data;
-
-        /* Update via functional setter to avoid stale closure */
         setAddresses?.((prev) =>
           prev.map((a) => (a.id === editingId ? updated : a))
         );
-        onEdit?.(editingId, updated);   /* legacy callback support */
+        onEdit?.(editingId, updated);
         if (selected?.id === editingId) onSelect(updated);
-
       } else {
         const { data } = await axios.post(
           `${API}/checkout/address`,
@@ -631,9 +491,8 @@ const AddressStep = memo(function AddressStep({
           { headers: authHeader() }
         );
         const created = data.data;
-
         setAddresses?.((prev) => [...prev, created]);
-        onAdd?.(created);   /* legacy callback support */
+        onAdd?.(created);
         onSelect(created);
       }
 
@@ -659,9 +518,6 @@ const AddressStep = memo(function AddressStep({
     setAddresses, onAdd, onEdit, makeBlank,
   ]);
 
-  /* ══════════════════════════════════════════════════════════
-     DELETE
-  ══════════════════════════════════════════════════════════ */
   const handleDeleteConfirm = useCallback(async () => {
     if (!delTarget) return;
 
@@ -671,13 +527,11 @@ const AddressStep = memo(function AddressStep({
         { headers: authHeader() }
       );
 
-      /* Functional setter — never operates on a stale snapshot */
       setAddresses?.((prev) => {
         const next = prev.filter((a) => a.id !== delTarget.id);
         if (selected?.id === delTarget.id) onSelect(next[0] ?? null);
         return next;
       });
-
     } catch (err) {
       setActionErr(
         err.response?.data?.message ??
@@ -688,9 +542,6 @@ const AddressStep = memo(function AddressStep({
     }
   }, [delTarget, selected, onSelect, setAddresses]);
 
-  /* ══════════════════════════════════════════════════════════
-     SET DEFAULT
-  ══════════════════════════════════════════════════════════ */
   const handleSetDefault = useCallback(async (addr) => {
     try {
       await axios.patch(
@@ -710,63 +561,60 @@ const AddressStep = memo(function AddressStep({
     }
   }, [setAddresses, onSelect]);
 
-  /* ══════════════════════════════════════════════════════════
-     LOADING SKELETON
-     ─────────────────────────────────────────────────────────
-     Show skeleton until zones fetch resolves so the state
-     dropdown never renders empty.
-  ══════════════════════════════════════════════════════════ */
   if (!zonesReady) return <AddressSkeleton />;
 
   /* ══════════════════════════════════════════════════════════
      RENDER
   ══════════════════════════════════════════════════════════ */
   return (
-    <div className="ck-section">
+    <div className="as-root">
 
-      <h2 className="ck-section-title">📍 Delivery Address</h2>
+      {/* ══════ HERO BANNER ══════ */}
+      <div className="as-hero">
+        <div className="as-hero__pattern" />
+        <div className="as-hero__content">
+          <div className="as-hero__icon">🚚</div>
+          <div className="as-hero__text">
+            <h2>Where should we deliver?</h2>
+            <p>
+              Fast delivery to Osun &amp; Ondo States ·
+              Meet our rider at your bus stop
+            </p>
+          </div>
+        </div>
+      </div>
 
-      {/* Action error banner (delete / set-default failures) */}
+      {/* ══════ TOASTS ══════ */}
       <ErrorToast
         message={actionErr}
         onDismiss={() => setActionErr(null)}
       />
-
-      {/* Zones fetch error — with retry action */}
       <ErrorToast
         message={zonesError}
         onDismiss={() => setZonesError(null)}
-        action={
-          zonesError
-            ? { label: "Retry", onClick: loadZones }
-            : null
-        }
+        action={zonesError ? { label: "Retry", onClick: loadZones } : null}
       />
 
-      {/* Zone coverage notice */}
-      <div className="ck-zone-notice">
-        <span aria-hidden="true">🚚</span>
-        <div>
-          <strong>We currently deliver to:</strong>
-          <p>
-            Osun State (Osogbo, Ile-Ife, Ilesa &amp; more) ·
-            Ondo State (Ondo Town only)
-          </p>
+      {/* ══════ INFO STRIP ══════ */}
+      <div className="as-info-strip">
+        <span className="as-info-strip__icon">🚏</span>
+        <div className="as-info-strip__text">
+          We deliver to your <strong>nearest bus stop</strong>.
+          You'll meet the rider there to collect your package —
+          they'll call before arriving.
         </div>
       </div>
 
-      {/* Bus stop notice */}
-      <div className="ck-busstop-notice">
-        <span aria-hidden="true">🚏</span>
-        <p>
-          Our rider delivers to your <strong>nearest bus stop</strong>.
-          You'll meet them there to collect your package.
-        </p>
-      </div>
+      {/* ══════ ADDRESS CARDS ══════ */}
+      {addresses.length > 0 && (
+        <div className="as-section-title">
+          <span>Saved Addresses</span>
+          <span className="as-section-title__count">
+            {addresses.length} / {MAX_ADDRESSES}
+          </span>
+        </div>
+      )}
 
-      {/* ══════════════════════════════════════════════
-          ADDRESS CARDS
-      ══════════════════════════════════════════════ */}
       {addresses.map((addr) => {
         const isSelected  = selected?.id === addr.id;
         const isBeingEdit = editingId === addr.id;
@@ -776,9 +624,9 @@ const AddressStep = memo(function AddressStep({
           <div
             key={addr.id}
             className={[
-              "ck-address-card",
-              isSelected  ? "ck-address-card--selected" : "",
-              isBeingEdit ? "ck-address-card--editing"  : "",
+              "as-card",
+              isSelected  ? "as-card--selected" : "",
+              isBeingEdit ? "as-card--editing"  : "",
             ].filter(Boolean).join(" ")}
             onClick={() => {
               if (!isBeingEdit) {
@@ -795,46 +643,47 @@ const AddressStep = memo(function AddressStep({
                 onSelect(addr);
             }}
           >
-            <div className="ck-address-radio" aria-hidden="true">
-              <div className={`ck-radio ${isSelected ? "ck-radio--active" : ""}`} />
+            <div className="as-card__radio" aria-hidden="true">
+              <div className="as-card__radio-dot" />
             </div>
 
-            <div className="ck-address-info">
-              <div className="ck-address-label-row">
-                <span className="ck-address-label">
+            <div className="as-card__info">
+              <div className="as-card__tags">
+                <span className="as-card__label">
                   {LABEL_ICON[addr.label] ?? "📍"} {addr.label}
                 </span>
                 {addr.is_default && (
-                  <span className="ck-default-tag">Default</span>
+                  <span className="as-tag as-tag--default">Default</span>
                 )}
                 {addr.call_before_delivery && (
-                  <span className="ck-call-tag">📞 Call first</span>
+                  <span className="as-tag as-tag--call">📞 Call first</span>
                 )}
               </div>
 
-              <p className="ck-address-name">
-                {addr.recipient_name} · {addr.phone}
-              </p>
-              <p className="ck-address-line">{addr.address_line}</p>
+              <p className="as-card__name">{addr.recipient_name}</p>
+              <p className="as-card__phone">{addr.phone}</p>
+              <p className="as-card__street">{addr.address_line}</p>
 
               {busStop && (
-                <p className="ck-address-busstop">
-                  🚏 <strong>{busStop}</strong>
-                </p>
+                <div className="as-card__busstop">
+                  🚏 {busStop}
+                </div>
               )}
 
               {addr.additional_directions && (
-                <p className="ck-address-directions">
+                <p className="as-card__directions">
                   ℹ️ {addr.additional_directions}
                 </p>
               )}
 
-              <p className="ck-address-location">
+              <p className="as-card__location">
                 {addr.city}, {addr.state}
               </p>
 
               {isSelected && (
-                <span className="ck-deliver-here">✓ Deliver Here</span>
+                <span className="as-card__deliver-here">
+                  ✓ Deliver Here
+                </span>
               )}
             </div>
 
@@ -848,18 +697,20 @@ const AddressStep = memo(function AddressStep({
         );
       })}
 
-      {/* Usage bar */}
+      {/* ══════ USAGE BAR ══════ */}
       {addresses.length > 0 && (
-        <div className="ck-usage-row">
-          <span className="ck-usage-text">
-            {addresses.length} of {MAX_ADDRESSES} addresses used
+        <div className="as-usage">
+          <span className="as-usage__text">
+            {addresses.length === MAX_ADDRESSES
+              ? "You've reached the maximum"
+              : `Add up to ${MAX_ADDRESSES - addresses.length} more`}
           </span>
-          <div className="ck-usage-bar">
-            {[1, 2, 3].map((i) => (
+          <div className="as-usage__bar">
+            {Array.from({ length: MAX_ADDRESSES }).map((_, i) => (
               <div
                 key={i}
-                className={`ck-usage-seg ${
-                  i <= addresses.length ? "ck-usage-seg--on" : ""
+                className={`as-usage__seg ${
+                  i < addresses.length ? "as-usage__seg--on" : ""
                 }`}
               />
             ))}
@@ -867,289 +718,10 @@ const AddressStep = memo(function AddressStep({
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════
-          ADDRESS FORM
-      ══════════════════════════════════════════════ */}
-      {showForm && (
-        <div
-          className="ck-address-form"
-          role="form"
-          aria-label={isEditing ? "Edit address" : "Add address"}
-        >
-          <div className="ck-form-header">
-            <h3 className="ck-form-title">
-              {isEditing
-                ? "Edit Address"
-                : addresses.length === 0
-                  ? "Add Delivery Address"
-                  : "New Address"}
-            </h3>
-            {addresses.length > 0 && (
-              <button className="ck-form-close" onClick={handleCancel}
-                type="button" aria-label="Close">
-                ✕
-              </button>
-            )}
-          </div>
-
-          {errors.general && (
-            <div className="ck-form-error-banner" role="alert">
-              ⚠️ {errors.general}
-            </div>
-          )}
-
-          {/* Label chips */}
-          <div className="ck-form-field">
-            <label className="ck-form-label">Address Type</label>
-            <div className="ck-label-chips">
-              {LABELS.map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  className={`ck-label-chip ${
-                    form.label === l ? "ck-label-chip--active" : ""
-                  }`}
-                  onClick={() => setForm((p) => ({ ...p, label: l }))}
-                >
-                  {LABEL_ICON[l]} {l}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="ck-form-grid">
-
-            {/* Recipient name */}
-            <div className="ck-form-field">
-              <label className="ck-form-label">
-                Recipient Name <span className="ck-required">*</span>
-              </label>
-              <input
-                className={`ck-input ${errors.recipient_name ? "ck-input--error" : ""}`}
-                value={form.recipient_name}
-                onChange={set("recipient_name")}
-                placeholder="Full name"
-              />
-              {errors.recipient_name && (
-                <span className="ck-field-error">{errors.recipient_name}</span>
-              )}
-            </div>
-
-            {/* Phone */}
-            <div className="ck-form-field">
-              <label className="ck-form-label">
-                Phone <span className="ck-required">*</span>
-              </label>
-              <input
-                className={`ck-input ${errors.phone ? "ck-input--error" : ""}`}
-                value={form.phone}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/\D/g, "").slice(0, 11);
-                  setForm((p) => ({ ...p, phone: v }));
-                  setErrors((p) => ({ ...p, phone: "" }));
-                }}
-                placeholder="08012345678"
-                type="tel"
-                inputMode="numeric"
-                maxLength={11}
-              />
-              {errors.phone ? (
-                <span className="ck-field-error">{errors.phone}</span>
-              ) : (
-                <span className="ck-field-hint">Rider calls this number</span>
-              )}
-            </div>
-
-            {/* State */}
-            <div className="ck-form-field">
-              <label className="ck-form-label" htmlFor="ck-state-select">
-                State <span className="ck-required">*</span>
-              </label>
-
-              {stateOptions.length === 0 ? (
-                <div style={{
-                  display    : "flex",
-                  alignItems : "center",
-                  gap        : "0.5rem",
-                  padding    : "0.5rem",
-                  background : "#fef2f2",
-                  border     : "1px solid #fecaca",
-                  borderRadius: 8,
-                }}>
-                  <span style={{ color: "#991b1b", fontSize: "0.85rem" }}>
-                    ⚠️ No states loaded
-                  </span>
-                  <button
-                    type="button"
-                    onClick={loadZones}
-                    style={{
-                      fontSize     : "0.8rem",
-                      color        : "#6366f1",
-                      background   : "white",
-                      border       : "1px solid #6366f1",
-                      borderRadius : 6,
-                      padding      : "0.25rem 0.6rem",
-                      cursor       : "pointer",
-                      fontWeight   : 600,
-                    }}
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : (
-                <select
-                  id="ck-state-select"
-                  className={`ck-input ck-select ${errors.state ? "ck-input--error" : ""}`}
-                  value={form.state}
-                  onChange={handleStateChange}
-                >
-                  <option value="">Select state</option>
-                  {stateOptions.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              )}
-
-              {errors.state && (
-                <span className="ck-field-error">{errors.state}</span>
-              )}
-            </div>
-
-            {/* City */}
-            <div className="ck-form-field">
-              <label className="ck-form-label" htmlFor="ck-city-select">
-                City <span className="ck-required">*</span>
-              </label>
-              <select
-                id="ck-city-select"
-                className={`ck-input ck-select ${errors.city ? "ck-input--error" : ""}`}
-                value={form.city}
-                onChange={set("city")}
-                disabled={!form.state || cityOptions.length === 0}
-                aria-disabled={!form.state || cityOptions.length === 0}
-              >
-                <option value="">
-                  {!form.state
-                    ? "Select a state first"
-                    : cityOptions.length === 0
-                      ? "No cities available"
-                      : "Select city"}
-                </option>
-                {cityOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              {errors.city && (
-                <span className="ck-field-error">{errors.city}</span>
-              )}
-            </div>
-
-            {/* Street address */}
-            <div className="ck-form-field ck-form-field--full">
-              <label className="ck-form-label">
-                Street Address <span className="ck-required">*</span>
-              </label>
-              <input
-                className={`ck-input ${errors.address_line ? "ck-input--error" : ""}`}
-                value={form.address_line}
-                onChange={set("address_line")}
-                placeholder="No. 12, Adewale Street, Oke Baale"
-              />
-              {errors.address_line && (
-                <span className="ck-field-error">{errors.address_line}</span>
-              )}
-            </div>
-
-            {/* Bus stop */}
-            <div className="ck-form-field ck-form-field--full">
-              <label className="ck-form-label">
-                🚏 Nearest Bus Stop <span className="ck-required">*</span>
-              </label>
-              <div className="ck-busstop-field-note">
-                Enter the bus stop closest to you.
-                Our rider will deliver there.
-              </div>
-              <input
-                className={`ck-input ck-input--busstop ${errors.bus_stop ? "ck-input--error" : ""}`}
-                value={form.bus_stop}
-                onChange={set("bus_stop")}
-                placeholder="e.g. Oja Oba bus stop, Olaiya junction"
-              />
-              {errors.bus_stop ? (
-                <span className="ck-field-error">{errors.bus_stop}</span>
-              ) : (
-                <span className="ck-field-hint">
-                  "Oja Oba bus stop" · "Olaiya junction" · "Beside First Bank"
-                </span>
-              )}
-            </div>
-
-            {/* Extra directions */}
-            <div className="ck-form-field ck-form-field--full">
-              <label className="ck-form-label">
-                Extra Directions <span className="ck-optional">(optional)</span>
-              </label>
-              <textarea
-                className="ck-input ck-textarea"
-                value={form.additional_directions}
-                onChange={set("additional_directions")}
-                placeholder="e.g. I'll wear a blue shirt. Call when you arrive."
-                rows={2}
-                maxLength={300}
-              />
-            </div>
-
-          </div>
-
-          {/* Call before delivery */}
-          <label className="ck-checkbox-label ck-checkbox-label--highlight">
-            <input
-              type="checkbox"
-              checked={form.call_before_delivery}
-              onChange={set("call_before_delivery")}
-            />
-            <span>
-              📞 Call me before arriving at the bus stop
-              <small>Rider will call when they are on the way</small>
-            </span>
-          </label>
-
-          {/* Set as default */}
-          {!form.is_default && addresses.length > 0 && (
-            <label className="ck-checkbox-label">
-              <input
-                type="checkbox"
-                checked={form.is_default}
-                onChange={set("is_default")}
-              />
-              <span>Set as default delivery address</span>
-            </label>
-          )}
-
-          {/* Form actions */}
-          <div className="ck-form-actions">
-            {addresses.length > 0 && (
-              <button className="ck-btn-cancel" onClick={handleCancel} type="button">
-                Cancel
-              </button>
-            )}
-            <button className="ck-btn-save" onClick={handleSave}
-              disabled={saving} type="button">
-              {saving ? (
-                <>
-                  <Spinner />
-                  {isEditing ? "Updating…" : "Saving…"}
-                </>
-              ) : isEditing ? "Update Address" : "Save Address"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Add new address */}
+      {/* ══════ ADD ADDRESS BUTTON ══════ */}
       {!showForm && !atLimit && addresses.length > 0 && (
         <button
-          className="ck-add-address-btn"
+          className="as-add-btn"
           onClick={() => {
             formOpened.current = true;
             setEditingId(null);
@@ -1163,23 +735,286 @@ const AddressStep = memo(function AddressStep({
         </button>
       )}
 
-      {/* At limit notice */}
+      {/* ══════ LIMIT NOTICE ══════ */}
       {atLimit && !showForm && (
-        <p className="ck-limit-notice">
+        <p className="as-limit">
           You've saved the maximum of {MAX_ADDRESSES} addresses.
           Use the ⋮ menu on any address to edit or remove it.
         </p>
       )}
 
-      {/* Continue button */}
+      {/* ══════ FORM ══════ */}
+      {showForm && (
+        <div
+          className="as-form"
+          role="form"
+          aria-label={isEditing ? "Edit address" : "Add address"}
+        >
+          <div className="as-form__header">
+            <h3 className="as-form__title">
+              {isEditing
+                ? "Edit Address"
+                : addresses.length === 0
+                  ? "Add Your Delivery Address"
+                  : "New Address"}
+            </h3>
+            {addresses.length > 0 && (
+              <button className="as-form__close" onClick={handleCancel}
+                type="button" aria-label="Close">
+                ✕
+              </button>
+            )}
+          </div>
+
+          {errors.general && (
+            <div className="as-form__banner-error" role="alert">
+              ⚠️ {errors.general}
+            </div>
+          )}
+
+          {/* Label chips */}
+          <div className="as-field">
+            <label className="as-label">Address Type</label>
+            <div className="as-chips">
+              {LABELS.map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  className={`as-chip ${
+                    form.label === l ? "as-chip--active" : ""
+                  }`}
+                  onClick={() => setForm((p) => ({ ...p, label: l }))}
+                >
+                  {LABEL_ICON[l]} {l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="as-form-grid">
+
+            {/* Recipient */}
+            <div className="as-field">
+              <label className="as-label">
+                Recipient Name <span className="as-label__required">*</span>
+              </label>
+              <input
+                className={`as-input ${errors.recipient_name ? "as-input--error" : ""}`}
+                value={form.recipient_name}
+                onChange={set("recipient_name")}
+                placeholder="Full name"
+              />
+              {errors.recipient_name && (
+                <span className="as-field-error">{errors.recipient_name}</span>
+              )}
+            </div>
+
+            {/* Phone */}
+            <div className="as-field">
+              <label className="as-label">
+                Phone <span className="as-label__required">*</span>
+              </label>
+              <input
+                className={`as-input ${errors.phone ? "as-input--error" : ""}`}
+                value={form.phone}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/\D/g, "").slice(0, 11);
+                  setForm((p) => ({ ...p, phone: v }));
+                  setErrors((p) => ({ ...p, phone: "" }));
+                }}
+                placeholder="08012345678"
+                type="tel"
+                inputMode="numeric"
+                maxLength={11}
+              />
+              {errors.phone ? (
+                <span className="as-field-error">{errors.phone}</span>
+              ) : (
+                <span className="as-field-hint">Rider calls this number</span>
+              )}
+            </div>
+
+            {/* State */}
+            <div className="as-field">
+              <label className="as-label" htmlFor="as-state-select">
+                State <span className="as-label__required">*</span>
+              </label>
+
+              {stateOptions.length === 0 ? (
+                <div className="as-zones-error">
+                  <span className="as-zones-error__msg">
+                    No states loaded
+                  </span>
+                  <button
+                    type="button"
+                    onClick={loadZones}
+                    className="as-zones-error__retry"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <select
+                  id="as-state-select"
+                  className={`as-select ${errors.state ? "as-input--error" : ""}`}
+                  value={form.state}
+                  onChange={handleStateChange}
+                >
+                  <option value="">Select state</option>
+                  {stateOptions.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              )}
+
+              {errors.state && (
+                <span className="as-field-error">{errors.state}</span>
+              )}
+            </div>
+
+            {/* City */}
+            <div className="as-field">
+              <label className="as-label" htmlFor="as-city-select">
+                City <span className="as-label__required">*</span>
+              </label>
+              <select
+                id="as-city-select"
+                className={`as-select ${errors.city ? "as-input--error" : ""}`}
+                value={form.city}
+                onChange={set("city")}
+                disabled={!form.state || cityOptions.length === 0}
+              >
+                <option value="">
+                  {!form.state
+                    ? "Select a state first"
+                    : cityOptions.length === 0
+                      ? "No cities"
+                      : "Select city"}
+                </option>
+                {cityOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              {errors.city && (
+                <span className="as-field-error">{errors.city}</span>
+              )}
+            </div>
+
+            {/* Street */}
+            <div className="as-field as-field--full">
+              <label className="as-label">
+                Street Address <span className="as-label__required">*</span>
+              </label>
+              <input
+                className={`as-input ${errors.address_line ? "as-input--error" : ""}`}
+                value={form.address_line}
+                onChange={set("address_line")}
+                placeholder="No. 12, Adewale Street, Oke Baale"
+              />
+              {errors.address_line && (
+                <span className="as-field-error">{errors.address_line}</span>
+              )}
+            </div>
+
+            {/* Bus stop */}
+            <div className="as-field as-field--full">
+              <label className="as-label">
+                🚏 Nearest Bus Stop <span className="as-label__required">*</span>
+              </label>
+              <div className="as-field-note">
+                Enter the bus stop closest to you.
+                Our rider will deliver there.
+              </div>
+              <input
+                className={`as-input ${errors.bus_stop ? "as-input--error" : ""}`}
+                value={form.bus_stop}
+                onChange={set("bus_stop")}
+                placeholder="e.g. Oja Oba bus stop, Olaiya junction"
+              />
+              {errors.bus_stop ? (
+                <span className="as-field-error">{errors.bus_stop}</span>
+              ) : (
+                <span className="as-field-hint">
+                  "Oja Oba bus stop" · "Olaiya junction" · "Beside First Bank"
+                </span>
+              )}
+            </div>
+
+            {/* Extra directions */}
+            <div className="as-field as-field--full">
+              <label className="as-label">
+                Extra Directions{" "}
+                <span className="as-label__optional">(optional)</span>
+              </label>
+              <textarea
+                className="as-textarea"
+                value={form.additional_directions}
+                onChange={set("additional_directions")}
+                placeholder="e.g. I'll wear a blue shirt. Call when you arrive."
+                rows={2}
+                maxLength={300}
+              />
+            </div>
+
+          </div>
+
+          {/* Call before delivery */}
+          <label className="as-check as-check--highlight">
+            <input
+              type="checkbox"
+              checked={form.call_before_delivery}
+              onChange={set("call_before_delivery")}
+            />
+            <span className="as-check__text">
+              📞 Call me before arriving at the bus stop
+              <small>Rider will call when they are on the way</small>
+            </span>
+          </label>
+
+          {/* Set as default */}
+          {!form.is_default && addresses.length > 0 && (
+            <label className="as-check">
+              <input
+                type="checkbox"
+                checked={form.is_default}
+                onChange={set("is_default")}
+              />
+              <span className="as-check__text">
+                Set as default delivery address
+              </span>
+            </label>
+          )}
+
+          {/* Actions */}
+          <div className="as-actions">
+            {addresses.length > 0 && (
+              <button className="as-btn-cancel" onClick={handleCancel} type="button">
+                Cancel
+              </button>
+            )}
+            <button className="as-btn-save" onClick={handleSave}
+              disabled={saving} type="button">
+              {saving ? (
+                <>
+                  <span className="as-spinner" />
+                  {isEditing ? "Updating…" : "Saving…"}
+                </>
+              ) : isEditing ? "Update Address" : "Save Address"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ CONTINUE BUTTON ══════ */}
       {addresses.length > 0 && (
         <button
-          className={`ck-next-btn ${!selected ? "ck-next-btn--disabled" : ""}`}
+          className="as-next"
           onClick={() => { if (selected) onNext(); }}
           disabled={!selected}
           type="button"
         >
           {!selected ? "Select an address to continue" : "Continue"}
+          {selected && <span className="as-next__arrow">→</span>}
         </button>
       )}
 
