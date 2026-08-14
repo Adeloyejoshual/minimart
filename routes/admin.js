@@ -1,6 +1,12 @@
 // ════════════════════════════════════════════════════════════
 // FILE: routes/admin.js
 // Base: /api/admin
+//
+// v2 changes:
+// ✓ adminDeliveryRouter removed from here — mounted directly
+//   in server.js at /api/admin/delivery to avoid conflicts
+//   with the existing orderRouter at /api/admin/orders
+// ✓ All existing sub-routers preserved unchanged
 // ════════════════════════════════════════════════════════════
 
 import express                            from "express";
@@ -35,10 +41,10 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 const generateToken = (admin) =>
   jwt.sign(
     {
-      id            : admin.id,
-      email         : admin.email,
-      role          : admin.role,
-      token_version : admin.token_version ?? 0,   // ← NEW: enables session revocation
+      id           : admin.id,
+      email        : admin.email,
+      role         : admin.role,
+      token_version: admin.token_version ?? 0,
     },
     JWT_SECRET,
     { expiresIn: "7d" },
@@ -85,7 +91,6 @@ router.post("/login", async (req, res) => {
       [admin.id],
     );
 
-    // Log the login
     await pool.query(
       `INSERT INTO admin_logs
          (admin_id, action, target_type, target_id, details)
@@ -95,10 +100,10 @@ router.post("/login", async (req, res) => {
 
     return res.json({
       admin: {
-        id:    admin.id,
-        name:  admin.name,
+        id   : admin.id,
+        name : admin.name,
         email: admin.email,
-        role:  admin.role,
+        role : admin.role,
       },
       token: generateToken(admin),
     });
@@ -109,11 +114,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // POST /api/admin/logout
-// Log the current admin out on this device only
-// (Client just deletes the token — this endpoint just records it)
-// ─────────────────────────────────────────────────────────────
 router.post("/logout", verifyAdmin, async (req, res) => {
   try {
     await pool.query(
@@ -211,6 +212,12 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       supportDisputesOpenRes,
       supportAppealsOpenRes,
       supportAvgRatingRes,
+
+      /* ── Loemart Express delivery stats ── */
+      dispatchPendingRes,
+      dispatchOutRes,
+      dispatchDeliveredTodayRes,
+      dispatchFailedRes,
     ] = await Promise.all([
       pool.query(`SELECT COUNT(*) FROM public.users`),
       pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
@@ -293,6 +300,25 @@ router.get("/stats", verifyAdmin, async (req, res) => {
          FROM public.support_tickets
          WHERE satisfaction_rating IS NOT NULL`
       )),
+
+      /* Loemart Express — orders needing dispatch (shipped) */
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.orders WHERE status = 'shipped'`
+      )),
+      /* Loemart Express — currently out for delivery */
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.orders WHERE status = 'out_for_delivery'`
+      )),
+      /* Loemart Express — delivered today */
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.orders
+         WHERE status IN ('delivered', 'received')
+           AND delivered_at >= $1`, [today]
+      )),
+      /* Loemart Express — failed delivery attempts */
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.orders WHERE status = 'failed_delivery'`
+      )),
     ]);
 
     return res.json({
@@ -315,7 +341,7 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       revenue:      Number(revenueRes.rows[0].revenue),
       todayRevenue: Number(todayRevenueRes.rows[0].revenue),
       dailySales:   dailySalesRes.rows.map((r) => ({
-        date:   r.date,
+        date  : r.date,
         amount: Number(r.amount),
       })),
 
@@ -325,34 +351,42 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       vendorsUnderReview: Number(vendorsReviewRes.rows[0].count),
 
       referrals: {
-        total:    Number(totalReferralsRes.rows[0].count),
-        pending:  Number(pendingReferralsRes.rows[0].count),
+        total   : Number(totalReferralsRes.rows[0].count),
+        pending : Number(pendingReferralsRes.rows[0].count),
         verified: Number(verifiedReferralsRes.rows[0].count),
         rewarded: Number(rewardedReferralsRes.rows[0].count),
       },
 
       coupons: {
-        total:     Number(couponTotalRes.rows[0].count),
+        total    : Number(couponTotalRes.rows[0].count),
         available: Number(couponAvailableRes.rows[0].count),
-        redeemed:  Number(couponRedeemedRes.rows[0].count),
-        today:     Number(couponTodayRes.rows[0].count),
+        redeemed : Number(couponRedeemedRes.rows[0].count),
+        today    : Number(couponTodayRes.rows[0].count),
       },
 
       support: {
         tickets: {
-          total:       Number(supportTicketsTotalRes.rows[0].count),
-          open:        Number(supportTicketsOpenRes.rows[0].count),
+          total      : Number(supportTicketsTotalRes.rows[0].count),
+          open       : Number(supportTicketsOpenRes.rows[0].count),
           in_progress: Number(supportTicketsInProgressRes.rows[0].count),
-          resolved:    Number(supportTicketsResolvedRes.rows[0].count),
-          escalated:   Number(supportTicketsEscalatedRes.rows[0].count),
-          today:       Number(supportTicketsTodayRes.rows[0].count),
+          resolved   : Number(supportTicketsResolvedRes.rows[0].count),
+          escalated  : Number(supportTicketsEscalatedRes.rows[0].count),
+          today      : Number(supportTicketsTodayRes.rows[0].count),
         },
         reports_pending: Number(supportReportsPendingRes.rows[0].count),
-        disputes_open:   Number(supportDisputesOpenRes.rows[0].count),
-        appeals_open:    Number(supportAppealsOpenRes.rows[0].count),
-        avg_rating:      supportAvgRatingRes.rows[0]?.avg_rating
-                           ? Number(supportAvgRatingRes.rows[0].avg_rating)
-                           : null,
+        disputes_open  : Number(supportDisputesOpenRes.rows[0].count),
+        appeals_open   : Number(supportAppealsOpenRes.rows[0].count),
+        avg_rating     : supportAvgRatingRes.rows[0]?.avg_rating
+          ? Number(supportAvgRatingRes.rows[0].avg_rating)
+          : null,
+      },
+
+      /* ── Loemart Express delivery stats ── */
+      loemartExpress: {
+        pendingDispatch : Number(dispatchPendingRes.rows[0].count),
+        outForDelivery  : Number(dispatchOutRes.rows[0].count),
+        deliveredToday  : Number(dispatchDeliveredTodayRes.rows[0].count),
+        failedDelivery  : Number(dispatchFailedRes.rows[0].count),
       },
     });
 
@@ -409,22 +443,30 @@ router.get("/logs", verifyAdmin, async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // MOUNT SUB-ROUTERS
 // ══════════════════════════════════════════════════════════════
-router.use("/users",             userRouter);
-router.use("/products",          publicProductRouter);
-router.use("/market-products",   marketProductRouter);
-router.use("/payments",          paymentRouter);
-router.use("/orders",            orderRouter);
-router.use("/reports",           reportRouter);
-router.use("/system",            systemRouter);
-router.use("/admins",            adminsRouter);
-router.use("/plans",             promotionRouter);
-router.use("/verification",      verificationRouter);
-router.use("/vendors",           vendorVerificationRouter);
-router.use("/withdrawals",       withdrawalRouter);
-router.use("/leaderboard",       leaderboardRouter);
-router.use("/airtime-coupons",   airtimeCouponAdminRouter);
-router.use("/coupon-redemption", couponRedemptionRouter);
-router.use("/subscriptions",     subscriptionAdminRouter);
-router.use("/support",           supportAdminRouter);
+/*
+ * NOTE: adminDeliveryRouter is NOT mounted here.
+ * It is mounted directly in server.js at /api/admin/delivery
+ * BEFORE this router at /api/admin to ensure it matches first.
+ *
+ * Mounting it here at /orders would conflict with the existing
+ * orderRouter already mounted at /orders.
+ */
+router.use("/users",             verifyAdmin, userRouter);
+router.use("/products",          verifyAdmin, publicProductRouter);
+router.use("/market-products",   verifyAdmin, marketProductRouter);
+router.use("/payments",          verifyAdmin, paymentRouter);
+router.use("/orders",            verifyAdmin, orderRouter);
+router.use("/reports",           verifyAdmin, reportRouter);
+router.use("/system",            verifyAdmin, systemRouter);
+router.use("/admins",            verifyAdmin, adminsRouter);
+router.use("/plans",             verifyAdmin, promotionRouter);
+router.use("/verification",      verifyAdmin, verificationRouter);
+router.use("/vendors",           verifyAdmin, vendorVerificationRouter);
+router.use("/withdrawals",       verifyAdmin, withdrawalRouter);
+router.use("/leaderboard",       verifyAdmin, leaderboardRouter);
+router.use("/airtime-coupons",   verifyAdmin, airtimeCouponAdminRouter);
+router.use("/coupon-redemption", verifyAdmin, couponRedemptionRouter);
+router.use("/subscriptions",     verifyAdmin, subscriptionAdminRouter);
+router.use("/support",           verifyAdmin, supportAdminRouter);
 
 export default router;
