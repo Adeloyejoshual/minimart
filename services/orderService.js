@@ -1,12 +1,16 @@
 /**
  * services/orderService.js
  *
- * v9 — Tracking ID resolution
+ * v10 — Loemart Express
  * ────────────────────────────────────────────────────────────
- * NEW:
- * ✓ resolveOrderGroup() — accepts UUID or tracking ID (ORD-XXXX)
- * ✓ getOrderGroup() — accepts UUID or tracking ID
- * ✓ All existing v8 features preserved
+ * NEW in v10:
+ * ✓ Sub-order tracking IDs  (ORD-1F9DFB89-A, -B, -C …)
+ * ✓ order_status_history rows on every creation
+ * ✓ seller_earnings rows created at order creation
+ * ✓ order_dispatches row created when order ships
+ * ✓ computeGroupStatus() — derives parent from sub-orders
+ * ✓ recomputeGroupStatus() — called by seller PATCH route
+ * ✓ All v9 features preserved
  */
 
 import { pool }                 from "../config/db.js";
@@ -22,8 +26,21 @@ const toNumber = (v) => {
   return isNaN(n) ? 0 : n;
 };
 
+/**
+ * Parent tracking ID:    ORD-1F9DFB89
+ * Sub-order suffix:      ORD-1F9DFB89-A  (index 0 = A, 1 = B …)
+ */
 function generateTrackingId(uuid) {
   return `ORD-${uuid.slice(0, 8).toUpperCase()}`;
+}
+
+function generateSubTrackingId(parentTrackingId, index) {
+  const suffix = String.fromCharCode(65 + index); // 0→A, 1→B …
+  return `${parentTrackingId}-${suffix}`;
+}
+
+function generateDispatchCode(uuid) {
+  return `LX-${uuid.slice(0, 6).toUpperCase()}`;
 }
 
 function devLog(...args) {
@@ -32,18 +49,85 @@ function devLog(...args) {
 
 /* ════════════════════════════════════════════════════════════
    UUID FORMAT DETECTION
-   ─────────────────────────────────────────────────────────
-   Used by resolveOrderGroup and getOrderGroup to determine
-   whether the identifier is a UUID or a tracking ID.
 ════════════════════════════════════════════════════════════ */
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isUUID(str) {
   return typeof str === "string" && UUID_REGEX.test(str);
 }
 
 /* ════════════════════════════════════════════════════════════
-   COLUMN DETECTION (cached)
+   PARENT STATUS COMPUTATION
+   ─────────────────────────────────────────────────────────
+   Derives order_groups.status from all its sub-order statuses.
+   Called after any sub-order status change.
+════════════════════════════════════════════════════════════ */
+export function computeGroupStatus(subStatuses) {
+  if (!subStatuses.length) return "pending";
+
+  const live       = subStatuses.filter((s) => s !== "cancelled");
+  const allOf      = (s) => live.every((x) => x === s);
+  const anyOf      = (...ss) => live.some((x) => ss.includes(x));
+  const allSettled = live.every((x) => ["delivered", "cancelled"].includes(x));
+
+  if (live.length === 0)                    return "cancelled";        // all cancelled
+  if (allOf("pending"))                     return "pending";
+  if (allOf("confirmed"))                   return "confirmed";
+  if (allOf("delivered"))                   return "delivered";        // all done
+  if (allSettled && live.some((x) => x === "delivered"))
+                                            return "partially_delivered";
+  if (anyOf("shipped"))                     return "partially_shipped";
+  if (anyOf("processing", "confirmed"))     return "processing";
+  return "pending";
+}
+
+/* ════════════════════════════════════════════════════════════
+   RECOMPUTE GROUP STATUS
+   ─────────────────────────────────────────────────────────
+   Called by routes/seller/order.js after PATCH /status.
+   Reads all sub-order statuses, computes parent, writes it.
+   Runs inside the caller's transaction client.
+════════════════════════════════════════════════════════════ */
+export async function recomputeGroupStatus(client, orderGroupId) {
+  const { rows } = await client.query(
+    `SELECT status FROM public.orders WHERE order_group_id = $1`,
+    [orderGroupId]
+  );
+
+  const statuses    = rows.map((r) => r.status);
+  const groupStatus = computeGroupStatus(statuses);
+
+  const setDelivered =
+    groupStatus === "delivered"
+      ? ", delivered_at = NOW()"
+      : "";
+
+  await client.query(
+    `UPDATE public.order_groups
+     SET status     = $1,
+         updated_at = NOW()
+         ${setDelivered}
+     WHERE id = $2`,
+    [groupStatus, orderGroupId]
+  );
+
+  return groupStatus;
+}
+
+/* ════════════════════════════════════════════════════════════
+   PLATFORM FEE
+   ─────────────────────────────────────────────────────────
+   Adjust rate as needed.  5% default.
+════════════════════════════════════════════════════════════ */
+const PLATFORM_FEE_RATE = 0.05; // 5%
+
+function calcPlatformFee(subtotal) {
+  return Math.round(subtotal * PLATFORM_FEE_RATE * 100) / 100;
+}
+
+/* ════════════════════════════════════════════════════════════
+   COLUMN DETECTION (cached per process)
 ════════════════════════════════════════════════════════════ */
 let ORDER_GROUP_COLS = null;
 let ORDER_COLS       = null;
@@ -59,6 +143,7 @@ async function detectOrderGroupColumns() {
     const cols = new Set(rows.map((r) => r.column_name));
     ORDER_GROUP_COLS = {
       hasTrackingId    : cols.has("tracking_id"),
+      hasSubtotal      : cols.has("subtotal"),
       hasDeliveredAt   : cols.has("delivered_at"),
       hasUpdatedAt     : cols.has("updated_at"),
       hasIdempotencyKey: cols.has("idempotency_key"),
@@ -67,8 +152,8 @@ async function detectOrderGroupColumns() {
   } catch (err) {
     console.warn("[orderService] order_groups detection failed:", err.message);
     ORDER_GROUP_COLS = {
-      hasTrackingId: true, hasDeliveredAt: true,
-      hasUpdatedAt: true,  hasIdempotencyKey: false,
+      hasTrackingId: true, hasSubtotal: true,
+      hasDeliveredAt: true, hasUpdatedAt: true, hasIdempotencyKey: false,
     };
   }
   return ORDER_GROUP_COLS;
@@ -84,13 +169,18 @@ async function detectOrderColumns() {
     const cols = new Set(rows.map((r) => r.column_name));
     ORDER_COLS = {
       hasUserId     : cols.has("user_id"),
+      hasTrackingId : cols.has("tracking_id"),
+      hasDeliveryFee: cols.has("delivery_fee"),
       hasDeliveredAt: cols.has("delivered_at"),
       hasUpdatedAt  : cols.has("updated_at"),
     };
     console.log("[orderService] orders cols:", ORDER_COLS);
   } catch (err) {
     console.warn("[orderService] orders detection failed:", err.message);
-    ORDER_COLS = { hasUserId: true, hasDeliveredAt: true, hasUpdatedAt: true };
+    ORDER_COLS = {
+      hasUserId: true, hasTrackingId: true, hasDeliveryFee: true,
+      hasDeliveredAt: true, hasUpdatedAt: true,
+    };
   }
   return ORDER_COLS;
 }
@@ -103,13 +193,12 @@ async function detectOrderItemColumns() {
        WHERE table_schema = 'public' AND table_name = 'order_items'`
     );
     const cols = new Set(rows.map((r) => r.column_name));
-
     ORDER_ITEM_COLS = {
       allColumns    : [...cols],
-      qtyColumn     : cols.has("quantity") ? "quantity" : cols.has("qty") ? "qty" : null,
-      priceColumn   : cols.has("price") ? "price" : cols.has("unit_price") ? "unit_price" : null,
-      nameColumn    : cols.has("name") ? "name" : cols.has("product_name") ? "product_name" : null,
-      subtotalColumn: cols.has("subtotal") ? "subtotal" : cols.has("total_price") ? "total_price" : null,
+      qtyColumn     : cols.has("quantity")     ? "quantity"   : cols.has("qty")        ? "qty"        : null,
+      priceColumn   : cols.has("price")        ? "price"      : cols.has("unit_price") ? "unit_price" : null,
+      nameColumn    : cols.has("name")         ? "name"       : cols.has("product_name") ? "product_name" : null,
+      subtotalColumn: cols.has("subtotal")     ? "subtotal"   : cols.has("total_price") ? "total_price"  : null,
       hasProductId  : cols.has("product_id"),
       hasSellerId   : cols.has("seller_id"),
       hasVendorId   : cols.has("vendor_id"),
@@ -119,9 +208,8 @@ async function detectOrderItemColumns() {
       hasImage      : cols.has("image"),
       hasImageUrl   : cols.has("image_url"),
     };
-
     console.log("[orderService] order_items:", {
-      qty: ORDER_ITEM_COLS.qtyColumn,
+      qty  : ORDER_ITEM_COLS.qtyColumn,
       price: ORDER_ITEM_COLS.priceColumn,
     });
   } catch (err) {
@@ -144,9 +232,9 @@ function buildOrderItemInsert(itemCols, orderId, sellerId, item) {
   const columns = ["order_id"];
   const values  = [orderId];
 
-  if (itemCols.hasProductId)   { columns.push("product_id");   values.push(item.productId); }
-  if (itemCols.hasSellerId)    { columns.push("seller_id");    values.push(sellerId); }
-  if (itemCols.hasVendorId)    { columns.push("vendor_id");    values.push(sellerId); }
+  if (itemCols.hasProductId)   { columns.push("product_id");         values.push(item.productId); }
+  if (itemCols.hasSellerId)    { columns.push("seller_id");          values.push(sellerId); }
+  if (itemCols.hasVendorId)    { columns.push("vendor_id");          values.push(sellerId); }
   if (itemCols.qtyColumn)      { columns.push(itemCols.qtyColumn);   values.push(toNumber(item.qty)); }
   if (itemCols.priceColumn)    { columns.push(itemCols.priceColumn); values.push(toNumber(item.price)); }
   if (itemCols.nameColumn)     { columns.push(itemCols.nameColumn);  values.push(item.name); }
@@ -154,9 +242,9 @@ function buildOrderItemInsert(itemCols, orderId, sellerId, item) {
     columns.push(itemCols.subtotalColumn);
     values.push(toNumber(item.price) * toNumber(item.qty));
   }
-  if (itemCols.hasVariantId)   { columns.push("variant_id");   values.push(item.variant?.id ?? null); }
+  if (itemCols.hasVariantId)   { columns.push("variant_id");   values.push(item.variant?.id   ?? null); }
   if (itemCols.hasVariantName) { columns.push("variant_name"); values.push(item.variant?.name ?? null); }
-  if (itemCols.hasSku)         { columns.push("sku");          values.push(item.variant?.sku ?? null); }
+  if (itemCols.hasSku)         { columns.push("sku");          values.push(item.variant?.sku  ?? null); }
   if (itemCols.hasImage)       { columns.push("image");        values.push(item.image ?? null); }
   if (itemCols.hasImageUrl)    { columns.push("image_url");    values.push(item.image ?? null); }
 
@@ -216,13 +304,19 @@ async function decrementStock(client, item) {
     throw err;
   }
 
-  devLog(`[orderService] ✓ Stock: variant=${item.variant.id} -${qty} remaining=${updated.stock}`);
+  devLog(
+    `[orderService] ✓ Stock: variant=${item.variant.id}`,
+    `-${qty} remaining=${updated.stock}`
+  );
 }
 
 /* ════════════════════════════════════════════════════════════
    ATOMIC COUPON REDEMPTION
 ════════════════════════════════════════════════════════════ */
-async function redeemCouponInTransaction(client, { code, userId, orderGroupId, subtotal }) {
+async function redeemCouponInTransaction(
+  client,
+  { code, userId, orderGroupId, subtotal }
+) {
   if (!code) return null;
 
   const upperCode = String(code).trim().toUpperCase();
@@ -235,42 +329,84 @@ async function redeemCouponInTransaction(client, { code, userId, orderGroupId, s
     [upperCode]
   );
 
-  if (!coupon)        { const e = new Error(`Coupon "${upperCode}" not found`);        e.status = 400; e.source = "coupon_redemption"; throw e; }
-  if (!coupon.is_active) { const e = new Error(`Coupon "${upperCode}" is inactive`);   e.status = 400; e.source = "coupon_redemption"; throw e; }
-  if (coupon.is_private && coupon.created_by !== userId) { const e = new Error(`Coupon "${upperCode}" not valid for you`); e.status = 403; e.source = "coupon_redemption"; throw e; }
-  if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) { const e = new Error(`Coupon "${upperCode}" has expired`); e.status = 400; e.source = "coupon_redemption"; throw e; }
-  if (coupon.usage_limit !== null && toNumber(coupon.usage_count) >= toNumber(coupon.usage_limit)) { const e = new Error(`Coupon "${upperCode}" usage limit reached`); e.status = 400; e.source = "coupon_redemption"; throw e; }
-  if (toNumber(coupon.min_purchase) > 0 && subtotal < toNumber(coupon.min_purchase)) { const e = new Error(`Coupon needs min ₦${toNumber(coupon.min_purchase).toLocaleString("en-NG")}`); e.status = 400; e.source = "coupon_redemption"; throw e; }
+  if (!coupon) {
+    const e = new Error(`Coupon "${upperCode}" not found`);
+    e.status = 400; e.source = "coupon_redemption"; throw e;
+  }
+  if (!coupon.is_active) {
+    const e = new Error(`Coupon "${upperCode}" is inactive`);
+    e.status = 400; e.source = "coupon_redemption"; throw e;
+  }
+  if (coupon.is_private && coupon.created_by !== userId) {
+    const e = new Error(`Coupon "${upperCode}" is not valid for your account`);
+    e.status = 403; e.source = "coupon_redemption"; throw e;
+  }
+  if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {
+    const e = new Error(`Coupon "${upperCode}" has expired`);
+    e.status = 400; e.source = "coupon_redemption"; throw e;
+  }
+  if (
+    coupon.usage_limit !== null &&
+    toNumber(coupon.usage_count) >= toNumber(coupon.usage_limit)
+  ) {
+    const e = new Error(`Coupon "${upperCode}" usage limit reached`);
+    e.status = 400; e.source = "coupon_redemption"; throw e;
+  }
+  if (
+    toNumber(coupon.min_purchase) > 0 &&
+    subtotal < toNumber(coupon.min_purchase)
+  ) {
+    const e = new Error(
+      `Coupon needs min ₦${toNumber(coupon.min_purchase).toLocaleString("en-NG")}`
+    );
+    e.status = 400; e.source = "coupon_redemption"; throw e;
+  }
 
   const { rows: existing } = await client.query(
-    `SELECT id FROM public.coupon_redemptions WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
+    `SELECT id FROM public.coupon_redemptions
+     WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
     [coupon.id, userId]
   );
-  if (existing.length) { const e = new Error(`Already used coupon "${upperCode}"`); e.status = 400; e.source = "coupon_redemption"; throw e; }
+  if (existing.length) {
+    const e = new Error(`You have already used coupon "${upperCode}"`);
+    e.status = 400; e.source = "coupon_redemption"; throw e;
+  }
 
   const actualDiscount = calculateCouponDiscount(coupon, subtotal);
   const freeShipping   = coupon.type === "free_shipping";
 
   await client.query(
-    `INSERT INTO public.coupon_redemptions (coupon_id, user_id, order_id, discount) VALUES ($1, $2, $3, $4)`,
+    `INSERT INTO public.coupon_redemptions (coupon_id, user_id, order_id, discount)
+     VALUES ($1, $2, $3, $4)`,
     [coupon.id, userId, orderGroupId, actualDiscount]
   );
 
-  const isSingleUse = coupon.usage_limit !== null && toNumber(coupon.usage_limit) === 1;
+  const isSingleUse =
+    coupon.usage_limit !== null && toNumber(coupon.usage_limit) === 1;
+
   await client.query(
     `UPDATE public.coupons
      SET usage_count = usage_count + 1,
          is_active = CASE
            WHEN $1 THEN false
-           WHEN usage_limit IS NOT NULL AND usage_count + 1 >= usage_limit THEN false
+           WHEN usage_limit IS NOT NULL
+                AND usage_count + 1 >= usage_limit THEN false
            ELSE is_active
          END
      WHERE id = $2`,
     [isSingleUse, coupon.id]
   );
 
-  console.log(`[orderService] ✓ Coupon "${upperCode}" redeemed | discount=₦${actualDiscount}`);
-  return { couponId: coupon.id, code: upperCode, discount: actualDiscount, freeShipping, type: coupon.type };
+  console.log(
+    `[orderService] ✓ Coupon "${upperCode}" redeemed | discount=₦${actualDiscount}`
+  );
+  return {
+    couponId    : coupon.id,
+    code        : upperCode,
+    discount    : actualDiscount,
+    freeShipping,
+    type        : coupon.type,
+  };
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -281,7 +417,8 @@ async function findExistingOrder(client, userId, idempotencyKey, groupCols) {
 
   const { rows: [existing] } = await client.query(
     `SELECT id, tracking_id, grand_total, delivery_fee, payment_method
-     FROM public.order_groups WHERE user_id = $1 AND idempotency_key = $2`,
+     FROM public.order_groups
+     WHERE user_id = $1 AND idempotency_key = $2`,
     [userId, idempotencyKey]
   );
 
@@ -290,14 +427,7 @@ async function findExistingOrder(client, userId, idempotencyKey, groupCols) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   RESOLVE ORDER GROUP — accepts UUID or tracking ID
-   ─────────────────────────────────────────────────────────
-   Used by routes that take :groupId from URLs.
-   Tracking IDs are user-friendly (ORD-1F9DFB89).
-   UUIDs are internal (1f9dfb89-abcd-...).
-   Both work — backward compatible.
-   
-   Returns { id, tracking_id } or null.
+   RESOLVE ORDER GROUP — UUID or tracking ID
 ════════════════════════════════════════════════════════════ */
 export async function resolveOrderGroup(identifier, userId) {
   if (!identifier) return null;
@@ -307,8 +437,7 @@ export async function resolveOrderGroup(identifier, userId) {
   const { rows: [row] } = await pool.query(
     `SELECT id, tracking_id
      FROM public.order_groups
-     WHERE ${column} = $1
-       AND user_id = $2`,
+     WHERE ${column} = $1 AND user_id = $2`,
     [identifier, userId]
   );
 
@@ -316,11 +445,17 @@ export async function resolveOrderGroup(identifier, userId) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   CREATE ORDER GROUP
+   CREATE ORDER GROUP  (v10 — Loemart Express)
 ════════════════════════════════════════════════════════════ */
 export async function createOrderGroup({
-  userId, addressId, items, subtotal, paymentMethod,
-  couponCode = null, notes = null, idempotencyKey = null,
+  userId,
+  addressId,
+  items,
+  subtotal,
+  paymentMethod,
+  couponCode    = null,
+  notes         = null,
+  idempotencyKey = null,
 }) {
   const cleanSubtotal = toNumber(subtotal);
 
@@ -335,8 +470,10 @@ export async function createOrderGroup({
   try {
     await client.query("BEGIN");
 
-    /* 0. Idempotency */
-    const existing = await findExistingOrder(client, userId, idempotencyKey, groupCols);
+    /* ── 0. Idempotency ── */
+    const existing = await findExistingOrder(
+      client, userId, idempotencyKey, groupCols
+    );
     if (existing) {
       await client.query("ROLLBACK");
       return {
@@ -349,59 +486,71 @@ export async function createOrderGroup({
       };
     }
 
-    /* 1. Peek coupon type */
+    /* ── 1. Peek coupon for free-shipping flag ── */
     let couponType = null;
     if (couponCode) {
       const { rows: [c] } = await client.query(
-        `SELECT type FROM public.coupons WHERE UPPER(code) = UPPER($1) AND is_active = true`,
+        `SELECT type FROM public.coupons
+         WHERE UPPER(code) = UPPER($1) AND is_active = true`,
         [couponCode]
       );
       couponType = c?.type ?? null;
     }
     const isFreeShipping = couponType === "free_shipping";
 
-    /* 2. Calculate fees */
+    /* ── 2. Delivery fee (Loemart Express) ── */
     const deliveryFee = isFreeShipping ? 0 : calculateDeliveryFee(cleanSubtotal);
-    let discount   = 0;
-    let grandTotal = cleanSubtotal + deliveryFee;
+    let discount      = 0;
+    let grandTotal    = cleanSubtotal + deliveryFee;
 
-    /* 3. Insert order group */
+    /* ── 3. Insert order_groups row ── */
     const groupInsertCols = [
-      "user_id", "address_id", "total_amount", "delivery_fee",
-      "discount", "grand_total", "payment_method", "coupon_code",
-      "notes", "payment_status", "status",
+      "user_id", "address_id", "total_amount",
+      "delivery_fee", "discount", "grand_total",
+      "payment_method", "coupon_code", "notes",
+      "payment_status", "status",
     ];
     const groupInsertVals = [
-      userId, addressId, cleanSubtotal, deliveryFee, discount,
-      grandTotal, paymentMethod, couponCode, notes, "pending", "pending",
+      userId, addressId, cleanSubtotal,
+      deliveryFee, discount, grandTotal,
+      paymentMethod, couponCode, notes,
+      "pending", "pending",
     ];
 
+    /* Optional: subtotal column */
+    if (groupCols.hasSubtotal) {
+      groupInsertCols.push("subtotal");
+      groupInsertVals.push(cleanSubtotal);
+    }
+
+    /* Optional: idempotency key */
     if (groupCols.hasIdempotencyKey && idempotencyKey) {
       groupInsertCols.push("idempotency_key");
       groupInsertVals.push(idempotencyKey);
     }
 
-    const placeholders = groupInsertVals.map((_, i) => `$${i + 1}`).join(", ");
+    const ph = groupInsertVals.map((_, i) => `$${i + 1}`).join(", ");
     const { rows: [group] } = await client.query(
-      `INSERT INTO public.order_groups (${groupInsertCols.join(", ")}) VALUES (${placeholders}) RETURNING id`,
+      `INSERT INTO public.order_groups (${groupInsertCols.join(", ")})
+       VALUES (${ph})
+       RETURNING id`,
       groupInsertVals
     );
 
-    const orderGroupId = group.id;
-    const trackingId   = generateTrackingId(orderGroupId);
+    const orderGroupId   = group.id;
+    const parentTracking = generateTrackingId(orderGroupId); // ORD-1F9DFB89
 
+    /* Write tracking ID */
     if (groupCols.hasTrackingId) {
-      try {
-        await client.query(
-          `UPDATE public.order_groups SET tracking_id = $1 WHERE id = $2`,
-          [trackingId, orderGroupId]
-        );
-      } catch (err) {
-        console.warn("[orderService] tracking_id update failed:", err.message);
-      }
+      await client.query(
+        `UPDATE public.order_groups SET tracking_id = $1 WHERE id = $2`,
+        [parentTracking, orderGroupId]
+      ).catch((err) =>
+        console.warn("[orderService] tracking_id update failed:", err.message)
+      );
     }
 
-    /* 4. Redeem coupon */
+    /* ── 4. Redeem coupon ── */
     let redemption = null;
     if (couponCode) {
       redemption = await redeemCouponInTransaction(client, {
@@ -411,12 +560,14 @@ export async function createOrderGroup({
       grandTotal = cleanSubtotal + deliveryFee - discount;
 
       await client.query(
-        `UPDATE public.order_groups SET discount = $1, grand_total = $2 WHERE id = $3`,
+        `UPDATE public.order_groups
+         SET discount = $1, grand_total = $2
+         WHERE id = $3`,
         [discount, grandTotal, orderGroupId]
       );
     }
 
-    /* 5. Group by seller */
+    /* ── 5. Group items by seller ── */
     const sellerMap = new Map();
     for (const item of items) {
       if (!item.sellerId) {
@@ -425,75 +576,149 @@ export async function createOrderGroup({
         throw err;
       }
       if (!sellerMap.has(item.sellerId)) {
-        sellerMap.set(item.sellerId, { sellerName: item.sellerName ?? "Seller", items: [] });
+        sellerMap.set(item.sellerId, {
+          sellerName: item.sellerName ?? "Seller",
+          items     : [],
+        });
       }
       sellerMap.get(item.sellerId).items.push(item);
     }
 
-    /* 6. Create orders + items + decrement stock */
+    /* ── 6. Create sub-orders, items, stock, earnings, history ── */
     const createdOrders = [];
+    let   sellerIndex   = 0;
 
     for (const [sellerId, sellerData] of sellerMap.entries()) {
       const { items: sellerItems, sellerName } = sellerData;
+
+      /* Sub-order tracking ID: ORD-1F9DFB89-A */
+      const subTrackingId = generateSubTrackingId(parentTracking, sellerIndex);
+      sellerIndex++;
+
       const sellerSubtotal = sellerItems.reduce(
-        (sum, i) => sum + toNumber(i.price) * toNumber(i.qty), 0
+        (sum, i) => sum + toNumber(i.price) * toNumber(i.qty),
+        0
       );
 
-      const orderSql = orderCols.hasUserId
-        ? `INSERT INTO public.orders (order_group_id, user_id, seller_id, subtotal, status) VALUES ($1,$2,$3,$4,'pending') RETURNING id`
-        : `INSERT INTO public.orders (order_group_id, seller_id, subtotal, status) VALUES ($1,$2,$3,'pending') RETURNING id`;
+      /* Build INSERT dynamically (same column-detection pattern) */
+      const orderCols_ = ["order_group_id", "seller_id", "subtotal", "status"];
+      const orderVals_ = [orderGroupId, sellerId, sellerSubtotal, "pending"];
 
-      const orderParams = orderCols.hasUserId
-        ? [orderGroupId, userId, sellerId, sellerSubtotal]
-        : [orderGroupId, sellerId, sellerSubtotal];
-
-      const { rows: [order] } = await client.query(orderSql, orderParams);
-
-      for (const item of sellerItems) {
-        await decrementStock(client, item);
-        const insert = buildOrderItemInsert(itemCols, order.id, sellerId, item);
-        await client.query(insert.sql, insert.params);
+      if (orderCols.hasUserId) {
+        orderCols_.push("user_id");
+        orderVals_.push(userId);
+      }
+      if (orderCols.hasTrackingId) {
+        orderCols_.push("tracking_id");
+        orderVals_.push(subTrackingId);
+      }
+      if (orderCols.hasDeliveryFee) {
+        /* Per-seller delivery fee is 0 — the group-level fee covers it */
+        orderCols_.push("delivery_fee");
+        orderVals_.push(0);
       }
 
+      const oPh = orderVals_.map((_, i) => `$${i + 1}`).join(", ");
+      const { rows: [order] } = await client.query(
+        `INSERT INTO public.orders (${orderCols_.join(", ")})
+         VALUES (${oPh})
+         RETURNING id`,
+        orderVals_
+      );
+
+      /* Stock + line items */
+      for (const item of sellerItems) {
+        await decrementStock(client, item);
+        const ins = buildOrderItemInsert(itemCols, order.id, sellerId, item);
+        await client.query(ins.sql, ins.params);
+      }
+
+      /* ── Seller earnings row ── */
+      const platformFee = calcPlatformFee(sellerSubtotal);
+      const netAmount   = sellerSubtotal - platformFee;
+
+      await client.query(
+        `INSERT INTO public.seller_earnings
+           (seller_id, order_id, order_group_id,
+            gross_amount, platform_fee, delivery_fee, net_amount, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'pending')`,
+        [
+          sellerId, order.id, orderGroupId,
+          sellerSubtotal, platformFee,
+          deliveryFee, // Loemart Express fee — kept by platform
+          netAmount,
+        ]
+      ).catch((err) =>
+        console.warn("[orderService] seller_earnings insert failed:", err.message)
+      );
+
+      /* ── Status history row ── */
+      await client.query(
+        `INSERT INTO public.order_status_history
+           (order_id, order_group_id, from_status, to_status, changed_by_role, note)
+         VALUES ($1,$2,NULL,'pending','system','Order created')`,
+        [order.id, orderGroupId]
+      ).catch((err) =>
+        console.warn("[orderService] status_history insert failed:", err.message)
+      );
+
       createdOrders.push({
-        orderId: order.id, sellerId, sellerName,
-        subtotal: sellerSubtotal, items: sellerItems,
+        orderId    : order.id,
+        trackingId : subTrackingId,
+        sellerId,
+        sellerName,
+        subtotal   : sellerSubtotal,
+        items      : sellerItems,
       });
+
+      devLog(
+        `[orderService] ✓ Sub-order ${subTrackingId}`,
+        `| seller=${sellerId}`,
+        `| ₦${sellerSubtotal}`,
+        `| net=₦${netAmount}`
+      );
     }
 
-    /* 7. Bump address last_used_at */
-    try {
-      await client.query(
-        `UPDATE public.user_addresses SET last_used_at = now() WHERE id = $1 AND user_id = $2`,
-        [addressId, userId]
-      );
-    } catch { /* non-fatal */ }
+    /* ── 7. Bump address last_used_at ── */
+    await client.query(
+      `UPDATE public.user_addresses
+       SET last_used_at = now()
+       WHERE id = $1 AND user_id = $2`,
+      [addressId, userId]
+    ).catch(() => {});
 
     await client.query("COMMIT");
 
-    /* 8. Invalidate coupon cache */
+    /* ── 8. Invalidate coupon cache (best-effort) ── */
     if (redemption) {
       invalidateCouponCache(userId).catch(() => {});
     }
 
     console.log(
-      `[orderService] ✅ ${trackingId} created | ${createdOrders.length} sellers` +
-      (redemption ? ` | coupon "${redemption.code}"` : "") +
-      (isFreeShipping ? " | FREE SHIP" : "")
+      `[orderService] ✅ ${parentTracking} | ${createdOrders.length} sellers` +
+      (redemption    ? ` | coupon "${redemption.code}"` : "") +
+      (isFreeShipping ? " | FREE SHIP"                  : "")
     );
 
     return {
-      orderGroupId, trackingId,
-      orders: createdOrders,
-      subtotal: cleanSubtotal, deliveryFee, discount, grandTotal,
-      couponCode: redemption?.code ?? null,
+      orderGroupId,
+      trackingId  : parentTracking,
+      orders      : createdOrders,
+      subtotal    : cleanSubtotal,
+      deliveryFee,
+      discount,
+      grandTotal,
+      couponCode  : redemption?.code ?? null,
       freeShipping: isFreeShipping,
     };
 
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[orderService] ROLLBACK:", {
-      message: err.message, code: err.code, status: err.status, source: err.source,
+      message   : err.message,
+      code      : err.code,
+      status    : err.status,
+      source    : err.source,
       ...(IS_DEV && { detail: err.detail, constraint: err.constraint }),
     });
     throw err;
@@ -508,7 +733,9 @@ export async function createOrderGroup({
 export async function clearCart(userId) {
   try {
     await pool.query(
-      `DELETE FROM market.cart_items ci USING market.carts c WHERE ci.cart_id = c.id AND c.user_id = $1`,
+      `DELETE FROM market.cart_items ci
+       USING market.carts c
+       WHERE ci.cart_id = c.id AND c.user_id = $1`,
       [userId]
     );
   } catch (err) {
@@ -523,6 +750,7 @@ export async function restoreStock(orderGroupId) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
     const { rows: items } = await client.query(
       `SELECT oi.variant_id, oi.quantity
        FROM public.orders o
@@ -530,14 +758,20 @@ export async function restoreStock(orderGroupId) {
        WHERE o.order_group_id = $1 AND oi.variant_id IS NOT NULL`,
       [orderGroupId]
     );
+
     for (const item of items) {
       await client.query(
-        `UPDATE market.product_variants SET stock = stock + $1 WHERE id = $2`,
+        `UPDATE market.product_variants
+         SET stock = stock + $1
+         WHERE id = $2`,
         [toNumber(item.quantity), item.variant_id]
       );
     }
+
     await client.query("COMMIT");
-    console.log(`[orderService] ✓ Stock restored: ${items.length} items on ${orderGroupId}`);
+    console.log(
+      `[orderService] ✓ Stock restored: ${items.length} items on ${orderGroupId}`
+    );
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[orderService] restoreStock failed:", err.message);
@@ -563,25 +797,46 @@ async function invalidateCouponCache(userId) {
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   const [groupCols, orderCols] = await Promise.all([
-    detectOrderGroupColumns(), detectOrderColumns(),
+    detectOrderGroupColumns(),
+    detectOrderColumns(),
   ]);
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
     await client.query(
       `UPDATE public.order_groups
-       SET payment_status = 'paid', payment_ref = $2, status = 'confirmed'
-       ${groupCols.hasUpdatedAt ? ", updated_at = now()" : ""}
+       SET payment_status = 'paid',
+           payment_ref    = $2,
+           status         = 'confirmed'
+           ${groupCols.hasUpdatedAt ? ", updated_at = now()" : ""}
        WHERE id = $1`,
       [orderGroupId, paymentRef]
     );
+
     await client.query(
-      `UPDATE public.orders SET status = 'confirmed'
-       ${orderCols.hasUpdatedAt ? ", updated_at = now()" : ""}
+      `UPDATE public.orders
+       SET status = 'confirmed'
+           ${orderCols.hasUpdatedAt ? ", updated_at = now()" : ""}
        WHERE order_group_id = $1`,
       [orderGroupId]
     );
+
+    /* History rows for each sub-order */
+    const { rows: orders } = await client.query(
+      `SELECT id FROM public.orders WHERE order_group_id = $1`,
+      [orderGroupId]
+    );
+    for (const o of orders) {
+      await client.query(
+        `INSERT INTO public.order_status_history
+           (order_id, order_group_id, from_status, to_status, changed_by_role, note)
+         VALUES ($1,$2,'pending','confirmed','system','Payment confirmed')`,
+        [o.id, orderGroupId]
+      ).catch(() => {});
+    }
+
     await client.query("COMMIT");
     console.log(`[orderService] ✅ ${orderGroupId} marked paid`);
   } catch (err) {
@@ -598,7 +853,8 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupDelivered(orderGroupId) {
   const [groupCols, orderCols] = await Promise.all([
-    detectOrderGroupColumns(), detectOrderColumns(),
+    detectOrderGroupColumns(),
+    detectOrderColumns(),
   ]);
 
   const client = await pool.connect();
@@ -607,7 +863,8 @@ export async function markOrderGroupDelivered(orderGroupId) {
 
     const groupSet = ["status = 'delivered'"];
     if (groupCols.hasDeliveredAt) groupSet.push("delivered_at = now()");
-    if (groupCols.hasUpdatedAt)   groupSet.push("updated_at = now()");
+    if (groupCols.hasUpdatedAt)   groupSet.push("updated_at   = now()");
+
     await client.query(
       `UPDATE public.order_groups SET ${groupSet.join(", ")} WHERE id = $1`,
       [orderGroupId]
@@ -615,11 +872,20 @@ export async function markOrderGroupDelivered(orderGroupId) {
 
     const orderSet = ["status = 'delivered'"];
     if (orderCols.hasDeliveredAt) orderSet.push("delivered_at = now()");
-    if (orderCols.hasUpdatedAt)   orderSet.push("updated_at = now()");
+    if (orderCols.hasUpdatedAt)   orderSet.push("updated_at   = now()");
+
     await client.query(
       `UPDATE public.orders SET ${orderSet.join(", ")} WHERE order_group_id = $1`,
       [orderGroupId]
     );
+
+    /* Clear earnings */
+    await client.query(
+      `UPDATE public.seller_earnings
+       SET status = 'cleared', cleared_at = now(), updated_at = now()
+       WHERE order_group_id = $1`,
+      [orderGroupId]
+    ).catch(() => {});
 
     await client.query("COMMIT");
     console.log(`[orderService] ✅ ${orderGroupId} delivered`);
@@ -633,19 +899,13 @@ export async function markOrderGroupDelivered(orderGroupId) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   GET FULL ORDER GROUP — accepts UUID or tracking ID
+   GET FULL ORDER GROUP — UUID or tracking ID
    ─────────────────────────────────────────────────────────
-   URLs now use tracking IDs (ORD-1F9DFB89).
-   Old UUID links also work (backward compatible).
+   Returns group + nested sub-orders + items + dispatch info
 ════════════════════════════════════════════════════════════ */
 export async function getOrderGroup(identifier, userId) {
   if (!identifier) return null;
 
-  /*
-   * Determine which column to query by:
-   *   UUID format   → og.id
-   *   Anything else → og.tracking_id (e.g. ORD-1F9DFB89)
-   */
   const column = isUUID(identifier) ? "og.id" : "og.tracking_id";
 
   const { rows: [group] } = await pool.query(
@@ -661,22 +921,35 @@ export async function getOrderGroup(identifier, userId) {
        a.state
      FROM public.order_groups og
      LEFT JOIN public.user_addresses a ON a.id = og.address_id
-     WHERE ${column} = $1
-       AND og.user_id = $2`,
+     WHERE ${column} = $1 AND og.user_id = $2`,
     [identifier, userId]
   );
 
   if (!group) return null;
 
+  /* Sub-orders with seller name + dispatch info */
   const { rows: orders } = await pool.query(
-    `SELECT o.*, u.name AS seller_name
+    `SELECT
+       o.*,
+       u.name AS seller_name,
+       d.dispatch_code,
+       d.status         AS dispatch_status,
+       d.agent_id,
+       da.name          AS agent_name,
+       da.phone         AS agent_phone,
+       d.estimated_at,
+       d.delivered_at   AS dispatch_delivered_at,
+       d.delivery_photo_url
      FROM public.orders o
-     LEFT JOIN market.users u ON u.id = o.seller_id
+     LEFT JOIN market.users         u  ON u.id  = o.seller_id
+     LEFT JOIN public.order_dispatches d  ON d.order_id = o.id
+     LEFT JOIN public.delivery_agents da ON da.id = d.agent_id
      WHERE o.order_group_id = $1
-     ORDER BY o.created_at ASC`,
+     ORDER BY o.tracking_id ASC`,
     [group.id]
   );
 
+  /* Items per sub-order */
   for (const order of orders) {
     const { rows: items } = await pool.query(
       `SELECT oi.*, p.name AS product_name
