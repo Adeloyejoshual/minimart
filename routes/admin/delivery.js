@@ -1,37 +1,218 @@
 /**
  * routes/admin/delivery.js
  *
- * Admin/Loemart Express dispatch controls.
+ * Loemart Express dispatch & delivery management.
+ * Mounted at: /api/admin/orders  (in server.js)
  *
- * POST /api/admin/orders/:orderId/dispatch     — assign agent, mark out_for_delivery
- * POST /api/admin/orders/:orderId/delivered    — mark delivered (agent confirmed drop-off)
- * POST /api/admin/orders/:orderId/failed       — mark failed delivery attempt
- * GET  /api/admin/orders/:orderId/dispatch     — get dispatch info
+ * Routes:
+ *   POST /api/admin/orders/:orderId/dispatch   — assign agent, mark out_for_delivery
+ *   POST /api/admin/orders/:orderId/delivered  — agent confirmed drop-off
+ *   POST /api/admin/orders/:orderId/failed     — delivery attempt failed
+ *   GET  /api/admin/orders/:orderId/dispatch   — get dispatch info
+ *   GET  /api/admin/orders/pending-dispatch    — all orders needing dispatch
+ *
+ * Status flow (admin/system-controlled):
+ *   shipped → out_for_delivery  (assign agent)
+ *   out_for_delivery → delivered (agent drop-off) → 48h buyer window
+ *   out_for_delivery → failed_delivery → out_for_delivery (retry)
+ *   failed_delivery → cancelled (give up)
  */
 
-import express                from "express";
-import { pool }               from "../../config/db.js";
-import { authenticateAdmin }  from "../../middleware/adminAuth.js";
+import express              from "express";
+import { pool }             from "../../config/db.js";
+import { authenticateAdmin } from "../../middleware/adminAuth.js";
 import {
+  VALID_TRANSITIONS,
+  isTransitionAllowed,
   recomputeGroupStatus,
   markSubOrderDelivered,
-  isTransitionAllowed,
-  VALID_TRANSITIONS,
+  STATUS_LABELS,
 } from "../../services/orderService.js";
+import {
+  sendOutForDeliveryNotifications,
+  sendDeliveredNotifications,
+  sendFailedDeliveryNotifications,
+} from "../../services/orderDeliveryNotification.js";
 
 const router = express.Router();
+
+/* ══════════════════════════════════════════════════════════════
+   AUTH — all routes require admin
+══════════════════════════════════════════════════════════════ */
 router.use(authenticateAdmin);
 
-/* ════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
+   HELPER — status history insert
+══════════════════════════════════════════════════════════════ */
+async function writeHistory(
+  client,
+  { orderId, orderGroupId, fromStatus, toStatus, adminId, note }
+) {
+  await client.query(
+    `INSERT INTO public.order_status_history
+       (order_id, order_group_id, from_status, to_status,
+        changed_by_id, changed_by_role, note)
+     VALUES ($1, $2, $3, $4, $5, 'admin', $6)`,
+    [orderId, orderGroupId, fromStatus, toStatus, adminId, note]
+  ).catch((err) =>
+    console.warn("[admin/delivery] history insert failed:", err.message)
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   GET /pending-dispatch
+   ─────────────────────────────────────────────────────────────
+   Returns all sub-orders with status = 'shipped' that need
+   an agent assignment.
+══════════════════════════════════════════════════════════════ */
+router.get("/pending-dispatch", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         o.id,
+         o.tracking_id,
+         o.status,
+         o.subtotal,
+         o.shipped_at,
+         o.pickup_ready_at,
+         o.seller_note,
+
+         og.tracking_id      AS parent_tracking_id,
+         og.grand_total,
+
+         s.name              AS seller_name,
+         s.email             AS seller_email,
+
+         u.name              AS buyer_name,
+
+         a.recipient_name,
+         a.address_line,
+         a.bus_stop,
+         a.landmark,
+         a.city,
+         a.state,
+         a.phone             AS buyer_phone,
+
+         d.dispatch_code,
+         d.status            AS dispatch_status,
+         d.agent_id,
+         da.name             AS agent_name,
+
+         (SELECT COUNT(*)::int
+          FROM public.order_items oi
+          WHERE oi.order_id = o.id) AS item_count
+
+       FROM public.orders o
+       LEFT JOIN public.order_groups     og ON og.id    = o.order_group_id
+       LEFT JOIN market.users            s  ON s.id     = o.seller_id
+       LEFT JOIN market.users            u  ON u.id     = og.user_id
+       LEFT JOIN public.user_addresses   a  ON a.id     = og.address_id
+       LEFT JOIN public.order_dispatches d  ON d.order_id = o.id
+       LEFT JOIN public.delivery_agents  da ON da.id    = d.agent_id
+       WHERE o.status = 'shipped'
+       ORDER BY o.shipped_at ASC`
+    );
+
+    return res.json({
+      success: true,
+      data   : { orders: rows, total: rows.length },
+    });
+
+  } catch (err) {
+    console.error("[admin/delivery] GET /pending-dispatch:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch pending dispatches",
+    });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   GET /:orderId/dispatch
+   ─────────────────────────────────────────────────────────────
+   Returns dispatch info for a specific sub-order.
+══════════════════════════════════════════════════════════════ */
+router.get("/:orderId/dispatch", async (req, res) => {
+  const { orderId } = req.params;
+
+  try {
+    const { rows: [dispatch] } = await pool.query(
+      `SELECT
+         d.*,
+         da.name          AS agent_name,
+         da.phone         AS agent_phone,
+         da.vehicle_type  AS agent_vehicle,
+         da.zone          AS agent_zone,
+
+         o.tracking_id,
+         o.status         AS order_status,
+         o.subtotal,
+         o.seller_note,
+         o.pickup_ready_at,
+
+         og.tracking_id   AS parent_tracking_id,
+
+         s.name           AS seller_name,
+
+         u.name           AS buyer_name,
+
+         a.recipient_name,
+         a.address_line,
+         a.bus_stop,
+         a.landmark,
+         a.city,
+         a.state,
+         a.phone          AS buyer_phone
+
+       FROM public.order_dispatches d
+       LEFT JOIN public.delivery_agents  da ON da.id    = d.agent_id
+       LEFT JOIN public.orders           o  ON o.id     = d.order_id
+       LEFT JOIN public.order_groups     og ON og.id    = d.order_group_id
+       LEFT JOIN market.users            s  ON s.id     = o.seller_id
+       LEFT JOIN market.users            u  ON u.id     = og.user_id
+       LEFT JOIN public.user_addresses   a  ON a.id     = og.address_id
+       WHERE d.order_id = $1`,
+      [orderId]
+    );
+
+    if (!dispatch) {
+      return res.status(404).json({
+        success: false,
+        message: "No dispatch record found for this order",
+      });
+    }
+
+    return res.json({ success: true, data: dispatch });
+
+  } catch (err) {
+    console.error("[admin/delivery] GET /:orderId/dispatch:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch dispatch info",
+    });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
    POST /:orderId/dispatch
-   ─────────────────────────────────────────────────────────
-   Assigns a Loemart Express agent and marks out_for_delivery.
-   Triggered when agent picks up from seller.
-════════════════════════════════════════════════════════════ */
+   ─────────────────────────────────────────────────────────────
+   Admin assigns a Loemart Express agent and marks order as
+   "out_for_delivery". The agent has physically collected
+   the package from the seller.
+
+   Required body: { agentId }
+   Optional body: { estimatedAt, notes }
+
+   Valid from: shipped, failed_delivery (retry)
+══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/dispatch", async (req, res) => {
-  const { orderId }    = req.params;
-  const { agentId }    = req.body;
-  const adminId        = req.user.id;
+  const { orderId }   = req.params;
+  const {
+    agentId,
+    estimatedAt,
+    notes,
+  } = req.body;
+  const adminId = req.user.id;
 
   if (!agentId) {
     return res.status(422).json({
@@ -44,8 +225,10 @@ router.post("/:orderId/dispatch", async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    /* Lock sub-order */
     const { rows: [order] } = await client.query(
-      `SELECT id, status, tracking_id, order_group_id
+      `SELECT
+         id, status, tracking_id, order_group_id, seller_id
        FROM public.orders
        WHERE id = $1
        FOR UPDATE`,
@@ -54,21 +237,27 @@ router.post("/:orderId/dispatch", async (req, res) => {
 
     if (!order) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
     }
 
+    /* Transition guard */
     if (!isTransitionAllowed(order.status, "out_for_delivery", "admin")) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `Cannot dispatch from status "${order.status}"`,
-        data   : { currentStatus: order.status, required: "shipped" },
+        message: `Cannot dispatch from status "${order.status}". ` +
+                 `Order must be "shipped" or "failed_delivery".`,
+        data: { currentStatus: order.status },
       });
     }
 
-    /* Verify agent exists */
+    /* Verify agent exists and is active */
     const { rows: [agent] } = await client.query(
-      `SELECT id, name, phone FROM public.delivery_agents
+      `SELECT id, name, phone, vehicle_type, zone
+       FROM public.delivery_agents
        WHERE id = $1 AND is_active = true`,
       [agentId]
     );
@@ -96,45 +285,78 @@ router.post("/:orderId/dispatch", async (req, res) => {
     await client.query(
       `INSERT INTO public.order_dispatches
          (order_id, order_group_id, agent_id, dispatch_code,
-          status, out_for_delivery_at, pickup_confirmed_at)
-       VALUES ($1,$2,$3,$4,'out_for_delivery',NOW(),NOW())
+          status, out_for_delivery_at, pickup_confirmed_at,
+          estimated_at, delivery_notes)
+       VALUES ($1, $2, $3, $4, 'out_for_delivery', NOW(), NOW(), $5, $6)
        ON CONFLICT (order_id) DO UPDATE
-         SET agent_id            = $3,
-             status              = 'out_for_delivery',
-             out_for_delivery_at = NOW(),
-             pickup_confirmed_at = NOW(),
-             updated_at          = NOW()`,
-      [orderId, order.order_group_id, agentId, dispatchCode]
+         SET agent_id              = $3,
+             status                = 'out_for_delivery',
+             out_for_delivery_at   = NOW(),
+             pickup_confirmed_at   = NOW(),
+             estimated_at          = $5,
+             delivery_notes        = $6,
+             attempt_count         = public.order_dispatches.attempt_count + 1,
+             failed_at             = NULL,
+             failure_reason        = NULL,
+             updated_at            = NOW()`,
+      [
+        orderId,
+        order.order_group_id,
+        agentId,
+        dispatchCode,
+        estimatedAt ?? null,
+        notes ?? null,
+      ]
     );
 
     /* Status history */
-    await client.query(
-      `INSERT INTO public.order_status_history
-         (order_id, order_group_id, from_status, to_status,
-          changed_by_id, changed_by_role, note)
-       VALUES ($1,$2,$3,'out_for_delivery',$4,'admin','Assigned to Loemart Express agent')`,
-      [orderId, order.order_group_id, order.status, adminId]
-    ).catch(() => {});
+    await writeHistory(client, {
+      orderId,
+      orderGroupId: order.order_group_id,
+      fromStatus  : order.status,
+      toStatus    : "out_for_delivery",
+      adminId,
+      note        : `Assigned to agent ${agent.name} (${agent.vehicle_type ?? ""}). Dispatch code: ${dispatchCode}`,
+    });
 
-    /* Recompute parent status */
-    const groupStatus = await recomputeGroupStatus(client, order.order_group_id);
+    /* Recompute parent */
+    const groupStatus = await recomputeGroupStatus(
+      client,
+      order.order_group_id
+    );
 
     await client.query("COMMIT");
 
     console.log(
       `[admin/delivery] ✅ ${order.tracking_id} dispatched`,
-      `| agent=${agent.name} | group=${groupStatus}`
+      `| agent=${agent.name} (${agent.phone})`,
+      `| code=${dispatchCode}`,
+      `| group=${groupStatus}`
+    );
+
+    /* Notifications (fire & forget) */
+    sendOutForDeliveryNotifications({
+      orderId,
+      orderGroupId: order.order_group_id,
+    }).catch((err) =>
+      console.warn("[admin/delivery] OFD notification failed:", err.message)
     );
 
     return res.json({
       success: true,
       message: `Order dispatched to ${agent.name}`,
-      data   : {
+      data: {
         orderId,
         trackingId  : order.tracking_id,
         dispatchCode,
-        agentName   : agent.name,
-        agentPhone  : agent.phone,
+        agent       : {
+          id     : agent.id,
+          name   : agent.name,
+          phone  : agent.phone,
+          vehicle: agent.vehicle_type,
+          zone   : agent.zone,
+        },
+        estimatedAt : estimatedAt ?? null,
         groupStatus,
       },
     });
@@ -142,24 +364,32 @@ router.post("/:orderId/dispatch", async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[admin/delivery] POST /dispatch:", err.message);
-    return res.status(500).json({ success: false, message: "Failed to dispatch order" });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to dispatch order",
+    });
   } finally {
     client.release();
   }
 });
 
-/* ════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    POST /:orderId/delivered
-   ─────────────────────────────────────────────────────────
+   ─────────────────────────────────────────────────────────────
    Agent confirmed drop-off at buyer's address.
-   Sets status = delivered.
+   Sets status = "delivered".
    Starts 48h buyer confirmation window.
-════════════════════════════════════════════════════════════ */
+   Buyer will be prompted to "Confirm Received".
+
+   Optional body: { recipientName, photoUrl, notes }
+
+   Valid from: out_for_delivery
+══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/delivered", async (req, res) => {
   const { orderId }   = req.params;
   const {
-    recipientName,      // who signed for it (optional)
-    photoUrl,           // proof of delivery photo (optional)
+    recipientName,
+    photoUrl,
     notes,
   } = req.body;
   const adminId = req.user.id;
@@ -168,6 +398,7 @@ router.post("/:orderId/delivered", async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    /* Lock sub-order */
     const { rows: [order] } = await client.query(
       `SELECT id, status, tracking_id, order_group_id
        FROM public.orders
@@ -178,19 +409,24 @@ router.post("/:orderId/delivered", async (req, res) => {
 
     if (!order) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
     }
 
+    /* Transition guard */
     if (!isTransitionAllowed(order.status, "delivered", "admin")) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `Cannot mark delivered from status "${order.status}"`,
-        data   : { currentStatus: order.status },
+        message: `Cannot mark delivered from status "${order.status}". ` +
+                 `Order must be "out_for_delivery".`,
+        data: { currentStatus: order.status },
       });
     }
 
-    /* Mark delivered + create 48h confirmation window */
+    /* Mark delivered + create 48h auto-confirm window */
     const { autoConfirmAt } = await markSubOrderDelivered(
       client,
       orderId,
@@ -209,10 +445,15 @@ router.post("/:orderId/delivered", async (req, res) => {
            updated_at         = NOW()
        WHERE order_id = $4`,
       [recipientName ?? null, photoUrl ?? null, notes ?? null, orderId]
-    ).catch(() => {});
+    ).catch((err) =>
+      console.warn("[admin/delivery] dispatch delivered update failed:", err.message)
+    );
 
     /* Recompute parent */
-    const groupStatus = await recomputeGroupStatus(client, order.order_group_id);
+    const groupStatus = await recomputeGroupStatus(
+      client,
+      order.order_group_id
+    );
 
     await client.query("COMMIT");
 
@@ -222,10 +463,18 @@ router.post("/:orderId/delivered", async (req, res) => {
       `| group=${groupStatus}`
     );
 
+    /* Notifications (fire & forget) */
+    sendDeliveredNotifications({
+      orderId,
+      orderGroupId: order.order_group_id,
+    }).catch((err) =>
+      console.warn("[admin/delivery] delivered notification failed:", err.message)
+    );
+
     return res.json({
       success: true,
       message: "Order marked as delivered. Buyer has 48 hours to confirm receipt.",
-      data   : {
+      data: {
         orderId,
         trackingId   : order.tracking_id,
         deliveredAt  : new Date().toISOString(),
@@ -237,22 +486,37 @@ router.post("/:orderId/delivered", async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[admin/delivery] POST /delivered:", err.message);
-    return res.status(500).json({ success: false, message: "Failed to mark order as delivered" });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to mark order as delivered",
+    });
   } finally {
     client.release();
   }
 });
 
-/* ════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    POST /:orderId/failed
-   ─────────────────────────────────────────────────────────
-   Agent could not deliver (buyer absent, wrong address, etc.)
-   Resets to shipped so admin can re-dispatch.
-════════════════════════════════════════════════════════════ */
+   ─────────────────────────────────────────────────────────────
+   Agent could not complete delivery.
+   Sets status = "failed_delivery".
+   Admin can later retry via POST /dispatch.
+
+   Required body: { reason }
+
+   Valid from: out_for_delivery
+══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/failed", async (req, res) => {
-  const { orderId }      = req.params;
-  const { reason }       = req.body;
-  const adminId          = req.user.id;
+  const { orderId }  = req.params;
+  const { reason }   = req.body;
+  const adminId      = req.user.id;
+
+  if (!reason) {
+    return res.status(422).json({
+      success: false,
+      message: "Failure reason is required",
+    });
+  }
 
   const client = await pool.connect();
   try {
@@ -260,23 +524,32 @@ router.post("/:orderId/failed", async (req, res) => {
 
     const { rows: [order] } = await client.query(
       `SELECT id, status, tracking_id, order_group_id
-       FROM public.orders WHERE id = $1 FOR UPDATE`,
+       FROM public.orders
+       WHERE id = $1
+       FOR UPDATE`,
       [orderId]
     );
 
     if (!order) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
     }
 
+    /* Transition guard */
     if (!isTransitionAllowed(order.status, "failed_delivery", "admin")) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `Cannot mark failed from status "${order.status}"`,
+        message: `Cannot mark failed from status "${order.status}". ` +
+                 `Order must be "out_for_delivery".`,
+        data: { currentStatus: order.status },
       });
     }
 
+    /* Update sub-order */
     await client.query(
       `UPDATE public.orders
        SET status              = 'failed_delivery',
@@ -284,9 +557,10 @@ router.post("/:orderId/failed", async (req, res) => {
            cancellation_reason = $1,
            updated_at          = NOW()
        WHERE id = $2`,
-      [reason ?? "Delivery attempt failed", orderId]
+      [reason, orderId]
     );
 
+    /* Update dispatch record */
     await client.query(
       `UPDATE public.order_dispatches
        SET status         = 'failed',
@@ -295,31 +569,62 @@ router.post("/:orderId/failed", async (req, res) => {
            attempt_count  = attempt_count + 1,
            updated_at     = NOW()
        WHERE order_id = $2`,
-      [reason ?? null, orderId]
-    ).catch(() => {});
+      [reason, orderId]
+    ).catch((err) =>
+      console.warn("[admin/delivery] dispatch failed update:", err.message)
+    );
 
-    await client.query(
-      `INSERT INTO public.order_status_history
-         (order_id, order_group_id, from_status, to_status,
-          changed_by_id, changed_by_role, note)
-       VALUES ($1,$2,$3,'failed_delivery',$4,'admin',$5)`,
-      [orderId, order.order_group_id, order.status, adminId, reason ?? "Delivery failed"]
-    ).catch(() => {});
+    /* History */
+    await writeHistory(client, {
+      orderId,
+      orderGroupId: order.order_group_id,
+      fromStatus  : order.status,
+      toStatus    : "failed_delivery",
+      adminId,
+      note        : `Delivery failed: ${reason}`,
+    });
 
-    const groupStatus = await recomputeGroupStatus(client, order.order_group_id);
+    /* Recompute parent */
+    const groupStatus = await recomputeGroupStatus(
+      client,
+      order.order_group_id
+    );
 
     await client.query("COMMIT");
+
+    console.log(
+      `[admin/delivery] ✅ ${order.tracking_id} delivery failed`,
+      `| reason="${reason}"`,
+      `| group=${groupStatus}`
+    );
+
+    /* Notification (fire & forget) */
+    sendFailedDeliveryNotifications({
+      orderId,
+      orderGroupId: order.order_group_id,
+      reason,
+    }).catch((err) =>
+      console.warn("[admin/delivery] failed notification:", err.message)
+    );
 
     return res.json({
       success: true,
       message: "Delivery failure recorded. Order can be re-dispatched.",
-      data   : { orderId, trackingId: order.tracking_id, groupStatus },
+      data: {
+        orderId,
+        trackingId : order.tracking_id,
+        reason,
+        groupStatus,
+      },
     });
 
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[admin/delivery] POST /failed:", err.message);
-    return res.status(500).json({ success: false, message: "Failed to record delivery failure" });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to record delivery failure",
+    });
   } finally {
     client.release();
   }
