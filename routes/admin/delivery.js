@@ -2,25 +2,22 @@
  * routes/admin/delivery.js
  *
  * Loemart Express dispatch & delivery management.
- * Mounted at: /api/admin/orders  (in server.js)
+ * Mounted at: /api/admin/delivery  (in server.js)
+ *
+ * Uses verifyAdmin from routes/admin/middleware.js
+ * — same middleware used by all other admin routes.
  *
  * Routes:
- *   POST /api/admin/orders/:orderId/dispatch   — assign agent, mark out_for_delivery
- *   POST /api/admin/orders/:orderId/delivered  — agent confirmed drop-off
- *   POST /api/admin/orders/:orderId/failed     — delivery attempt failed
- *   GET  /api/admin/orders/:orderId/dispatch   — get dispatch info
- *   GET  /api/admin/orders/pending-dispatch    — all orders needing dispatch
- *
- * Status flow (admin/system-controlled):
- *   shipped → out_for_delivery  (assign agent)
- *   out_for_delivery → delivered (agent drop-off) → 48h buyer window
- *   out_for_delivery → failed_delivery → out_for_delivery (retry)
- *   failed_delivery → cancelled (give up)
+ *   GET  /api/admin/delivery/pending-dispatch
+ *   GET  /api/admin/delivery/:orderId/dispatch
+ *   POST /api/admin/delivery/:orderId/dispatch
+ *   POST /api/admin/delivery/:orderId/delivered
+ *   POST /api/admin/delivery/:orderId/failed
  */
 
-import express              from "express";
-import { pool }             from "../../config/db.js";
-import { authenticateAdmin } from "../../middleware/adminAuth.js";
+import express    from "express";
+import { pool }   from "../../config/db.js";
+import { verifyAdmin } from "../admin/middleware.js";   /* ← correct path */
 import {
   VALID_TRANSITIONS,
   isTransitionAllowed,
@@ -39,7 +36,7 @@ const router = express.Router();
 /* ══════════════════════════════════════════════════════════════
    AUTH — all routes require admin
 ══════════════════════════════════════════════════════════════ */
-router.use(authenticateAdmin);
+router.use(verifyAdmin);
 
 /* ══════════════════════════════════════════════════════════════
    HELPER — status history insert
@@ -62,8 +59,7 @@ async function writeHistory(
 /* ══════════════════════════════════════════════════════════════
    GET /pending-dispatch
    ─────────────────────────────────────────────────────────────
-   Returns all sub-orders with status = 'shipped' that need
-   an agent assignment.
+   All sub-orders with status = 'shipped' needing agent assignment.
 ══════════════════════════════════════════════════════════════ */
 router.get("/pending-dispatch", async (req, res) => {
   try {
@@ -110,7 +106,7 @@ router.get("/pending-dispatch", async (req, res) => {
        LEFT JOIN public.order_dispatches d  ON d.order_id = o.id
        LEFT JOIN public.delivery_agents  da ON da.id    = d.agent_id
        WHERE o.status = 'shipped'
-       ORDER BY o.shipped_at ASC`
+       ORDER BY o.shipped_at ASC NULLS LAST`
     );
 
     return res.json({
@@ -130,7 +126,7 @@ router.get("/pending-dispatch", async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
    GET /:orderId/dispatch
    ─────────────────────────────────────────────────────────────
-   Returns dispatch info for a specific sub-order.
+   Dispatch info for a specific sub-order.
 ══════════════════════════════════════════════════════════════ */
 router.get("/:orderId/dispatch", async (req, res) => {
   const { orderId } = req.params;
@@ -149,6 +145,7 @@ router.get("/:orderId/dispatch", async (req, res) => {
          o.subtotal,
          o.seller_note,
          o.pickup_ready_at,
+         o.shipped_at,
 
          og.tracking_id   AS parent_tracking_id,
 
@@ -196,23 +193,16 @@ router.get("/:orderId/dispatch", async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
    POST /:orderId/dispatch
    ─────────────────────────────────────────────────────────────
-   Admin assigns a Loemart Express agent and marks order as
-   "out_for_delivery". The agent has physically collected
-   the package from the seller.
+   Assign agent → mark out_for_delivery.
+   Agent has physically collected from seller.
 
-   Required body: { agentId }
-   Optional body: { estimatedAt, notes }
-
+   Body: { agentId, estimatedAt?, notes? }
    Valid from: shipped, failed_delivery (retry)
 ══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/dispatch", async (req, res) => {
-  const { orderId }   = req.params;
-  const {
-    agentId,
-    estimatedAt,
-    notes,
-  } = req.body;
-  const adminId = req.user.id;
+  const { orderId }           = req.params;
+  const { agentId, estimatedAt, notes } = req.body;
+  const adminId               = req.admin.id;   /* verifyAdmin sets req.admin */
 
   if (!agentId) {
     return res.status(422).json({
@@ -227,8 +217,7 @@ router.post("/:orderId/dispatch", async (req, res) => {
 
     /* Lock sub-order */
     const { rows: [order] } = await client.query(
-      `SELECT
-         id, status, tracking_id, order_group_id, seller_id
+      `SELECT id, status, tracking_id, order_group_id, seller_id
        FROM public.orders
        WHERE id = $1
        FOR UPDATE`,
@@ -237,10 +226,7 @@ router.post("/:orderId/dispatch", async (req, res) => {
 
     if (!order) {
       await client.query("ROLLBACK");
-      return res.status(404).json({
-        success: false,
-        message: "Order not found",
-      });
+      return res.status(404).json({ success: false, message: "Order not found" });
     }
 
     /* Transition guard */
@@ -250,11 +236,11 @@ router.post("/:orderId/dispatch", async (req, res) => {
         success: false,
         message: `Cannot dispatch from status "${order.status}". ` +
                  `Order must be "shipped" or "failed_delivery".`,
-        data: { currentStatus: order.status },
+        data   : { currentStatus: order.status },
       });
     }
 
-    /* Verify agent exists and is active */
+    /* Verify agent */
     const { rows: [agent] } = await client.query(
       `SELECT id, name, phone, vehicle_type, zone
        FROM public.delivery_agents
@@ -270,7 +256,7 @@ router.post("/:orderId/dispatch", async (req, res) => {
       });
     }
 
-    /* Update sub-order status */
+    /* Update sub-order */
     await client.query(
       `UPDATE public.orders
        SET status              = 'out_for_delivery',
@@ -289,41 +275,38 @@ router.post("/:orderId/dispatch", async (req, res) => {
           estimated_at, delivery_notes)
        VALUES ($1, $2, $3, $4, 'out_for_delivery', NOW(), NOW(), $5, $6)
        ON CONFLICT (order_id) DO UPDATE
-         SET agent_id              = $3,
-             status                = 'out_for_delivery',
-             out_for_delivery_at   = NOW(),
-             pickup_confirmed_at   = NOW(),
-             estimated_at          = $5,
-             delivery_notes        = $6,
-             attempt_count         = public.order_dispatches.attempt_count + 1,
-             failed_at             = NULL,
-             failure_reason        = NULL,
-             updated_at            = NOW()`,
+         SET agent_id            = $3,
+             status              = 'out_for_delivery',
+             out_for_delivery_at = NOW(),
+             pickup_confirmed_at = NOW(),
+             estimated_at        = $5,
+             delivery_notes      = $6,
+             attempt_count       = public.order_dispatches.attempt_count + 1,
+             failed_at           = NULL,
+             failure_reason      = NULL,
+             updated_at          = NOW()`,
       [
         orderId,
         order.order_group_id,
         agentId,
         dispatchCode,
         estimatedAt ?? null,
-        notes ?? null,
+        notes       ?? null,
       ]
     );
 
-    /* Status history */
+    /* History */
     await writeHistory(client, {
       orderId,
       orderGroupId: order.order_group_id,
       fromStatus  : order.status,
       toStatus    : "out_for_delivery",
       adminId,
-      note        : `Assigned to agent ${agent.name} (${agent.vehicle_type ?? ""}). Dispatch code: ${dispatchCode}`,
+      note        : `Assigned to agent ${agent.name} (${agent.vehicle_type ?? "motorcycle"}). Code: ${dispatchCode}`,
     });
 
     /* Recompute parent */
-    const groupStatus = await recomputeGroupStatus(
-      client,
-      order.order_group_id
-    );
+    const groupStatus = await recomputeGroupStatus(client, order.order_group_id);
 
     await client.query("COMMIT");
 
@@ -349,7 +332,7 @@ router.post("/:orderId/dispatch", async (req, res) => {
         orderId,
         trackingId  : order.tracking_id,
         dispatchCode,
-        agent       : {
+        agent: {
           id     : agent.id,
           name   : agent.name,
           phone  : agent.phone,
@@ -377,28 +360,20 @@ router.post("/:orderId/dispatch", async (req, res) => {
    POST /:orderId/delivered
    ─────────────────────────────────────────────────────────────
    Agent confirmed drop-off at buyer's address.
-   Sets status = "delivered".
-   Starts 48h buyer confirmation window.
-   Buyer will be prompted to "Confirm Received".
+   Sets status = "delivered". Starts 48h confirmation window.
 
-   Optional body: { recipientName, photoUrl, notes }
-
+   Body: { recipientName?, photoUrl?, notes? }
    Valid from: out_for_delivery
 ══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/delivered", async (req, res) => {
-  const { orderId }   = req.params;
-  const {
-    recipientName,
-    photoUrl,
-    notes,
-  } = req.body;
-  const adminId = req.user.id;
+  const { orderId }                       = req.params;
+  const { recipientName, photoUrl, notes } = req.body;
+  const adminId                           = req.admin.id;
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    /* Lock sub-order */
     const { rows: [order] } = await client.query(
       `SELECT id, status, tracking_id, order_group_id
        FROM public.orders
@@ -409,20 +384,16 @@ router.post("/:orderId/delivered", async (req, res) => {
 
     if (!order) {
       await client.query("ROLLBACK");
-      return res.status(404).json({
-        success: false,
-        message: "Order not found",
-      });
+      return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    /* Transition guard */
     if (!isTransitionAllowed(order.status, "delivered", "admin")) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
         message: `Cannot mark delivered from status "${order.status}". ` +
                  `Order must be "out_for_delivery".`,
-        data: { currentStatus: order.status },
+        data   : { currentStatus: order.status },
       });
     }
 
@@ -450,10 +421,7 @@ router.post("/:orderId/delivered", async (req, res) => {
     );
 
     /* Recompute parent */
-    const groupStatus = await recomputeGroupStatus(
-      client,
-      order.order_group_id
-    );
+    const groupStatus = await recomputeGroupStatus(client, order.order_group_id);
 
     await client.query("COMMIT");
 
@@ -499,19 +467,17 @@ router.post("/:orderId/delivered", async (req, res) => {
    POST /:orderId/failed
    ─────────────────────────────────────────────────────────────
    Agent could not complete delivery.
-   Sets status = "failed_delivery".
-   Admin can later retry via POST /dispatch.
+   Sets status = "failed_delivery". Admin can retry via /dispatch.
 
-   Required body: { reason }
-
+   Body: { reason }
    Valid from: out_for_delivery
 ══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/failed", async (req, res) => {
-  const { orderId }  = req.params;
-  const { reason }   = req.body;
-  const adminId      = req.user.id;
+  const { orderId } = req.params;
+  const { reason }  = req.body;
+  const adminId     = req.admin.id;
 
-  if (!reason) {
+  if (!reason?.trim()) {
     return res.status(422).json({
       success: false,
       message: "Failure reason is required",
@@ -532,20 +498,16 @@ router.post("/:orderId/failed", async (req, res) => {
 
     if (!order) {
       await client.query("ROLLBACK");
-      return res.status(404).json({
-        success: false,
-        message: "Order not found",
-      });
+      return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    /* Transition guard */
     if (!isTransitionAllowed(order.status, "failed_delivery", "admin")) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
         message: `Cannot mark failed from status "${order.status}". ` +
                  `Order must be "out_for_delivery".`,
-        data: { currentStatus: order.status },
+        data   : { currentStatus: order.status },
       });
     }
 
@@ -585,10 +547,7 @@ router.post("/:orderId/failed", async (req, res) => {
     });
 
     /* Recompute parent */
-    const groupStatus = await recomputeGroupStatus(
-      client,
-      order.order_group_id
-    );
+    const groupStatus = await recomputeGroupStatus(client, order.order_group_id);
 
     await client.query("COMMIT");
 
