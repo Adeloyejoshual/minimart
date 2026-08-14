@@ -1,22 +1,123 @@
 /**
  * services/orderService.js
  *
- * v10 — Loemart Express
+ * v11 — Loemart Express (complete)
  * ────────────────────────────────────────────────────────────
- * NEW in v10:
- * ✓ Sub-order tracking IDs  (ORD-1F9DFB89-A, -B, -C …)
- * ✓ order_status_history rows on every creation
- * ✓ seller_earnings rows created at order creation
- * ✓ order_dispatches row created when order ships
- * ✓ computeGroupStatus() — derives parent from sub-orders
- * ✓ recomputeGroupStatus() — called by seller PATCH route
- * ✓ All v9 features preserved
+ * Exports:
+ *   VALID_TRANSITIONS
+ *   ALL_STATUSES
+ *   STATUS_LABELS
+ *   isTransitionAllowed(from, to, role)
+ *   allowedTransitionsForRole(from, role)
+ *   computeGroupStatus(subStatuses[])
+ *   recomputeGroupStatus(client, orderGroupId)
+ *   markSubOrderDelivered(client, orderId, orderGroupId, adminId)
+ *   markSubOrderReceived(client, orderId, orderGroupId, confirmedBy)
+ *   resolveOrderGroup(identifier, userId)
+ *   createOrderGroup({ ... })
+ *   markOrderGroupPaid(orderGroupId, paymentRef)
+ *   markOrderGroupDelivered(orderGroupId)
+ *   getOrderGroup(identifier, userId)
+ *   clearCart(userId)
+ *   restoreStock(orderGroupId)
  */
 
 import { pool }                 from "../config/db.js";
 import { calculateDeliveryFee } from "./delivery.js";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
+
+/* ════════════════════════════════════════════════════════════
+   TRANSITION RULES & CONSTANTS
+   ─────────────────────────────────────────────────────────
+   Single source of truth — used by seller, admin, buyer routes.
+════════════════════════════════════════════════════════════ */
+
+/**
+ * All valid status values for public.orders
+ */
+export const ALL_STATUSES = new Set([
+  "pending",
+  "confirmed",
+  "processing",
+  "shipped",
+  "out_for_delivery",
+  "delivered",
+  "failed_delivery",
+  "received",
+  "cancelled",
+]);
+
+/**
+ * Valid next statuses from each current status.
+ * Used for UI rendering and server-side validation.
+ */
+export const VALID_TRANSITIONS = {
+  pending:          ["confirmed",        "cancelled"],
+  confirmed:        ["processing",       "cancelled"],
+  processing:       ["shipped",          "cancelled"],
+  shipped:          ["out_for_delivery", "cancelled"],
+  out_for_delivery: ["delivered",        "failed_delivery"],
+  delivered:        ["received"],
+  failed_delivery:  ["out_for_delivery", "cancelled"],
+  received:         [],
+  cancelled:        [],
+};
+
+export const STATUS_LABELS = {
+  pending:          "Pending",
+  confirmed:        "Confirmed",
+  processing:       "Processing",
+  shipped:          "Shipped",
+  out_for_delivery: "Out for Delivery",
+  delivered:        "Delivered",
+  failed_delivery:  "Delivery Failed",
+  received:         "Received",
+  cancelled:        "Cancelled",
+};
+
+/**
+ * Role-based transition rules.
+ *
+ * Roles:
+ *   seller — authenticated seller
+ *   admin  — Loemart admin / dispatch operator
+ *   buyer  — authenticated buyer
+ *   system — automated jobs (auto-confirm, payment webhook)
+ */
+const TRANSITION_RULES = [
+  { from: "pending",          to: "confirmed",        roles: ["seller", "admin"] },
+  { from: "pending",          to: "cancelled",        roles: ["seller", "admin", "buyer"] },
+  { from: "confirmed",        to: "processing",       roles: ["seller", "admin"] },
+  { from: "confirmed",        to: "cancelled",        roles: ["seller", "admin", "buyer"] },
+  { from: "processing",       to: "shipped",          roles: ["seller", "admin"] },
+  { from: "processing",       to: "cancelled",        roles: ["seller", "admin", "buyer"] },
+  { from: "shipped",          to: "out_for_delivery", roles: ["admin", "system"] },
+  { from: "shipped",          to: "cancelled",        roles: ["admin"] },
+  { from: "out_for_delivery", to: "delivered",        roles: ["admin", "system"] },
+  { from: "out_for_delivery", to: "failed_delivery",  roles: ["admin", "system"] },
+  { from: "delivered",        to: "received",         roles: ["buyer", "system"] },
+  { from: "failed_delivery",  to: "out_for_delivery", roles: ["admin", "system"] },
+  { from: "failed_delivery",  to: "cancelled",        roles: ["admin"] },
+];
+
+/**
+ * Returns true if the given role may perform this transition.
+ */
+export function isTransitionAllowed(fromStatus, toStatus, role) {
+  return TRANSITION_RULES.some(
+    (r) => r.from === fromStatus && r.to === toStatus && r.roles.includes(role)
+  );
+}
+
+/**
+ * Returns all statuses a given role can transition TO from fromStatus.
+ */
+export function allowedTransitionsForRole(fromStatus, role) {
+  return TRANSITION_RULES
+    .filter((r) => r.from === fromStatus && r.roles.includes(role))
+    .map((r) => r.to);
+}
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -26,21 +127,19 @@ const toNumber = (v) => {
   return isNaN(n) ? 0 : n;
 };
 
-/**
- * Parent tracking ID:    ORD-1F9DFB89
- * Sub-order suffix:      ORD-1F9DFB89-A  (index 0 = A, 1 = B …)
- */
 function generateTrackingId(uuid) {
   return `ORD-${uuid.slice(0, 8).toUpperCase()}`;
 }
 
 function generateSubTrackingId(parentTrackingId, index) {
-  const suffix = String.fromCharCode(65 + index); // 0→A, 1→B …
+  /* 0→A, 1→B … 25→Z, 26→AA … */
+  let suffix = "";
+  let n      = index;
+  do {
+    suffix = String.fromCharCode(65 + (n % 26)) + suffix;
+    n      = Math.floor(n / 26) - 1;
+  } while (n >= 0);
   return `${parentTrackingId}-${suffix}`;
-}
-
-function generateDispatchCode(uuid) {
-  return `LX-${uuid.slice(0, 6).toUpperCase()}`;
 }
 
 function devLog(...args) {
@@ -58,36 +157,68 @@ function isUUID(str) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   PARENT STATUS COMPUTATION
+   PLATFORM FEE
+════════════════════════════════════════════════════════════ */
+const PLATFORM_FEE_RATE = 0.05; // 5%
+
+function calcPlatformFee(subtotal) {
+  return Math.round(subtotal * PLATFORM_FEE_RATE * 100) / 100;
+}
+
+/* ════════════════════════════════════════════════════════════
+   GROUP STATUS COMPUTATION
    ─────────────────────────────────────────────────────────
-   Derives order_groups.status from all its sub-order statuses.
-   Called after any sub-order status change.
+   Derives order_groups.status from all sub-order statuses.
 ════════════════════════════════════════════════════════════ */
 export function computeGroupStatus(subStatuses) {
-  if (!subStatuses.length) return "pending";
+  if (!subStatuses || subStatuses.length === 0) return "pending";
 
-  const live       = subStatuses.filter((s) => s !== "cancelled");
-  const allOf      = (s) => live.every((x) => x === s);
-  const anyOf      = (...ss) => live.some((x) => ss.includes(x));
-  const allSettled = live.every((x) => ["delivered", "cancelled"].includes(x));
+  const live = subStatuses.filter((s) => s !== "cancelled");
 
-  if (live.length === 0)                    return "cancelled";        // all cancelled
-  if (allOf("pending"))                     return "pending";
-  if (allOf("confirmed"))                   return "confirmed";
-  if (allOf("delivered"))                   return "delivered";        // all done
-  if (allSettled && live.some((x) => x === "delivered"))
-                                            return "partially_delivered";
-  if (anyOf("shipped"))                     return "partially_shipped";
-  if (anyOf("processing", "confirmed"))     return "processing";
+  /* All cancelled */
+  if (live.length === 0) return "cancelled";
+
+  const allOf  = (s)     => live.every((x) => x === s);
+  const anyOf  = (...ss) => live.some((x) => ss.includes(x));
+
+  /* Pure terminal states */
+  if (allOf("received"))                         return "received";
+  if (allOf("delivered"))                        return "delivered";
+
+  /* Failed delivery — any sub-order failed */
+  if (anyOf("failed_delivery"))                  return "failed_delivery";
+
+  /* All in same early stage */
+  if (allOf("pending"))                          return "pending";
+  if (allOf("confirmed"))                        return "confirmed";
+  if (allOf("processing"))                       return "processing";
+  if (allOf("shipped"))                          return "shipped";
+  if (allOf("out_for_delivery"))                 return "out_for_delivery";
+
+  /* Mixed terminal: some received/delivered, rest cancelled */
+  if (
+    live.every((x) => ["received", "delivered", "cancelled"].includes(x)) &&
+    anyOf("received", "delivered")
+  )                                              return "partially_delivered";
+
+  /* Any in transit */
+  if (anyOf("out_for_delivery"))                 return "out_for_delivery";
+  if (anyOf("shipped"))                          return "partially_shipped";
+
+  /* Any processing/confirmed */
+  if (anyOf("processing", "confirmed", "shipped")) return "processing";
+
   return "pending";
 }
 
 /* ════════════════════════════════════════════════════════════
    RECOMPUTE GROUP STATUS
    ─────────────────────────────────────────────────────────
-   Called by routes/seller/order.js after PATCH /status.
-   Reads all sub-order statuses, computes parent, writes it.
-   Runs inside the caller's transaction client.
+   Reads all sub-order statuses for a group, computes the
+   parent status, and writes it to order_groups.
+   MUST be called inside an open transaction client.
+
+   @returns {string} The new group status
 ════════════════════════════════════════════════════════════ */
 export async function recomputeGroupStatus(client, orderGroupId) {
   const { rows } = await client.query(
@@ -98,16 +229,16 @@ export async function recomputeGroupStatus(client, orderGroupId) {
   const statuses    = rows.map((r) => r.status);
   const groupStatus = computeGroupStatus(statuses);
 
-  const setDelivered =
-    groupStatus === "delivered"
-      ? ", delivered_at = NOW()"
+  const extra =
+    groupStatus === "received" || groupStatus === "delivered"
+      ? ", delivered_at = COALESCE(delivered_at, NOW())"
       : "";
 
   await client.query(
     `UPDATE public.order_groups
      SET status     = $1,
          updated_at = NOW()
-         ${setDelivered}
+         ${extra}
      WHERE id = $2`,
     [groupStatus, orderGroupId]
   );
@@ -116,14 +247,149 @@ export async function recomputeGroupStatus(client, orderGroupId) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   PLATFORM FEE
+   STATUS HISTORY HELPER
    ─────────────────────────────────────────────────────────
-   Adjust rate as needed.  5% default.
+   Wraps the INSERT so callers don't repeat the SQL.
+   Non-fatal — logs warning on failure.
 ════════════════════════════════════════════════════════════ */
-const PLATFORM_FEE_RATE = 0.05; // 5%
+async function writeStatusHistory(client, {
+  orderId,
+  orderGroupId,
+  fromStatus    = null,
+  toStatus,
+  changedById   = null,
+  changedByRole = "system",
+  note          = null,
+}) {
+  await client.query(
+    `INSERT INTO public.order_status_history
+       (order_id, order_group_id, from_status, to_status,
+        changed_by_id, changed_by_role, note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [orderId, orderGroupId, fromStatus, toStatus, changedById, changedByRole, note]
+  ).catch((err) =>
+    console.warn("[orderService] status_history insert failed:", err.message)
+  );
+}
 
-function calcPlatformFee(subtotal) {
-  return Math.round(subtotal * PLATFORM_FEE_RATE * 100) / 100;
+/* ════════════════════════════════════════════════════════════
+   MARK SUB-ORDER DELIVERED
+   ─────────────────────────────────────────────────────────
+   Called by admin route when Loemart Express agent confirms
+   drop-off at buyer's address.
+   Sets status = "delivered".
+   Creates delivery_confirmations row (48h auto-confirm timer).
+   MUST be called inside an open transaction client.
+════════════════════════════════════════════════════════════ */
+export async function markSubOrderDelivered(
+  client,
+  orderId,
+  orderGroupId,
+  adminId = null
+) {
+  const autoConfirmAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+  /* Update sub-order */
+  await client.query(
+    `UPDATE public.orders
+     SET status       = 'delivered',
+         delivered_at = NOW(),
+         updated_at   = NOW()
+     WHERE id = $1`,
+    [orderId]
+  );
+
+  /* Status history */
+  await writeStatusHistory(client, {
+    orderId,
+    orderGroupId,
+    fromStatus   : "out_for_delivery",
+    toStatus     : "delivered",
+    changedById  : adminId,
+    changedByRole: "admin",
+    note         : "Delivered by Loemart Express agent",
+  });
+
+  /* 48h confirmation window */
+  await client.query(
+    `INSERT INTO public.delivery_confirmations
+       (order_id, order_group_id, delivered_at, auto_confirm_at)
+     VALUES ($1, $2, NOW(), $3)
+     ON CONFLICT (order_id) DO UPDATE
+       SET delivered_at    = NOW(),
+           auto_confirm_at = $3,
+           confirmed_at    = NULL,
+           confirmed_by    = NULL`,
+    [orderId, orderGroupId, autoConfirmAt]
+  ).catch((err) =>
+    console.warn("[orderService] delivery_confirmations insert failed:", err.message)
+  );
+
+  return { autoConfirmAt };
+}
+
+/* ════════════════════════════════════════════════════════════
+   MARK SUB-ORDER RECEIVED
+   ─────────────────────────────────────────────────────────
+   Called by:
+     - Buyer route  (confirmedBy = 'buyer')
+     - Auto-confirm job (confirmedBy = 'system')
+   Clears seller earnings.
+   MUST be called inside an open transaction client.
+════════════════════════════════════════════════════════════ */
+export async function markSubOrderReceived(
+  client,
+  orderId,
+  orderGroupId,
+  confirmedBy = "system"
+) {
+  /* Update sub-order */
+  await client.query(
+    `UPDATE public.orders
+     SET status               = 'received',
+         received_at          = NOW(),
+         receipt_confirmed_by = $1,
+         updated_at           = NOW()
+     WHERE id = $2`,
+    [confirmedBy, orderId]
+  );
+
+  /* Close confirmation window */
+  await client.query(
+    `UPDATE public.delivery_confirmations
+     SET confirmed_at = NOW(),
+         confirmed_by = $1
+     WHERE order_id = $2 AND confirmed_at IS NULL`,
+    [confirmedBy, orderId]
+  ).catch(() => {});
+
+  /* Status history */
+  await writeStatusHistory(client, {
+    orderId,
+    orderGroupId,
+    fromStatus   : "delivered",
+    toStatus     : "received",
+    changedByRole: confirmedBy,
+    note         : confirmedBy === "buyer"
+      ? "Buyer confirmed receipt"
+      : "Auto-confirmed after 48-hour window",
+  });
+
+  /* Clear seller earnings — money released to seller */
+  await client.query(
+    `UPDATE public.seller_earnings
+     SET status     = 'cleared',
+         cleared_at = NOW(),
+         updated_at = NOW()
+     WHERE order_id = $1 AND status = 'pending'`,
+    [orderId]
+  ).catch((err) =>
+    console.warn("[orderService] earnings clear failed:", err.message)
+  );
+
+  console.log(
+    `[orderService] ✅ ${orderId} received by ${confirmedBy} — earnings cleared`
+  );
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -168,18 +434,25 @@ async function detectOrderColumns() {
     );
     const cols = new Set(rows.map((r) => r.column_name));
     ORDER_COLS = {
-      hasUserId     : cols.has("user_id"),
-      hasTrackingId : cols.has("tracking_id"),
-      hasDeliveryFee: cols.has("delivery_fee"),
-      hasDeliveredAt: cols.has("delivered_at"),
-      hasUpdatedAt  : cols.has("updated_at"),
+      hasUserId          : cols.has("user_id"),
+      hasTrackingId      : cols.has("tracking_id"),
+      hasDeliveryFee     : cols.has("delivery_fee"),
+      hasShippedAt       : cols.has("shipped_at"),
+      hasDeliveredAt     : cols.has("delivered_at"),
+      hasReceivedAt      : cols.has("received_at"),
+      hasCancelledAt     : cols.has("cancelled_at"),
+      hasPickupReadyAt   : cols.has("pickup_ready_at"),
+      hasOutForDeliveryAt: cols.has("out_for_delivery_at"),
+      hasUpdatedAt       : cols.has("updated_at"),
     };
     console.log("[orderService] orders cols:", ORDER_COLS);
   } catch (err) {
     console.warn("[orderService] orders detection failed:", err.message);
     ORDER_COLS = {
       hasUserId: true, hasTrackingId: true, hasDeliveryFee: true,
-      hasDeliveredAt: true, hasUpdatedAt: true,
+      hasShippedAt: true, hasDeliveredAt: true, hasReceivedAt: true,
+      hasCancelledAt: true, hasPickupReadyAt: true,
+      hasOutForDeliveryAt: true, hasUpdatedAt: true,
     };
   }
   return ORDER_COLS;
@@ -194,11 +467,10 @@ async function detectOrderItemColumns() {
     );
     const cols = new Set(rows.map((r) => r.column_name));
     ORDER_ITEM_COLS = {
-      allColumns    : [...cols],
-      qtyColumn     : cols.has("quantity")     ? "quantity"   : cols.has("qty")        ? "qty"        : null,
-      priceColumn   : cols.has("price")        ? "price"      : cols.has("unit_price") ? "unit_price" : null,
-      nameColumn    : cols.has("name")         ? "name"       : cols.has("product_name") ? "product_name" : null,
-      subtotalColumn: cols.has("subtotal")     ? "subtotal"   : cols.has("total_price") ? "total_price"  : null,
+      qtyColumn     : cols.has("quantity")     ? "quantity"      : cols.has("qty")          ? "qty"          : null,
+      priceColumn   : cols.has("price")        ? "price"         : cols.has("unit_price")   ? "unit_price"   : null,
+      nameColumn    : cols.has("name")         ? "name"          : cols.has("product_name") ? "product_name" : null,
+      subtotalColumn: cols.has("subtotal")     ? "subtotal"      : cols.has("total_price")  ? "total_price"  : null,
       hasProductId  : cols.has("product_id"),
       hasSellerId   : cols.has("seller_id"),
       hasVendorId   : cols.has("vendor_id"),
@@ -215,7 +487,7 @@ async function detectOrderItemColumns() {
   } catch (err) {
     console.warn("[orderService] order_items detection failed:", err.message);
     ORDER_ITEM_COLS = {
-      allColumns: [], qtyColumn: "quantity", priceColumn: "price",
+      qtyColumn: "quantity", priceColumn: "price",
       nameColumn: null, subtotalColumn: null,
       hasProductId: true, hasSellerId: true, hasVendorId: false,
       hasVariantId: true, hasVariantName: true, hasSku: true,
@@ -232,25 +504,24 @@ function buildOrderItemInsert(itemCols, orderId, sellerId, item) {
   const columns = ["order_id"];
   const values  = [orderId];
 
-  if (itemCols.hasProductId)   { columns.push("product_id");         values.push(item.productId); }
-  if (itemCols.hasSellerId)    { columns.push("seller_id");          values.push(sellerId); }
-  if (itemCols.hasVendorId)    { columns.push("vendor_id");          values.push(sellerId); }
-  if (itemCols.qtyColumn)      { columns.push(itemCols.qtyColumn);   values.push(toNumber(item.qty)); }
-  if (itemCols.priceColumn)    { columns.push(itemCols.priceColumn); values.push(toNumber(item.price)); }
-  if (itemCols.nameColumn)     { columns.push(itemCols.nameColumn);  values.push(item.name); }
-  if (itemCols.subtotalColumn) {
-    columns.push(itemCols.subtotalColumn);
-    values.push(toNumber(item.price) * toNumber(item.qty));
-  }
-  if (itemCols.hasVariantId)   { columns.push("variant_id");   values.push(item.variant?.id   ?? null); }
-  if (itemCols.hasVariantName) { columns.push("variant_name"); values.push(item.variant?.name ?? null); }
-  if (itemCols.hasSku)         { columns.push("sku");          values.push(item.variant?.sku  ?? null); }
-  if (itemCols.hasImage)       { columns.push("image");        values.push(item.image ?? null); }
-  if (itemCols.hasImageUrl)    { columns.push("image_url");    values.push(item.image ?? null); }
+  const push = (col, val) => { columns.push(col); values.push(val); };
 
-  const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
+  if (itemCols.hasProductId)   push("product_id",          item.productId);
+  if (itemCols.hasSellerId)    push("seller_id",           sellerId);
+  if (itemCols.hasVendorId)    push("vendor_id",           sellerId);
+  if (itemCols.qtyColumn)      push(itemCols.qtyColumn,    toNumber(item.qty));
+  if (itemCols.priceColumn)    push(itemCols.priceColumn,  toNumber(item.price));
+  if (itemCols.nameColumn)     push(itemCols.nameColumn,   item.name);
+  if (itemCols.subtotalColumn) push(itemCols.subtotalColumn, toNumber(item.price) * toNumber(item.qty));
+  if (itemCols.hasVariantId)   push("variant_id",          item.variant?.id   ?? null);
+  if (itemCols.hasVariantName) push("variant_name",        item.variant?.name ?? null);
+  if (itemCols.hasSku)         push("sku",                 item.variant?.sku  ?? null);
+  if (itemCols.hasImage)       push("image",               item.image ?? null);
+  if (itemCols.hasImageUrl)    push("image_url",           item.image ?? null);
+
+  const ph = values.map((_, i) => `$${i + 1}`).join(", ");
   return {
-    sql   : `INSERT INTO public.order_items (${columns.join(", ")}) VALUES (${placeholders})`,
+    sql   : `INSERT INTO public.order_items (${columns.join(", ")}) VALUES (${ph})`,
     params: values,
   };
 }
@@ -297,7 +568,7 @@ async function decrementStock(client, item) {
     const err = new Error(
       available === 0
         ? `"${item.name}" is out of stock`
-        : `Only ${available} "${item.name}" left — you requested ${qty}`
+        : `Only ${available} unit(s) of "${item.name}" available — you requested ${qty}`
     );
     err.status = 409;
     err.source = "stock_insufficient";
@@ -325,60 +596,46 @@ async function redeemCouponInTransaction(
   const { rows: [coupon] } = await client.query(
     `SELECT id, is_private, created_by, is_active, type, value,
             max_discount, min_purchase, usage_limit, usage_count, expires_at
-     FROM public.coupons WHERE UPPER(code) = $1 FOR UPDATE`,
+     FROM public.coupons
+     WHERE UPPER(code) = $1
+     FOR UPDATE`,
     [upperCode]
   );
 
-  if (!coupon) {
-    const e = new Error(`Coupon "${upperCode}" not found`);
-    e.status = 400; e.source = "coupon_redemption"; throw e;
-  }
-  if (!coupon.is_active) {
-    const e = new Error(`Coupon "${upperCode}" is inactive`);
-    e.status = 400; e.source = "coupon_redemption"; throw e;
-  }
-  if (coupon.is_private && coupon.created_by !== userId) {
-    const e = new Error(`Coupon "${upperCode}" is not valid for your account`);
-    e.status = 403; e.source = "coupon_redemption"; throw e;
-  }
-  if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {
-    const e = new Error(`Coupon "${upperCode}" has expired`);
-    e.status = 400; e.source = "coupon_redemption"; throw e;
-  }
+  const reject = (msg, status = 400) => {
+    const e = new Error(msg);
+    e.status = status;
+    e.source = "coupon_redemption";
+    throw e;
+  };
+
+  if (!coupon)                                                    reject(`Coupon "${upperCode}" not found`);
+  if (!coupon.is_active)                                          reject(`Coupon "${upperCode}" is no longer active`);
+  if (coupon.is_private && coupon.created_by !== userId)          reject(`Coupon "${upperCode}" is not valid for your account`, 403);
+  if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) reject(`Coupon "${upperCode}" has expired`);
   if (
     coupon.usage_limit !== null &&
     toNumber(coupon.usage_count) >= toNumber(coupon.usage_limit)
-  ) {
-    const e = new Error(`Coupon "${upperCode}" usage limit reached`);
-    e.status = 400; e.source = "coupon_redemption"; throw e;
-  }
+  )                                                               reject(`Coupon "${upperCode}" has reached its usage limit`);
   if (
     toNumber(coupon.min_purchase) > 0 &&
     subtotal < toNumber(coupon.min_purchase)
-  ) {
-    const e = new Error(
-      `Coupon needs min ₦${toNumber(coupon.min_purchase).toLocaleString("en-NG")}`
-    );
-    e.status = 400; e.source = "coupon_redemption"; throw e;
-  }
+  )                                                               reject(`Minimum order of ₦${toNumber(coupon.min_purchase).toLocaleString("en-NG")} required`);
 
-  const { rows: existing } = await client.query(
+  const { rows: used } = await client.query(
     `SELECT id FROM public.coupon_redemptions
      WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
     [coupon.id, userId]
   );
-  if (existing.length) {
-    const e = new Error(`You have already used coupon "${upperCode}"`);
-    e.status = 400; e.source = "coupon_redemption"; throw e;
-  }
+  if (used.length) reject(`You have already used coupon "${upperCode}"`);
 
-  const actualDiscount = calculateCouponDiscount(coupon, subtotal);
-  const freeShipping   = coupon.type === "free_shipping";
+  const discount     = calculateCouponDiscount(coupon, subtotal);
+  const freeShipping = coupon.type === "free_shipping";
 
   await client.query(
     `INSERT INTO public.coupon_redemptions (coupon_id, user_id, order_id, discount)
      VALUES ($1, $2, $3, $4)`,
-    [coupon.id, userId, orderGroupId, actualDiscount]
+    [coupon.id, userId, orderGroupId, discount]
   );
 
   const isSingleUse =
@@ -398,15 +655,9 @@ async function redeemCouponInTransaction(
   );
 
   console.log(
-    `[orderService] ✓ Coupon "${upperCode}" redeemed | discount=₦${actualDiscount}`
+    `[orderService] ✓ Coupon "${upperCode}" redeemed | discount=₦${discount}`
   );
-  return {
-    couponId    : coupon.id,
-    code        : upperCode,
-    discount    : actualDiscount,
-    freeShipping,
-    type        : coupon.type,
-  };
+  return { couponId: coupon.id, code: upperCode, discount, freeShipping, type: coupon.type };
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -422,7 +673,9 @@ async function findExistingOrder(client, userId, idempotencyKey, groupCols) {
     [userId, idempotencyKey]
   );
 
-  if (existing) console.log(`[orderService] ⚡ Idempotent replay: ${existing.id}`);
+  if (existing) {
+    console.log(`[orderService] ⚡ Idempotent replay: ${existing.tracking_id ?? existing.id}`);
+  }
   return existing ?? null;
 }
 
@@ -445,7 +698,15 @@ export async function resolveOrderGroup(identifier, userId) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   CREATE ORDER GROUP  (v10 — Loemart Express)
+   CREATE ORDER GROUP
+   ─────────────────────────────────────────────────────────
+   Creates:
+     1. order_groups row (parent)
+     2. orders rows (one per seller = sub-orders)
+     3. order_items rows (line items)
+     4. seller_earnings rows (one per sub-order)
+     5. order_status_history rows (one per sub-order)
+   Decrements stock atomically.
 ════════════════════════════════════════════════════════════ */
 export async function createOrderGroup({
   userId,
@@ -453,8 +714,8 @@ export async function createOrderGroup({
   items,
   subtotal,
   paymentMethod,
-  couponCode    = null,
-  notes         = null,
+  couponCode     = null,
+  notes          = null,
   idempotencyKey = null,
 }) {
   const cleanSubtotal = toNumber(subtotal);
@@ -486,7 +747,7 @@ export async function createOrderGroup({
       };
     }
 
-    /* ── 1. Peek coupon for free-shipping flag ── */
+    /* ── 1. Peek coupon type for free-shipping flag ── */
     let couponType = null;
     if (couponCode) {
       const { rows: [c] } = await client.query(
@@ -498,59 +759,52 @@ export async function createOrderGroup({
     }
     const isFreeShipping = couponType === "free_shipping";
 
-    /* ── 2. Delivery fee (Loemart Express) ── */
+    /* ── 2. Loemart Express delivery fee ── */
     const deliveryFee = isFreeShipping ? 0 : calculateDeliveryFee(cleanSubtotal);
     let discount      = 0;
     let grandTotal    = cleanSubtotal + deliveryFee;
 
-    /* ── 3. Insert order_groups row ── */
-    const groupInsertCols = [
+    /* ── 3. Insert parent order_groups row ── */
+    const gCols = [
       "user_id", "address_id", "total_amount",
       "delivery_fee", "discount", "grand_total",
       "payment_method", "coupon_code", "notes",
       "payment_status", "status",
     ];
-    const groupInsertVals = [
+    const gVals = [
       userId, addressId, cleanSubtotal,
       deliveryFee, discount, grandTotal,
       paymentMethod, couponCode, notes,
       "pending", "pending",
     ];
 
-    /* Optional: subtotal column */
-    if (groupCols.hasSubtotal) {
-      groupInsertCols.push("subtotal");
-      groupInsertVals.push(cleanSubtotal);
-    }
-
-    /* Optional: idempotency key */
+    if (groupCols.hasSubtotal) { gCols.push("subtotal"); gVals.push(cleanSubtotal); }
     if (groupCols.hasIdempotencyKey && idempotencyKey) {
-      groupInsertCols.push("idempotency_key");
-      groupInsertVals.push(idempotencyKey);
+      gCols.push("idempotency_key"); gVals.push(idempotencyKey);
     }
 
-    const ph = groupInsertVals.map((_, i) => `$${i + 1}`).join(", ");
+    const gPh = gVals.map((_, i) => `$${i + 1}`).join(", ");
     const { rows: [group] } = await client.query(
-      `INSERT INTO public.order_groups (${groupInsertCols.join(", ")})
-       VALUES (${ph})
+      `INSERT INTO public.order_groups (${gCols.join(", ")})
+       VALUES (${gPh})
        RETURNING id`,
-      groupInsertVals
+      gVals
     );
 
     const orderGroupId   = group.id;
-    const parentTracking = generateTrackingId(orderGroupId); // ORD-1F9DFB89
+    const parentTracking = generateTrackingId(orderGroupId);
 
-    /* Write tracking ID */
+    /* Write tracking_id */
     if (groupCols.hasTrackingId) {
       await client.query(
         `UPDATE public.order_groups SET tracking_id = $1 WHERE id = $2`,
         [parentTracking, orderGroupId]
       ).catch((err) =>
-        console.warn("[orderService] tracking_id update failed:", err.message)
+        console.warn("[orderService] tracking_id write failed:", err.message)
       );
     }
 
-    /* ── 4. Redeem coupon ── */
+    /* ── 4. Redeem coupon inside transaction ── */
     let redemption = null;
     if (couponCode) {
       redemption = await redeemCouponInTransaction(client, {
@@ -571,7 +825,7 @@ export async function createOrderGroup({
     const sellerMap = new Map();
     for (const item of items) {
       if (!item.sellerId) {
-        const err = new Error(`Missing seller ID for "${item.name}"`);
+        const err = new Error(`Missing seller ID for item "${item.name}"`);
         err.status = 400;
         throw err;
       }
@@ -584,56 +838,40 @@ export async function createOrderGroup({
       sellerMap.get(item.sellerId).items.push(item);
     }
 
-    /* ── 6. Create sub-orders, items, stock, earnings, history ── */
+    /* ── 6. Create sub-orders ── */
     const createdOrders = [];
     let   sellerIndex   = 0;
 
-    for (const [sellerId, sellerData] of sellerMap.entries()) {
-      const { items: sellerItems, sellerName } = sellerData;
-
-      /* Sub-order tracking ID: ORD-1F9DFB89-A */
-      const subTrackingId = generateSubTrackingId(parentTracking, sellerIndex);
-      sellerIndex++;
-
+    for (const [sellerId, { sellerName, items: sellerItems }] of sellerMap) {
+      const subTrackingId  = generateSubTrackingId(parentTracking, sellerIndex++);
       const sellerSubtotal = sellerItems.reduce(
-        (sum, i) => sum + toNumber(i.price) * toNumber(i.qty),
-        0
+        (sum, i) => sum + toNumber(i.price) * toNumber(i.qty), 0
       );
 
-      /* Build INSERT dynamically (same column-detection pattern) */
-      const orderCols_ = ["order_group_id", "seller_id", "subtotal", "status"];
-      const orderVals_ = [orderGroupId, sellerId, sellerSubtotal, "pending"];
+      /* Build sub-order INSERT */
+      const oCols = ["order_group_id", "seller_id", "subtotal", "status"];
+      const oVals = [orderGroupId, sellerId, sellerSubtotal, "pending"];
 
-      if (orderCols.hasUserId) {
-        orderCols_.push("user_id");
-        orderVals_.push(userId);
-      }
-      if (orderCols.hasTrackingId) {
-        orderCols_.push("tracking_id");
-        orderVals_.push(subTrackingId);
-      }
-      if (orderCols.hasDeliveryFee) {
-        /* Per-seller delivery fee is 0 — the group-level fee covers it */
-        orderCols_.push("delivery_fee");
-        orderVals_.push(0);
-      }
+      if (orderCols.hasUserId)      { oCols.push("user_id");      oVals.push(userId); }
+      if (orderCols.hasTrackingId)  { oCols.push("tracking_id");  oVals.push(subTrackingId); }
+      if (orderCols.hasDeliveryFee) { oCols.push("delivery_fee"); oVals.push(0); }
 
-      const oPh = orderVals_.map((_, i) => `$${i + 1}`).join(", ");
+      const oPh = oVals.map((_, i) => `$${i + 1}`).join(", ");
       const { rows: [order] } = await client.query(
-        `INSERT INTO public.orders (${orderCols_.join(", ")})
+        `INSERT INTO public.orders (${oCols.join(", ")})
          VALUES (${oPh})
          RETURNING id`,
-        orderVals_
+        oVals
       );
 
-      /* Stock + line items */
+      /* Stock decrement + line items */
       for (const item of sellerItems) {
         await decrementStock(client, item);
         const ins = buildOrderItemInsert(itemCols, order.id, sellerId, item);
         await client.query(ins.sql, ins.params);
       }
 
-      /* ── Seller earnings row ── */
+      /* seller_earnings row */
       const platformFee = calcPlatformFee(sellerSubtotal);
       const netAmount   = sellerSubtotal - platformFee;
 
@@ -645,22 +883,22 @@ export async function createOrderGroup({
         [
           sellerId, order.id, orderGroupId,
           sellerSubtotal, platformFee,
-          deliveryFee, // Loemart Express fee — kept by platform
+          deliveryFee,
           netAmount,
         ]
       ).catch((err) =>
         console.warn("[orderService] seller_earnings insert failed:", err.message)
       );
 
-      /* ── Status history row ── */
-      await client.query(
-        `INSERT INTO public.order_status_history
-           (order_id, order_group_id, from_status, to_status, changed_by_role, note)
-         VALUES ($1,$2,NULL,'pending','system','Order created')`,
-        [order.id, orderGroupId]
-      ).catch((err) =>
-        console.warn("[orderService] status_history insert failed:", err.message)
-      );
+      /* Status history row */
+      await writeStatusHistory(client, {
+        orderId      : order.id,
+        orderGroupId,
+        fromStatus   : null,
+        toStatus     : "pending",
+        changedByRole: "system",
+        note         : "Order created",
+      });
 
       createdOrders.push({
         orderId    : order.id,
@@ -668,36 +906,35 @@ export async function createOrderGroup({
         sellerId,
         sellerName,
         subtotal   : sellerSubtotal,
+        platformFee,
+        netAmount,
         items      : sellerItems,
       });
 
       devLog(
         `[orderService] ✓ Sub-order ${subTrackingId}`,
-        `| seller=${sellerId}`,
-        `| ₦${sellerSubtotal}`,
-        `| net=₦${netAmount}`
+        `seller=${sellerId} ₦${sellerSubtotal} net=₦${netAmount}`
       );
     }
 
     /* ── 7. Bump address last_used_at ── */
     await client.query(
       `UPDATE public.user_addresses
-       SET last_used_at = now()
+       SET last_used_at = NOW()
        WHERE id = $1 AND user_id = $2`,
       [addressId, userId]
     ).catch(() => {});
 
     await client.query("COMMIT");
 
-    /* ── 8. Invalidate coupon cache (best-effort) ── */
-    if (redemption) {
-      invalidateCouponCache(userId).catch(() => {});
-    }
+    /* Invalidate coupon cache (best-effort, post-commit) */
+    if (redemption) invalidateCouponCache(userId).catch(() => {});
 
     console.log(
-      `[orderService] ✅ ${parentTracking} | ${createdOrders.length} sellers` +
-      (redemption    ? ` | coupon "${redemption.code}"` : "") +
-      (isFreeShipping ? " | FREE SHIP"                  : "")
+      `[orderService] ✅ ${parentTracking}`,
+      `| ${createdOrders.length} seller(s)`,
+      redemption     ? `| coupon "${redemption.code}" -₦${redemption.discount}` : "",
+      isFreeShipping ? "| FREE SHIPPING" : `| delivery fee ₦${deliveryFee}`
     );
 
     return {
@@ -738,6 +975,7 @@ export async function clearCart(userId) {
        WHERE ci.cart_id = c.id AND c.user_id = $1`,
       [userId]
     );
+    devLog(`[orderService] ✓ Cart cleared for user=${userId}`);
   } catch (err) {
     console.warn("[orderService] clearCart failed:", err.message);
   }
@@ -752,7 +990,7 @@ export async function restoreStock(orderGroupId) {
     await client.query("BEGIN");
 
     const { rows: items } = await client.query(
-      `SELECT oi.variant_id, oi.quantity
+      `SELECT oi.variant_id, COALESCE(oi.quantity, oi.qty, 0) AS qty
        FROM public.orders o
        JOIN public.order_items oi ON oi.order_id = o.id
        WHERE o.order_group_id = $1 AND oi.variant_id IS NOT NULL`,
@@ -764,13 +1002,13 @@ export async function restoreStock(orderGroupId) {
         `UPDATE market.product_variants
          SET stock = stock + $1
          WHERE id = $2`,
-        [toNumber(item.quantity), item.variant_id]
+        [toNumber(item.qty), item.variant_id]
       );
     }
 
     await client.query("COMMIT");
     console.log(
-      `[orderService] ✓ Stock restored: ${items.length} items on ${orderGroupId}`
+      `[orderService] ✓ Stock restored: ${items.length} variant(s) for group=${orderGroupId}`
     );
   } catch (err) {
     await client.query("ROLLBACK");
@@ -794,6 +1032,9 @@ async function invalidateCouponCache(userId) {
 
 /* ════════════════════════════════════════════════════════════
    MARK ORDER GROUP PAID
+   ─────────────────────────────────────────────────────────
+   Called by Flutterwave webhook after successful payment.
+   Moves group + all sub-orders: pending → confirmed.
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   const [groupCols, orderCols] = await Promise.all([
@@ -805,43 +1046,45 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   try {
     await client.query("BEGIN");
 
+    /* Parent group */
     await client.query(
       `UPDATE public.order_groups
        SET payment_status = 'paid',
            payment_ref    = $2,
            status         = 'confirmed'
-           ${groupCols.hasUpdatedAt ? ", updated_at = now()" : ""}
+           ${groupCols.hasUpdatedAt ? ", updated_at = NOW()" : ""}
        WHERE id = $1`,
       [orderGroupId, paymentRef]
     );
 
-    await client.query(
+    /* All sub-orders */
+    const { rows: orders } = await client.query(
       `UPDATE public.orders
        SET status = 'confirmed'
-           ${orderCols.hasUpdatedAt ? ", updated_at = now()" : ""}
-       WHERE order_group_id = $1`,
+           ${orderCols.hasUpdatedAt ? ", updated_at = NOW()" : ""}
+       WHERE order_group_id = $1
+       RETURNING id`,
       [orderGroupId]
     );
 
-    /* History rows for each sub-order */
-    const { rows: orders } = await client.query(
-      `SELECT id FROM public.orders WHERE order_group_id = $1`,
-      [orderGroupId]
-    );
+    /* History rows */
     for (const o of orders) {
-      await client.query(
-        `INSERT INTO public.order_status_history
-           (order_id, order_group_id, from_status, to_status, changed_by_role, note)
-         VALUES ($1,$2,'pending','confirmed','system','Payment confirmed')`,
-        [o.id, orderGroupId]
-      ).catch(() => {});
+      await writeStatusHistory(client, {
+        orderId      : o.id,
+        orderGroupId,
+        fromStatus   : "pending",
+        toStatus     : "confirmed",
+        changedByRole: "system",
+        note         : `Payment confirmed — ref: ${paymentRef}`,
+      });
     }
 
     await client.query("COMMIT");
-    console.log(`[orderService] ✅ ${orderGroupId} marked paid`);
+    console.log(`[orderService] ✅ ${orderGroupId} marked paid (ref=${paymentRef})`);
+
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[orderService] markPaid failed:", err.message);
+    console.error("[orderService] markOrderGroupPaid failed:", err.message);
     throw err;
   } finally {
     client.release();
@@ -849,7 +1092,10 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   MARK ORDER GROUP DELIVERED
+   MARK ORDER GROUP DELIVERED (legacy — whole group at once)
+   ─────────────────────────────────────────────────────────
+   Kept for backward compatibility with older webhook code.
+   Prefer markSubOrderDelivered() for per-sub-order flow.
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupDelivered(orderGroupId) {
   const [groupCols, orderCols] = await Promise.all([
@@ -862,8 +1108,8 @@ export async function markOrderGroupDelivered(orderGroupId) {
     await client.query("BEGIN");
 
     const groupSet = ["status = 'delivered'"];
-    if (groupCols.hasDeliveredAt) groupSet.push("delivered_at = now()");
-    if (groupCols.hasUpdatedAt)   groupSet.push("updated_at   = now()");
+    if (groupCols.hasDeliveredAt) groupSet.push("delivered_at = NOW()");
+    if (groupCols.hasUpdatedAt)   groupSet.push("updated_at   = NOW()");
 
     await client.query(
       `UPDATE public.order_groups SET ${groupSet.join(", ")} WHERE id = $1`,
@@ -871,8 +1117,8 @@ export async function markOrderGroupDelivered(orderGroupId) {
     );
 
     const orderSet = ["status = 'delivered'"];
-    if (orderCols.hasDeliveredAt) orderSet.push("delivered_at = now()");
-    if (orderCols.hasUpdatedAt)   orderSet.push("updated_at   = now()");
+    if (orderCols.hasDeliveredAt) orderSet.push("delivered_at = NOW()");
+    if (orderCols.hasUpdatedAt)   orderSet.push("updated_at   = NOW()");
 
     await client.query(
       `UPDATE public.orders SET ${orderSet.join(", ")} WHERE order_group_id = $1`,
@@ -882,7 +1128,7 @@ export async function markOrderGroupDelivered(orderGroupId) {
     /* Clear earnings */
     await client.query(
       `UPDATE public.seller_earnings
-       SET status = 'cleared', cleared_at = now(), updated_at = now()
+       SET status = 'cleared', cleared_at = NOW(), updated_at = NOW()
        WHERE order_group_id = $1`,
       [orderGroupId]
     ).catch(() => {});
@@ -891,7 +1137,7 @@ export async function markOrderGroupDelivered(orderGroupId) {
     console.log(`[orderService] ✅ ${orderGroupId} delivered`);
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[orderService] markDelivered failed:", err.message);
+    console.error("[orderService] markOrderGroupDelivered failed:", err.message);
     throw err;
   } finally {
     client.release();
@@ -901,7 +1147,8 @@ export async function markOrderGroupDelivered(orderGroupId) {
 /* ════════════════════════════════════════════════════════════
    GET FULL ORDER GROUP — UUID or tracking ID
    ─────────────────────────────────────────────────────────
-   Returns group + nested sub-orders + items + dispatch info
+   Returns group + sub-orders + items + dispatch + agent info.
+   Used by buyer-facing routes.
 ════════════════════════════════════════════════════════════ */
 export async function getOrderGroup(identifier, userId) {
   if (!identifier) return null;
@@ -927,23 +1174,27 @@ export async function getOrderGroup(identifier, userId) {
 
   if (!group) return null;
 
-  /* Sub-orders with seller name + dispatch info */
+  /* Sub-orders with seller + Loemart Express dispatch info */
   const { rows: orders } = await pool.query(
     `SELECT
        o.*,
-       u.name AS seller_name,
+       u.name                AS seller_name,
        d.dispatch_code,
-       d.status         AS dispatch_status,
-       d.agent_id,
-       da.name          AS agent_name,
-       da.phone         AS agent_phone,
+       d.status              AS dispatch_status,
        d.estimated_at,
-       d.delivered_at   AS dispatch_delivered_at,
-       d.delivery_photo_url
+       d.out_for_delivery_at AS dispatch_out_at,
+       d.delivered_at        AS dispatch_delivered_at,
+       d.delivery_photo_url,
+       d.failure_reason,
+       da.name               AS agent_name,
+       da.phone              AS agent_phone,
+       dc.auto_confirm_at,
+       dc.confirmed_by       AS receipt_confirmed_by
      FROM public.orders o
-     LEFT JOIN market.users         u  ON u.id  = o.seller_id
-     LEFT JOIN public.order_dispatches d  ON d.order_id = o.id
-     LEFT JOIN public.delivery_agents da ON da.id = d.agent_id
+     LEFT JOIN market.users               u  ON u.id  = o.seller_id
+     LEFT JOIN public.order_dispatches    d  ON d.order_id = o.id
+     LEFT JOIN public.delivery_agents     da ON da.id = d.agent_id
+     LEFT JOIN public.delivery_confirmations dc ON dc.order_id = o.id
      WHERE o.order_group_id = $1
      ORDER BY o.tracking_id ASC`,
     [group.id]
@@ -952,7 +1203,9 @@ export async function getOrderGroup(identifier, userId) {
   /* Items per sub-order */
   for (const order of orders) {
     const { rows: items } = await pool.query(
-      `SELECT oi.*, p.name AS product_name
+      `SELECT
+         oi.*,
+         p.name AS product_name
        FROM public.order_items oi
        LEFT JOIN market.products p ON p.id = oi.product_id
        WHERE oi.order_id = $1
