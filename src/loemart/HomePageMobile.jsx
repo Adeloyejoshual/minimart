@@ -65,6 +65,7 @@ export default function HomePageMobile({ user }) {
   const [featured,    setFeatured]    = useState([]);
   const [trending,    setTrending]    = useState([]);
   const [newArrivals, setNewArrivals] = useState([]);
+  const [recentlyViewed]              = useState(getRecentlyViewed);
 
   /* ── Cart / Wishlist State ── */
   const [cartCount, setCartCount] = useState(getCartCount);
@@ -173,6 +174,32 @@ export default function HomePageMobile({ user }) {
     fetchProducts({ query: q, newOffset: 0 });
   }, [fetchProducts, setSearchParams]);
 
+  const handleCategoryChange = useCallback((id) => {
+    setActiveCategory(id);
+    setOffset(0);
+  }, []);
+
+  const handleLoadMore = useCallback(() => {
+    fetchProducts({ newOffset: offset + DEFAULT_LIMIT, append: true });
+  }, [fetchProducts, offset]);
+
+  const handleApplyFilters = useCallback(() => {
+    fetchProducts({ min: minPrice, max: maxPrice, newOffset: 0 });
+    setShowFilters(false);
+  }, [fetchProducts, minPrice, maxPrice]);
+
+  const handleResetFilters = useCallback(() => {
+    setMinPrice(""); setMaxPrice(""); setActiveSort("newest");
+  }, []);
+
+  const clearAllFilters = useCallback(() => {
+    setSearchQuery(""); setActiveCategory("all"); setActiveSort("newest");
+    setMinPrice(""); setMaxPrice(""); setSearchParams({});
+    fetchProducts({
+      query: "", category: "all", sort: "newest", min: "", max: "", newOffset: 0,
+    });
+  }, [fetchProducts, setSearchParams]);
+
   const handleAddToCart = useCallback(async (product) => {
     if (!product?.id || addingIds.has(product.id)) return;
 
@@ -228,7 +255,16 @@ export default function HomePageMobile({ user }) {
     setWishlist((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }, []);
 
+  const goPostAd = useCallback(() => {
+    navigate(user ? "/minimart/post-ad" : "/auth");
+  }, [navigate, user]);
+
+  /* ── Helper Computed Variables ── */
   const hasMore = pagination ? (offset + DEFAULT_LIMIT) < pagination.total : false;
+  const hasFilters = !!(
+    searchQuery || activeCategory !== "all" ||
+    activeSort !== "newest" || minPrice || maxPrice
+  );
 
   /* Categories Configuration */
   const categoriesList = [
@@ -249,6 +285,7 @@ export default function HomePageMobile({ user }) {
           min-height: 100vh;
           padding-bottom: 90px;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          position: relative;
         }
 
         /* Ambient glowing highlights */
@@ -660,7 +697,7 @@ export default function HomePageMobile({ user }) {
       {/* 1. Header Navigation System */}
       <header className="luxury-header">
         <div className="header-top">
-          <h1 className="brand-logo">loemart</h1>
+          <h1 className="brand-logo" onClick={() => navigate("/")}>loemart</h1>
           <div className="action-button-group">
             <button className="icon-trigger-btn" onClick={() => navigate("/wishlist")}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
@@ -679,7 +716,7 @@ export default function HomePageMobile({ user }) {
           <span className="search-placeholder">
             {searchQuery ? `Searching: "${searchQuery}"` : "Search products, tags, brands..."}
           </span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#747d8c" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#747d8c" strokeWidth="2" onClick={(e) => { e.stopPropagation(); setShowFilters(true); }}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
         </div>
       </header>
 
@@ -700,7 +737,7 @@ export default function HomePageMobile({ user }) {
       <section className="billboard-hero">
         <h2 className="hero-title">Sell & Discover <br />Local Listings</h2>
         <p className="hero-desc">List items instantly for thousands of buyers in your community.</p>
-        <button className="hero-cta-btn" onClick={() => navigate("/minimart/post-ad")}>
+        <button className="hero-cta-btn" onClick={goPostAd}>
           Post an Ad Now
         </button>
       </section>
