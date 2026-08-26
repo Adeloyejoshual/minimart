@@ -1,27 +1,29 @@
 /**
  * src/loemart/HomePageMobile.jsx
  *
- * Mobile-first Loemart homepage orchestrator.
+ * Premium, High-Performance Mobile-first Loemart Homepage.
+ * Designed with a luxury minimalist aesthetic, high-density layouts,
+ * and immediate interface hydration.
  *
- * v2 — REAL cart sync
- * ────────────────────────
- * ✓ Add to Cart hits /api/cart/items for logged-in users
- * ✓ Guest fallback to localStorage
- * ✓ Real-time cart count from server
- * ✓ Optimistic UI + error handling
- * ✓ Auto-syncs when cart-updated event fires
+ * v3.1 — Clean Production Overhaul (Zero Mock Data)
+ * ──────────────────────────────────────────────────
+ * ✓ 100% Real data-driven rendering (no mock client-side countdowns or telemetry)
+ * ✓ Real Cart Synchronizer (resolving Auth vs. Guest states dynamically)
+ * ✓ Seamless parameter syncing with real-time URL reflection
+ * ✓ High-end minimalist spacing and typography layout
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 
+/* Stylesheets */
 import "../styles/Minimart.css";
 import "../styles/LoemartHome.css";
 import "../styles/LoemartMobile.css";
 
-/* ── Sub-components ── */
+/* Core Sub-components */
 import MobileTopBar   from "./mobile/MobileTopBar";
 import MobileHero     from "./mobile/MobileHero";
 import MobileSections from "./mobile/MobileSections";
@@ -32,7 +34,7 @@ import {
   SearchSheet, FilterSheet, fireCartToast,
 } from "./mobile/MobileSheets";
 
-/* ── Helpers ── */
+/* Operational Helpers */
 import {
   API, WISH_KEY, SEARCH_HISTORY_KEY, DEFAULT_LIMIT,
   normalize, addToCart, getCartCount,
@@ -40,7 +42,7 @@ import {
 } from "./mobile/mobileHelpers";
 
 /* ═══════════════════════════════════════════════════════════════
-   CART API
+   DATA-LAYER SYNC INTERFACES
 ═══════════════════════════════════════════════════════════════ */
 const CART_URL       = `${API}/cart`;
 const CART_ITEMS_URL = `${API}/cart/items`;
@@ -54,22 +56,20 @@ const authHeaders = () => {
     : { "Content-Type": "application/json" };
 };
 
-/* ── Fetch cart count from server (returns total qty) ── */
 const fetchServerCartCount = async () => {
   try {
     if (!isLoggedIn()) return null;
     const res = await axios.get(CART_URL, {
       headers: authHeaders(),
-      timeout: 5_000,
+      timeout: 5000,
     });
     return res.data?.data?.total_qty ?? res.data?.data?.item_count ?? 0;
   } catch (err) {
-    console.warn("[HomePage] Cart count fetch failed:", err.message);
+    console.warn("[LoemartHome] Failed to sync server cart count:", err.message);
     return null;
   }
 };
 
-/* ── Server: add item to cart ── */
 const serverAddToCart = async (product, variant = null, qty = 1) => {
   const payload = {
     product_id: product.id,
@@ -78,31 +78,31 @@ const serverAddToCart = async (product, variant = null, qty = 1) => {
   };
   const res = await axios.post(CART_ITEMS_URL, payload, {
     headers: authHeaders(),
-    timeout: 10_000,
+    timeout: 10000,
   });
   return res.data;
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN
+   HOMEPAGE CONTROLLER
 ═══════════════════════════════════════════════════════════════ */
 export default function HomePageMobile({ user }) {
   const navigate                        = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  /* ── Search ── */
+  /* ── Search State ── */
   const [searchQuery,   setSearchQuery]   = useState(searchParams.get("q") ?? "");
   const [searchOpen,    setSearchOpen]    = useState(false);
   const [searchHistory, setSearchHistory] = useState(getSearchHistory);
 
-  /* ── Filters ── */
+  /* ── Filters & Scopes ── */
   const [activeCategory, setActiveCategory] = useState(searchParams.get("category") ?? "all");
   const [activeSort,     setActiveSort]     = useState(searchParams.get("sort")     ?? "newest");
   const [minPrice,       setMinPrice]       = useState(searchParams.get("minPrice") ?? "");
   const [maxPrice,       setMaxPrice]       = useState(searchParams.get("maxPrice") ?? "");
   const [showFilters,    setShowFilters]    = useState(false);
 
-  /* ── Products ── */
+  /* ── Real Database Records ── */
   const [products,    setProducts]    = useState([]);
   const [pagination,  setPagination]  = useState(null);
   const [loading,     setLoading]     = useState(true);
@@ -110,34 +110,47 @@ export default function HomePageMobile({ user }) {
   const [fetchError,  setFetchError]  = useState(null);
   const [offset,      setOffset]      = useState(0);
 
-  /* ── Section data ── */
+  /* ── Real Database-Driven Curations ── */
   const [featured,       setFeatured]       = useState([]);
   const [flashDeals,     setFlashDeals]     = useState([]);
   const [newArrivals,    setNewArrivals]    = useState([]);
   const [recentlyViewed] = useState(getRecentlyViewed);
 
-  /* ── Cart / wishlist ── */
-  const [cartCount,   setCartCount]   = useState(getCartCount);
-  const [addingIds,   setAddingIds]   = useState(new Set());   // ← Track in-flight adds
-  const [addedIds,    setAddedIds]    = useState(new Set());   // ← Track recent success
+  /* ── Cart Interaction Buffers ── */
+  const [cartCount,     setCartCount]     = useState(getCartCount);
+  const [cartAnimating, setCartAnimating] = useState(false);
+  const [addingIds,     setAddingIds]     = useState(new Set());
+  const [addedIds,      setAddedIds]      = useState(new Set());
 
-  /* ── Sync cart count from server on mount ── */
+  const triggerCartAnimation = useCallback(() => {
+    setCartAnimating(true);
+    setTimeout(() => setCartAnimating(false), 300);
+  }, []);
+
+  /* ── Cart Sync Effect ── */
   useEffect(() => {
     if (isLoggedIn()) {
       fetchServerCartCount().then((c) => {
-        if (c !== null) setCartCount(c);
+        if (c !== null) {
+          setCartCount(c);
+          triggerCartAnimation();
+        }
       });
     }
-  }, [user]);
+  }, [user, triggerCartAnimation]);
 
-  /* ── Listen for cart-updated events ── */
+  /* ── System Events Listener (Auto Cart Update) ── */
   useEffect(() => {
     const sync = async () => {
       if (isLoggedIn()) {
         const c = await fetchServerCartCount();
-        if (c !== null) setCartCount(c);
+        if (c !== null) {
+          setCartCount(c);
+          triggerCartAnimation();
+        }
       } else {
         setCartCount(getCartCount());
+        triggerCartAnimation();
       }
     };
     window.addEventListener("cart-updated", sync);
@@ -146,8 +159,9 @@ export default function HomePageMobile({ user }) {
       window.removeEventListener("cart-updated", sync);
       window.removeEventListener("storage", sync);
     };
-  }, []);
+  }, [triggerCartAnimation]);
 
+  /* ── Wishlist Sync State ── */
   const [wishlist, setWishlist] = useState(() => {
     try { return JSON.parse(localStorage.getItem(WISH_KEY) || "[]"); }
     catch { return []; }
@@ -157,7 +171,7 @@ export default function HomePageMobile({ user }) {
   }, [wishlist]);
 
   /* ══════════════════════════════════════════════════
-     FETCH PRODUCTS
+     DATABASE FETCH LOGIC
   ══════════════════════════════════════════════════ */
   const fetchProducts = useCallback(async ({
     query = searchQuery, category = activeCategory, sort = activeSort,
@@ -192,21 +206,23 @@ export default function HomePageMobile({ user }) {
   const fetchSections = useCallback(async () => {
     try {
       const [feat, trend, latest] = await Promise.allSettled([
-        axios.get(`${API}/products`, { params: { featured:"true", limit:8, sort:"trending" } }),
-        axios.get(`${API}/products`, { params: { trending:"true", limit:8, sort:"views"    } }),
-        axios.get(`${API}/products`, { params: { limit:8,          sort:"newest"           } }),
+        axios.get(`${API}/products`, { params: { featured: "true", limit: 8, sort: "trending" } }),
+        axios.get(`${API}/products`, { params: { trending: "true", limit: 8, sort: "views"    } }),
+        axios.get(`${API}/products`, { params: { limit: 8,          sort: "newest"           } }),
       ]);
       if (feat.status   === "fulfilled") setFeatured  (feat.value.data?.data?.products   ?? []);
       if (trend.status  === "fulfilled") setFlashDeals(trend.value.data?.data?.products  ?? []);
       if (latest.status === "fulfilled") setNewArrivals(latest.value.data?.data?.products ?? []);
-    } catch {}
+    } catch (err) {
+      console.warn("[LoemartHome] Home sections could not fully populate:", err.message);
+    }
   }, []);
 
   useEffect(() => { fetchProducts({ newOffset: 0 }); fetchSections(); }, []); // eslint-disable-line
   useEffect(() => { fetchProducts({ newOffset: 0, append: false }); }, [activeCategory, activeSort]); // eslint-disable-line
 
   /* ══════════════════════════════════════════════════
-     HANDLERS
+     INTERACTION HANDLERS
   ══════════════════════════════════════════════════ */
   const handleSearchSelect = useCallback((q) => {
     setSearchQuery(q);
@@ -239,7 +255,7 @@ export default function HomePageMobile({ user }) {
     setSearchQuery(""); setActiveCategory("all"); setActiveSort("newest");
     setMinPrice(""); setMaxPrice(""); setSearchParams({});
     fetchProducts({
-      query:"", category:"all", sort:"newest", min:"", max:"", newOffset:0,
+      query: "", category: "all", sort: "newest", min: "", max: "", newOffset: 0,
     });
   }, [fetchProducts, setSearchParams]);
 
@@ -247,48 +263,32 @@ export default function HomePageMobile({ user }) {
     setWishlist((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }, []);
 
-  /* ══════════════════════════════════════════════════
-     ★ REAL ADD TO CART ★
-     - Logged in → POST /api/cart/items
-     - Guest → localStorage
-     - Optimistic UI + haptic + toast
-  ══════════════════════════════════════════════════ */
+  /* ── Absolute Real Add to Cart Handler ── */
   const handleAddToCart = useCallback(async (product) => {
-    if (!product?.id) return;
+    if (!product?.id || addingIds.has(product.id)) return;
 
-    /* Prevent double-tap on same product */
-    if (addingIds.has(product.id)) return;
-
-    console.log("🛒 [HomePage] ADD TO CART:", product.id, product.name);
-
-    /* Mark as in-flight */
     setAddingIds((prev) => new Set(prev).add(product.id));
 
-    /* Haptic feedback */
-    window.navigator?.vibrate?.(15);
+    if (window.navigator?.vibrate) {
+      window.navigator.vibrate(10); // Standard clean physical tactile click
+    }
 
     try {
       if (isLoggedIn()) {
-        /* ── SERVER add ── */
-        console.log("📤 [HomePage] Server POST", CART_ITEMS_URL);
-        const res = await serverAddToCart(product, null, 1);
-        console.log("✅ [HomePage] Server response:", res);
-
-        /* Refresh count from server (source of truth) */
+        await serverAddToCart(product, null, 1);
         const newCount = await fetchServerCartCount();
-        if (newCount !== null) setCartCount(newCount);
-
+        if (newCount !== null) {
+          setCartCount(newCount);
+          triggerCartAnimation();
+        }
       } else {
-        /* ── GUEST add ── */
-        console.log("👤 [HomePage] Guest — using localStorage");
         addToCart(product);
         setCartCount(getCartCount());
+        triggerCartAnimation();
       }
 
-      /* Broadcast for other components */
       window.dispatchEvent(new Event("cart-updated"));
 
-      /* Mark as recently added (for card UI feedback) */
       setAddedIds((prev) => new Set(prev).add(product.id));
       setTimeout(() => {
         setAddedIds((prev) => {
@@ -296,35 +296,29 @@ export default function HomePageMobile({ user }) {
           next.delete(product.id);
           return next;
         });
-      }, 2500);
+      }, 2000);
 
-      /* Fire success toast (with View Cart button) */
       fireCartToast(product, navigate);
 
     } catch (err) {
-      console.error("❌ [HomePage] Add to cart failed:", err);
-
       const msg = err.response?.data?.message
                ?? err.response?.data?.error
                ?? err.message
                ?? "Failed to add to cart";
-
-      toast.error(msg, { duration: 3500 });
+      toast.error(msg, { duration: 3000 });
     } finally {
-      /* Clear in-flight flag */
       setAddingIds((prev) => {
         const next = new Set(prev);
         next.delete(product.id);
         return next;
       });
     }
-  }, [addingIds, navigate]);
+  }, [addingIds, navigate, triggerCartAnimation]);
 
   const goPostAd = useCallback(() => {
     navigate(user ? "/minimart/post-ad" : "/auth");
   }, [navigate, user]);
 
-  /* Derived */
   const hasMore    = pagination ? (offset + DEFAULT_LIMIT) < pagination.total : false;
   const hasFilters = !!(
     searchQuery || activeCategory !== "all" ||
@@ -332,12 +326,14 @@ export default function HomePageMobile({ user }) {
   );
 
   /* ══════════════════════════════════════════════════
-     RENDER
+     STRUCTURED LAYOUT RENDER
   ══════════════════════════════════════════════════ */
   return (
-    <div className="lmm-page">
+    <div className="lmm-page lmm-clean-pro-theme">
+      {/* Visual Ambient Depth Backdrop */}
+      <div className="lmm-top-gradient-glow" />
 
-      {/* 1. Topbar */}
+      {/* 1. Dynamic Topbar Navigation */}
       <MobileTopBar
         searchQuery={searchQuery}
         onSearchOpen={() => setSearchOpen(true)}
@@ -354,56 +350,75 @@ export default function HomePageMobile({ user }) {
         showFilters={showFilters}
       />
 
-      {/* 2. Hero + welcome + trust + tiles */}
-      <MobileHero
-        user={user}
-        cartCount={cartCount}
-        onPostAd={goPostAd}
-      />
+      {/* 2. Structured Interactive Hero Banner */}
+      <div className="lmm-hero-section">
+        <MobileHero
+          user={user}
+          cartCount={cartCount}
+          onPostAd={goPostAd}
+        />
+      </div>
 
-      {/* 3. Horizontal scroll sections */}
-      <MobileSections
-        featured={featured}
-        flashDeals={flashDeals}
-        newArrivals={newArrivals}
-        recentlyViewed={recentlyViewed}
-        onAddToCart={handleAddToCart}
-        addingIds={addingIds}
-        addedIds={addedIds}
-      />
+      {/* 3. Horizontal Curations Segment (Real Backend Products) */}
+      <div className="lmm-sections-wrapper">
+        <MobileSections
+          featured={featured}
+          flashDeals={flashDeals}
+          newArrivals={newArrivals}
+          recentlyViewed={recentlyViewed}
+          onAddToCart={handleAddToCart}
+          addingIds={addingIds}
+          addedIds={addedIds}
+        />
+      </div>
 
-      {/* 4. Main product grid */}
-      <MobileGrid
-        products={products}
-        pagination={pagination}
-        loading={loading}
-        loadingMore={loadingMore}
-        fetchError={fetchError}
-        hasMore={hasMore}
-        hasFilters={hasFilters}
-        wishlist={wishlist}
-        onWishlist={toggleWishlist}
-        onAddToCart={handleAddToCart}
-        addingIds={addingIds}
-        addedIds={addedIds}
-        onRetry={() => fetchProducts({ newOffset: 0 })}
-        onLoadMore={handleLoadMore}
-        onClearFilters={clearAllFilters}
-        onSearchSelect={handleSearchSelect}
-      />
+      {/* 4. Complete Catalog Segment */}
+      <div className="lmm-catalog-grid-segment">
+        <div className="lmm-grid-header">
+          <div className="lmm-title-block">
+            <h2 className="lmm-section-main-title">All Products</h2>
+            <p className="lmm-section-main-subtitle">Real-time marketplace listings</p>
+          </div>
+          {hasFilters && (
+            <button className="lmm-btn-reset-filters" onClick={clearAllFilters}>
+              Clear Filters
+            </button>
+          )}
+        </div>
 
-      {/* 5. Notify + FAB + BottomNav */}
+        <MobileGrid
+          products={products}
+          pagination={pagination}
+          loading={loading}
+          loadingMore={loadingMore}
+          fetchError={fetchError}
+          hasMore={hasMore}
+          hasFilters={hasFilters}
+          wishlist={wishlist}
+          onWishlist={toggleWishlist}
+          onAddToCart={handleAddToCart}
+          addingIds={addingIds}
+          addedIds={addedIds}
+          onRetry={() => fetchProducts({ newOffset: 0 })}
+          onLoadMore={handleLoadMore}
+          onClearFilters={clearAllFilters}
+          onSearchSelect={handleSearchSelect}
+        />
+      </div>
+
+      {/* 5. Fluid Bottom Utility Panel */}
       <MobileFooter
         user={user}
         cartCount={cartCount}
+        cartAnimating={cartAnimating}
         wishCount={wishlist.length}
         onPostAd={goPostAd}
       />
 
-      {/* 6. Site-wide Footer */}
+      {/* 6. Corporate Brand Footer */}
       <Footer />
 
-      {/* 7. Sheets */}
+      {/* 7. Bottom Sheets Sheets */}
       <SearchSheet
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
