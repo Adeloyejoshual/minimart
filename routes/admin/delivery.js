@@ -15,16 +15,9 @@
  *   POST /api/admin/delivery/:orderId/failed
  */
 
-import express    from "express";
-import { pool }   from "../../config/db.js";
-import { verifyAdmin } from "../admin/middleware.js";   /* ← correct path */
-import {
-  VALID_TRANSITIONS,
-  isTransitionAllowed,
-  recomputeGroupStatus,
-  markSubOrderDelivered,
-  STATUS_LABELS,
-} from "../../services/orderService.js";
+import express         from "express";
+import { pool }        from "../../config/db.js";
+import { verifyAdmin } from "../admin/middleware.js";
 import {
   sendOutForDeliveryNotifications,
   sendDeliveredNotifications,
@@ -32,6 +25,135 @@ import {
 } from "../../services/orderDeliveryNotification.js";
 
 const router = express.Router();
+
+/* ══════════════════════════════════════════════════════════════
+   LOCAL CONSTANTS & STATUS HELPERS
+══════════════════════════════════════════════════════════════ */
+
+const STATUS_LABELS = {
+  pending:          "Pending",
+  confirmed:        "Confirmed",
+  processing:       "Processing",
+  shipped:          "Shipped",
+  out_for_delivery: "Out for Delivery",
+  delivered:        "Delivered",
+  received:         "Received",
+  cancelled:        "Cancelled",
+  failed_delivery:  "Failed Delivery",
+  refunded:         "Refunded",
+};
+
+const VALID_TRANSITIONS = {
+  pending:          ["confirmed", "cancelled"],
+  confirmed:        ["processing", "cancelled"],
+  processing:       ["shipped", "cancelled"],
+  shipped:          ["out_for_delivery", "delivered", "failed_delivery"],
+  out_for_delivery: ["delivered", "failed_delivery"],
+  delivered:        ["received"],
+  received:         [],
+  cancelled:        [],
+  failed_delivery:  ["out_for_delivery", "processing", "cancelled"],
+};
+
+function isTransitionAllowed(fromStatus, toStatus, role = "admin") {
+  if (role === "admin") {
+    const adminTransitions = {
+      shipped:          ["out_for_delivery"],
+      out_for_delivery: ["delivered", "failed_delivery"],
+      failed_delivery:  ["out_for_delivery", "cancelled"],
+    };
+    return (adminTransitions[fromStatus] || []).includes(toStatus);
+  }
+  return (VALID_TRANSITIONS[fromStatus] || []).includes(toStatus);
+}
+
+/**
+ * Marks sub-order as delivered and sets up 48-hour auto-confirm timer
+ */
+async function markSubOrderDelivered(client, orderId, orderGroupId, adminId) {
+  const autoConfirmAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
+
+  await client.query(
+    `UPDATE public.orders
+     SET status       = 'delivered',
+         delivered_at = NOW(),
+         updated_at   = NOW()
+     WHERE id = $1`,
+    [orderId]
+  );
+
+  try {
+    await client.query(
+      `INSERT INTO public.delivery_confirmations
+         (order_id, auto_confirm_at, created_at, updated_at)
+       VALUES ($1, $2, NOW(), NOW())
+       ON CONFLICT (order_id) DO UPDATE
+         SET auto_confirm_at = $2,
+             updated_at      = NOW()`,
+      [orderId, autoConfirmAt]
+    );
+  } catch (err) {
+    console.warn("[admin/delivery] delivery_confirmations insert/update omitted:", err.message);
+  }
+
+  await writeHistory(client, {
+    orderId,
+    orderGroupId,
+    fromStatus: "out_for_delivery",
+    toStatus  : "delivered",
+    adminId,
+    note      : "Delivered by agent. 48-hour auto-confirmation window started.",
+  });
+
+  return { autoConfirmAt };
+}
+
+/**
+ * Recomputes the group status from all suborders in this group
+ */
+async function recomputeGroupStatus(client, orderGroupId) {
+  const { rows: orders } = await client.query(
+    `SELECT status FROM public.orders WHERE order_group_id = $1`,
+    [orderGroupId]
+  );
+
+  if (!orders.length) return "pending";
+
+  const statuses = orders.map((o) => o.status);
+  const activeStatuses = statuses.filter((s) => s !== "cancelled");
+
+  let newStatus = "pending";
+
+  if (activeStatuses.length === 0) {
+    newStatus = "cancelled";
+  } else if (activeStatuses.every((s) => s === "received")) {
+    newStatus = "received";
+  } else if (activeStatuses.every((s) => s === "delivered" || s === "received")) {
+    newStatus = "delivered";
+  } else if (activeStatuses.some((s) => ["shipped", "out_for_delivery", "delivered", "received"].includes(s))) {
+    newStatus = "shipped";
+  } else if (activeStatuses.some((s) => s === "processing")) {
+    newStatus = "processing";
+  } else if (activeStatuses.every((s) => s === "confirmed")) {
+    newStatus = "confirmed";
+  }
+
+  const { rows: colCheck } = await client.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'order_groups' AND column_name = 'updated_at'`
+  );
+  const hasUpdatedAt = colCheck.length > 0;
+
+  const setClauses = ["status = $1"];
+  if (hasUpdatedAt) setClauses.push("updated_at = NOW()");
+
+  await client.query(
+    `UPDATE public.order_groups SET ${setClauses.join(", ")} WHERE id = $2`,
+    [newStatus, orderGroupId]
+  );
+
+  return newStatus;
+}
 
 /* ══════════════════════════════════════════════════════════════
    AUTH — all routes require admin
@@ -194,15 +316,11 @@ router.get("/:orderId/dispatch", async (req, res) => {
    POST /:orderId/dispatch
    ─────────────────────────────────────────────────────────────
    Assign agent → mark out_for_delivery.
-   Agent has physically collected from seller.
-
-   Body: { agentId, estimatedAt?, notes? }
-   Valid from: shipped, failed_delivery (retry)
 ══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/dispatch", async (req, res) => {
-  const { orderId }           = req.params;
+  const { orderId }                     = req.params;
   const { agentId, estimatedAt, notes } = req.body;
-  const adminId               = req.admin.id;   /* verifyAdmin sets req.admin */
+  const adminId                         = req.admin.id;
 
   if (!agentId) {
     return res.status(422).json({
@@ -360,10 +478,6 @@ router.post("/:orderId/dispatch", async (req, res) => {
    POST /:orderId/delivered
    ─────────────────────────────────────────────────────────────
    Agent confirmed drop-off at buyer's address.
-   Sets status = "delivered". Starts 48h confirmation window.
-
-   Body: { recipientName?, photoUrl?, notes? }
-   Valid from: out_for_delivery
 ══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/delivered", async (req, res) => {
   const { orderId }                       = req.params;
@@ -467,10 +581,6 @@ router.post("/:orderId/delivered", async (req, res) => {
    POST /:orderId/failed
    ─────────────────────────────────────────────────────────────
    Agent could not complete delivery.
-   Sets status = "failed_delivery". Admin can retry via /dispatch.
-
-   Body: { reason }
-   Valid from: out_for_delivery
 ══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/failed", async (req, res) => {
   const { orderId } = req.params;
