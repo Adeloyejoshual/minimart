@@ -1,225 +1,305 @@
 /**
  * src/loemart/mobile/MobileHero.jsx
  *
- * Includes:
- * - Personalized welcome bar (for logged-in users)
- * - Auto-sliding hero carousel with SVG icons
- * - Quick action tiles (Flash / New / Trending / Sell)
+ * Luxury Minimalist Mobile Hero Suite:
+ * - Real Account Welcome Header
+ * - Fluid Gesture-Controlled Hero Slider (Swipe + Auto-Pause)
+ * - Micro-Interactions with Weighted SVG Vector Badges
+ * - Resilient Deep-Linking & Action Handlers
  */
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FiArrowRight, FiChevronRight, FiShoppingCart } from "react-icons/fi";
-
 import {
-  HERO_SLIDES, SLIDE_INTERVAL, haptic,
-} from "./mobileHelpers";
+  FiArrowRight,
+  FiZap,
+  FiSparkles,
+  FiTrendingUp,
+  FiPlusCircle,
+  FiTag,
+  FiShoppingBag,
+} from "react-icons/fi";
 
+import { haptic } from "./mobileHelpers";
+
+/* ═══════════════════════════════════════════════════════════════
+   DEFAULT CURATED REAL PROMOTIONS
+═══════════════════════════════════════════════════════════════ */
+const DEFAULT_SLIDES = [
+  {
+    id: "curated-1",
+    badge: "Official Marketplace",
+    title: "Trade & Discover Premium Goods",
+    sub: "Direct peer-to-peer verification and rapid local delivery.",
+    cta: "Explore Catalog",
+    accent: "#3b82f6",
+    target: "catalog",
+    Icon: FiShoppingBag,
+  },
+  {
+    id: "curated-2",
+    badge: "Verified Sellers",
+    title: "Turn Your Items Into Real Cash",
+    sub: "List in 60 seconds with zero upfront listing fees.",
+    cta: "Start Selling",
+    accent: "#10b981",
+    target: "sell",
+    Icon: FiTag,
+  },
+  {
+    id: "curated-3",
+    badge: "Limited Drops",
+    title: "Daily Flash Deals & Clearance",
+    sub: "Up to 40% off authenticated electronics and apparel.",
+    cta: "View Deals",
+    accent: "#f59e0b",
+    target: "deals",
+    Icon: FiZap,
+  },
+];
+
+const SLIDE_INTERVAL = 5500;
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN MOBILE HERO COMPONENT
+═══════════════════════════════════════════════════════════════ */
 const MobileHero = memo(function MobileHero({
-  user, cartCount, onPostAd,
+  user,
+  onPostAd,
+  slides = DEFAULT_SLIDES,
 }) {
-  const navigate   = useNavigate();
+  const navigate = useNavigate();
   const [slideIndex, setSlideIndex] = useState(0);
-  const timerRef   = useRef(null);
-  const firstName  = user?.name?.split(" ")[0] ?? null;
+  const [isPaused, setIsPaused]     = useState(false);
+  const timerRef                    = useRef(null);
+  const touchStartX                 = useRef(null);
 
-  /* ── Auto-slide ── */
-  const resetTimer = useCallback(() => {
-    clearInterval(timerRef.current);
-    timerRef.current = setInterval(
-      () => setSlideIndex((i) => (i + 1) % HERO_SLIDES.length),
-      SLIDE_INTERVAL
-    );
+  const firstName = user?.name ? user.name.trim().split(" ")[0] : null;
+
+  /* ── 1. Smooth, Safe Slide Rotation ── */
+  const nextSlide = useCallback(() => {
+    setSlideIndex((prev) => (prev + 1) % slides.length);
+  }, [slides.length]);
+
+  const prevSlide = useCallback(() => {
+    setSlideIndex((prev) => (prev - 1 + slides.length) % slides.length);
+  }, [slides.length]);
+
+  const goToSlide = useCallback((index) => {
+    setSlideIndex(index);
+    haptic(6);
   }, []);
 
   useEffect(() => {
-    resetTimer();
+    if (isPaused) return;
+    timerRef.current = setInterval(nextSlide, SLIDE_INTERVAL);
     return () => clearInterval(timerRef.current);
-  }, [resetTimer]);
+  }, [isPaused, nextSlide]);
 
-  const handleSlide = useCallback((i) => {
-    setSlideIndex(i);
-    resetTimer();
-    haptic(6);
-  }, [resetTimer]);
-
-  /* ── Swipe support ── */
-  const touchStartX = useRef(null);
-
+  /* ── 2. Touch Gesture Handling ── */
   const handleTouchStart = (e) => {
+    setIsPaused(true);
     touchStartX.current = e.touches[0].clientX;
   };
 
   const handleTouchEnd = (e) => {
+    setIsPaused(false);
     if (touchStartX.current === null) return;
     const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) < 40) return;
-    if (diff > 0) handleSlide((slideIndex + 1) % HERO_SLIDES.length);
-    else          handleSlide((slideIndex - 1 + HERO_SLIDES.length) % HERO_SLIDES.length);
+    
+    // Minimum swipe distance threshold (40px)
+    if (Math.abs(diff) > 40) {
+      if (diff > 0) {
+        nextSlide();
+        haptic(8);
+      } else {
+        prevSlide();
+        haptic(8);
+      }
+    }
     touchStartX.current = null;
   };
 
-  const slide = HERO_SLIDES[slideIndex];
+  /* ── 3. Action Click Router ── */
+  const handleSlideAction = (target) => {
+    haptic(10);
+    if (target === "sell") {
+      onPostAd();
+      return;
+    }
 
-  /* ── Quick tiles ── */
+    // Smoothly scroll to the marketplace catalog or navigate
+    const catalogEl = document.querySelector(".lmm-catalog-grid-segment");
+    if (catalogEl) {
+      catalogEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  /* ── 4. Professional Quick Tiles Definition ── */
   const quickTiles = [
     {
-      icon   : "⚡",
-      label  : "Flash Deals",
-      color  : "#ff5722",
-      onClick: () =>
-        document.getElementById("lmm-flash")?.scrollIntoView({ behavior: "smooth" }),
+      id: "flash",
+      Icon: FiZap,
+      label: "Flash Deals",
+      accent: "#f59e0b",
+      onClick: () => {
+        const el = document.querySelector(".lmm-sections-wrapper");
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      },
     },
     {
-      icon   : "✨",
-      label  : "New Arrivals",
-      color  : "#10b981",
-      onClick: () =>
-        document.getElementById("lmm-new")?.scrollIntoView({ behavior: "smooth" }),
+      id: "new",
+      Icon: FiSparkles,
+      label: "New Arrivals",
+      accent: "#10b981",
+      onClick: () => {
+        const el = document.querySelector(".lmm-catalog-grid-segment");
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      },
     },
     {
-      icon   : "🔥",
-      label  : "Trending",
-      color  : "#6366f1",
-      onClick: () =>
-        document.getElementById("lmm-listings")?.scrollIntoView({ behavior: "smooth" }),
+      id: "trending",
+      Icon: FiTrendingUp,
+      label: "Trending",
+      accent: "#6366f1",
+      onClick: () => {
+        const el = document.querySelector(".lmm-catalog-grid-segment");
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      },
     },
     {
-      icon   : "💰",
-      label  : user ? "Sell" : "Sign Up",
-      color  : "#f59e0b",
+      id: "sell",
+      Icon: FiPlusCircle,
+      label: user ? "List Item" : "Start Selling",
+      accent: "#3b82f6",
       onClick: onPostAd,
     },
   ];
 
+  const currentSlide = slides[slideIndex] || slides[0];
+  const CurrentIcon  = currentSlide.Icon;
+
   return (
-    <>
-      {/* ── Welcome bar ── */}
+    <div className="lmm-hero-container">
+      {/* ── 1. Luxury Welcome Header for Authenticated Users ── */}
       {user && firstName && (
-        <div className="lmm-welcome" aria-live="polite">
-          <span className="lmm-welcome__greeting">
-            👋 Hi, <strong>{firstName}</strong>
-          </span>
+        <div className="lmm-welcome-banner" aria-live="polite">
+          <div className="lmm-welcome-user">
+            <span className="lmm-welcome-avatar">
+              {firstName.charAt(0).toUpperCase()}
+            </span>
+            <span className="lmm-welcome-text">
+              Welcome back, <strong>{firstName}</strong>
+            </span>
+          </div>
           <button
             type="button"
-            className="lmm-welcome__link"
-            onClick={() =>
-              document.getElementById("lmm-listings")?.scrollIntoView({ behavior: "smooth" })
-            }
+            className="lmm-welcome-action"
+            onClick={() => navigate(user ? "/account/profile" : "/auth")}
           >
-            Continue shopping <FiArrowRight size={11} />
+            My Account <FiArrowRight size={12} />
           </button>
         </div>
       )}
 
-      {/* ── Hero carousel ── */}
+      {/* ── 2. Primary Hero Banner Card ── */}
       <section
-        className="lmm-hero"
-        aria-label="Featured banner"
+        className="lmm-hero-card"
+        aria-label="Promotional Carousel"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
+        onMouseEnter={() => setIsPaused(true)}
+        onMouseLeave={() => setIsPaused(false)}
       >
         <div
-          className="lmm-hero__bg"
-          style={{ background: slide.bg }}
+          className="lmm-hero-ambient"
+          style={{
+            background: `radial-gradient(circle at 85% 15%, ${currentSlide.accent}25 0%, transparent 70%)`,
+          }}
           aria-hidden="true"
         />
-        <div className="lmm-hero__overlay" aria-hidden="true" />
 
-        {/* Particles */}
-        <div className="lmm-hero__particles" aria-hidden="true">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className={`lmm-hero__particle lmm-hero__particle--${i + 1}`}
-            />
-          ))}
-        </div>
-
-        <div className="lmm-hero__content">
-          <span className="lmm-hero__eyebrow">
-            {/* ✅ FIXED: was slide.icon (emoji string), now slide.Icon (SVG component) */}
-            <span className="lmm-hero__icon" aria-hidden="true">
-              <slide.Icon size={16} strokeWidth={2} />
-            </span>
-            {slide.eyebrow}
-          </span>
-
-          <h1 className="lmm-hero__title">{slide.title}</h1>
-          <p  className="lmm-hero__sub">{slide.sub}</p>
-
-          <div className="lmm-hero__actions">
-            <button
-              type="button"
-              className="lmm-hero__cta"
-              style={{
-                background: `linear-gradient(135deg, ${slide.accent}, ${slide.accent}bb)`,
-              }}
-              onClick={() =>
-                document.getElementById("lmm-listings")?.scrollIntoView({ behavior: "smooth" })
-              }
-            >
-              {slide.cta} <FiArrowRight size={13} />
-            </button>
-
-            <button
-              type="button"
-              className="lmm-hero__cta-2"
-              onClick={() => { onPostAd(); haptic(10); }}
-            >
-              Sell
-            </button>
+        <div className="lmm-hero-content">
+          {/* Eyebrow badge */}
+          <div className="lmm-hero-eyebrow">
+            {CurrentIcon && <CurrentIcon size={14} className="lmm-hero-eyebrow-icon" />}
+            <span>{currentSlide.badge}</span>
           </div>
 
-          {cartCount > 0 && (
+          {/* Title & Sub */}
+          <h1 className="lmm-hero-title">{currentSlide.title}</h1>
+          <p className="lmm-hero-subtitle">{currentSlide.sub}</p>
+
+          {/* CTA Group */}
+          <div className="lmm-hero-cta-group">
             <button
               type="button"
-              className="lmm-hero__cart-pill"
-              onClick={() => navigate("/shop/cart")}
+              className="lmm-hero-btn-primary"
+              style={{ backgroundColor: currentSlide.accent }}
+              onClick={() => handleSlideAction(currentSlide.target)}
             >
-              <FiShoppingCart size={11} />
-              {cartCount} in cart
-              <FiChevronRight size={11} />
+              <span>{currentSlide.cta}</span>
+              <FiArrowRight size={14} />
             </button>
-          )}
+
+            <button
+              type="button"
+              className="lmm-hero-btn-secondary"
+              onClick={() => {
+                onPostAd();
+                haptic(8);
+              }}
+            >
+              Post Listing
+            </button>
+          </div>
         </div>
 
-        {/* Dots */}
-        <div className="lmm-hero__dots" role="tablist">
-          {HERO_SLIDES.map((s, i) => (
+        {/* Dynamic Pagination Indicators */}
+        <div className="lmm-hero-pagination" role="tablist" aria-label="Slide indicators">
+          {slides.map((s, idx) => (
             <button
-              key={s.id}
+              key={s.id || idx}
               type="button"
               role="tab"
-              aria-selected={i === slideIndex}
-              aria-label={`Slide ${i + 1}`}
-              className={`lmm-hero__dot${i === slideIndex ? " lmm-hero__dot--on" : ""}`}
-              onClick={() => handleSlide(i)}
+              aria-selected={idx === slideIndex}
+              aria-label={`Go to slide ${idx + 1}`}
+              className={`lmm-hero-dot ${idx === slideIndex ? "lmm-hero-dot--active" : ""}`}
+              onClick={() => goToSlide(idx)}
             />
           ))}
         </div>
       </section>
 
-      {/* ── Quick tiles ── */}
-      <div className="lmm-quick-tiles" aria-label="Quick actions">
-        {quickTiles.map((t) => (
-          <button
-            key={t.label}
-            type="button"
-            className="lmm-tile"
-            onClick={() => { t.onClick(); haptic(8); }}
-          >
-            <div
-              className="lmm-tile__icon"
-              style={{ background: `${t.color}18`, color: t.color }}
+      {/* ── 3. Clean Quick Action Tiles (No Emojis) ── */}
+      <nav className="lmm-quick-actions" aria-label="Marketplace Quick Categories">
+        {quickTiles.map((tile) => {
+          const TileIcon = tile.Icon;
+          return (
+            <button
+              key={tile.id}
+              type="button"
+              className="lmm-quick-tile"
+              onClick={() => {
+                tile.onClick();
+                haptic(6);
+              }}
             >
-              <span>{t.icon}</span>
-            </div>
-            <span className="lmm-tile__label">{t.label}</span>
-          </button>
-        ))}
-      </div>
-    </>
+              <div
+                className="lmm-quick-tile__icon-box"
+                style={{
+                  backgroundColor: `${tile.accent}14`,
+                  color: tile.accent,
+                }}
+              >
+                <TileIcon size={20} strokeWidth={2.2} />
+              </div>
+              <span className="lmm-quick-tile__label">{tile.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
   );
 });
 
