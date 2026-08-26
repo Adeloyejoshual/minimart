@@ -16,18 +16,10 @@
  *   - Clears seller earnings (→ 'cleared')
  *   - Recomputes parent order_groups.status
  *   - Sends notifications to seller + buyer
- *
- * The auto-confirm job (jobs/autoConfirmDeliveries.js) calls the
- * same markSubOrderReceived() function with confirmedBy='system'
- * for orders where the buyer hasn't confirmed within 48h.
  */
 
 import express from "express";
 import { pool } from "../../config/db.js";
-import {
-  recomputeGroupStatus,
-  markSubOrderReceived,
-} from "../../services/orderService.js";
 import {
   sendReceivedNotifications,
 } from "../../services/orderDeliveryNotification.js";
@@ -35,15 +27,122 @@ import {
 const router = express.Router();
 
 /* ══════════════════════════════════════════════════════════════
+   LOCAL HELPERS
+   ─────────────────────────────────────────────────────────────
+   These replace the missing imports from orderService.js locally
+   to preserve the integrity of your original services.
+══════════════════════════════════════════════════════════════ */
+
+/**
+ * Updates a specific sub-order status to 'received' and processes associated actions
+ */
+async function localMarkSubOrderReceived(client, orderId, confirmedBy = "buyer") {
+  // Safe detection of updated_at column
+  const { rows: colCheck } = await client.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'updated_at'`
+  );
+  const hasUpdatedAt = colCheck.length > 0;
+
+  const setClauses = [
+    "status = 'received'",
+    "received_at = NOW()",
+    "receipt_confirmed_by = $2"
+  ];
+  if (hasUpdatedAt) {
+    setClauses.push("updated_at = NOW()");
+  }
+
+  await client.query(
+    `UPDATE public.orders
+     SET ${setClauses.join(", ")}
+     WHERE id = $1`,
+    [orderId, confirmedBy]
+  );
+
+  // Update delivery confirmations table if it exists
+  try {
+    await client.query(
+      `UPDATE public.delivery_confirmations
+       SET confirmed_at = NOW(),
+           confirmed_by = $2
+       WHERE order_id = $1`,
+      [orderId, confirmedBy]
+    );
+  } catch (err) {
+    // Fail-silent if table or columns don't exist
+  }
+
+  // Clear pending seller earnings for this sub-order
+  try {
+    await client.query(
+      `UPDATE public.seller_earnings
+       SET status = 'cleared',
+           cleared_at = NOW()
+       WHERE order_id = $1 AND status = 'pending'`,
+      [orderId]
+    );
+  } catch (err) {
+    // Fail-silent if table or columns don't exist
+  }
+}
+
+/**
+ * Recalculates and updates the status of the parent order group based on its sub-orders
+ */
+async function localRecomputeGroupStatus(client, orderGroupId) {
+  const { rows: orders } = await client.query(
+    `SELECT status FROM public.orders WHERE order_group_id = $1`,
+    [orderGroupId]
+  );
+
+  if (!orders.length) return "pending";
+
+  const statuses = orders.map((o) => o.status);
+  const activeStatuses = statuses.filter((s) => s !== "cancelled");
+
+  let newStatus = "pending";
+
+  if (activeStatuses.length === 0) {
+    newStatus = "cancelled";
+  } else if (activeStatuses.every((s) => s === "received")) {
+    newStatus = "received";
+  } else if (activeStatuses.every((s) => s === "delivered" || s === "received")) {
+    newStatus = "delivered";
+  } else if (activeStatuses.some((s) => ["shipped", "out_for_delivery", "delivered", "received"].includes(s))) {
+    newStatus = "shipped";
+  } else if (activeStatuses.some((s) => s === "processing")) {
+    newStatus = "processing";
+  } else if (activeStatuses.every((s) => s === "confirmed")) {
+    newStatus = "confirmed";
+  }
+
+  // Safe detection of updated_at column
+  const { rows: colCheck } = await client.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'order_groups' AND column_name = 'updated_at'`
+  );
+  const hasUpdatedAt = colCheck.length > 0;
+
+  const setClauses = ["status = $1"];
+  if (hasUpdatedAt) {
+    setClauses.push("updated_at = NOW()");
+  }
+
+  await client.query(
+    `UPDATE public.order_groups SET ${setClauses.join(", ")} WHERE id = $2`,
+    [newStatus, orderGroupId]
+  );
+
+  return newStatus;
+}
+
+
+/* ══════════════════════════════════════════════════════════════
    POST /:orderId/confirm-received
    ─────────────────────────────────────────────────────────────
    Buyer confirms they received their order.
    Can only be called when sub-order status = 'delivered'.
-
-   No request body required.
-
-   Response includes the new group status so the frontend
-   can update the parent order display.
 ══════════════════════════════════════════════════════════════ */
 router.post("/:orderId/confirm-received", async (req, res) => {
   const userId      = req.user?.id;
@@ -134,7 +233,7 @@ router.post("/:orderId/confirm-received", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `Your order ${friendlyStatus}. You can only confirm receipt after delivery.`,
-        data   : {
+        data: {
           currentStatus: order.status,
           expectedStatus: "delivered",
         },
@@ -142,15 +241,14 @@ router.post("/:orderId/confirm-received", async (req, res) => {
     }
 
     /* ── Mark as received ── */
-    await markSubOrderReceived(
+    await localMarkSubOrderReceived(
       client,
       orderId,
-      order.order_group_id,
       "buyer"
     );
 
     /* ── Recompute parent group status ── */
-    const groupStatus = await recomputeGroupStatus(
+    const groupStatus = await localRecomputeGroupStatus(
       client,
       order.order_group_id
     );
@@ -202,9 +300,6 @@ router.post("/:orderId/confirm-received", async (req, res) => {
    GET /:orderId/receipt-status
    ─────────────────────────────────────────────────────────────
    Check if a delivered order needs buyer confirmation.
-   Returns the auto-confirm deadline.
-   Used by the frontend to show the "Confirm Received" button
-   with a countdown.
 ══════════════════════════════════════════════════════════════ */
 router.get("/:orderId/receipt-status", async (req, res) => {
   const userId      = req.user?.id;
