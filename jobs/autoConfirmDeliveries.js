@@ -20,11 +20,10 @@ import {
 } from "../services/orderDeliveryNotification.js";
 
 /* ══════════════════════════════════════════════════════════════
-   LOCAL HELPERS (Replacing orderService imports)
+   LOCAL HELPERS (Self-contained, no external orderService deps)
 ══════════════════════════════════════════════════════════════ */
 
 async function localMarkSubOrderReceived(client, orderId, confirmedBy = "system") {
-  // Check if updated_at exists on orders
   const { rows: colCheck } = await client.query(
     `SELECT column_name FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'updated_at'`
@@ -119,14 +118,13 @@ async function localRecomputeGroupStatus(client, orderGroupId) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   JOB RUNNER
+   JOB RUNNER FUNCTION
 ══════════════════════════════════════════════════════════════ */
 export async function runAutoConfirmDeliveries() {
   console.log("[jobs/autoConfirm] 🔍 Checking for orders to auto-confirm...");
 
   let pendingOrders = [];
   try {
-    // Look for orders needing auto-confirmation (either via delivery_confirmations or 48h delivered fallback)
     const { rows } = await pool.query(
       `SELECT
          o.id,
@@ -170,7 +168,6 @@ export async function runAutoConfirmDeliveries() {
         `| group=${groupStatus}`
       );
 
-      // Send notifications (fire & forget)
       sendReceivedNotifications({
         orderId     : order.id,
         orderGroupId: order.order_group_id,
@@ -189,19 +186,19 @@ export async function runAutoConfirmDeliveries() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   INTERVAL INITIALIZER (Runs hourly)
+   EXPORTS (Supports all import signatures)
 ══════════════════════════════════════════════════════════════ */
+export const autoConfirmDeliveries = runAutoConfirmDeliveries;
+
 export function startAutoConfirmJob(intervalMinutes = 60) {
   console.log(`[jobs/autoConfirm] 🕒 Job initialized (runs every ${intervalMinutes} mins)`);
 
-  // Run on startup
   setTimeout(() => {
     runAutoConfirmDeliveries().catch((err) =>
       console.error("[jobs/autoConfirm] startup run error:", err.message)
     );
   }, 10000);
 
-  // Periodic interval
   setInterval(() => {
     runAutoConfirmDeliveries().catch((err) =>
       console.error("[jobs/autoConfirm] interval run error:", err.message)
@@ -209,7 +206,4 @@ export function startAutoConfirmJob(intervalMinutes = 60) {
   }, intervalMinutes * 60 * 1000);
 }
 
-export default {
-  runAutoConfirmDeliveries,
-  startAutoConfirmJob,
-};
+export default autoConfirmDeliveries;
