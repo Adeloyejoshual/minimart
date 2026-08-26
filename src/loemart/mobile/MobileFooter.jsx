@@ -1,38 +1,95 @@
 /**
  * src/loemart/mobile/MobileFooter.jsx
  *
- * Bottom of page:
- * - Notify me newsletter card
- * - Floating action button (FAB) — cart or post ad
- * - Fixed bottom navigation with badges
+ * Real-Time Mobile Footer Suite:
+ * - Real API Newsletter/Deal Subscription Pipeline
+ * - Real-Time Dynamic Route Active State
+ * - Contextual Floating Action Button (FAB)
+ * - Safe-area-aware Bottom Navigation with Real Badges
  */
 
 import { memo, useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import axios from "axios";
 import toast from "react-hot-toast";
 import {
-  FiBell, FiCheckCircle, FiArrowRight, FiPlus, FiShoppingCart,
+  FiBell,
+  FiCheckCircle,
+  FiArrowRight,
+  FiPlus,
+  FiLoader,
 } from "react-icons/fi";
 
-import { BOTTOM_NAV, haptic } from "./mobileHelpers";
+import { API, BOTTOM_NAV, haptic } from "./mobileHelpers";
+
+const NEWSLETTER_URL = `${API}/newsletter/subscribe`;
 
 /* ═══════════════════════════════════════════════════════════════
-   NOTIFY BANNER
+   1. 100% REAL NOTIFY & DEAL SUBSCRIPTION BANNER
 ═══════════════════════════════════════════════════════════════ */
 const NotifyBanner = memo(function NotifyBanner() {
-  const [email, setEmail] = useState("");
-  const [sent,  setSent]  = useState(false);
+  const [email, setEmail]         = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [subscribed, setSubscribed] = useState(() => {
+    return localStorage.getItem("loemart_subscribed") === "true";
+  });
 
-  const handleSubmit = useCallback((e) => {
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
-    if (!email.includes("@")) {
-      toast.error("Enter a valid email");
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Stricter Real Email Format Regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      toast.error("Please enter a valid email address");
       return;
     }
-    setSent(true);
-    toast.success("Subscribed! 🎉");
-    haptic(12);
+
+    setSubmitting(true);
+    try {
+      // Real database API call
+      await axios.post(
+        NEWSLETTER_URL,
+        { email: cleanEmail },
+        { headers: { "Content-Type": "application/json" }, timeout: 8000 }
+      );
+
+      setSubscribed(true);
+      localStorage.setItem("loemart_subscribed", "true");
+      toast.success("You're subscribed to Loemart alerts! 🎉");
+      haptic(15);
+    } catch (err) {
+      const errorMsg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        "Could not subscribe. Please try again.";
+      
+      // If already subscribed on server
+      if (err.response?.status === 409 || errorMsg.toLowerCase().includes("already")) {
+        setSubscribed(true);
+        localStorage.setItem("loemart_subscribed", "true");
+        toast("You are already subscribed to alerts!", { icon: "✨" });
+      } else {
+        toast.error(errorMsg);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }, [email]);
+
+  if (subscribed) {
+    return (
+      <section className="lmm-notify lmm-notify--subscribed" aria-label="Subscribed to notifications">
+        <div className="lmm-notify__icon-wrap" aria-hidden="true">
+          <FiCheckCircle size={20} className="lmm-text-success" />
+        </div>
+        <div className="lmm-notify__body">
+          <p className="lmm-notify__title">You're on the VIP list</p>
+          <p className="lmm-notify__sub">We'll alert you when new deals drop.</p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="lmm-notify" aria-label="Deal notifications">
@@ -41,120 +98,132 @@ const NotifyBanner = memo(function NotifyBanner() {
       </div>
       <div className="lmm-notify__body">
         <p className="lmm-notify__title">Never miss a deal</p>
-        <p className="lmm-notify__sub">Get alerts for new products</p>
+        <p className="lmm-notify__sub">Get real-time alerts for new products</p>
       </div>
-      {sent ? (
-        <div className="lmm-notify__done" role="status" aria-live="polite">
-          <FiCheckCircle size={16} />
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="lmm-notify__form">
-          <input
-            type="email"
-            placeholder="Your email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            aria-label="Email"
-            required
-            className="lmm-notify__input"
-          />
-          <button
-            type="submit"
-            className="lmm-notify__btn"
-            aria-label="Subscribe"
-          >
+      
+      <form onSubmit={handleSubmit} className="lmm-notify__form" noValidate>
+        <input
+          type="email"
+          placeholder="Your email address"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          aria-label="Email address"
+          disabled={submitting}
+          required
+          className="lmm-notify__input"
+        />
+        <button
+          type="submit"
+          disabled={submitting || !email}
+          className="lmm-notify__btn"
+          aria-label="Subscribe"
+        >
+          {submitting ? (
+            <FiLoader size={14} className="lmm-spin" />
+          ) : (
             <FiArrowRight size={14} />
-          </button>
-        </form>
-      )}
+          )}
+        </button>
+      </form>
     </section>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   FLOATING ACTION BUTTON
+   2. PURPOSE-BUILT FLOATING ACTION BUTTON (POST / SELL)
 ═══════════════════════════════════════════════════════════════ */
-const MobileFAB = memo(function MobileFAB({ cartCount, user, onPostAd }) {
-  const navigate = useNavigate();
-
-  if (cartCount > 0) {
-    return (
-      <button
-        type="button"
-        className="lmm-fab lmm-fab--cart"
-        onClick={() => { navigate("/shop/cart"); haptic(10); }}
-        aria-label={`View cart with ${cartCount} items`}
-      >
-        <FiShoppingCart size={18} />
-        <span className="lmm-fab__count">{cartCount > 9 ? "9+" : cartCount}</span>
-      </button>
-    );
-  }
-
+const MobileFAB = memo(function MobileFAB({ user, onPostAd }) {
   return (
     <button
       type="button"
       className="lmm-fab lmm-fab--post"
-      onClick={() => { onPostAd(); haptic(10); }}
-      aria-label={user ? "Post an ad" : "Sign up to sell"}
+      onClick={() => {
+        onPostAd();
+        haptic(10);
+      }}
+      aria-label={user ? "Post a new listing" : "Sign in to sell"}
+      title={user ? "Post a listing" : "Sign in to sell"}
     >
-      <FiPlus size={20} />
+      <FiPlus size={22} />
+      <span className="lmm-fab__label">Sell</span>
     </button>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   BOTTOM NAV
+   3. DYNAMIC SAFE-AREA BOTTOM NAVIGATION
 ═══════════════════════════════════════════════════════════════ */
-const BottomNav = memo(function BottomNav({ cartCount, wishCount, active = 0 }) {
+const BottomNav = memo(function BottomNav({ cartCount = 0, wishCount = 0 }) {
   const navigate = useNavigate();
+  const location = useLocation();
 
   return (
-    <nav className="lmm-bottomnav" aria-label="Main navigation">
-      {BOTTOM_NAV.map((item, i) => {
-        const Icon     = item.icon;
-        const isActive = i === active;
-        const badge    = item.label === "Cart"  ? cartCount
-                       : item.label === "Saved" ? wishCount
-                       : 0;
+    <nav className="lmm-bottomnav" aria-label="Main application navigation">
+      <div className="lmm-bottomnav__inner">
+        {BOTTOM_NAV.map((item) => {
+          const Icon = item.icon;
+          
+          // Match current URL dynamically (No more hardcoded active index)
+          const isActive = 
+            item.path === "/" 
+              ? location.pathname === "/" || location.pathname === "/loemart"
+              : location.pathname.startsWith(item.path);
 
-        return (
-          <button
-            key={item.label}
-            type="button"
-            className={`lmm-bottomnav__item ${isActive ? "lmm-bottomnav__item--active" : ""}`}
-            onClick={() => { navigate(item.path); haptic(6); }}
-            aria-label={item.label}
-            aria-current={isActive ? "page" : undefined}
-          >
-            <span className="lmm-bottomnav__icon">
-              <Icon size={20} />
-              {badge > 0 && (
-                <span className="lmm-bottomnav__badge">
-                  {badge > 9 ? "9+" : badge}
-                </span>
-              )}
-            </span>
-            <span className="lmm-bottomnav__label">{item.label}</span>
-          </button>
-        );
-      })}
+          const badge =
+            item.label.toLowerCase() === "cart"
+              ? cartCount
+              : item.label.toLowerCase() === "saved" || item.label.toLowerCase() === "wishlist"
+              ? wishCount
+              : 0;
+
+          return (
+            <button
+              key={item.label}
+              type="button"
+              className={`lmm-bottomnav__item ${
+                isActive ? "lmm-bottomnav__item--active" : ""
+              }`}
+              onClick={() => {
+                if (!isActive) {
+                  navigate(item.path);
+                  haptic(8);
+                }
+              }}
+              aria-label={item.label}
+              aria-current={isActive ? "page" : undefined}
+            >
+              <span className="lmm-bottomnav__icon">
+                <Icon size={20} />
+                {badge > 0 && (
+                  <span className="lmm-bottomnav__badge">
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                )}
+              </span>
+              <span className="lmm-bottomnav__label">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </nav>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN FOOTER
+   4. MAIN EXPORT
 ═══════════════════════════════════════════════════════════════ */
 const MobileFooter = memo(function MobileFooter({
-  user, cartCount, wishCount, onPostAd,
+  user,
+  cartCount,
+  wishCount,
+  onPostAd,
 }) {
   return (
-    <>
+    <footer className="lmm-footer-wrapper">
       <NotifyBanner />
-      <MobileFAB cartCount={cartCount} user={user} onPostAd={onPostAd} />
-      <BottomNav cartCount={cartCount} wishCount={wishCount} active={0} />
-    </>
+      <MobileFAB user={user} onPostAd={onPostAd} />
+      <BottomNav cartCount={cartCount} wishCount={wishCount} />
+    </footer>
   );
 });
 
