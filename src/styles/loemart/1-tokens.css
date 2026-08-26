@@ -1,42 +1,64 @@
 /* ════════════════════════════════════════════════════════════
-   1-tokens.css
-   Fonts, CSS custom properties, base reset
+   1-tokens.css — Design tokens, fonts, base reset
 ════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
+:root,
 .lmm-page,
-.lmm-page * {
-  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  box-sizing : border-box;
+.lmm-clean-pro-theme {
+  --lmm-bg:           #09090b;
+  --lmm-surface:      #18181b;
+  --lmm-surface-2:    #27272a;
+  --lmm-border:       rgba(255,255,255,0.08);
+  --lmm-border-focus: rgba(255,255,255,0.18);
+
+  --lmm-text:         #f4f4f5;
+  --lmm-text-2:       #a1a1aa;
+  --lmm-text-3:       #71717a;
+
+  --lmm-orange:       #f97316;
+  --lmm-blue:         #2563eb;
+  --lmm-green:        #10b981;
+  --lmm-red:          #ef4444;
+  --lmm-gold:         #f59e0b;
+  --lmm-purple:       #6366f1;
+
+  --lmm-radius-sm:    8px;
+  --lmm-radius-md:    12px;
+  --lmm-radius-lg:    16px;
+  --lmm-radius-xl:    20px;
+
+  --lmm-shadow:       0 4px 24px rgba(0,0,0,0.4);
+  --lmm-ease:         cubic-bezier(0.16, 1, 0.3, 1);
+  --lmm-nav-h:        58px;
+  --lmm-safe-bottom:  env(safe-area-inset-bottom, 0px);
 }
 
-.lmm-page {
-  /* ── Brand colors ── */
-  --lmm-orange   : #ff5722;
-  --lmm-orange2  : #ff8a00;
-  --lmm-purple   : #6366f1;
-  --lmm-green    : #10b981;
-  --lmm-gold     : #ffd700;
-  --lmm-red      : #ef4444;
+.lmm-page,
+.lmm-clean-pro-theme,
+.mobile-view-optimized {
+  background: var(--lmm-bg) !important;
+  color: var(--lmm-text) !important;
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  min-height: 100vh;
+  padding-bottom: calc(var(--lmm-nav-h) + var(--lmm-safe-bottom) + 24px) !important;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
 
-  /* ── Text scale ── */
-  --lmm-text     : #0f172a;
-  --lmm-text2    : #475569;
-  --lmm-text3    : #94a3b8;
+.lmm-page *,
+.lmm-page *::before,
+.lmm-page *::after {
+  box-sizing: border-box;
+}
 
-  /* ── Surfaces ── */
-  --lmm-border   : rgba(0, 0, 0, 0.08);
-  --lmm-bg       : #f8f7f4;
-  --lmm-card     : #ffffff;
-
-  /* ── Layout ── */
-  min-height     : 100dvh;
-  background     : var(--lmm-bg);
-  color          : var(--lmm-text);
-  padding-bottom : calc(70px + env(safe-area-inset-bottom));
-
-  /* ── Typography rendering ── */
-  -webkit-font-smoothing : antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.lmm-top-gradient-glow {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 280px;
+  background: radial-gradient(circle at 50% -10%, rgba(37,99,235,0.14) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
 }
