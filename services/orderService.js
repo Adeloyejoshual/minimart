@@ -1,13 +1,12 @@
 /**
  * services/orderService.js
  *
- * v9.1 — Tracking ID resolution & Receipt confirmation support
+ * v9 — Tracking ID resolution
  * ────────────────────────────────────────────────────────────
  * NEW:
- * ✓ markSubOrderReceived() — updates suborder to received & handles delivery confirmation
- * ✓ recomputeGroupStatus() — recomputes parent order group status
  * ✓ resolveOrderGroup() — accepts UUID or tracking ID (ORD-XXXX)
  * ✓ getOrderGroup() — accepts UUID or tracking ID
+ * ✓ All existing v8 features preserved
  */
 
 import { pool }                 from "../config/db.js";
@@ -33,6 +32,9 @@ function devLog(...args) {
 
 /* ════════════════════════════════════════════════════════════
    UUID FORMAT DETECTION
+   ─────────────────────────────────────────────────────────
+   Used by resolveOrderGroup and getOrderGroup to determine
+   whether the identifier is a UUID or a tracking ID.
 ════════════════════════════════════════════════════════════ */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -289,6 +291,13 @@ async function findExistingOrder(client, userId, idempotencyKey, groupCols) {
 
 /* ════════════════════════════════════════════════════════════
    RESOLVE ORDER GROUP — accepts UUID or tracking ID
+   ─────────────────────────────────────────────────────────
+   Used by routes that take :groupId from URLs.
+   Tracking IDs are user-friendly (ORD-1F9DFB89).
+   UUIDs are internal (1f9dfb89-abcd-...).
+   Both work — backward compatible.
+   
+   Returns { id, tracking_id } or null.
 ════════════════════════════════════════════════════════════ */
 export async function resolveOrderGroup(identifier, userId) {
   if (!identifier) return null;
@@ -624,103 +633,19 @@ export async function markOrderGroupDelivered(orderGroupId) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   MARK SUB-ORDER RECEIVED
-════════════════════════════════════════════════════════════ */
-export async function markSubOrderReceived(clientOrPool, orderId, orderGroupId, confirmedBy = "buyer") {
-  const db = clientOrPool || pool;
-  const orderCols = await detectOrderColumns();
-
-  const setClauses = [
-    "status = 'received'",
-    "received_at = now()",
-    "receipt_confirmed_by = $2",
-  ];
-  if (orderCols.hasUpdatedAt) setClauses.push("updated_at = now()");
-
-  await db.query(
-    `UPDATE public.orders
-     SET ${setClauses.join(", ")}
-     WHERE id = $1`,
-    [orderId, confirmedBy]
-  );
-
-  /* Update delivery confirmation table if it exists */
-  try {
-    await db.query(
-      `UPDATE public.delivery_confirmations
-       SET confirmed_at = now(),
-           confirmed_by = $2
-       WHERE order_id = $1`,
-      [orderId, confirmedBy]
-    );
-  } catch (err) {
-    devLog("[orderService] delivery_confirmations update omitted:", err.message);
-  }
-
-  /* Clear seller earnings if tracked */
-  try {
-    await db.query(
-      `UPDATE public.seller_earnings
-       SET status = 'cleared',
-           cleared_at = now()
-       WHERE order_id = $1 AND status = 'pending'`,
-      [orderId]
-    );
-  } catch (err) {
-    devLog("[orderService] seller_earnings update omitted:", err.message);
-  }
-}
-
-/* ════════════════════════════════════════════════════════════
-   RECOMPUTE GROUP STATUS
-════════════════════════════════════════════════════════════ */
-export async function recomputeGroupStatus(clientOrPool, orderGroupId) {
-  const db = clientOrPool || pool;
-
-  const { rows: orders } = await db.query(
-    `SELECT status FROM public.orders WHERE order_group_id = $1`,
-    [orderGroupId]
-  );
-
-  if (!orders.length) return "pending";
-
-  const statuses = orders.map((o) => o.status);
-  const activeStatuses = statuses.filter((s) => s !== "cancelled");
-
-  let newStatus = "pending";
-
-  if (activeStatuses.length === 0) {
-    newStatus = "cancelled";
-  } else if (activeStatuses.every((s) => s === "received")) {
-    newStatus = "received";
-  } else if (activeStatuses.every((s) => s === "delivered" || s === "received")) {
-    newStatus = "delivered";
-  } else if (activeStatuses.some((s) => ["shipped", "out_for_delivery", "delivered", "received"].includes(s))) {
-    newStatus = "shipped";
-  } else if (activeStatuses.some((s) => s === "processing")) {
-    newStatus = "processing";
-  } else if (activeStatuses.every((s) => s === "confirmed")) {
-    newStatus = "confirmed";
-  }
-
-  const groupCols = await detectOrderGroupColumns();
-  const setClauses = ["status = $1"];
-  if (groupCols.hasUpdatedAt) setClauses.push("updated_at = now()");
-
-  await db.query(
-    `UPDATE public.order_groups SET ${setClauses.join(", ")} WHERE id = $2`,
-    [newStatus, orderGroupId]
-  );
-
-  return newStatus;
-}
-
-/* ════════════════════════════════════════════════════════════
    GET FULL ORDER GROUP — accepts UUID or tracking ID
+   ─────────────────────────────────────────────────────────
+   URLs now use tracking IDs (ORD-1F9DFB89).
+   Old UUID links also work (backward compatible).
 ════════════════════════════════════════════════════════════ */
 export async function getOrderGroup(identifier, userId) {
   if (!identifier) return null;
 
+  /*
+   * Determine which column to query by:
+   *   UUID format   → og.id
+   *   Anything else → og.tracking_id (e.g. ORD-1F9DFB89)
+   */
   const column = isUUID(identifier) ? "og.id" : "og.tracking_id";
 
   const { rows: [group] } = await pool.query(
