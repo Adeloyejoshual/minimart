@@ -5,15 +5,15 @@
  * Designed with a luxury minimalist aesthetic, high-density layouts,
  * and immediate interface hydration.
  *
- * v3.1 — Clean Production Overhaul (Zero Mock Data)
+ * v3.2 — Professional UX & Performance Overhaul
  * ──────────────────────────────────────────────────
- * ✓ 100% Real data-driven rendering (no mock client-side countdowns or telemetry)
- * ✓ Real Cart Synchronizer (resolving Auth vs. Guest states dynamically)
- * ✓ Seamless parameter syncing with real-time URL reflection
- * ✓ High-end minimalist spacing and typography layout
+ * ✓ Fixed double-fetch race conditions on mount
+ * ✓ Resolved browser back/forward button URL state desync
+ * ✓ Removed intrusive double-footer stacking on mobile layouts
+ * ✓ Smooth unified layout entry to combat Cumulative Layout Shift (CLS)
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -29,7 +29,6 @@ import MobileHero     from "./mobile/MobileHero";
 import MobileSections from "./mobile/MobileSections";
 import MobileGrid     from "./mobile/MobileGrid";
 import MobileFooter   from "./mobile/MobileFooter";
-import Footer         from "../components/Footer";
 import {
   SearchSheet, FilterSheet, fireCartToast,
 } from "./mobile/MobileSheets";
@@ -83,26 +82,31 @@ const serverAddToCart = async (product, variant = null, qty = 1) => {
   return res.data;
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   HOMEPAGE CONTROLLER
-═══════════════════════════════════════════════════════════════ */
 export default function HomePageMobile({ user }) {
   const navigate                        = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  /* ── Search State ── */
-  const [searchQuery,   setSearchQuery]   = useState(searchParams.get("q") ?? "");
+  // Keep a reference to prevent initial double-fetching
+  const isFirstMount = useRef(true);
+
+  /* ── Search & Filter State Sync (Single Source of Truth) ── */
+  const queryParam = searchParams.get("q") ?? "";
+  const catParam   = searchParams.get("category") ?? "all";
+  const sortParam  = searchParams.get("sort") ?? "newest";
+  const minParam   = searchParams.get("minPrice") ?? "";
+  const maxParam   = searchParams.get("maxPrice") ?? "";
+
+  const [searchQuery,   setSearchQuery]   = useState(queryParam);
   const [searchOpen,    setSearchOpen]    = useState(false);
   const [searchHistory, setSearchHistory] = useState(getSearchHistory);
 
-  /* ── Filters & Scopes ── */
-  const [activeCategory, setActiveCategory] = useState(searchParams.get("category") ?? "all");
-  const [activeSort,     setActiveSort]     = useState(searchParams.get("sort")     ?? "newest");
-  const [minPrice,       setMinPrice]       = useState(searchParams.get("minPrice") ?? "");
-  const [maxPrice,       setMaxPrice]       = useState(searchParams.get("maxPrice") ?? "");
+  const [activeCategory, setActiveCategory] = useState(catParam);
+  const [activeSort,     setActiveSort]     = useState(sortParam);
+  const [minPrice,       setMinPrice]       = useState(minParam);
+  const [maxPrice,       setMaxPrice]       = useState(maxParam);
   const [showFilters,    setShowFilters]    = useState(false);
 
-  /* ── Real Database Records ── */
+  /* ── Database Records ── */
   const [products,    setProducts]    = useState([]);
   const [pagination,  setPagination]  = useState(null);
   const [loading,     setLoading]     = useState(true);
@@ -110,13 +114,13 @@ export default function HomePageMobile({ user }) {
   const [fetchError,  setFetchError]  = useState(null);
   const [offset,      setOffset]      = useState(0);
 
-  /* ── Real Database-Driven Curations ── */
+  /* ── Curations ── */
   const [featured,       setFeatured]       = useState([]);
   const [flashDeals,     setFlashDeals]     = useState([]);
   const [newArrivals,    setNewArrivals]    = useState([]);
   const [recentlyViewed] = useState(getRecentlyViewed);
 
-  /* ── Cart Interaction Buffers ── */
+  /* ── Cart Buffers ── */
   const [cartCount,     setCartCount]     = useState(getCartCount);
   const [cartAnimating, setCartAnimating] = useState(false);
   const [addingIds,     setAddingIds]     = useState(new Set());
@@ -127,7 +131,16 @@ export default function HomePageMobile({ user }) {
     setTimeout(() => setCartAnimating(false), 300);
   }, []);
 
-  /* ── Cart Sync Effect ── */
+  /* ── Sync state when URL params change (Fixes browser Back/Forward issues) ── */
+  useEffect(() => {
+    setSearchQuery(queryParam);
+    setActiveCategory(catParam);
+    setActiveSort(sortParam);
+    setMinPrice(minParam);
+    setMaxPrice(maxParam);
+  }, [queryParam, catParam, sortParam, minParam, maxParam]);
+
+  /* ── Cart Sync ── */
   useEffect(() => {
     if (isLoggedIn()) {
       fetchServerCartCount().then((c) => {
@@ -139,7 +152,7 @@ export default function HomePageMobile({ user }) {
     }
   }, [user, triggerCartAnimation]);
 
-  /* ── System Events Listener (Auto Cart Update) ── */
+  /* ── Event Listeners ── */
   useEffect(() => {
     const sync = async () => {
       if (isLoggedIn()) {
@@ -161,7 +174,7 @@ export default function HomePageMobile({ user }) {
     };
   }, [triggerCartAnimation]);
 
-  /* ── Wishlist Sync State ── */
+  /* ── Wishlist Sync ── */
   const [wishlist, setWishlist] = useState(() => {
     try { return JSON.parse(localStorage.getItem(WISH_KEY) || "[]"); }
     catch { return []; }
@@ -171,7 +184,7 @@ export default function HomePageMobile({ user }) {
   }, [wishlist]);
 
   /* ══════════════════════════════════════════════════
-     DATABASE FETCH LOGIC
+     DATABASE FETCH LOGIC (Unified, Deduplicated)
   ══════════════════════════════════════════════════ */
   const fetchProducts = useCallback(async ({
     query = searchQuery, category = activeCategory, sort = activeSort,
@@ -189,12 +202,13 @@ export default function HomePageMobile({ user }) {
       const { data } = await axios.get(`${API}/products`, { params });
       const rows = data?.data?.products   ?? [];
       const meta = data?.data?.pagination ?? null;
+      
       setProducts((prev) => append ? [...prev, ...rows] : rows);
       setPagination(meta);
       setOffset(newOffset);
     } catch (err) {
       const msg = err.response?.data?.message
-        ?? (err.code === "ERR_NETWORK" ? "Network error" : "Failed to load");
+        ?? (err.code === "ERR_NETWORK" ? "Network error" : "Failed to load products");
       setFetchError(msg);
       if (!append) toast.error(msg);
     } finally {
@@ -214,12 +228,24 @@ export default function HomePageMobile({ user }) {
       if (trend.status  === "fulfilled") setFlashDeals(trend.value.data?.data?.products  ?? []);
       if (latest.status === "fulfilled") setNewArrivals(latest.value.data?.data?.products ?? []);
     } catch (err) {
-      console.warn("[LoemartHome] Home sections could not fully populate:", err.message);
+      console.warn("[LoemartHome] Curated sections could not fully populate:", err.message);
     }
   }, []);
 
-  useEffect(() => { fetchProducts({ newOffset: 0 }); fetchSections(); }, []); // eslint-disable-line
-  useEffect(() => { fetchProducts({ newOffset: 0, append: false }); }, [activeCategory, activeSort]); // eslint-disable-line
+  // Consolidate mounting and synchronization into clean pipelines
+  useEffect(() => {
+    fetchSections();
+  }, [fetchSections]);
+
+  useEffect(() => {
+    // Prevents duplicate fetching on initial render
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      fetchProducts({ newOffset: 0 });
+      return;
+    }
+    fetchProducts({ newOffset: 0, append: false });
+  }, [activeCategory, activeSort, fetchProducts]);
 
   /* ══════════════════════════════════════════════════
      INTERACTION HANDLERS
@@ -235,25 +261,42 @@ export default function HomePageMobile({ user }) {
 
   const handleCategoryChange = useCallback((id) => {
     setActiveCategory(id);
+    setSearchParams((prev) => {
+      if (id === "all") prev.delete("category");
+      else prev.set("category", id);
+      return prev;
+    });
     setOffset(0);
-  }, []);
+  }, [setSearchParams]);
 
   const handleLoadMore = useCallback(() => {
     fetchProducts({ newOffset: offset + DEFAULT_LIMIT, append: true });
   }, [fetchProducts, offset]);
 
   const handleApplyFilters = useCallback(() => {
-    fetchProducts({ min: minPrice, max: maxPrice, newOffset: 0 });
+    setSearchParams((prev) => {
+      if (minPrice) prev.set("minPrice", minPrice); else prev.delete("minPrice");
+      if (maxPrice) prev.set("maxPrice", maxPrice); else prev.delete("maxPrice");
+      if (activeSort) prev.set("sort", activeSort); else prev.delete("sort");
+      return prev;
+    });
+    fetchProducts({ min: minPrice, max: maxPrice, sort: activeSort, newOffset: 0 });
     setShowFilters(false);
-  }, [fetchProducts, minPrice, maxPrice]);
+  }, [fetchProducts, minPrice, maxPrice, activeSort, setSearchParams]);
 
   const handleResetFilters = useCallback(() => {
-    setMinPrice(""); setMaxPrice(""); setActiveSort("newest");
+    setMinPrice(""); 
+    setMaxPrice(""); 
+    setActiveSort("newest");
   }, []);
 
   const clearAllFilters = useCallback(() => {
-    setSearchQuery(""); setActiveCategory("all"); setActiveSort("newest");
-    setMinPrice(""); setMaxPrice(""); setSearchParams({});
+    setSearchQuery(""); 
+    setActiveCategory("all"); 
+    setActiveSort("newest");
+    setMinPrice(""); 
+    setMaxPrice(""); 
+    setSearchParams({});
     fetchProducts({
       query: "", category: "all", sort: "newest", min: "", max: "", newOffset: 0,
     });
@@ -263,14 +306,13 @@ export default function HomePageMobile({ user }) {
     setWishlist((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }, []);
 
-  /* ── Absolute Real Add to Cart Handler ── */
   const handleAddToCart = useCallback(async (product) => {
     if (!product?.id || addingIds.has(product.id)) return;
 
     setAddingIds((prev) => new Set(prev).add(product.id));
 
     if (window.navigator?.vibrate) {
-      window.navigator.vibrate(10); // Standard clean physical tactile click
+      window.navigator.vibrate(10);
     }
 
     try {
@@ -325,11 +367,8 @@ export default function HomePageMobile({ user }) {
     activeSort !== "newest" || minPrice || maxPrice
   );
 
-  /* ══════════════════════════════════════════════════
-     STRUCTURED LAYOUT RENDER
-  ══════════════════════════════════════════════════ */
   return (
-    <div className="lmm-page lmm-clean-pro-theme">
+    <div className="lmm-page lmm-clean-pro-theme mobile-view-optimized">
       {/* Visual Ambient Depth Backdrop */}
       <div className="lmm-top-gradient-glow" />
 
@@ -359,7 +398,7 @@ export default function HomePageMobile({ user }) {
         />
       </div>
 
-      {/* 3. Horizontal Curations Segment (Real Backend Products) */}
+      {/* 3. Horizontal Curations Segment */}
       <div className="lmm-sections-wrapper">
         <MobileSections
           featured={featured}
@@ -406,7 +445,11 @@ export default function HomePageMobile({ user }) {
         />
       </div>
 
-      {/* 5. Fluid Bottom Utility Panel */}
+      {/* 
+        5. Fluid Bottom Utility Panel 
+        (Note: Unnecessary nested / corporate desktop footers are removed on mobile 
+        to ensure native app-like UX spacing and zero scroll blocking)
+      */}
       <MobileFooter
         user={user}
         cartCount={cartCount}
@@ -415,10 +458,7 @@ export default function HomePageMobile({ user }) {
         onPostAd={goPostAd}
       />
 
-      {/* 6. Corporate Brand Footer */}
-      <Footer />
-
-      {/* 7. Bottom Sheets Sheets */}
+      {/* Sheets Elements */}
       <SearchSheet
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
