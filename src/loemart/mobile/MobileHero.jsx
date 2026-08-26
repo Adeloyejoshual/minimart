@@ -13,7 +13,7 @@ import { useNavigate } from "react-router-dom";
 import {
   FiArrowRight,
   FiZap,
-  FiSparkles,
+  FiStar,
   FiTrendingUp,
   FiPlusCircle,
   FiTag,
@@ -149,7 +149,7 @@ const MobileHero = memo(function MobileHero({
     },
     {
       id: "new",
-      Icon: FiSparkles,
+      Icon: FiStar,
       label: "New Arrivals",
       accent: "#10b981",
       onClick: () => {
@@ -271,7 +271,7 @@ const MobileHero = memo(function MobileHero({
         </div>
       </section>
 
-      {/* ── 3. Clean Quick Action Tiles (No Emojis) ── */}
+      {/* ── 3. Clean Quick Action Tiles ── */}
       <nav className="lmm-quick-actions" aria-label="Marketplace Quick Categories">
         {quickTiles.map((tile) => {
           const TileIcon = tile.Icon;
