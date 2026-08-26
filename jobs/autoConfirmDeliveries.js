@@ -1,191 +1,215 @@
 /**
  * jobs/autoConfirmDeliveries.js
  *
- * Automatically confirms receipt for orders where:
- *   - Status is "delivered"
- *   - The 48-hour buyer confirmation window has passed
- *   - No dispute has been raised
- *   - Buyer hasn't already confirmed
+ * Background job to automatically confirm delivery for orders
+ * that have been in "delivered" status for 48+ hours without
+ * buyer confirmation or dispute.
  *
- * How to run:
- *   Option A — node-cron (in-process):
- *     import cron from "node-cron";
- *     import { autoConfirmDeliveries } from "./jobs/autoConfirmDeliveries.js";
- *     cron.schedule("0 * * * *", autoConfirmDeliveries); // every hour
- *
- *   Option B — standalone script:
- *     node jobs/autoConfirmDeliveries.js
- *
- *   Option C — pg_cron (database-level):
- *     SELECT cron.schedule('auto-confirm', '0 * * * *',
- *       $$SELECT net_http_post(...) $$);
- *
- * Each confirmation:
- *   1. Sets orders.status = 'received'
- *   2. Writes order_status_history
- *   3. Closes delivery_confirmations record
- *   4. Clears seller_earnings (→ 'cleared')
- *   5. Recomputes parent order_groups.status
- *   6. Sends notifications to seller
+ * Flow:
+ *   - Finds all delivered orders where auto_confirm_at <= NOW()
+ *   - Sets sub-order status = 'received'
+ *   - Marks receipt_confirmed_by = 'system'
+ *   - Updates delivery_confirmations & seller_earnings
+ *   - Recomputes parent order group status
+ *   - Sends notification to buyer and seller
  */
 
 import { pool } from "../config/db.js";
 import {
-  markSubOrderReceived,
-  recomputeGroupStatus,
-} from "../services/orderService.js";
-import {
   sendReceivedNotifications,
 } from "../services/orderDeliveryNotification.js";
 
-/**
- * Process all overdue delivery confirmations.
- * Safe to call repeatedly — idempotent.
- * Each order is processed in its own transaction.
- */
-export async function autoConfirmDeliveries() {
-  const startTime = Date.now();
+/* ══════════════════════════════════════════════════════════════
+   LOCAL HELPERS (Replacing orderService imports)
+══════════════════════════════════════════════════════════════ */
 
-  /* Find all deliveries past their auto-confirm window */
-  let pending;
+async function localMarkSubOrderReceived(client, orderId, confirmedBy = "system") {
+  // Check if updated_at exists on orders
+  const { rows: colCheck } = await client.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'updated_at'`
+  );
+  const hasUpdatedAt = colCheck.length > 0;
+
+  const setClauses = [
+    "status = 'received'",
+    "received_at = NOW()",
+    "receipt_confirmed_by = $2"
+  ];
+  if (hasUpdatedAt) setClauses.push("updated_at = NOW()");
+
+  await client.query(
+    `UPDATE public.orders
+     SET ${setClauses.join(", ")}
+     WHERE id = $1`,
+    [orderId, confirmedBy]
+  );
+
+  // Update delivery_confirmations table
   try {
+    await client.query(
+      `UPDATE public.delivery_confirmations
+       SET confirmed_at = NOW(),
+           confirmed_by = $2,
+           updated_at   = NOW()
+       WHERE order_id = $1`,
+      [orderId, confirmedBy]
+    );
+  } catch (err) {
+    // Fail-silent if table does not exist
+  }
+
+  // Clear seller earnings
+  try {
+    await client.query(
+      `UPDATE public.seller_earnings
+       SET status     = 'cleared',
+           cleared_at = NOW(),
+           updated_at = NOW()
+       WHERE order_id = $1 AND status = 'pending'`,
+      [orderId]
+    );
+  } catch (err) {
+    // Fail-silent if table does not exist
+  }
+}
+
+async function localRecomputeGroupStatus(client, orderGroupId) {
+  const { rows: orders } = await client.query(
+    `SELECT status FROM public.orders WHERE order_group_id = $1`,
+    [orderGroupId]
+  );
+
+  if (!orders.length) return "pending";
+
+  const statuses = orders.map((o) => o.status);
+  const activeStatuses = statuses.filter((s) => s !== "cancelled");
+
+  let newStatus = "pending";
+
+  if (activeStatuses.length === 0) {
+    newStatus = "cancelled";
+  } else if (activeStatuses.every((s) => s === "received")) {
+    newStatus = "received";
+  } else if (activeStatuses.every((s) => s === "delivered" || s === "received")) {
+    newStatus = "delivered";
+  } else if (activeStatuses.some((s) => ["shipped", "out_for_delivery", "delivered", "received"].includes(s))) {
+    newStatus = "shipped";
+  } else if (activeStatuses.some((s) => s === "processing")) {
+    newStatus = "processing";
+  } else if (activeStatuses.every((s) => s === "confirmed")) {
+    newStatus = "confirmed";
+  }
+
+  const { rows: colCheck } = await client.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'order_groups' AND column_name = 'updated_at'`
+  );
+  const hasUpdatedAt = colCheck.length > 0;
+
+  const setClauses = ["status = $1"];
+  if (hasUpdatedAt) setClauses.push("updated_at = NOW()");
+
+  await client.query(
+    `UPDATE public.order_groups SET ${setClauses.join(", ")} WHERE id = $2`,
+    [newStatus, orderGroupId]
+  );
+
+  return newStatus;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   JOB RUNNER
+══════════════════════════════════════════════════════════════ */
+export async function runAutoConfirmDeliveries() {
+  console.log("[jobs/autoConfirm] 🔍 Checking for orders to auto-confirm...");
+
+  let pendingOrders = [];
+  try {
+    // Look for orders needing auto-confirmation (either via delivery_confirmations or 48h delivered fallback)
     const { rows } = await pool.query(
       `SELECT
-         dc.order_id,
-         dc.order_group_id,
-         dc.auto_confirm_at,
-         o.status,
+         o.id,
+         o.order_group_id,
          o.tracking_id
-       FROM public.delivery_confirmations dc
-       JOIN public.orders o ON o.id = dc.order_id
-       WHERE dc.confirmed_at IS NULL
-         AND dc.auto_confirm_at <= NOW()
-         AND dc.dispute_raised  = false
-         AND o.status = 'delivered'
-       ORDER BY dc.auto_confirm_at ASC`
+       FROM public.orders o
+       LEFT JOIN public.delivery_confirmations dc ON dc.order_id = o.id
+       WHERE o.status = 'delivered'
+         AND (
+           (dc.auto_confirm_at IS NOT NULL AND dc.auto_confirm_at <= NOW() AND dc.confirmed_at IS NULL AND COALESCE(dc.dispute_raised, false) = false)
+           OR
+           (dc.order_id IS NULL AND o.delivered_at <= NOW() - INTERVAL '48 hours')
+         )
+       LIMIT 100`
     );
-    pending = rows;
+    pendingOrders = rows;
   } catch (err) {
-    console.error("[autoConfirm] Failed to query pending confirmations:", err.message);
-    return { processed: 0, failed: 0, errors: [err.message] };
+    console.error("[jobs/autoConfirm] query failed:", err.message);
+    return;
   }
 
-  if (!pending.length) {
-    console.log("[autoConfirm] No pending auto-confirmations");
-    return { processed: 0, failed: 0, errors: [] };
+  if (pendingOrders.length === 0) {
+    console.log("[jobs/autoConfirm] ✓ No orders pending auto-confirmation.");
+    return;
   }
 
-  console.log(`[autoConfirm] Processing ${pending.length} auto-confirmation(s)…`);
+  console.log(`[jobs/autoConfirm] ⏳ Auto-confirming ${pendingOrders.length} orders...`);
 
-  let processed = 0;
-  let failed    = 0;
-  const errors  = [];
-
-  for (const row of pending) {
+  for (const order of pendingOrders) {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      /*
-       * Re-check status inside transaction to prevent race conditions.
-       * Another process might have confirmed it between our SELECT and now.
-       */
-      const { rows: [current] } = await client.query(
-        `SELECT status
-         FROM public.orders
-         WHERE id = $1
-         FOR UPDATE`,
-        [row.order_id]
-      );
-
-      if (current?.status !== "delivered") {
-        /* Already moved past delivered — skip */
-        await client.query("ROLLBACK");
-        console.log(
-          `[autoConfirm] Skipping ${row.tracking_id ?? row.order_id}`,
-          `— status is "${current?.status}" (not delivered)`
-        );
-        continue;
-      }
-
-      /* Mark received */
-      await markSubOrderReceived(
-        client,
-        row.order_id,
-        row.order_group_id,
-        "system"
-      );
-
-      /* Recompute parent */
-      const groupStatus = await recomputeGroupStatus(
-        client,
-        row.order_group_id
-      );
+      await localMarkSubOrderReceived(client, order.id, "system");
+      const groupStatus = await localRecomputeGroupStatus(client, order.order_group_id);
 
       await client.query("COMMIT");
 
-      processed++;
-
       console.log(
-        `[autoConfirm] ✅ ${row.tracking_id ?? row.order_id}`,
-        `auto-confirmed | group=${groupStatus}`
+        `[jobs/autoConfirm] ✅ Auto-confirmed order ${order.tracking_id ?? order.id}`,
+        `| group=${groupStatus}`
       );
 
-      /* Notification (fire & forget) */
+      // Send notifications (fire & forget)
       sendReceivedNotifications({
-        orderId     : row.order_id,
-        orderGroupId: row.order_group_id,
+        orderId     : order.id,
+        orderGroupId: order.order_group_id,
         confirmedBy : "system",
       }).catch((err) =>
-        console.warn(
-          `[autoConfirm] notification failed for ${row.order_id}:`,
-          err.message
-        )
+        console.warn(`[jobs/autoConfirm] notification failed for ${order.id}:`, err.message)
       );
 
     } catch (err) {
       await client.query("ROLLBACK");
-      failed++;
-      errors.push(`${row.order_id}: ${err.message}`);
-      console.error(
-        `[autoConfirm] ❌ Failed ${row.tracking_id ?? row.order_id}:`,
-        err.message
-      );
+      console.error(`[jobs/autoConfirm] failed to auto-confirm order ${order.id}:`, err.message);
     } finally {
       client.release();
     }
   }
-
-  const elapsed = Date.now() - startTime;
-
-  console.log(
-    `[autoConfirm] ✅ Done in ${elapsed}ms`,
-    `| processed=${processed}`,
-    `| failed=${failed}`,
-    `| total=${pending.length}`
-  );
-
-  return { processed, failed, errors };
 }
 
-/*
- * If running as a standalone script:
- *   node jobs/autoConfirmDeliveries.js
- */
-const isMainModule =
-  process.argv[1] &&
-  (process.argv[1].endsWith("autoConfirmDeliveries.js") ||
-   process.argv[1].endsWith("autoConfirmDeliveries"));
+/* ══════════════════════════════════════════════════════════════
+   INTERVAL INITIALIZER (Runs hourly)
+══════════════════════════════════════════════════════════════ */
+export function startAutoConfirmJob(intervalMinutes = 60) {
+  console.log(`[jobs/autoConfirm] 🕒 Job initialized (runs every ${intervalMinutes} mins)`);
 
-if (isMainModule) {
-  console.log("[autoConfirm] Running as standalone job…");
-  autoConfirmDeliveries()
-    .then((result) => {
-      console.log("[autoConfirm] Result:", result);
-      process.exit(0);
-    })
-    .catch((err) => {
-      console.error("[autoConfirm] Fatal error:", err);
-      process.exit(1);
-    });
+  // Run on startup
+  setTimeout(() => {
+    runAutoConfirmDeliveries().catch((err) =>
+      console.error("[jobs/autoConfirm] startup run error:", err.message)
+    );
+  }, 10000);
+
+  // Periodic interval
+  setInterval(() => {
+    runAutoConfirmDeliveries().catch((err) =>
+      console.error("[jobs/autoConfirm] interval run error:", err.message)
+    );
+  }, intervalMinutes * 60 * 1000);
 }
+
+export default {
+  runAutoConfirmDeliveries,
+  startAutoConfirmJob,
+};
