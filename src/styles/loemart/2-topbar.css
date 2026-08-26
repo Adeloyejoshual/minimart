@@ -1,147 +1,140 @@
 /* ════════════════════════════════════════════════════════════
-   2-topbar.css
-   Sticky glass topbar, search trigger, filter button, category chips
+   2-topbar.css — Sticky topbar, search, category chips
 ════════════════════════════════════════════════════════════ */
 
 .lmm-topbar {
-  position        : sticky;
-  top             : 0;
-  z-index         : 100;
-  background      : rgba(255, 255, 255, 0.9);
-  backdrop-filter : blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  border-bottom   : 1px solid rgba(0, 0, 0, 0.06);
-  padding         : 10px 12px 0;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  background: rgba(9,9,11,0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--lmm-border);
+  padding: 10px 14px 0;
 }
 
 .lmm-topbar__row {
-  display      : flex;
-  align-items  : center;
-  gap          : 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 10px;
 }
 
-/* ── Logo ── */
 .lmm-topbar__logo {
-  display     : flex;
-  align-items : center;
-  gap         : 4px;
-  background  : none;
-  border      : none;
-  cursor      : pointer;
-  padding     : 4px 2px;
-  flex-shrink : 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
 }
-.lmm-topbar__logo-icon { font-size: 20px; line-height: 1; }
+
 .lmm-topbar__logo-text {
-  font-size              : 15px;
-  font-weight            : 900;
-  letter-spacing         : -0.4px;
-  background             : linear-gradient(135deg, #ff5722, #ff8a00);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, #f97316, #fb923c);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  background-clip        : text;
-  display                : none;
-}
-@media (min-width: 360px) {
-  .lmm-topbar__logo-text { display: inline; }
+  background-clip: text;
 }
 
-/* ── Search trigger button ── */
-.lmm-topbar__search-btn {
-  flex         : 1;
-  display      : flex;
-  align-items  : center;
-  gap          : 8px;
-  height       : 40px;
-  padding      : 0 14px;
-  border-radius: 12px;
-  border       : 1.5px solid rgba(0, 0, 0, 0.09);
-  background   : rgba(255, 255, 255, 0.85);
-  color        : var(--lmm-text3);
-  font-size    : 13px;
-  font-weight  : 500;
-  cursor       : pointer;
-  text-align   : left;
-  min-width    : 0;
-  overflow     : hidden;
-  font-family  : inherit;
-  transition   : border-color .15s;
-}
-.lmm-topbar__search-btn:hover { border-color: var(--lmm-orange); }
-.lmm-topbar__search-placeholder {
-  overflow     : hidden;
-  text-overflow: ellipsis;
-  white-space  : nowrap;
-  min-width    : 0;
+.lmm-topbar__search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  background: var(--lmm-surface);
+  border: 1px solid var(--lmm-border);
+  border-radius: 999px;
+  padding: 0 14px;
+  color: var(--lmm-text-2);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 0;
 }
 
-/* ── Filter button ── */
-.lmm-topbar__filter-btn {
-  position       : relative;
-  width          : 40px;
-  height         : 40px;
-  border-radius  : 12px;
-  border         : 1.5px solid rgba(0, 0, 0, 0.09);
-  background     : rgba(255, 255, 255, 0.85);
-  display        : flex;
-  align-items    : center;
+.lmm-topbar__search:active {
+  border-color: var(--lmm-border-focus);
+}
+
+.lmm-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.lmm-topbar__icon-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  color          : var(--lmm-text2);
-  cursor         : pointer;
-  flex-shrink    : 0;
-  transition     : all .15s;
-}
-.lmm-topbar__filter-btn:hover {
-  border-color: var(--lmm-orange);
-  color       : var(--lmm-orange);
-}
-.lmm-topbar__filter-dot {
-  position     : absolute;
-  top          : 8px;
-  right        : 8px;
-  width        : 6px;
-  height       : 6px;
+  background: transparent;
+  border: none;
   border-radius: 50%;
-  background   : var(--lmm-orange);
+  color: var(--lmm-text-2);
+  cursor: pointer;
 }
 
-/* ── Category strip ── */
-.lmm-topbar__cats {
-  display        : flex;
-  gap            : 6px;
-  overflow-x     : auto;
-  padding-bottom : 10px;
+.lmm-topbar__icon-btn:active {
+  background: rgba(255,255,255,0.06);
+}
+
+.lmm-topbar__badge {
+  position: absolute;
+  top: 4px; right: 4px;
+  min-width: 16px; height: 16px;
+  background: var(--lmm-orange);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  border: 1.5px solid var(--lmm-bg);
+}
+
+/* Category chips strip */
+.lmm-cat-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 10px;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
-.lmm-topbar__cats::-webkit-scrollbar { display: none; }
 
-.lmm-cat {
-  flex-shrink  : 0;
-  display      : flex;
-  align-items  : center;
-  gap          : 5px;
-  height       : 32px;
-  padding      : 0 12px;
+.lmm-cat-strip::-webkit-scrollbar { display: none; }
+
+.lmm-cat-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 14px;
   border-radius: 999px;
-  border       : 1.5px solid rgba(0, 0, 0, 0.08);
-  background   : rgba(255, 255, 255, 0.7);
-  color        : var(--lmm-text2);
-  font-size    : 12px;
-  font-weight  : 600;
-  white-space  : nowrap;
-  cursor       : pointer;
-  font-family  : inherit;
-  transition   : all .15s;
+  border: 1px solid var(--lmm-border);
+  background: var(--lmm-surface);
+  color: var(--lmm-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
 }
-.lmm-cat:hover { border-color: var(--lmm-orange); color: var(--lmm-orange); }
-.lmm-cat--on {
-  background  : linear-gradient(135deg, #ff5722, #ff8a00);
-  border-color: transparent;
-  color       : #fff;
-  font-weight : 700;
-  box-shadow  : 0 2px 8px rgba(255, 87, 34, 0.28);
+
+.lmm-cat-chip--active {
+  background: var(--lmm-orange) !important;
+  border-color: transparent !important;
+  color: #fff !important;
 }
-.lmm-cat__icon  { font-size: 13px; line-height: 1; }
-.lmm-cat__label { line-height: 1; }
