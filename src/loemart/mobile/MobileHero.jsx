@@ -1,11 +1,5 @@
 /**
  * src/loemart/mobile/MobileHero.jsx
- *
- * Luxury Minimalist Mobile Hero Suite:
- * - Real Account Welcome Header
- * - Fluid Gesture-Controlled Hero Slider (Swipe + Auto-Pause)
- * - Micro-Interactions with Weighted SVG Vector Badges
- * - Resilient Deep-Linking & Action Handlers
  */
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -22,9 +16,6 @@ import {
 
 import { haptic } from "./mobileHelpers";
 
-/* ═══════════════════════════════════════════════════════════════
-   DEFAULT CURATED REAL PROMOTIONS
-═══════════════════════════════════════════════════════════════ */
 const DEFAULT_SLIDES = [
   {
     id: "curated-1",
@@ -32,7 +23,7 @@ const DEFAULT_SLIDES = [
     title: "Trade & Discover Premium Goods",
     sub: "Direct peer-to-peer verification and rapid local delivery.",
     cta: "Explore Catalog",
-    accent: "#3b82f6",
+    accent: "#2563eb",
     target: "catalog",
     Icon: FiShoppingBag,
   },
@@ -60,9 +51,6 @@ const DEFAULT_SLIDES = [
 
 const SLIDE_INTERVAL = 5500;
 
-/* ═══════════════════════════════════════════════════════════════
-   MAIN MOBILE HERO COMPONENT
-═══════════════════════════════════════════════════════════════ */
 const MobileHero = memo(function MobileHero({
   user,
   onPostAd,
@@ -76,7 +64,6 @@ const MobileHero = memo(function MobileHero({
 
   const firstName = user?.name ? user.name.trim().split(" ")[0] : null;
 
-  /* ── 1. Smooth, Safe Slide Rotation ── */
   const nextSlide = useCallback(() => {
     setSlideIndex((prev) => (prev + 1) % slides.length);
   }, [slides.length]);
@@ -96,7 +83,6 @@ const MobileHero = memo(function MobileHero({
     return () => clearInterval(timerRef.current);
   }, [isPaused, nextSlide]);
 
-  /* ── 2. Touch Gesture Handling ── */
   const handleTouchStart = (e) => {
     setIsPaused(true);
     touchStartX.current = e.touches[0].clientX;
@@ -106,36 +92,25 @@ const MobileHero = memo(function MobileHero({
     setIsPaused(false);
     if (touchStartX.current === null) return;
     const diff = touchStartX.current - e.changedTouches[0].clientX;
-    
-    // Minimum swipe distance threshold (40px)
     if (Math.abs(diff) > 40) {
-      if (diff > 0) {
-        nextSlide();
-        haptic(8);
-      } else {
-        prevSlide();
-        haptic(8);
-      }
+      if (diff > 0) { nextSlide(); haptic(8); }
+      else { prevSlide(); haptic(8); }
     }
     touchStartX.current = null;
   };
 
-  /* ── 3. Action Click Router ── */
   const handleSlideAction = (target) => {
     haptic(10);
     if (target === "sell") {
       onPostAd();
       return;
     }
-
-    // Smoothly scroll to the marketplace catalog or navigate
     const catalogEl = document.querySelector(".lmm-catalog-grid-segment");
     if (catalogEl) {
       catalogEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
-  /* ── 4. Professional Quick Tiles Definition ── */
   const quickTiles = [
     {
       id: "flash",
@@ -171,7 +146,7 @@ const MobileHero = memo(function MobileHero({
       id: "sell",
       Icon: FiPlusCircle,
       label: user ? "List Item" : "Start Selling",
-      accent: "#3b82f6",
+      accent: "#2563eb",
       onClick: onPostAd,
     },
   ];
@@ -181,7 +156,7 @@ const MobileHero = memo(function MobileHero({
 
   return (
     <div className="lmm-hero-container">
-      {/* ── 1. Luxury Welcome Header for Authenticated Users ── */}
+      {/* Welcome Banner */}
       {user && firstName && (
         <div className="lmm-welcome-banner" aria-live="polite">
           <div className="lmm-welcome-user">
@@ -202,35 +177,23 @@ const MobileHero = memo(function MobileHero({
         </div>
       )}
 
-      {/* ── 2. Primary Hero Banner Card ── */}
+      {/* Main Hero Card */}
       <section
         className="lmm-hero-card"
-        aria-label="Promotional Carousel"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onMouseEnter={() => setIsPaused(true)}
         onMouseLeave={() => setIsPaused(false)}
       >
-        <div
-          className="lmm-hero-ambient"
-          style={{
-            background: `radial-gradient(circle at 85% 15%, ${currentSlide.accent}25 0%, transparent 70%)`,
-          }}
-          aria-hidden="true"
-        />
-
         <div className="lmm-hero-content">
-          {/* Eyebrow badge */}
           <div className="lmm-hero-eyebrow">
-            {CurrentIcon && <CurrentIcon size={14} className="lmm-hero-eyebrow-icon" />}
+            {CurrentIcon && <CurrentIcon size={14} />}
             <span>{currentSlide.badge}</span>
           </div>
 
-          {/* Title & Sub */}
           <h1 className="lmm-hero-title">{currentSlide.title}</h1>
           <p className="lmm-hero-subtitle">{currentSlide.sub}</p>
 
-          {/* CTA Group */}
           <div className="lmm-hero-cta-group">
             <button
               type="button"
@@ -245,25 +208,18 @@ const MobileHero = memo(function MobileHero({
             <button
               type="button"
               className="lmm-hero-btn-secondary"
-              onClick={() => {
-                onPostAd();
-                haptic(8);
-              }}
+              onClick={() => { onPostAd(); haptic(8); }}
             >
               Post Listing
             </button>
           </div>
         </div>
 
-        {/* Dynamic Pagination Indicators */}
-        <div className="lmm-hero-pagination" role="tablist" aria-label="Slide indicators">
+        <div className="lmm-hero-pagination">
           {slides.map((s, idx) => (
             <button
               key={s.id || idx}
               type="button"
-              role="tab"
-              aria-selected={idx === slideIndex}
-              aria-label={`Go to slide ${idx + 1}`}
               className={`lmm-hero-dot ${idx === slideIndex ? "lmm-hero-dot--active" : ""}`}
               onClick={() => goToSlide(idx)}
             />
@@ -271,8 +227,8 @@ const MobileHero = memo(function MobileHero({
         </div>
       </section>
 
-      {/* ── 3. Clean Quick Action Tiles ── */}
-      <nav className="lmm-quick-actions" aria-label="Marketplace Quick Categories">
+      {/* Quick Tiles */}
+      <nav className="lmm-quick-actions" aria-label="Quick Actions">
         {quickTiles.map((tile) => {
           const TileIcon = tile.Icon;
           return (
@@ -280,15 +236,12 @@ const MobileHero = memo(function MobileHero({
               key={tile.id}
               type="button"
               className="lmm-quick-tile"
-              onClick={() => {
-                tile.onClick();
-                haptic(6);
-              }}
+              onClick={() => { tile.onClick(); haptic(6); }}
             >
               <div
                 className="lmm-quick-tile__icon-box"
                 style={{
-                  backgroundColor: `${tile.accent}14`,
+                  backgroundColor: `${tile.accent}18`,
                   color: tile.accent,
                 }}
               >
