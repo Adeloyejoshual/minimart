@@ -50,24 +50,52 @@ const CART_KEY   = "mm_cart";
 const RECENT_KEY = "lm-recently-viewed";
 const MAX_QTY    = 10;
 
+/* ═══════════════════════════════════════════════════════════════
+   TRANSPARENT SVG ICONS
+═══════════════════════════════════════════════════════════════ */
+const Icon = {
+  flag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
+  check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polyline points="20 6 9 17 4 12"/></svg>,
+  cart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
+  minus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  star: <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+  starOutline: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+  truck: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
+  chevron: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><polyline points="9 18 15 12 9 6"/></svg>,
+  arrow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+  eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  heart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
+  box: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
+  shield: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+  fire: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>,
+  sparkle: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15 8 21 9 16 13 18 19 12 16 6 19 8 13 3 9 9 8 12 2"/></svg>,
+  money: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="18" x2="12" y2="6"/></svg>,
+  return: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
+  scale: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M12 3v18"/><rect x="4" y="16" width="16" height="5" rx="2"/><path d="M6 8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v8H6z"/></svg>,
+  lock: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+  info: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
+  search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  alert: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+};
+
 const TRUST_BADGES = [
-  { icon: "🔒", label: "Secure Payment",  sub: "Protected checkout"  },
-  { icon: "✅", label: "Verified Seller", sub: "Identity confirmed"  },
-  { icon: "🚚", label: "Fast Delivery",   sub: "2-5 business days"   },
-  { icon: "↩️", label: "Easy Returns",    sub: "7-day return window" },
+  { icon: Icon.lock,   label: "Secure Payment",  sub: "Protected checkout"  },
+  { icon: Icon.check,  label: "Verified Seller", sub: "Identity confirmed"  },
+  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-5 business days"   },
+  { icon: Icon.return, label: "Easy Returns",    sub: "7-day return window" },
 ];
 
 const REPORT_REASONS = [
-  { key: "fake",          label: "Fake or counterfeit product",     icon: "🚫" },
-  { key: "misleading",    label: "Wrong or misleading information", icon: "⚠️" },
-  { key: "prohibited",    label: "Prohibited item",                 icon: "🛑" },
-  { key: "scam",          label: "Spam or scam",                    icon: "❌" },
-  { key: "inappropriate", label: "Inappropriate content",           icon: "🔞" },
-  { key: "other",         label: "Other reason",                     icon: "💬" },
+  { key: "fake",          label: "Fake or counterfeit product",     icon: Icon.alert },
+  { key: "misleading",    label: "Wrong or misleading information", icon: Icon.info },
+  { key: "prohibited",    label: "Prohibited item",                 icon: Icon.alert },
+  { key: "scam",          label: "Spam or scam",                    icon: Icon.alert },
+  { key: "other",         label: "Other reason",                    icon: Icon.info },
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   AUTH HELPERS
+   HELPERS & SANITIZERS
 ═══════════════════════════════════════════════════════════════ */
 const isLoggedIn = () => !!localStorage.getItem("marketplace_token");
 
@@ -78,15 +106,20 @@ const authHeaders = () => {
     : { "Content-Type": "application/json" };
 };
 
+const sanitizeCategoryName = (cat) => {
+  if (!cat) return null;
+  if (typeof cat === "object") return cat.name || cat.title || null;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cat);
+  if (isUuid) return "General Category";
+  return String(cat);
+};
+
 /* ═══════════════════════════════════════════════════════════════
-   GUEST CART
+   GUEST CART & API COUNT
 ═══════════════════════════════════════════════════════════════ */
 const readGuestCart = () => {
-  try {
-    return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } 
+  catch { return []; }
 };
 
 const writeGuestCart = (cart) => {
@@ -102,46 +135,27 @@ const addToGuestCart = (product, selectedVariant, displayPrice, originalPrice, q
   const stock     = selectedVariant?.stock ?? product?.stock ?? 99;
 
   const item = {
-    id            : itemKey,
-    productId     : product.id,
-    name          : product.name,
-    image         : getProductImage(product),
-    price         : displayPrice,
-    originalPrice : originalPrice > displayPrice ? originalPrice : null,
-    variant       : selectedVariant
-      ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku }
-      : null,
-    slug    : product.slug ?? product.id,
-    qty,
-    stock,
-    addedAt : Date.now(),
+    id: itemKey, productId: product.id, name: product.name,
+    image: getProductImage(product), price: displayPrice,
+    originalPrice: originalPrice > displayPrice ? originalPrice : null,
+    variant: selectedVariant ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku } : null,
+    slug: product.slug ?? product.id, qty, stock, addedAt: Date.now(),
   };
 
-  if (existing >= 0) {
-    cart[existing].qty = Math.min(cart[existing].qty + qty, stock);
-  } else {
-    cart.push(item);
-  }
+  if (existing >= 0) cart[existing].qty = Math.min(cart[existing].qty + qty, stock);
+  else cart.push(item);
 
   writeGuestCart(cart);
   return cart.reduce((sum, i) => sum + (i.qty ?? 1), 0);
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   SERVER CART COUNT
-═══════════════════════════════════════════════════════════════ */
 const fetchServerCartCount = async () => {
   try {
     const token = localStorage.getItem("marketplace_token");
     if (!token) return null;
-    const res = await axios.get(CART_URL, {
-      headers : { Authorization: `Bearer ${token}` },
-      timeout : 5_000,
-    });
+    const res = await axios.get(CART_URL, { headers: { Authorization: `Bearer ${token}` }, timeout: 5_000 });
     return res.data?.data?.total_qty ?? res.data?.data?.item_count ?? null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -149,107 +163,37 @@ const fetchServerCartCount = async () => {
 ═══════════════════════════════════════════════════════════════ */
 const addToRecentlyViewed = (product) => {
   try {
-    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]")
-      .filter((p) => p.id !== product.id);
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((p) => p.id !== product.id);
     list.unshift({
-      id    : product.id,
-      name  : product.name,
-      price : product.price,
-      image : getProductImage(product),
-      slug  : product.slug ?? product.id,
+      id: product.id, name: product.name, price: product.price,
+      image: getProductImage(product), slug: product.slug ?? product.id,
     });
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
   } catch {}
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   DELIVERY ESTIMATE
-═══════════════════════════════════════════════════════════════ */
 const getDeliveryEstimate = () => {
   const now = new Date();
   const min = new Date(now); min.setDate(min.getDate() + 2);
   const max = new Date(now); max.setDate(max.getDate() + 5);
-  const fmt = (d) =>
-    d.toLocaleDateString("en-NG", { weekday: "short", month: "short", day: "numeric" });
+  const fmt = (d) => d.toLocaleDateString("en-NG", { weekday: "short", month: "short", day: "numeric" });
   return `${fmt(min)} – ${fmt(max)}`;
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   RATING HELPERS
+   RATING FALLBACKS
 ═══════════════════════════════════════════════════════════════ */
-const fakeRating = (product) => {
+const getRating = (product) => {
+  if (product?.rating && Number(product.rating) > 0) return Number(product.rating);
+  if (product?.average_rating && Number(product.average_rating) > 0) return Number(product.average_rating);
   const seed = (product?.view_count ?? 0) + (product?.save_count ?? 0);
-  return Math.min(5, 3.7 + (seed % 13) / 10);
+  return Math.min(5, 3.8 + (seed % 12) / 10);
 };
 
-const fakeReviewCount = (product) =>
-  Math.floor(((product?.view_count ?? 0) % 400) + 12);
-
-/* ═══════════════════════════════════════════════════════════════
-   ICONS
-═══════════════════════════════════════════════════════════════ */
-const Icon = {
-  flag: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-      <line x1="4" y1="22" x2="4" y2="15" />
-    </svg>
-  ),
-  check: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
-      strokeLinecap="round" aria-hidden="true">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  cart: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width={18} height={18}>
-      <circle cx="9"  cy="21" r="1" />
-      <circle cx="20" cy="21" r="1" />
-      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-    </svg>
-  ),
-  minus: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
-      strokeLinecap="round" aria-hidden="true" width={14} height={14}>
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  ),
-  plus: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
-      strokeLinecap="round" aria-hidden="true" width={14} height={14}>
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5"  y1="12" x2="19" y2="12" />
-    </svg>
-  ),
-  star: (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-    </svg>
-  ),
-  truck: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width={16} height={16}>
-      <rect x="1" y="3" width="15" height="13" />
-      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
-      <circle cx="5.5" cy="18.5" r="2.5" />
-      <circle cx="18.5" cy="18.5" r="2.5" />
-    </svg>
-  ),
-  chevron: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width={12} height={12}>
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  ),
-  arrow: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width={14} height={14}>
-      <line x1="5" y1="12" x2="19" y2="12" />
-      <polyline points="12 5 19 12 12 19" />
-    </svg>
-  ),
+const getReviewCount = (product) => {
+  if (product?.reviews_count !== undefined && product?.reviews_count !== null) return product.reviews_count;
+  if (product?.review_count !== undefined && product?.review_count !== null) return product.review_count;
+  return Math.floor(((product?.view_count ?? 0) % 350) + 14);
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -263,15 +207,12 @@ function ProductSkeleton() {
         {[0,1,2,3,4].map((i) => <div key={i} className="mdp-skel mdp-skel-thumb" />)}
       </div>
       <div className="mdp-skel-body">
-        <div className="mdp-skel" style={{ width:"30%", height:12, borderRadius:4 }} />
-        <div className="mdp-skel" style={{ width:"85%", height:20, borderRadius:5, margin:"10px 0" }} />
-        <div className="mdp-skel" style={{ width:"60%", height:14, borderRadius:4 }} />
-        <div style={{ height:14 }} />
-        <div className="mdp-skel" style={{ width:"35%", height:28, borderRadius:6 }} />
-        <div style={{ height:20 }} />
-        <div className="mdp-skel" style={{ width:"100%", height:60, borderRadius:12 }} />
-        <div style={{ height:14 }} />
-        <div className="mdp-skel" style={{ width:"100%", height:110, borderRadius:12 }} />
+        <div className="mdp-skel" style={{ width:"30%", height:12, borderRadius:4, marginBottom: 16 }} />
+        <div className="mdp-skel" style={{ width:"85%", height:24, borderRadius:5, marginBottom: 16 }} />
+        <div className="mdp-skel" style={{ width:"60%", height:16, borderRadius:4, marginBottom: 24 }} />
+        <div className="mdp-skel" style={{ width:"35%", height:32, borderRadius:6, marginBottom: 32 }} />
+        <div className="mdp-skel" style={{ width:"100%", height:80, borderRadius:12, marginBottom: 16 }} />
+        <div className="mdp-skel" style={{ width:"100%", height:120, borderRadius:12 }} />
       </div>
     </div>
   );
@@ -280,20 +221,15 @@ function ProductSkeleton() {
 /* ═══════════════════════════════════════════════════════════════
    STAR RATING
 ═══════════════════════════════════════════════════════════════ */
-const StarRating = memo(function StarRating({ rating, size = 14 }) {
+const StarRating = memo(function StarRating({ rating }) {
   return (
     <div className="mdp-stars" aria-label={`${rating.toFixed(1)} out of 5 stars`}>
       {Array.from({ length: 5 }).map((_, i) => {
         const fill = Math.min(1, Math.max(0, rating - i));
         return (
-          <span key={i} className="mdp-star" style={{ width: size, height: size }}>
-            <span className="mdp-star-bg" style={{ width: size, height: size }}>
-              {Icon.star}
-            </span>
-            <span
-              className="mdp-star-fg"
-              style={{ width: size, height: size, clipPath: `inset(0 ${(1 - fill) * 100}% 0 0)` }}
-            >
+          <span key={i} className="mdp-star-wrapper">
+            <span className="mdp-star-bg">{Icon.starOutline}</span>
+            <span className="mdp-star-fg" style={{ clipPath: `inset(0 ${(1 - fill) * 100}% 0 0)` }}>
               {Icon.star}
             </span>
           </span>
@@ -310,8 +246,7 @@ const QuantitySelector = memo(function QuantitySelector({ value, onChange, max =
   const clamp = (v) => Math.max(1, Math.min(max, v));
 
   return (
-    <div className={`mdp-qty ${disabled ? "mdp-qty--disabled" : ""}`}
-      role="group" aria-label="Quantity">
+    <div className={`mdp-qty ${disabled ? "mdp-qty--disabled" : ""}`} role="group" aria-label="Quantity">
       <button
         type="button"
         className="mdp-qty__btn"
@@ -336,75 +271,29 @@ const QuantitySelector = memo(function QuantitySelector({ value, onChange, max =
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   CONFETTI BURST
-═══════════════════════════════════════════════════════════════ */
-const CONFETTI_COLORS = ["#ff5722","#ff8a00","#10b981","#6366f1","#f59e0b","#ec4899"];
-
-function ConfettiBurst({ show }) {
-  if (!show) return null;
-  return (
-    <div className="mdp-confetti" aria-hidden="true">
-      {Array.from({ length: 24 }).map((_, i) => (
-        <span
-          key={i}
-          className="mdp-confetti__piece"
-          style={{
-            background       : CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-            "--x"            : `${(Math.random() - 0.5) * 240}px`,
-            "--y"            : `${-Math.random() * 320 - 60}px`,
-            "--r"            : `${Math.random() * 720}deg`,
-            "--delay"        : `${Math.random() * 100}ms`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
    CART TOAST
 ═══════════════════════════════════════════════════════════════ */
 const CartToast = memo(function CartToast({ show, productName, qty, image, onView, onClose }) {
   if (!show) return null;
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="mdp-toast"
-    >
+    <div role="status" aria-live="polite" className="mdp-toast">
       <div className="mdp-toast__img-wrap">
-        {image
-          ? <img src={image} alt={productName} className="mdp-toast__img" />
-          : <div className="mdp-toast__img-ph">📦</div>
-        }
+        {image ? <img src={image} alt="" className="mdp-toast__img" /> : <div className="mdp-toast__img-ph">{Icon.box}</div>}
       </div>
       <div className="mdp-toast__body">
-        <p className="mdp-toast__label">✓ Added to cart</p>
+        <p className="mdp-toast__label"><span aria-hidden="true">{Icon.check}</span> Added to cart</p>
         <p className="mdp-toast__name">{productName}</p>
         <p className="mdp-toast__qty">Qty: {qty}</p>
       </div>
-      <button
-        type="button"
-        onClick={onView}
-        className="mdp-toast__view"
-      >
-        View Cart
-      </button>
-      <button
-        type="button"
-        onClick={onClose}
-        className="mdp-toast__close"
-        aria-label="Dismiss"
-      >
-        ✕
-      </button>
+      <button type="button" onClick={onView} className="mdp-toast__view">View Cart</button>
+      <button type="button" onClick={onClose} className="mdp-toast__close" aria-label="Dismiss">✕</button>
     </div>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   REPORT MODAL
+   MODALS (Report & Protection)
 ═══════════════════════════════════════════════════════════════ */
 const ReportModal = memo(function ReportModal({ productId, onClose }) {
   const [reason,     setReason]     = useState("");
@@ -416,37 +305,20 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
     const fn = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", fn);
     document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", fn);
-      document.body.style.overflow = "";
-    };
+    return () => { window.removeEventListener("keydown", fn); document.body.style.overflow = ""; };
   }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
     if (!reason) return;
     setSubmitting(true);
     try {
-      await axios.post(
-        `${API_URL}/${productId}/report`,
-        { reason, details },
-        { headers: authHeaders() }
-      );
+      await axios.post(`${API_URL}/${productId}/report`, { reason, details }, { headers: authHeaders() });
       setSubmitted(true);
-    } catch {
-      // Graceful fallback
-    } finally {
-      setSubmitting(false);
-    }
+    } catch { /* Fallback */ } finally { setSubmitting(false); }
   }, [productId, reason, details]);
 
   return (
-    <div
-      className="mdp-modal-overlay"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Report listing"
-    >
+    <div className="mdp-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Report listing">
       <div className="mdp-modal" onClick={(e) => e.stopPropagation()}>
         {submitted ? (
           <div className="mdp-report-done">
@@ -461,45 +333,27 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
               <h3>Report Listing</h3>
               <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
             </div>
-
             <div className="mdp-modal-body">
               <p className="mdp-modal-sub">Why are you reporting this listing?</p>
               <div className="mdp-report-reasons">
                 {REPORT_REASONS.map((r) => (
-                  <button
-                    key={r.key}
-                    type="button"
-                    className={`mdp-reason-btn${reason === r.label ? " mdp-reason-btn--on" : ""}`}
-                    onClick={() => setReason(r.label)}
-                    aria-pressed={reason === r.label}
-                  >
+                  <button key={r.key} type="button" className={`mdp-reason-btn${reason === r.label ? " mdp-reason-btn--on" : ""}`} onClick={() => setReason(r.label)}>
                     <span className="mdp-reason-icon" aria-hidden="true">{r.icon}</span>
                     <span>{r.label}</span>
-                    {reason === r.label && (
-                      <span className="mdp-reason-check" aria-hidden="true">{Icon.check}</span>
-                    )}
+                    {reason === r.label && <span className="mdp-reason-check" aria-hidden="true">{Icon.check}</span>}
                   </button>
                 ))}
               </div>
               <textarea
                 className="mdp-report-textarea"
                 placeholder="Additional details (optional)…"
-                value={details}
-                onChange={(e) => setDetails(e.target.value)}
-                rows={3}
-                maxLength={500}
-                aria-label="Additional details"
+                value={details} onChange={(e) => setDetails(e.target.value)}
+                rows={3} maxLength={500} aria-label="Additional details"
               />
-              <p className="mdp-char-count">{details.length}/500</p>
             </div>
-
             <div className="mdp-modal-footer">
               <button className="mdp-modal-cancel" onClick={onClose}>Cancel</button>
-              <button
-                className="mdp-modal-submit"
-                onClick={handleSubmit}
-                disabled={!reason || submitting}
-              >
+              <button className="mdp-modal-submit" onClick={handleSubmit} disabled={!reason || submitting}>
                 {submitting ? "Submitting…" : "Submit Report"}
               </button>
             </div>
@@ -510,172 +364,46 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   BUYER PROTECTION & REFUND ELIGIBILITY MODAL
-═══════════════════════════════════════════════════════════════ */
 const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
   useEffect(() => {
     const fn = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", fn);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", fn);
-      document.body.style.overflow = "";
-    };
+    window.addEventListener("keydown", fn); document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", fn); document.body.style.overflow = ""; };
   }, [onClose]);
 
   return (
-    <div
-      className="mdp-modal-overlay"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Loemart Buyer Protection Guarantee"
-    >
+    <div className="mdp-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Buyer Protection">
       <div className="mdp-modal mdp-modal--protection" onClick={(e) => e.stopPropagation()}>
         <div className="mdp-modal-header">
-          <h3>🛡️ Buyer Protection Guarantee</h3>
+          <h3><span className="mdp-icon-inline">{Icon.shield}</span> Buyer Protection Guarantee</h3>
           <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
-
         <div className="mdp-modal-body">
           <div className="mdp-protection-highlight">
-            <span className="mdp-shield-icon">🛡️</span>
-            <h4>Your Payments are Held in Escrow</h4>
-            <p>
-              When you purchase on Loemart, we securely hold your payment. The seller is only paid 
-              after you receive the product and confirm it matches the description, or after your 7-day 
-              inspection window closes.
-            </p>
+            <span className="mdp-shield-icon">{Icon.lock}</span>
+            <div>
+              <h4>Payments Held in Escrow</h4>
+              <p>We securely hold your payment. The seller is only paid after you confirm receipt, or after your 7-day inspection window closes.</p>
+            </div>
           </div>
-
           <div className="mdp-protection-grid">
             <div className="mdp-protection-item">
-              <span className="mdp-p-icon">💰</span>
-              <div>
-                <h5>Full Refund Guarantee</h5>
-                <p>Eligible for a 100% refund if your order never arrives, is damaged in transit, or is counterfeit.</p>
-              </div>
+              <span className="mdp-p-icon">{Icon.money}</span>
+              <div><h5>Full Refund Guarantee</h5><p>Eligible for a 100% refund if your order never arrives or is damaged.</p></div>
             </div>
             <div className="mdp-protection-item">
-              <span className="mdp-p-icon">↩️</span>
-              <div>
-                <h5>7-Day Inspection Window</h5>
-                <p>Verify your item’s authenticity and condition. File return or refund requests easily from your Account History panel.</p>
-              </div>
+              <span className="mdp-p-icon">{Icon.return}</span>
+              <div><h5>7-Day Window</h5><p>Verify authenticity and condition. File returns easily from your Account.</p></div>
             </div>
             <div className="mdp-protection-item">
-              <span className="mdp-p-icon">⚖️</span>
-              <div>
-                <h5>Secure Dispute Mediation</h5>
-                <p>If you face a disagreement with a seller, our claims team steps in to mediate and resolve the dispute fairly.</p>
-              </div>
+              <span className="mdp-p-icon">{Icon.scale}</span>
+              <div><h5>Dispute Mediation</h5><p>If you face a disagreement, our claims team steps in to mediate fairly.</p></div>
             </div>
           </div>
         </div>
-
         <div className="mdp-modal-footer">
-          <button className="mdp-done-btn" style={{ width: "100%" }} onClick={onClose}>
-            Got it, thanks!
-          </button>
+          <button className="mdp-done-btn" style={{ width: "100%" }} onClick={onClose}>Got it, thanks!</button>
         </div>
-      </div>
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SHARE SHEET
-═══════════════════════════════════════════════════════════════ */
-const ShareSheet = memo(function ShareSheet({ product, onClose }) {
-  const pageUrl = window.location.href;
-  const text    = `Check out ${product.name} on Loemart — ${formatPrice(product.price)}`;
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    axios.post(`${API_URL}/${product.id}/share`).catch(() => {});
-    const fn = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", fn);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", fn);
-      document.body.style.overflow = "";
-    };
-  }, [onClose, product.id]);
-
-  const copyLink = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(pageUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } catch {}
-  }, [pageUrl]);
-
-  const nativeShare = useCallback(async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: product.name, text, url: pageUrl });
-      } catch {}
-    }
-  }, [product.name, text, pageUrl]);
-
-  const shareOptions = useMemo(() => [
-    { label:"WhatsApp", icon:"💬", color:"#25D366", href:`https://wa.me/?text=${encodeURIComponent(`${text} ${pageUrl}`)}` },
-    { label:"Twitter",  icon:"🐦", color:"#1DA1F2", href:`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(pageUrl)}` },
-    { label:"Facebook", icon:"📘", color:"#1877F2", href:`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}` },
-    { label:"Telegram", icon:"✈️", color:"#0088cc", href:`https://t.me/share/url?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(text)}` },
-    { label:"Email",    icon:"📧", color:"#ea4335", href:`mailto:?subject=${encodeURIComponent(product.name)}&body=${encodeURIComponent(`${text}\n\n${pageUrl}`)}` },
-  ], [text, pageUrl, product.name]);
-
-  const thumbSrc = getProductImage(product);
-  const canNativeShare = typeof navigator !== "undefined" && !!navigator.share;
-
-  return (
-    <div className="mdp-modal-overlay" onClick={onClose}
-      role="dialog" aria-modal="true" aria-label="Share product">
-      <div className="mdp-share-sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="mdp-share-handle" aria-hidden="true" />
-        <h3 className="mdp-share-title">Share this product</h3>
-
-        <div className="mdp-share-preview">
-          {thumbSrc && <img src={thumbSrc} alt={product.name} className="mdp-share-thumb" />}
-          <div className="mdp-share-preview__body">
-            <p className="mdp-share-name">{product.name}</p>
-            <p className="mdp-share-price">{formatPrice(product.price)}</p>
-          </div>
-        </div>
-
-        {canNativeShare && (
-          <button
-            type="button"
-            className="mdp-share-native"
-            onClick={nativeShare}
-          >
-            📱 Share via device
-          </button>
-        )}
-
-        <div className="mdp-share-options">
-          {shareOptions.map((opt) => (
-            <a
-              key={opt.label}
-              href={opt.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mdp-share-opt"
-              style={{ "--sc": opt.color }}
-              aria-label={`Share on ${opt.label}`}
-            >
-              <span className="mdp-share-opt-icon">{opt.icon}</span>
-              <span className="mdp-share-opt-label">{opt.label}</span>
-            </a>
-          ))}
-        </div>
-
-        <button className="mdp-copy-link" onClick={copyLink}>
-          {copied ? "✅ Link Copied!" : "📋 Copy Link"}
-        </button>
-        <button className="mdp-share-cancel" onClick={onClose}>Cancel</button>
       </div>
     </div>
   );
@@ -686,60 +414,24 @@ const ShareSheet = memo(function ShareSheet({ product, onClose }) {
 ═══════════════════════════════════════════════════════════════ */
 const Breadcrumbs = memo(function Breadcrumbs({ category, productName }) {
   const navigate = useNavigate();
+  const cleanCat = sanitizeCategoryName(category);
 
   return (
     <nav className="mdp-breadcrumbs" aria-label="Breadcrumb">
-      <button type="button" className="mdp-breadcrumbs__link"
-        onClick={() => navigate("/loemart")}>
-        Home
-      </button>
-      {category && (
+      <button type="button" className="mdp-breadcrumbs__link" onClick={() => navigate("/loemart")}>Home</button>
+      {cleanCat && (
         <>
           <span className="mdp-breadcrumbs__sep" aria-hidden="true">{Icon.chevron}</span>
-          <button type="button" className="mdp-breadcrumbs__link"
-            onClick={() => navigate(`/loemart?category=${encodeURIComponent(category)}`)}>
-            {category}
+          <button type="button" className="mdp-breadcrumbs__link" onClick={() => navigate(`/loemart?category=${encodeURIComponent(cleanCat)}`)}>
+            {cleanCat}
           </button>
         </>
       )}
       <span className="mdp-breadcrumbs__sep" aria-hidden="true">{Icon.chevron}</span>
       <span className="mdp-breadcrumbs__current" aria-current="page">
-        {productName?.length > 30 ? productName.slice(0, 30) + "…" : productName}
+        {productName?.length > 25 ? productName.slice(0, 25) + "…" : productName}
       </span>
     </nav>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   STICKY MINI HEADER
-═══════════════════════════════════════════════════════════════ */
-const StickyMiniHeader = memo(function StickyMiniHeader({
-  visible, product, displayPrice, onAddToCart, disabled,
-}) {
-  if (!product) return null;
-  const img = getProductImage(product);
-
-  return (
-    <div className={`mdp-mini-header ${visible ? "mdp-mini-header--visible" : ""}`}
-      aria-hidden={!visible}>
-      <div className="mdp-mini-header__inner">
-        {img && (
-          <img src={img} alt="" className="mdp-mini-header__img" aria-hidden="true" />
-        )}
-        <div className="mdp-mini-header__body">
-          <p className="mdp-mini-header__name">{product.name}</p>
-          <p className="mdp-mini-header__price">{formatPrice(displayPrice)}</p>
-        </div>
-        <button
-          type="button"
-          className="mdp-mini-header__cta"
-          onClick={onAddToCart}
-          disabled={disabled}
-        >
-          Add
-        </button>
-      </div>
-    </div>
   );
 });
 
@@ -748,90 +440,28 @@ const StickyMiniHeader = memo(function StickyMiniHeader({
 ═══════════════════════════════════════════════════════════════ */
 const FAQAccordion = memo(function FAQAccordion() {
   const [openIndex, setOpenIndex] = useState(null);
-
   const faqs = useMemo(() => [
-    {
-      q: "How do returns and refunds work?",
-      a: "Once your item is delivered, go to Account > Purchases, select the order, and tap 'Request Return/Refund' within 7 days. Once approved, refunds are credited directly back to your payment method or wallet."
-    },
-    {
-      q: "When is the seller paid?",
-      a: "Sellers are only paid after you receive and confirm satisfaction with your product, or automatically after the 7-day return inspection window closes."
-    },
-    {
-      q: "What is covered under the Money Back Guarantee?",
-      a: "You are fully covered if your item does not arrive, is counterfeit, arrives broken or defective, or does not match the product images and specifications listed."
-    }
+    { q: "How do returns and refunds work?", a: "Once your item is delivered, go to Account > Purchases, select the order, and tap 'Request Return/Refund' within 7 days." },
+    { q: "When is the seller paid?", a: "Sellers are only paid after you confirm satisfaction, or automatically after the 7-day window closes." },
+    { q: "What is covered under Guarantee?", a: "You are fully covered if your item does not arrive, is counterfeit, arrives broken, or does not match specs." }
   ], []);
 
   return (
     <div className="md-section mdp-section mdp-faq-section">
-      <h3 className="md-section-title mdp-section-title">❓ Return & Refund FAQs</h3>
+      <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> FAQ</h3>
       <div className="mdp-faq-list">
         {faqs.map((faq, idx) => {
           const isOpen = openIndex === idx;
           return (
             <div key={idx} className={`mdp-faq-item ${isOpen ? "mdp-faq-item--open" : ""}`}>
-              <button
-                type="button"
-                className="mdp-faq-trigger"
-                onClick={() => setOpenIndex(isOpen ? null : idx)}
-                aria-expanded={isOpen}
-              >
+              <button type="button" className="mdp-faq-trigger" onClick={() => setOpenIndex(isOpen ? null : idx)} aria-expanded={isOpen}>
                 <span>{faq.q}</span>
                 <span className="mdp-faq-arrow" aria-hidden="true">{Icon.chevron}</span>
               </button>
-              {isOpen && (
-                <div className="mdp-faq-content" aria-live="polite">
-                  <p>{faq.a}</p>
-                </div>
-              )}
+              {isOpen && <div className="mdp-faq-content" aria-live="polite"><p>{faq.a}</p></div>}
             </div>
           );
         })}
-      </div>
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED CAROUSEL
-═══════════════════════════════════════════════════════════════ */
-const RecentlyViewed = memo(function RecentlyViewed({ currentId }) {
-  const navigate = useNavigate();
-  const [list, setList] = useState([]);
-
-  useEffect(() => {
-    try {
-      const items = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
-      setList(items.filter((item) => item.id !== currentId).slice(0, 5));
-    } catch {}
-  }, [currentId]);
-
-  if (list.length === 0) return null;
-
-  return (
-    <div className="md-section mdp-section mdp-recently-viewed">
-      <h3 className="md-section-title mdp-section-title">🕒 Recently Viewed</h3>
-      <div className="mdp-recent-grid">
-        {list.map((p) => (
-          <div
-            key={p.id}
-            className="mdp-recent-card"
-            onClick={() => navigate(`/shop/${p.slug}`)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === "Enter") navigate(`/shop/${p.slug}`); }}
-          >
-            <div className="mdp-recent-card__img-wrap">
-              <img src={p.image} alt={p.name} className="mdp-recent-card__img" loading="lazy" />
-            </div>
-            <div className="mdp-recent-card__body">
-              <p className="mdp-recent-card__name">{p.name}</p>
-              <p className="mdp-recent-card__price">{formatPrice(p.price)}</p>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -845,80 +475,52 @@ export default function MarketDetail() {
   const navigate   = useNavigate();
   const { items: wishlist, toggle: toggleWishlist } = useWishlist();
 
-  /* ── Product ── */
+  /* ── Product State ── */
   const [product,         setProduct]         = useState(null);
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState(null);
   const [selectedVariant, setSelectedVariant] = useState(null);
 
-  /* ── Cart ── */
+  /* ── Cart State ── */
   const [qty,          setQty]          = useState(1);
   const [addedToCart,  setAddedToCart]  = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
   const [cartError,    setCartError]    = useState(null);
-  const [confetti,     setConfetti]     = useState(false);
   const [cartCount,    setCartCount]    = useState(() =>
     isLoggedIn() ? 0 : readGuestCart().reduce((s, i) => s + (i.qty ?? 1), 0)
   );
 
-  /* ── Modals ── */
+  /* ── Modals State ── */
   const [showReport,     setShowReport]     = useState(false);
-  const [showShare,      setShowShare]      = useState(false);
   const [showProtection, setShowProtection] = useState(false);
-
-  /* ── Sticky mini-header ── */
-  const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
-  const titleRef = useRef(null);
-
-  /* ── Wishlist animation ── */
-  const [wishAnimate, setWishAnimate] = useState(false);
-
-  /* ── Derived ── */
+  
+  /* ── Derived Values ── */
   const isWishlisted = product ? wishlist.has(product.id) : false;
-  const rating       = product ? fakeRating(product) : 0;
-  const reviewCount  = product ? fakeReviewCount(product) : 0;
+  const rating       = useMemo(() => (product ? getRating(product) : 0), [product]);
+  const reviewCount  = useMemo(() => (product ? getReviewCount(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
+  const cleanCat     = useMemo(() => sanitizeCategoryName(product?.category), [product?.category]);
 
   /* ════════════════════════════════════════════════════════
-     SYNC CART COUNT
+     DATA SYNC
   ════════════════════════════════════════════════════════ */
   useEffect(() => {
-    if (isLoggedIn()) {
-      fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
-    }
-  }, []);
-
-  useEffect(() => {
+    if (isLoggedIn()) fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
     const sync = () => {
-      if (isLoggedIn()) {
-        fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
-      } else {
-        setCartCount(readGuestCart().reduce((s, i) => s + (i.qty ?? 1), 0));
-      }
+      if (isLoggedIn()) fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
+      else setCartCount(readGuestCart().reduce((s, i) => s + (i.qty ?? 1), 0));
     };
     window.addEventListener("cart-updated", sync);
-    window.addEventListener("storage",      sync);
-    return () => {
-      window.removeEventListener("cart-updated", sync);
-      window.removeEventListener("storage",      sync);
-    };
+    window.addEventListener("storage", sync);
+    return () => { window.removeEventListener("cart-updated", sync); window.removeEventListener("storage", sync); };
   }, []);
 
-  /* ════════════════════════════════════════════════════════
-     FETCH PRODUCT
-  ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
+    setLoading(true); setError(null); setProduct(null); setSelectedVariant(null); setQty(1);
 
-    setLoading(true);
-    setError(null);
-    setProduct(null);
-    setSelectedVariant(null);
-    setQty(1);
-
-    axios
-      .get(`${API_URL}/${slug}`, { timeout: 12_000 })
+    axios.get(`${API_URL}/${slug}`, { timeout: 12_000 })
       .then(({ data }) => {
         if (cancelled) return;
         const p = data?.data ?? data?.product ?? data;
@@ -926,45 +528,19 @@ export default function MarketDetail() {
         if (p?.variants?.length > 0) setSelectedVariant(p.variants[0]);
         addToRecentlyViewed(p);
       })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err.response?.status === 404 ? "404" : "error");
-      })
+      .catch((err) => { if (!cancelled) setError(err.response?.status === 404 ? "404" : "error"); })
       .finally(() => { if (!cancelled) setLoading(false); });
-
     return () => { cancelled = true; };
   }, [slug]);
 
   /* ════════════════════════════════════════════════════════
-     STICKY MINI-HEADER OBSERVER
+     PRICING LOGIC
   ════════════════════════════════════════════════════════ */
-  useEffect(() => {
-    if (!titleRef.current) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => setMiniHeaderVisible(!entry.isIntersecting),
-      { threshold: 0, rootMargin: "-80px 0px 0px 0px" }
-    );
-    obs.observe(titleRef.current);
-    return () => obs.disconnect();
-  }, [product]);
-
-  /* ════════════════════════════════════════════════════════
-     PRICING & STOCK
-  ════════════════════════════════════════════════════════ */
-  const displayPrice = useMemo(() =>
-    selectedVariant?.price ? Number(selectedVariant.price) : Number(product?.price ?? 0),
-    [selectedVariant, product]
-  );
-
-  const originalPrice = useMemo(
-    () => Number(product?.original_price ?? product?.compare_price ?? 0),
-    [product]
-  );
-
+  const displayPrice = useMemo(() => selectedVariant?.price ? Number(selectedVariant.price) : Number(product?.price ?? 0), [selectedVariant, product]);
+  const originalPrice = useMemo(() => Number(product?.original_price ?? product?.compare_price ?? 0), [product]);
   const discount = useMemo(() => calcDiscount(displayPrice, originalPrice), [displayPrice, originalPrice]);
-  const savings  = useMemo(() => originalPrice > displayPrice ? originalPrice - displayPrice : 0, [originalPrice, displayPrice]);
-  const total    = useMemo(() => displayPrice * qty, [displayPrice, qty]);
-  const totalSavings = useMemo(() => savings * qty, [savings, qty]);
+  const savings = useMemo(() => originalPrice > displayPrice ? originalPrice - displayPrice : 0, [originalPrice, displayPrice]);
+  const total = useMemo(() => displayPrice * qty, [displayPrice, qty]);
 
   const viewLabel = useMemo(() => {
     const v = product?.view_count ?? 0;
@@ -983,61 +559,31 @@ export default function MarketDetail() {
     return null;
   }, [selectedVariant, product]);
 
-  // Adjust quantity automatically if variant stock changes
   useEffect(() => {
-    if (stockLeft !== null && stockLeft > 0 && qty > stockLeft) {
-      setQty(stockLeft);
-    }
+    if (stockLeft !== null && stockLeft > 0 && qty > stockLeft) setQty(stockLeft);
   }, [stockLeft, qty]);
 
   /* ════════════════════════════════════════════════════════
-     ADD TO CART
+     ACTIONS
   ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart || isOutOfStock) return false;
-
-    setAddingToCart(true);
-    setCartError(null);
-
-    const variantId = selectedVariant?.id ?? null;
-
+    setAddingToCart(true); setCartError(null);
     try {
       if (isLoggedIn()) {
-        const payload = {
-          product_id: product.id,
-          variant_id: variantId,
-          qty       : qty,
-          quantity  : qty,
-        };
-
-        await axios.post(
-          CART_ITEMS_URL,
-          payload,
-          { headers: authHeaders(), timeout: 15_000 }
-        );
-
+        await axios.post(CART_ITEMS_URL, { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty, quantity: qty }, { headers: authHeaders(), timeout: 15_000 });
         const count = await fetchServerCartCount();
         if (count !== null) setCartCount(count);
         window.dispatchEvent(new Event("cart-updated"));
       } else {
-        const newCount = addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty);
-        setCartCount(newCount);
+        setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty));
       }
-
       setAddedToCart(true);
-      setConfetti(true);
       window.navigator?.vibrate?.([25, 15, 25]);
-      setTimeout(() => setConfetti(false), 1200);
       setTimeout(() => setAddedToCart(false), 3500);
-
       return true;
     } catch (err) {
-      const msg = err.response?.data?.message
-               ?? err.response?.data?.error
-               ?? err.message
-               ?? "Failed to add to cart";
-
-      setCartError(msg);
+      setCartError(err.response?.data?.message ?? err.message ?? "Failed to add to cart");
       setTimeout(() => setCartError(null), 4000);
       return false;
     } finally {
@@ -1046,61 +592,23 @@ export default function MarketDetail() {
   }, [product, selectedVariant, displayPrice, originalPrice, qty, addingToCart, isOutOfStock]);
 
   const handleBuyNow = useCallback(async () => {
-    const success = await handleAddToCart();
-    if (success) {
-      navigate("/shop/cart");
-    }
+    if (await handleAddToCart()) navigate("/shop/cart");
   }, [handleAddToCart, navigate]);
 
-  const goToCart       = useCallback(() => navigate("/shop/cart"), [navigate]);
-  const openReport     = useCallback(() => setShowReport(true), []);
-  const closeReport    = useCallback(() => setShowReport(false), []);
-  const openShare      = useCallback(() => { if (product) setShowShare(true); }, [product]);
-  const closeShare     = useCallback(() => setShowShare(false), []);
-
-  const handleWishlist = useCallback(() => {
-    if (!product) return;
-    toggleWishlist(product.id);
-    setWishAnimate(true);
-    window.navigator?.vibrate?.(15);
-    setTimeout(() => setWishAnimate(false), 500);
-  }, [product, toggleWishlist]);
+  const goToCart = useCallback(() => navigate("/shop/cart"), [navigate]);
 
   /* ════════════════════════════════════════════════════════
      ERROR SCREENS
   ════════════════════════════════════════════════════════ */
-  if (!loading && error === "404") {
-    return (
-      <div className="mdp-not-found">
-        <div className="mdp-nf-illustration" aria-hidden="true">
-          <div className="mdp-nf-circle"><span>🔍</span></div>
-          <div className="mdp-nf-dots"><div /><div /><div /></div>
-        </div>
-        <h2>Product Not Found</h2>
-        <p>This listing may have been removed or is no longer available.</p>
-        <div className="mdp-nf-actions">
-          <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => navigate("/loemart")}>
-            Browse Products {Icon.arrow}
-          </button>
-          <button className="mdp-nf-btn mdp-nf-btn--secondary" onClick={() => navigate(-1)}>
-            Go Back
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (!loading && error) {
     return (
       <div className="mdp-not-found">
-        <div className="mdp-nf-illustration" aria-hidden="true">
-          <div className="mdp-nf-circle"><span>⚠️</span></div>
-        </div>
-        <h2>Something went wrong</h2>
-        <p>Could not load this product. Please try again.</p>
+        <div className="mdp-nf-illustration" aria-hidden="true">{error === "404" ? Icon.search : Icon.alert}</div>
+        <h2>{error === "404" ? "Product Not Found" : "Something went wrong"}</h2>
+        <p>{error === "404" ? "This listing may have been removed." : "Could not load this product. Please try again."}</p>
         <div className="mdp-nf-actions">
-          <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => window.location.reload()}>
-            Try Again
+          <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => error === "404" ? navigate("/loemart") : window.location.reload()}>
+            {error === "404" ? "Browse Products" : "Try Again"}
           </button>
         </div>
       </div>
@@ -1113,68 +621,31 @@ export default function MarketDetail() {
   return (
     <>
       <div className="md-page mdp-page">
-        {/* ── Header ── */}
-        <MarketDetailHeader
-          productName={product?.name}
-          cartCount={cartCount}
-          isWishlisted={isWishlisted}
-          onShare={openShare}
-          onToggleWishlist={handleWishlist}
-          productLoaded={!!product}
-        />
+        <MarketDetailHeader productName={product?.name} cartCount={cartCount} isWishlisted={isWishlisted} onToggleWishlist={() => toggleWishlist(product?.id)} productLoaded={!!product} />
 
-        {/* ── Sticky mini-header on scroll ── */}
-        <StickyMiniHeader
-          visible={miniHeaderVisible}
-          product={product}
-          displayPrice={displayPrice}
-          onAddToCart={handleAddToCart}
-          disabled={addingToCart || isOutOfStock}
-        />
-
-        {/* ── Skeleton Loader ── */}
         {loading && <ProductSkeleton />}
 
-        {/* ── Product Content ── */}
         {!loading && product && (
-          <>
-            <Breadcrumbs
-              category={product.category}
-              productName={product.name}
-            />
+          <div className="mdp-main-layout">
+            <Breadcrumbs category={cleanCat} productName={product.name} />
 
-            <ImageGallery images={product.images ?? []} name={product.name} />
+            <div className="mdp-section mdp-section-gallery">
+              <ImageGallery images={product.images ?? []} name={product.name} />
+            </div>
 
             <div className="md-content mdp-content">
-              {/* Badges row */}
+              {/* Context Row */}
               <div className="md-badges-row mdp-badges-row">
-                {product.category && (
-                  <span className="md-cat-pill mdp-cat-pill">{product.category}</span>
-                )}
-                {product.is_featured && (
-                  <span className="md-badge mdp-badge mdp-badge--featured">⭐ Featured</span>
-                )}
-                {product.is_trending && (
-                  <span className="md-badge mdp-badge mdp-badge--trending">🔥 Trending</span>
-                )}
-                {product.condition && product.condition !== "new" && (
-                  <span className="md-badge mdp-badge mdp-badge--cond">{product.condition}</span>
-                )}
-                {discount > 0 && (
-                  <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>
-                )}
+                {cleanCat && <span className="md-cat-pill mdp-cat-pill">{cleanCat}</span>}
+                {product.is_featured && <span className="md-badge mdp-badge mdp-badge--featured"><span className="mdp-icon-inline">{Icon.star}</span> Featured</span>}
+                {product.is_trending && <span className="md-badge mdp-badge mdp-badge--trending"><span className="mdp-icon-inline">{Icon.fire}</span> Trending</span>}
+                {discount > 0 && <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>}
               </div>
 
-              {/* Title */}
-              <h1 ref={titleRef} className="md-title mdp-title">{product.name}</h1>
-
-              {/* Brand + rating row */}
+              {/* Title & Brand */}
+              <h1 className="md-title mdp-title">{product.name}</h1>
               <div className="mdp-brand-rating-row">
-                {product.brand && (
-                  <p className="md-brand mdp-brand">
-                    by <strong>{product.brand}</strong>
-                  </p>
-                )}
+                {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
                 <div className="mdp-rating-inline">
                   <StarRating rating={rating} />
                   <span className="mdp-rating-num">{rating.toFixed(1)}</span>
@@ -1182,139 +653,93 @@ export default function MarketDetail() {
                 </div>
               </div>
 
-              {/* Price block */}
-              <div className="md-price-block mdp-price-block">
-                <span className="md-price mdp-price">{formatPrice(displayPrice)}</span>
-                {originalPrice > displayPrice && (
-                  <>
-                    <span className="md-original mdp-original">{formatPrice(originalPrice)}</span>
-                    <span className="md-disc-badge mdp-disc-badge">-{discount}%</span>
-                  </>
+              {/* Pricing Section */}
+              <div className="mdp-section mdp-section--price">
+                <div className="md-price-block mdp-price-block">
+                  <span className="md-price mdp-price">{formatPrice(displayPrice)}</span>
+                  {originalPrice > displayPrice && (
+                    <>
+                      <span className="md-original mdp-original">{formatPrice(originalPrice)}</span>
+                      <span className="md-disc-badge mdp-disc-badge">-{discount}%</span>
+                    </>
+                  )}
+                </div>
+                {savings > 0 && (
+                  <p className="md-savings mdp-savings">
+                    <span className="mdp-icon-inline">{Icon.sparkle}</span> You save {formatPrice(savings)} today
+                  </p>
+                )}
+                {stockLeft !== null && (
+                  <div className={`mdp-stock ${stockLeft === 0 ? "mdp-stock--out" : stockLeft <= 5 ? "mdp-stock--low" : "mdp-stock--ok"}`}>
+                    <span className="mdp-stock__dot" />
+                    <span className="mdp-stock__text">{stockLeft === 0 ? "Out of stock" : stockLeft <= 5 ? `Only ${stockLeft} left — order soon!` : "In stock — ready to ship"}</span>
+                  </div>
                 )}
               </div>
 
-              {savings > 0 && (
-                <p className="md-savings mdp-savings">
-                  <span>🎉</span> You save {formatPrice(savings)} today
-                </p>
-              )}
-
-              {/* Stock indicator */}
-              {stockLeft !== null && (
-                <div className={`mdp-stock ${
-                  stockLeft === 0  ? "mdp-stock--out" :
-                  stockLeft <= 5   ? "mdp-stock--low" :
-                  stockLeft <= 10  ? "mdp-stock--med" : "mdp-stock--ok"
-                }`} aria-live="polite">
-                  <span className="mdp-stock__dot" aria-hidden="true" />
-                  <span className="mdp-stock__text">
-                    {stockLeft === 0   ? "Out of stock"
-                    : stockLeft <= 5   ? `Only ${stockLeft} left — order soon!`
-                    : stockLeft <= 10  ? `Limited stock (${stockLeft} available)`
-                    : "In stock — ready to ship"}
-                  </span>
-                </div>
-              )}
-
-              {/* Stats */}
+              {/* Quick Stats */}
               {(product.view_count > 0 || product.save_count > 0 || product.variants?.length > 0) && (
                 <div className="md-stats-row mdp-stats-row">
-                  {product.view_count > 0 && (
-                    <span className="md-stat mdp-stat">
-                      <span aria-hidden="true">👁</span> {viewLabel} views
-                    </span>
-                  )}
-                  {product.save_count > 0 && (
-                    <span className="md-stat mdp-stat">
-                      <span aria-hidden="true">❤️</span> {product.save_count} saved
-                    </span>
-                  )}
-                  {product.variants?.length > 0 && (
-                    <span className="md-stat mdp-stat">
-                      <span aria-hidden="true">📦</span> {product.variants.length} variants
-                    </span>
-                  )}
+                  {product.view_count > 0 && <span className="md-stat mdp-stat"><span className="mdp-icon-inline">{Icon.eye}</span> {viewLabel} views</span>}
+                  {product.save_count > 0 && <span className="md-stat mdp-stat"><span className="mdp-icon-inline">{Icon.heart}</span> {product.save_count} saved</span>}
+                  {product.variants?.length > 0 && <span className="md-stat mdp-stat"><span className="mdp-icon-inline">{Icon.box}</span> {product.variants.length} variants</span>}
                 </div>
               )}
 
-              {/* Variants */}
+              {/* Options */}
               {product.variants?.length > 0 && (
-                <VariantSelector
-                  variants={product.variants}
-                  selected={selectedVariant}
-                  onSelect={setSelectedVariant}
-                />
+                <div className="mdp-section mdp-section--variants">
+                  <VariantSelector variants={product.variants} selected={selectedVariant} onSelect={setSelectedVariant} />
+                </div>
               )}
 
-              {/* Quantity selector */}
+              {/* Quantity */}
               {!isOutOfStock && (
-                <div className="mdp-qty-row">
-                  <span className="mdp-qty-label">Quantity</span>
-                  <QuantitySelector
-                    value={qty}
-                    onChange={setQty}
-                    max={stockLeft ?? MAX_QTY}
-                    disabled={isOutOfStock}
-                  />
-                  {qty > 1 && (
-                    <span className="mdp-qty-total">
-                      Total: <strong>{formatPrice(total)}</strong>
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Delivery card */}
-              <div className="mdp-delivery-card">
-                <div className="mdp-delivery-card__icon" aria-hidden="true">
-                  {Icon.truck}
-                </div>
-                <div className="mdp-delivery-card__body">
-                  <p className="mdp-delivery-card__title">Fast Delivery</p>
-                  <p className="mdp-delivery-card__sub">
-                    Estimated arrival: <strong>{deliveryDate}</strong>
-                  </p>
-                  <p className="mdp-delivery-card__note">
-                    Managed by Loemart · Tracking included
-                  </p>
-                </div>
-              </div>
-
-              {/* Loemart Buyer Protection Card */}
-              <div className="mdp-protection-card">
-                <div className="mdp-protection-card__body">
-                  <span className="mdp-protection-card__shield" aria-hidden="true">🛡️</span>
-                  <div className="mdp-protection-card__text">
-                    <p className="mdp-protection-card__title">Loemart Buyer Protection</p>
-                    <p className="mdp-protection-card__sub">
-                      Get the item you ordered or your money back. Payment is kept safe in escrow.
-                    </p>
+                <div className="mdp-section mdp-section--qty">
+                  <div className="mdp-qty-row">
+                    <span className="mdp-qty-label">Quantity</span>
+                    <QuantitySelector value={qty} onChange={setQty} max={stockLeft ?? MAX_QTY} disabled={isOutOfStock} />
+                    {qty > 1 && <span className="mdp-qty-total">Total: <strong>{formatPrice(total)}</strong></span>}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="mdp-protection-card__link"
-                  onClick={() => setShowProtection(true)}
-                >
-                  Learn Refund Terms &gt;
-                </button>
+              )}
+
+              {/* Info Cards (Delivery & Protection) */}
+              <div className="mdp-section mdp-section--cards">
+                <div className="mdp-delivery-card">
+                  <div className="mdp-delivery-card__icon">{Icon.truck}</div>
+                  <div className="mdp-delivery-card__body">
+                    <p className="mdp-delivery-card__title">Fast Delivery</p>
+                    <p className="mdp-delivery-card__sub">Estimated arrival: <strong>{deliveryDate}</strong></p>
+                  </div>
+                </div>
+                <div className="mdp-protection-card">
+                  <div className="mdp-protection-card__body">
+                    <span className="mdp-protection-card__shield">{Icon.shield}</span>
+                    <div className="mdp-protection-card__text">
+                      <p className="mdp-protection-card__title">Loemart Buyer Protection</p>
+                      <p className="mdp-protection-card__sub">Get the item you ordered or your money back. Payment is kept safe.</p>
+                    </div>
+                  </div>
+                  <button type="button" className="mdp-protection-card__link" onClick={() => setShowProtection(true)}>Learn More &gt;</button>
+                </div>
               </div>
 
               {/* Description */}
               {product.description && (
-                <ProductInfo description={product.description} />
+                <div className="mdp-section mdp-section--desc">
+                  <ProductInfo description={product.description} />
+                </div>
               )}
 
-              {/* Key features */}
+              {/* Key Features */}
               {product.key_features?.length > 0 && (
-                <div className="md-section mdp-section">
-                  <h3 className="md-section-title mdp-section-title">✨ Key Features</h3>
+                <div className="md-section mdp-section mdp-section--features">
+                  <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.sparkle}</span> Key Features</h3>
                   <ul className="md-features-list mdp-features-list">
                     {product.key_features.map((f, i) => (
                       <li key={i} className="md-feature-item mdp-feature-item">
-                        <span className="md-feat-check mdp-feat-check" aria-hidden="true">
-                          {Icon.check}
-                        </span>
+                        <span className="md-feat-check mdp-feat-check">{Icon.check}</span>
                         <span>{f?.feature ?? f}</span>
                       </li>
                     ))}
@@ -1322,227 +747,88 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Specs */}
-              {product.specifications?.length > 0 && (
-                <SpecsSection specs={product.specifications} />
-              )}
-
-              {/* What's in the Box */}
-              {product.whats_in_box?.length > 0 && (
-                <div className="md-section mdp-section">
-                  <h3 className="md-section-title mdp-section-title">📦 What's in the Box</h3>
-                  <ul className="md-box-list mdp-box-list">
-                    {product.whats_in_box.map((b, i) => (
-                      <li key={i} className="md-box-item mdp-box-item">
-                        <span aria-hidden="true">✓</span>
-                        <span>{b?.item ?? b}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Policies */}
+              {/* Policies & FAQ */}
               {(product.return_policy || product.warranty) && (
                 <div className="md-section mdp-section">
-                  <h3 className="md-section-title mdp-section-title">📋 Policies</h3>
+                  <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> Policies</h3>
                   {product.return_policy && (
                     <div className="md-policy-item mdp-policy-item">
-                      <span className="mdp-policy-icon" aria-hidden="true">↩️</span>
-                      <div>
-                        <strong>Return & Refund Policy</strong>
-                        <p>{product.return_policy}</p>
-                      </div>
+                      <span className="mdp-policy-icon">{Icon.return}</span>
+                      <div><strong>Return Policy</strong><p>{product.return_policy}</p></div>
                     </div>
                   )}
                   {product.warranty && (
                     <div className="md-policy-item mdp-policy-item">
-                      <span className="mdp-policy-icon" aria-hidden="true">🛡️</span>
-                      <div>
-                        <strong>Warranty</strong>
-                        <p>{product.warranty}</p>
-                      </div>
+                      <span className="mdp-policy-icon">{Icon.shield}</span>
+                      <div><strong>Warranty</strong><p>{product.warranty}</p></div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Returns & Refund FAQs */}
               <FAQAccordion />
 
-              {/* Tags */}
-              {product.tags?.length > 0 && (
-                <div className="md-tags-row mdp-tags-row">
-                  {product.tags.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className="md-tag mdp-tag"
-                      onClick={() => navigate(`/loemart?q=${encodeURIComponent(t)}`)}
-                    >
-                      #{t}
-                    </button>
+              {/* Seller Info & Badges */}
+              <div className="mdp-section mdp-section--seller">
+                <SellerCard product={product} />
+                <div className="mdp-trust-grid">
+                  {TRUST_BADGES.map((b) => (
+                    <div key={b.label} className="mdp-trust-item">
+                      <span className="mdp-trust-icon">{b.icon}</span>
+                      <div className="mdp-trust-body">
+                        <p className="mdp-trust-label">{b.label}</p>
+                        <p className="mdp-trust-sub">{b.sub}</p>
+                      </div>
+                    </div>
                   ))}
                 </div>
-              )}
-
-              {/* Seller card */}
-              <SellerCard product={product} />
-
-              {/* Trust badges */}
-              <div className="mdp-trust-grid" aria-label="Trust indicators">
-                {TRUST_BADGES.map((b) => (
-                  <div key={b.label} className="mdp-trust-item">
-                    <span className="mdp-trust-icon" aria-hidden="true">{b.icon}</span>
-                    <div className="mdp-trust-body">
-                      <p className="mdp-trust-label">{b.label}</p>
-                      <p className="mdp-trust-sub">{b.sub}</p>
-                    </div>
-                  </div>
-                ))}
+                <button type="button" className="md-report-btn mdp-report-btn" onClick={() => setShowReport(true)}>
+                  {Icon.flag}<span>Report this listing</span>
+                </button>
               </div>
-
-              {/* Report button */}
-              <button
-                type="button"
-                className="md-report-btn mdp-report-btn"
-                onClick={openReport}
-              >
-                {Icon.flag}
-                <span>Report this listing</span>
-              </button>
             </div>
-
-            {/* Related products */}
-            {product.category && (
-              <RelatedProducts
-                category={product.category}
-                excludeId={product.id}
-              />
-            )}
-
-            {/* Recently Viewed Panel */}
-            <RecentlyViewed currentId={product.id} />
-
-            <div style={{ height: 130 }} aria-hidden="true" />
-          </>
+          </div>
         )}
       </div>
 
-      {/* ══════════════════════════════════════════════════
-          STICKY BOTTOM BAR
-      ══════════════════════════════════════════════════ */}
+      {/* Sticky Bottom Bar */}
       {!loading && product && (
-        <div className="md-sticky-bar mdp-sticky-bar" role="region" aria-label="Purchase actions">
+        <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
             <div className="mdp-sticky-price-wrap">
               <span className="mdp-sticky-price">{formatPrice(total)}</span>
-              {qty > 1 && (
-                <span className="mdp-sticky-qty-note">
-                  {formatPrice(displayPrice)} × {qty}
-                </span>
-              )}
-              {totalSavings > 0 && (
-                <span className="mdp-sticky-savings">
-                  Save {formatPrice(totalSavings)}
-                </span>
-              )}
+              {qty > 1 && <span className="mdp-sticky-qty-note">{formatPrice(displayPrice)} × {qty}</span>}
             </div>
           </div>
-
           <div className="mdp-sticky-actions">
-            {cartError && (
-              <span className="mdp-sticky-error" role="alert">
-                {cartError}
-              </span>
-            )}
-
+            {cartError && <span className="mdp-sticky-error">{cartError}</span>}
             <button
               type="button"
               className={`md-btn-cart mdp-btn-cart${addedToCart ? " mdp-btn-cart--done" : ""}`}
               onClick={handleAddToCart}
               disabled={addingToCart || isOutOfStock}
-              aria-label={
-                isOutOfStock ? "Out of stock" :
-                addedToCart ? "Added to cart" : "Add to cart"
-              }
-              aria-busy={addingToCart}
             >
-              <ConfettiBurst show={confetti} />
-
-              {isOutOfStock ? "Out of Stock"
-              : addingToCart ? (
-                  <>
-                    <span className="mdp-spinner" aria-hidden="true" /> Adding…
-                  </>
-                )
-              : addedToCart ? (
-                  <>
-                    <span className="mdp-btn-check">{Icon.check}</span> Added!
-                  </>
-                )
-              : (
-                  <>
-                    {Icon.cart} Add to Cart
-                  </>
-                )}
+              {isOutOfStock ? "Out of Stock" : addingToCart ? "Adding…" : addedToCart ? <>{Icon.check} Added</> : <>{Icon.cart} Add to Cart</>}
             </button>
-
-            <button
-              type="button"
-              className="md-btn-buy mdp-btn-buy"
-              onClick={handleBuyNow}
-              disabled={addingToCart || isOutOfStock}
-              aria-label="Buy now"
-            >
+            <button type="button" className="md-btn-buy mdp-btn-buy" onClick={handleBuyNow} disabled={addingToCart || isOutOfStock}>
               Buy Now {Icon.arrow}
             </button>
           </div>
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          FLOATING CART BADGE
-      ══════════════════════════════════════════════════ */}
-      {cartCount > 0 && !miniHeaderVisible && (
-        <button
-          type="button"
-          className="mdp-float-cart"
-          onClick={goToCart}
-          aria-label={`View cart — ${cartCount} items`}
-        >
+      {/* Floating Cart Button */}
+      {cartCount > 0 && (
+        <button type="button" className="mdp-float-cart" onClick={goToCart} aria-label="View cart">
           {Icon.cart}
-          <span className="mdp-float-cart__badge">
-            {cartCount > 99 ? "99+" : cartCount}
-          </span>
+          <span className="mdp-float-cart__badge">{cartCount > 99 ? "99+" : cartCount}</span>
         </button>
       )}
 
-      {/* Wishlist animation heart */}
-      {wishAnimate && isWishlisted && (
-        <div className="mdp-wish-burst" aria-hidden="true">❤️</div>
-      )}
-
-      {/* Cart toast */}
-      <CartToast
-        show={addedToCart}
-        productName={product?.name ?? "Item"}
-        qty={qty}
-        image={product ? getProductImage(product) : null}
-        onView={goToCart}
-        onClose={() => setAddedToCart(false)}
-      />
-
-      {/* Modals */}
-      {showReport && product && (
-        <ReportModal productId={product.id} onClose={closeReport} />
-      )}
-      {showShare && product && (
-        <ShareSheet product={product} onClose={closeShare} />
-      )}
-      {showProtection && (
-        <BuyerProtectionModal onClose={() => setShowProtection(false)} />
-      )}
+      {/* Notifications and Modals */}
+      <CartToast show={addedToCart} productName={product?.name ?? "Item"} qty={qty} image={product ? getProductImage(product) : null} onView={goToCart} onClose={() => setAddedToCart(false)} />
+      {showReport && product && <ReportModal productId={product.id} onClose={() => setShowReport(false)} />}
+      {showProtection && <BuyerProtectionModal onClose={() => setShowProtection(false)} />}
     </>
   );
 }
