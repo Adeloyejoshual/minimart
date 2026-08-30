@@ -3,30 +3,25 @@
  *
  * Hierarchical category drill-down picker.
  *
- * Fetches: GET /api/categories  (returns tree with children[])
+ * Fetches: GET /api/categories
+ * Falls back to: CATEGORIES_FALLBACK if API fails
  * Renders: L1 column → L2 column → L3 column (Jumia-style)
- *
- * Props:
- *   value     { id, name, slug, level, path[] } | null
- *   onSelect  (node) => void  — called when a leaf (or any node) is confirmed
- *   error     boolean         — shows error ring if true
- *
- * Node shape returned to onSelect:
- * {
- *   id    : "uuid",
- *   name  : "Smartphones",
- *   slug  : "smartphones",
- *   level : 2,
- *   path  : ["Electronics", "Phones & Tablets", "Smartphones"],
- * }
  */
 
-import { useEffect, useState, useCallback, memo } from "react";
+import { useEffect, useState, useCallback, useMemo, memo } from "react";
 import axios from "axios";
+import { CATEGORIES_FALLBACK } from "../../config/categories";
 
-const API = import.meta.env.VITE_API_BASE_URL;
+/* ═══════════════════════════════════════════════════════════════
+   API URL SANITIZATION
+═══════════════════════════════════════════════════════════════ */
+const RAW_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const BASE     = RAW_BASE.replace(/\/+$/, "");
+const API_URL  = `${BASE}/api/categories`;
 
-/* ── Chevron icon ── */
+/* ═══════════════════════════════════════════════════════════════
+   ICONS & SPINNER
+═══════════════════════════════════════════════════════════════ */
 const ChevronRight = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
@@ -49,90 +44,115 @@ const Spinner = () => (
   </div>
 );
 
-/* ══════════════════════════════════════════════════════════════
-   HELPERS
-══════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   TREE BUILDER
+   Transforms a flat list (e.g. from SQL) into a nested tree
+═══════════════════════════════════════════════════════════════ */
+function buildTree(items) {
+  if (!Array.isArray(items) || items.length === 0) return [];
 
-/**
- * Build the ancestor path array for a node by walking up the tree.
- * e.g. ["Electronics", "Phones & Tablets", "Smartphones"]
- */
+  // Check if items already have children populated
+  const hasPrebuiltChildren = items.some(
+    (item) => Array.isArray(item.children) && item.children.length > 0
+  );
+
+  if (hasPrebuiltChildren) {
+    return items.filter((item) => !item.parent_id);
+  }
+
+  const map = {};
+  const roots = [];
+
+  // Clone items to avoid mutating originals
+  items.forEach((item) => {
+    map[item.id] = { ...item, children: [] };
+  });
+
+  items.forEach((item) => {
+    if (item.parent_id && map[item.parent_id]) {
+      map[item.parent_id].children.push(map[item.id]);
+    } else {
+      roots.push(map[item.id]);
+    }
+  });
+
+  return roots;
+}
+
 function buildPath(node, parentPath = []) {
   return [...parentPath, node.name];
 }
 
-/* ══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    COMPONENT
-══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) {
+  const [tree,       setTree]       = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [fetchErr,   setFetchErr]   = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
-  /* ── State ── */
-  const [tree,     setTree]     = useState([]);   // L1 root nodes
-  const [loading,  setLoading]  = useState(true);
-  const [fetchErr, setFetchErr] = useState(null);
+  /* Active drill-down state */
+  const [l1, setL1] = useState(null);
+  const [l2, setL2] = useState(null);
 
-  /* Active drill path — each entry is a node from the tree */
-  const [l1, setL1] = useState(null);   // selected L1 node
-  const [l2, setL2] = useState(null);   // selected L2 node
-
-  /* ── Fetch tree on mount ── */
+  /* ── Load Categories ── */
   useEffect(() => {
     let cancelled = false;
 
-    const load = async () => {
-      try {
-        setLoading(true);
-        setFetchErr(null);
+    const loadCategories = async () => {
+      setLoading(true);
+      setFetchErr(null);
 
-        const { data } = await axios.get(`${API}/api/categories`, {
-          params : { tree: true },   // backend returns nested children[]
+      try {
+        const res = await axios.get(API_URL, {
+          params: { tree: true },
           timeout: 8000,
         });
 
         if (cancelled) return;
 
-        /*
-         * Expected response shape:
-         * { success: true, data: [ { id, name, slug, level, children: [...] } ] }
-         * OR just an array: [ { id, name, slug, level, children: [...] } ]
-         */
-        const nodes = Array.isArray(data) ? data : (data?.data ?? []);
-        setTree(nodes);
+        const rawData = res.data?.data ?? res.data ?? [];
+        const parsedTree = buildTree(rawData);
 
+        if (parsedTree.length > 0) {
+          setTree(parsedTree);
+        } else {
+          // If API returns empty list, fall back
+          setTree(buildTree(CATEGORIES_FALLBACK));
+        }
       } catch (err) {
         if (cancelled) return;
-        console.error("[CategoryPicker] fetch error:", err.message);
-        setFetchErr("Could not load categories. Tap to retry.");
+        console.warn("[CategoryPicker] API fetch failed, using fallback categories:", err.message);
+        
+        // Graceful fallback to static categories on network/server error
+        setTree(buildTree(CATEGORIES_FALLBACK));
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
 
-    load();
+    loadCategories();
     return () => { cancelled = true; };
-  }, []);
+  }, [retryCount]);
 
-  /* ── Restore drill state from existing value (e.g. draft restore) ── */
+  /* ── Restore Selection (e.g. Draft Load) ── */
   useEffect(() => {
     if (!value?.id || !tree.length) return;
 
-    /*
-     * Walk the tree to find which L1/L2 parents contain the saved node.
-     * This restores the column highlight when draft is loaded.
-     */
     for (const rootNode of tree) {
       if (rootNode.id === value.id) {
         setL1(rootNode);
         setL2(null);
         return;
       }
-      for (const midNode of (rootNode.children ?? [])) {
+      for (const midNode of rootNode.children ?? []) {
         if (midNode.id === value.id) {
           setL1(rootNode);
           setL2(midNode);
           return;
         }
-        for (const leafNode of (midNode.children ?? [])) {
+        for (const leafNode of midNode.children ?? []) {
           if (leafNode.id === value.id) {
             setL1(rootNode);
             setL2(midNode);
@@ -148,14 +168,13 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
     setL1(node);
     setL2(null);
 
-    /* If L1 has no children, treat it as a leaf and select immediately */
     if (!node.children?.length) {
       onSelect({
-        id   : node.id,
-        name : node.name,
-        slug : node.slug,
-        level: node.level,
-        path : [node.name],
+        id: node.id,
+        name: node.name,
+        slug: node.slug,
+        level: node.level ?? 1,
+        path: [node.name],
       });
     }
   }, [onSelect]);
@@ -163,29 +182,28 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
   const handleSelectL2 = useCallback((node, parentPath) => {
     setL2(node);
 
-    /* If L2 has no children, treat it as a leaf */
     if (!node.children?.length) {
       onSelect({
-        id   : node.id,
-        name : node.name,
-        slug : node.slug,
-        level: node.level,
-        path : buildPath(node, parentPath),
+        id: node.id,
+        name: node.name,
+        slug: node.slug,
+        level: node.level ?? 2,
+        path: buildPath(node, parentPath),
       });
     }
   }, [onSelect]);
 
   const handleSelectL3 = useCallback((node, parentPath) => {
     onSelect({
-      id   : node.id,
-      name : node.name,
-      slug : node.slug,
-      level: node.level,
-      path : buildPath(node, parentPath),
+      id: node.id,
+      name: node.name,
+      slug: node.slug,
+      level: node.level ?? 3,
+      path: buildPath(node, parentPath),
     });
   }, [onSelect]);
 
-  /* ── Render: loading ── */
+  /* ── Render States ── */
   if (loading) {
     return (
       <div className={`cp-wrap${error ? " cp-wrap--error" : ""}`}>
@@ -194,21 +212,13 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
     );
   }
 
-  /* ── Render: error ── */
   if (fetchErr) {
     return (
       <div className={`cp-wrap${error ? " cp-wrap--error" : ""}`}>
         <button
           type="button"
           className="cp-retry"
-          onClick={() => {
-            setFetchErr(null);
-            setLoading(true);
-            /* Re-trigger useEffect by toggling a dummy key — simplest approach
-               is to just reload. For now, reload page. In prod, extract
-               load() to a ref and call it here. */
-            window.location.reload();
-          }}
+          onClick={() => setRetryCount((c) => c + 1)}
         >
           {fetchErr}
         </button>
@@ -216,11 +226,10 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
     );
   }
 
-  /* ── Render: empty ── */
   if (!tree.length) {
     return (
       <div className={`cp-wrap${error ? " cp-wrap--error" : ""}`}>
-        <p className="cp-empty">No categories available yet.</p>
+        <p className="cp-empty">No categories available.</p>
       </div>
     );
   }
@@ -234,9 +243,8 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
       role="group"
       aria-label="Category selector"
     >
-      {/* ── L1: Root categories ── */}
       <div className="cp-columns">
-
+        {/* L1: Root categories */}
         <div className="cp-column" role="listbox" aria-label="Main category">
           {tree.map((node) => {
             const isActive   = l1?.id === node.id;
@@ -275,12 +283,9 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
           })}
         </div>
 
-        {/* ── L2: Sub-categories (shown when L1 is selected and has children) ── */}
+        {/* L2: Sub-categories */}
         {l1 && l2Nodes.length > 0 && (
-          <div className="cp-column cp-column--l2"
-            role="listbox"
-            aria-label={`${l1.name} sub-categories`}
-          >
+          <div className="cp-column cp-column--l2" role="listbox" aria-label={`${l1.name} sub-categories`}>
             {l2Nodes.map((node) => {
               const isActive   = l2?.id === node.id;
               const isSelected = value?.id === node.id;
@@ -315,12 +320,9 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
           </div>
         )}
 
-        {/* ── L3: Leaf categories ── */}
+        {/* L3: Sub-sub-categories */}
         {l2 && l3Nodes.length > 0 && (
-          <div className="cp-column cp-column--l3"
-            role="listbox"
-            aria-label={`${l2.name} sub-categories`}
-          >
+          <div className="cp-column cp-column--l3" role="listbox" aria-label={`${l2.name} sub-categories`}>
             {l3Nodes.map((node) => {
               const isSelected = value?.id === node.id;
               const parentPath = [l1.name, l2.name];
@@ -347,10 +349,9 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
             })}
           </div>
         )}
-
       </div>
 
-      {/* ── Selected category summary ── */}
+      {/* Selected Category Summary Bar */}
       {value && (
         <div className="cp-selected-bar" aria-live="polite">
           <CheckIcon />
@@ -369,7 +370,6 @@ const CategoryPicker = memo(function CategoryPicker({ value, onSelect, error }) 
           </button>
         </div>
       )}
-
     </div>
   );
 });
