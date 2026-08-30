@@ -77,6 +77,7 @@ const Icon = {
   info: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
   search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   alert: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+  tag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
 };
 
 const TRUST_BADGES = [
@@ -95,7 +96,7 @@ const REPORT_REASONS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   JUMIA MULTI-LEVEL BREADCRUMB BUILDER
+   JUMIA BREADCRUMB BUILDER (Targeting /catalog)
 ═══════════════════════════════════════════════════════════════ */
 const isUuid = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || ""));
 
@@ -104,40 +105,56 @@ const buildBreadcrumbs = (product) => {
 
   const items = [{ label: "Home", path: "/loemart" }];
 
-  // 1. Array path in backend (e.g., category_path from recursive CTE)
+  // 1. Array path in backend (e.g. category_path from recursive CTE query)
   const rawPath = product.category_path || product.breadcrumb_path || product.category_tree || product.categories;
+  
   if (Array.isArray(rawPath) && rawPath.length > 0) {
     rawPath.forEach((cat) => {
       const name = typeof cat === "string" ? cat : cat?.name || cat?.title;
       const slug = cat?.slug || name;
       if (name && !isUuid(name)) {
-        items.push({ label: name, path: `/loemart?category=${encodeURIComponent(slug)}` });
+        items.push({ label: name, path: `/catalog?category=${encodeURIComponent(slug)}` });
       }
     });
   } 
-  // 2. Nested category tree parent hierarchy (fallback)
+  // 2. Nested category tree fallback
   else if (product.category && typeof product.category === "object") {
     const catList = [];
     let curr = product.category;
     while (curr && typeof curr === "object") {
       if (curr.name && !isUuid(curr.name)) {
-        catList.unshift({ label: curr.name, path: `/loemart?category=${encodeURIComponent(curr.slug || curr.name)}` });
+        catList.unshift({ label: curr.name, path: `/catalog?category=${encodeURIComponent(curr.slug || curr.name)}` });
       }
       curr = curr.parent || curr.category;
     }
     items.push(...catList);
   } 
-  // 3. String category (legacy)
+  // 3. String category legacy fallback
   else {
     const catName = typeof product.category === "string" ? product.category : product.category?.name;
     if (catName && !isUuid(catName)) {
-      items.push({ label: catName, path: `/loemart?category=${encodeURIComponent(catName)}` });
-    } else if (product.brand) {
-      items.push({ label: product.brand, path: `/loemart?brand=${encodeURIComponent(product.brand)}` });
+      items.push({ label: catName, path: `/catalog?category=${encodeURIComponent(catName)}` });
     }
   }
 
-  // 4. Product Title as leaf
+  // 4. Inject Brand before Product Name for SEO & Jumia layout matching
+  if (product.brand) {
+    const lastItemLabel = items[items.length - 1]?.label?.toLowerCase();
+    if (lastItemLabel !== product.brand.toLowerCase()) {
+      const deepestCat = Array.isArray(rawPath) && rawPath.length > 0 ? (rawPath[rawPath.length - 1]?.slug || rawPath[rawPath.length - 1]?.name) : null;
+      
+      const brandPath = deepestCat
+        ? `/catalog?category=${encodeURIComponent(deepestCat)}&brand=${encodeURIComponent(product.brand)}`
+        : `/catalog?brand=${encodeURIComponent(product.brand)}`;
+
+      items.push({ 
+        label: product.brand, 
+        path: brandPath 
+      });
+    }
+  }
+
+  // 5. Product Title (Leaf node)
   if (product.name) {
     items.push({ label: product.name, isCurrent: true });
   }
@@ -145,14 +162,16 @@ const buildBreadcrumbs = (product) => {
   return items;
 };
 
-// Gets the deepest category name to show as a badge
+// Gets the deepest category name to display inside badge pills
 const getPrimaryCategoryName = (product) => {
-  const crumbs = buildBreadcrumbs(product);
-  // Length > 2 means Home + at least one Category + Product Title
-  if (crumbs.length > 2) {
-    return crumbs[crumbs.length - 2].label;
+  const rawPath = product?.category_path || [];
+  if (Array.isArray(rawPath) && rawPath.length > 0) {
+    const last = rawPath[rawPath.length - 1];
+    return typeof last === "string" ? last : last?.name;
   }
-  return product?.brand || null;
+  return typeof product?.category === "string" && !isUuid(product.category) 
+    ? product.category 
+    : "Store Item";
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -191,6 +210,36 @@ const Breadcrumbs = memo(function Breadcrumbs({ product }) {
         })}
       </div>
     </nav>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   STICKY MINI HEADER ON SCROLL
+═══════════════════════════════════════════════════════════════ */
+const StickyMiniHeader = memo(function StickyMiniHeader({
+  visible, product, displayPrice, onAddToCart, disabled,
+}) {
+  if (!product) return null;
+  const img = getProductImage(product);
+
+  return (
+    <div className={`mdp-mini-header ${visible ? "mdp-mini-header--visible" : ""}`} aria-hidden={!visible}>
+      <div className="mdp-mini-header__inner">
+        {img && <img src={img} alt="" className="mdp-mini-header__img" aria-hidden="true" />}
+        <div className="mdp-mini-header__body">
+          <p className="mdp-mini-header__name">{product.name}</p>
+          <p className="mdp-mini-header__price">{formatPrice(displayPrice)}</p>
+        </div>
+        <button
+          type="button"
+          className="mdp-mini-header__cta"
+          onClick={onAddToCart}
+          disabled={disabled}
+        >
+          Add
+        </button>
+      </div>
+    </div>
   );
 });
 
@@ -547,9 +596,11 @@ export default function MarketDetail() {
     isLoggedIn() ? 0 : readGuestCart().reduce((s, i) => s + (i.qty ?? 1), 0)
   );
 
-  /* ── Modals State ── */
-  const [showReport,     setShowReport]     = useState(false);
-  const [showProtection, setShowProtection] = useState(false);
+  /* ── Modals & Sticky Observers ── */
+  const [showReport,        setShowReport]        = useState(false);
+  const [showProtection,    setShowProtection]    = useState(false);
+  const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
+  const titleRef = useRef(null);
   
   /* ── Derived Values ── */
   const isWishlisted = product ? wishlist.has(product.id) : false;
@@ -557,6 +608,13 @@ export default function MarketDetail() {
   const reviewCount  = useMemo(() => (product ? getReviewCount(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
   const primaryCat   = useMemo(() => getPrimaryCategoryName(product), [product]);
+
+  // Extract First Key Feature for SEO Subtitle
+  const firstKeyFeature = useMemo(() => {
+    if (!product?.key_features || product.key_features.length === 0) return null;
+    const f = product.key_features[0];
+    return typeof f === "string" ? f : f?.feature;
+  }, [product]);
 
   /* ════════════════════════════════════════════════════════
      DATA SYNC
@@ -589,6 +647,17 @@ export default function MarketDetail() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [slug]);
+
+  /* Sticky Mini Header Intersection Observer */
+  useEffect(() => {
+    if (!titleRef.current) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => setMiniHeaderVisible(!entry.isIntersecting),
+      { threshold: 0, rootMargin: "-80px 0px 0px 0px" }
+    );
+    obs.observe(titleRef.current);
+    return () => obs.disconnect();
+  }, [product]);
 
   /* ════════════════════════════════════════════════════════
      PRICING LOGIC
@@ -680,11 +749,19 @@ export default function MarketDetail() {
       <div className="md-page mdp-page">
         <MarketDetailHeader productName={product?.name} cartCount={cartCount} isWishlisted={isWishlisted} onToggleWishlist={() => toggleWishlist(product?.id)} productLoaded={!!product} />
 
+        <StickyMiniHeader
+          visible={miniHeaderVisible}
+          product={product}
+          displayPrice={displayPrice}
+          onAddToCart={handleAddToCart}
+          disabled={addingToCart || isOutOfStock}
+        />
+
         {loading && <ProductSkeleton />}
 
         {!loading && product && (
           <div className="mdp-main-layout">
-            {/* Jumia Multi-Level Breadcrumbs */}
+            {/* Jumia Multi-Level Breadcrumbs -> Points to /catalog */}
             <Breadcrumbs product={product} />
 
             <div className="mdp-section mdp-section-gallery">
@@ -700,8 +777,16 @@ export default function MarketDetail() {
                 {discount > 0 && <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>}
               </div>
 
-              {/* Title & Brand */}
-              <h1 className="md-title mdp-title">{product.name}</h1>
+              {/* Title & SEO Top Feature */}
+              <h1 ref={titleRef} className="md-title mdp-title">{product.name}</h1>
+              {firstKeyFeature && (
+                <h2 className="mdp-seo-subtitle">
+                  <span className="mdp-icon-inline" aria-hidden="true">{Icon.tag}</span> 
+                  <strong>Highlight:</strong> {firstKeyFeature}
+                </h2>
+              )}
+
+              {/* Brand & Ratings */}
               <div className="mdp-brand-rating-row">
                 {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
                 <div className="mdp-rating-inline">
