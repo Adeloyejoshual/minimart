@@ -1,14 +1,14 @@
 /**
  * App.jsx
  *
- * v2 — Smart order routing + MyOrders
+ * v3 — Added Jumia-Style Category Catalog route (/catalog)
  * ─────────────────────────────────────────────────────
- * ✓ Single /shop/orders/:orderId route handles both
- *   payment verification AND order tracking
+ * ✓ Single /shop/orders/:orderId route handles payment & tracking
+ * ✓ /catalog & /category/:slug routes added for Jumia-style catalog
+ * ✓ /loemart preserved for HomePage
  * ✓ MyOrders replaces OrderHistory
- * ✓ No more route collisions
  * ✓ Clean ORD-XXXX URLs throughout
- * ✓ All existing features preserved
+ * ✓ All existing features, guards & admin routes preserved
  */
 
 import { useEffect, useState, useCallback, memo, useRef } from "react";
@@ -71,12 +71,17 @@ import SearchPage           from "./pages/SearchPage";
 import ProductDetail        from "./pages/ProductDetail";
 import ProductDetailDesktop from "./desktop/ProductDetailDesktop";
 import MarketDetail         from "./pages/MarketDetail";
+import CategoryCatalog      from "./pages/CategoryCatalog"; // ← NEW: Jumia-style catalog
 import SellerProfile        from "./pages/SellerProfile";
 import TermsAndConditions   from "./pages/TermsAndConditions";
 import MinimartPage         from "./pages/MinimartPage";
 import P2P                  from "./pages/P2P";
 import MenuPage             from "./pages/MenuPage";
-import CategoryCatalog      from "./pages/CategoryCatalog";
+
+/* ════════════════════════════════════════════════════════════
+   PAGES — LOEMART
+════════════════════════════════════════════════════════════ */
+import HomePage from "./loemart/HomePage";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — LEGAL
@@ -457,15 +462,6 @@ function CouponsRoute({ user }) {
 
 /* ════════════════════════════════════════════════════════════
    SMART ORDER ROUTE
-   ─────────────────────────────────────────────────────────
-   Single route for /shop/orders/:orderId that handles:
-     • ?verify=true or ?status=...  → PaymentReturnRouter
-     • No query params              → OrderTracking
-
-   This eliminates the route collision between tracking
-   and payment verification. Both use the same URL:
-     /shop/orders/ORD-20D81F16
-     /shop/orders/ORD-20D81F16?verify=true
 ════════════════════════════════════════════════════════════ */
 function SmartOrderRoute({ user }) {
   const [searchParams] = useSearchParams();
@@ -685,18 +681,23 @@ function AppInner() {
             PUBLIC
         ══════════════════════════════════════════════ */}
         <Route path="/" element={<HomeRoute key={user?.id ?? "guest"} user={user} />} />
-        <Route path="/search"    element={<SearchPage    user={user} />} />
-        <Route path="/product/:slug" element={<ProductRoute user={user} />} />
-        <Route path="/shop/:slug"    element={<MarketDetail user={user} />} />
-        <Route path="/seller/:id"    element={<SellerProfile user={user} />} />
+        <Route path="/search"        element={<SearchPage        user={user} />} />
+        <Route path="/product/:slug" element={<ProductRoute     user={user} />} />
+        <Route path="/shop/:slug"    element={<MarketDetail       user={user} />} />
+
+        {/* Jumia-style Category Catalog routes */}
+        <Route path="/catalog"       element={<CategoryCatalog    user={user} />} />
+        <Route path="/category/:slug" element={<CategoryCatalog   user={user} />} />
+
+        <Route path="/seller/:id"    element={<SellerProfile     user={user} />} />
         <Route path="/terms"         element={<TermsAndConditions />} />
-        <Route path="/minimart"      element={<MinimartPage user={user} />} />
-        <Route path="/p2p"           element={<P2P user={user} />} />
-        <Route path="/menu"          element={<MenuPage user={user} />} />
+        <Route path="/minimart"      element={<MinimartPage      user={user} />} />
+        <Route path="/p2p"           element={<P2P               user={user} />} />
+        <Route path="/menu"          element={<MenuPage          user={user} />} />
         <Route path="/privacy"       element={<PrivacyPolicy />} />
         <Route path="/community-guidelines" element={<CommunityGuidelines />} />
         <Route path="/hall-of-fame"  element={<HallOfFame />} />
-        <Route path="/loemart"       element={<CategoryCatalog />} />
+        <Route path="/loemart"       element={<HomePage          user={user} />} />
 
         {/* ── Homepage sub-pages ── */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
@@ -839,14 +840,6 @@ function AppInner() {
 
         {/* ══════════════════════════════════════════════
             CART / CHECKOUT / ORDERS
-            ────────────────────────────────────────────
-            Route order matters:
-              1. /shop/cart        → CartPage
-              2. /shop/checkout    → CheckoutPage
-              3. /shop/orders      → MyOrders (exact, list)
-              4. /shop/orders/:id  → SmartOrderRoute
-                 - no query          → OrderTracking
-                 - ?verify=true      → PaymentReturnRouter
         ══════════════════════════════════════════════ */}
         <Route path="/shop/cart" element={<CartPage user={user} />} />
         <Route path="/payment/success" element={<PaymentSuccess />} />
@@ -855,16 +848,12 @@ function AppInner() {
           <ProtectedRoute user={user}><CheckoutPage user={user} /></ProtectedRoute>
         } />
 
-        {/* Order list — exact match for /shop/orders (no param) */}
+        {/* Order list */}
         <Route path="/shop/orders" element={
           <ProtectedRoute user={user}><MyOrders /></ProtectedRoute>
         } />
 
-        {/*
-          Single order — smart route handles both:
-            /shop/orders/ORD-20D81F16             → OrderTracking
-            /shop/orders/ORD-20D81F16?verify=true → PaymentReturnRouter
-        */}
+        {/* Single order route */}
         <Route path="/shop/orders/:orderId" element={
           <ProtectedRoute user={user}><SmartOrderRoute user={user} /></ProtectedRoute>
         } />
