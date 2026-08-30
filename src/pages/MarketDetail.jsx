@@ -104,8 +104,8 @@ const buildBreadcrumbs = (product) => {
 
   const items = [{ label: "Home", path: "/loemart" }];
 
-  // 1. Array path in backend (e.g., category_path, breadcrumb_path, categories)
-  const rawPath = product.breadcrumb_path || product.category_path || product.category_tree || product.categories;
+  // 1. Array path in backend (e.g., category_path from recursive CTE)
+  const rawPath = product.category_path || product.breadcrumb_path || product.category_tree || product.categories;
   if (Array.isArray(rawPath) && rawPath.length > 0) {
     rawPath.forEach((cat) => {
       const name = typeof cat === "string" ? cat : cat?.name || cat?.title;
@@ -115,7 +115,7 @@ const buildBreadcrumbs = (product) => {
       }
     });
   } 
-  // 2. Nested category tree parent hierarchy (e.g. cat -> parent -> parent)
+  // 2. Nested category tree parent hierarchy (fallback)
   else if (product.category && typeof product.category === "object") {
     const catList = [];
     let curr = product.category;
@@ -127,7 +127,7 @@ const buildBreadcrumbs = (product) => {
     }
     items.push(...catList);
   } 
-  // 3. String category
+  // 3. String category (legacy)
   else {
     const catName = typeof product.category === "string" ? product.category : product.category?.name;
     if (catName && !isUuid(catName)) {
@@ -145,12 +145,14 @@ const buildBreadcrumbs = (product) => {
   return items;
 };
 
+// Gets the deepest category name to show as a badge
 const getPrimaryCategoryName = (product) => {
   const crumbs = buildBreadcrumbs(product);
+  // Length > 2 means Home + at least one Category + Product Title
   if (crumbs.length > 2) {
     return crumbs[crumbs.length - 2].label;
   }
-  return product?.brand || "Store Item";
+  return product?.brand || null;
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -193,7 +195,7 @@ const Breadcrumbs = memo(function Breadcrumbs({ product }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS & RATING logic
+   HELPERS & API LOGIC
 ═══════════════════════════════════════════════════════════════ */
 const isLoggedIn = () => !!localStorage.getItem("marketplace_token");
 
@@ -285,7 +287,7 @@ function ProductSkeleton() {
     <div className="mdp-skeleton" aria-busy="true" aria-label="Loading product">
       <div className="mdp-skel mdp-skel-hero" />
       <div className="mdp-skel-thumbs">
-        {[0,1,2,3].map((i) => <div key={i} className="mdp-skel mdp-skel-thumb" />)}
+        {[0,1,2,3,4].map((i) => <div key={i} className="mdp-skel mdp-skel-thumb" />)}
       </div>
       <div className="mdp-skel-body">
         <div className="mdp-skel" style={{ width:"30%", height:12, borderRadius:4, marginBottom: 16 }} />
