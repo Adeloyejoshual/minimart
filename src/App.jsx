@@ -76,11 +76,7 @@ import TermsAndConditions   from "./pages/TermsAndConditions";
 import MinimartPage         from "./pages/MinimartPage";
 import P2P                  from "./pages/P2P";
 import MenuPage             from "./pages/MenuPage";
-
-/* ════════════════════════════════════════════════════════════
-   PAGES — LOEMART
-════════════════════════════════════════════════════════════ */
-import HomePage from "./loemart/HomePage";
+import CategoryCatalog      from "./pages/CategoryCatalog";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — LEGAL
@@ -700,7 +696,7 @@ function AppInner() {
         <Route path="/privacy"       element={<PrivacyPolicy />} />
         <Route path="/community-guidelines" element={<CommunityGuidelines />} />
         <Route path="/hall-of-fame"  element={<HallOfFame />} />
-        <Route path="/loemart"       element={<HomePage user={user} />} />
+        <Route path="/loemart"       element={<CategoryCatalog />} />
 
         {/* ── Homepage sub-pages ── */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
