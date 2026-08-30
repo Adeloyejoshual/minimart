@@ -95,7 +95,105 @@ const REPORT_REASONS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS & SANITIZERS
+   JUMIA MULTI-LEVEL BREADCRUMB BUILDER
+═══════════════════════════════════════════════════════════════ */
+const isUuid = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || ""));
+
+const buildBreadcrumbs = (product) => {
+  if (!product) return [];
+
+  const items = [{ label: "Home", path: "/loemart" }];
+
+  // 1. Array path in backend (e.g., category_path, breadcrumb_path, categories)
+  const rawPath = product.breadcrumb_path || product.category_path || product.category_tree || product.categories;
+  if (Array.isArray(rawPath) && rawPath.length > 0) {
+    rawPath.forEach((cat) => {
+      const name = typeof cat === "string" ? cat : cat?.name || cat?.title;
+      const slug = cat?.slug || name;
+      if (name && !isUuid(name)) {
+        items.push({ label: name, path: `/loemart?category=${encodeURIComponent(slug)}` });
+      }
+    });
+  } 
+  // 2. Nested category tree parent hierarchy (e.g. cat -> parent -> parent)
+  else if (product.category && typeof product.category === "object") {
+    const catList = [];
+    let curr = product.category;
+    while (curr && typeof curr === "object") {
+      if (curr.name && !isUuid(curr.name)) {
+        catList.unshift({ label: curr.name, path: `/loemart?category=${encodeURIComponent(curr.slug || curr.name)}` });
+      }
+      curr = curr.parent || curr.category;
+    }
+    items.push(...catList);
+  } 
+  // 3. String category
+  else {
+    const catName = typeof product.category === "string" ? product.category : product.category?.name;
+    if (catName && !isUuid(catName)) {
+      items.push({ label: catName, path: `/loemart?category=${encodeURIComponent(catName)}` });
+    } else if (product.brand) {
+      items.push({ label: product.brand, path: `/loemart?brand=${encodeURIComponent(product.brand)}` });
+    }
+  }
+
+  // 4. Product Title as leaf
+  if (product.name) {
+    items.push({ label: product.name, isCurrent: true });
+  }
+
+  return items;
+};
+
+const getPrimaryCategoryName = (product) => {
+  const crumbs = buildBreadcrumbs(product);
+  if (crumbs.length > 2) {
+    return crumbs[crumbs.length - 2].label;
+  }
+  return product?.brand || "Store Item";
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   BREADCRUMBS COMPONENT
+═══════════════════════════════════════════════════════════════ */
+const Breadcrumbs = memo(function Breadcrumbs({ product }) {
+  const navigate = useNavigate();
+  const items = useMemo(() => buildBreadcrumbs(product), [product]);
+
+  if (!items.length) return null;
+
+  return (
+    <nav className="mdp-breadcrumbs" aria-label="Breadcrumb">
+      <div className="mdp-breadcrumbs__inner">
+        {items.map((item, idx) => {
+          const isLast = idx === items.length - 1;
+
+          return (
+            <span key={idx} className="mdp-breadcrumbs__item">
+              {idx > 0 && <span className="mdp-breadcrumbs__sep" aria-hidden="true">&gt;</span>}
+              {isLast ? (
+                <span className="mdp-breadcrumbs__current" aria-current="page">
+                  {item.label}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="mdp-breadcrumbs__link"
+                  onClick={() => item.path && navigate(item.path)}
+                >
+                  {item.label}
+                </button>
+              )}
+            </span>
+          );
+        })}
+      </div>
+    </nav>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS & RATING logic
 ═══════════════════════════════════════════════════════════════ */
 const isLoggedIn = () => !!localStorage.getItem("marketplace_token");
 
@@ -106,17 +204,6 @@ const authHeaders = () => {
     : { "Content-Type": "application/json" };
 };
 
-const sanitizeCategoryName = (cat) => {
-  if (!cat) return null;
-  if (typeof cat === "object") return cat.name || cat.title || null;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cat);
-  if (isUuid) return "General Category";
-  return String(cat);
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   GUEST CART & API COUNT
-═══════════════════════════════════════════════════════════════ */
 const readGuestCart = () => {
   try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } 
   catch { return []; }
@@ -158,9 +245,6 @@ const fetchServerCartCount = async () => {
   } catch { return null; }
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED
-═══════════════════════════════════════════════════════════════ */
 const addToRecentlyViewed = (product) => {
   try {
     const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((p) => p.id !== product.id);
@@ -180,9 +264,6 @@ const getDeliveryEstimate = () => {
   return `${fmt(min)} – ${fmt(max)}`;
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   RATING FALLBACKS
-═══════════════════════════════════════════════════════════════ */
 const getRating = (product) => {
   if (product?.rating && Number(product.rating) > 0) return Number(product.rating);
   if (product?.average_rating && Number(product.average_rating) > 0) return Number(product.average_rating);
@@ -204,7 +285,7 @@ function ProductSkeleton() {
     <div className="mdp-skeleton" aria-busy="true" aria-label="Loading product">
       <div className="mdp-skel mdp-skel-hero" />
       <div className="mdp-skel-thumbs">
-        {[0,1,2,3,4].map((i) => <div key={i} className="mdp-skel mdp-skel-thumb" />)}
+        {[0,1,2,3].map((i) => <div key={i} className="mdp-skel mdp-skel-thumb" />)}
       </div>
       <div className="mdp-skel-body">
         <div className="mdp-skel" style={{ width:"30%", height:12, borderRadius:4, marginBottom: 16 }} />
@@ -293,7 +374,7 @@ const CartToast = memo(function CartToast({ show, productName, qty, image, onVie
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   MODALS (Report & Protection)
+   MODALS (Report & Buyer Protection)
 ═══════════════════════════════════════════════════════════════ */
 const ReportModal = memo(function ReportModal({ productId, onClose }) {
   const [reason,     setReason]     = useState("");
@@ -410,32 +491,6 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   BREADCRUMBS
-═══════════════════════════════════════════════════════════════ */
-const Breadcrumbs = memo(function Breadcrumbs({ category, productName }) {
-  const navigate = useNavigate();
-  const cleanCat = sanitizeCategoryName(category);
-
-  return (
-    <nav className="mdp-breadcrumbs" aria-label="Breadcrumb">
-      <button type="button" className="mdp-breadcrumbs__link" onClick={() => navigate("/loemart")}>Home</button>
-      {cleanCat && (
-        <>
-          <span className="mdp-breadcrumbs__sep" aria-hidden="true">{Icon.chevron}</span>
-          <button type="button" className="mdp-breadcrumbs__link" onClick={() => navigate(`/loemart?category=${encodeURIComponent(cleanCat)}`)}>
-            {cleanCat}
-          </button>
-        </>
-      )}
-      <span className="mdp-breadcrumbs__sep" aria-hidden="true">{Icon.chevron}</span>
-      <span className="mdp-breadcrumbs__current" aria-current="page">
-        {productName?.length > 25 ? productName.slice(0, 25) + "…" : productName}
-      </span>
-    </nav>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
    RETURNS & REFUNDS FAQ COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 const FAQAccordion = memo(function FAQAccordion() {
@@ -499,7 +554,7 @@ export default function MarketDetail() {
   const rating       = useMemo(() => (product ? getRating(product) : 0), [product]);
   const reviewCount  = useMemo(() => (product ? getReviewCount(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
-  const cleanCat     = useMemo(() => sanitizeCategoryName(product?.category), [product?.category]);
+  const primaryCat   = useMemo(() => getPrimaryCategoryName(product), [product]);
 
   /* ════════════════════════════════════════════════════════
      DATA SYNC
@@ -627,16 +682,17 @@ export default function MarketDetail() {
 
         {!loading && product && (
           <div className="mdp-main-layout">
-            <Breadcrumbs category={cleanCat} productName={product.name} />
+            {/* Jumia Multi-Level Breadcrumbs */}
+            <Breadcrumbs product={product} />
 
             <div className="mdp-section mdp-section-gallery">
               <ImageGallery images={product.images ?? []} name={product.name} />
             </div>
 
             <div className="md-content mdp-content">
-              {/* Context Row */}
+              {/* Badges Row */}
               <div className="md-badges-row mdp-badges-row">
-                {cleanCat && <span className="md-cat-pill mdp-cat-pill">{cleanCat}</span>}
+                {primaryCat && <span className="md-cat-pill mdp-cat-pill">{primaryCat}</span>}
                 {product.is_featured && <span className="md-badge mdp-badge mdp-badge--featured"><span className="mdp-icon-inline">{Icon.star}</span> Featured</span>}
                 {product.is_trending && <span className="md-badge mdp-badge mdp-badge--trending"><span className="mdp-icon-inline">{Icon.fire}</span> Trending</span>}
                 {discount > 0 && <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>}
@@ -677,7 +733,7 @@ export default function MarketDetail() {
                 )}
               </div>
 
-              {/* Quick Stats */}
+              {/* Stats */}
               {(product.view_count > 0 || product.save_count > 0 || product.variants?.length > 0) && (
                 <div className="md-stats-row mdp-stats-row">
                   {product.view_count > 0 && <span className="md-stat mdp-stat"><span className="mdp-icon-inline">{Icon.eye}</span> {viewLabel} views</span>}
@@ -686,7 +742,7 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Options */}
+              {/* Variants */}
               {product.variants?.length > 0 && (
                 <div className="mdp-section mdp-section--variants">
                   <VariantSelector variants={product.variants} selected={selectedVariant} onSelect={setSelectedVariant} />
@@ -704,7 +760,7 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Info Cards (Delivery & Protection) */}
+              {/* Cards */}
               <div className="mdp-section mdp-section--cards">
                 <div className="mdp-delivery-card">
                   <div className="mdp-delivery-card__icon">{Icon.truck}</div>
@@ -732,7 +788,7 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Key Features */}
+              {/* Features */}
               {product.key_features?.length > 0 && (
                 <div className="md-section mdp-section mdp-section--features">
                   <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.sparkle}</span> Key Features</h3>
@@ -768,7 +824,7 @@ export default function MarketDetail() {
 
               <FAQAccordion />
 
-              {/* Seller Info & Badges */}
+              {/* Seller Info & Trust Badges */}
               <div className="mdp-section mdp-section--seller">
                 <SellerCard product={product} />
                 <div className="mdp-trust-grid">
@@ -791,7 +847,7 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* Sticky Bottom Bar */}
+      {/* Sticky Bottom Actions */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
@@ -825,7 +881,7 @@ export default function MarketDetail() {
         </button>
       )}
 
-      {/* Notifications and Modals */}
+      {/* Toast & Modals */}
       <CartToast show={addedToCart} productName={product?.name ?? "Item"} qty={qty} image={product ? getProductImage(product) : null} onView={goToCart} onClose={() => setAddedToCart(false)} />
       {showReport && product && <ReportModal productId={product.id} onClose={() => setShowReport(false)} />}
       {showProtection && <BuyerProtectionModal onClose={() => setShowProtection(false)} />}
