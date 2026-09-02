@@ -1,6 +1,6 @@
 /**
  * routes/products/reviews.js
- * POST /api/products/:idOrSlug/reviews
+ * Handles: POST /api/shop/:idOrSlug/reviews
  */
 
 import express from "express";
@@ -9,22 +9,23 @@ import { pool } from "../../config/db.js";
 
 const router = express.Router();
 
-// Simple JWT Verification Middleware (extracts user_id from Authorization Header)
+// Auth Middleware
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ success: false, message: "Unauthorized. Token required." });
+      return res.status(401).json({ success: false, message: "Please log in to leave a review." });
     }
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret_key");
-    req.user = decoded; // Contains user ID (typically req.user.id or req.user.user_id)
+    req.user = decoded;
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, message: "Invalid or expired token." });
+    return res.status(401).json({ success: false, message: "Session expired. Please log in again." });
   }
 };
 
+// POST /:idOrSlug/reviews
 router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -32,32 +33,32 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
     const { rating, comment } = req.body;
     const userId = req.user.id || req.user.user_id;
 
-    // 1. Validation
     const numericRating = parseInt(rating, 10);
     if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
-      return res.status(400).json({ success: false, message: "Rating must be an integer between 1 and 5." });
+      return res.status(400).json({ success: false, message: "Rating must be between 1 and 5." });
     }
 
-    // 2. Resolve UUID if Slug is passed
+    // Resolve Product UUID if slug was passed
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
     let productId = null;
 
     if (isUuid) {
       productId = idOrSlug;
     } else {
-      const productQuery = `SELECT id FROM market.products WHERE slug = $1 AND deleted_at IS NULL`;
-      const { rows } = await client.query(productQuery, [idOrSlug]);
-      if (!rows.length) {
+      const pRes = await client.query(
+        "SELECT id FROM market.products WHERE slug = $1 AND deleted_at IS NULL",
+        [idOrSlug]
+      );
+      if (!pRes.rows.length) {
         return res.status(404).json({ success: false, message: "Product not found." });
       }
-      productId = rows[0].id;
+      productId = pRes.rows[0].id;
     }
 
-    // Start Transaction to guarantee synchronization
     await client.query("BEGIN");
 
-    // 3. Upsert review into DB
-    const upsertReviewQuery = `
+    // Upsert review (1 review per user per product)
+    const reviewQuery = `
       INSERT INTO market.product_reviews (product_id, user_id, rating, comment, updated_at)
       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
       ON CONFLICT (product_id, user_id) 
@@ -67,19 +68,19 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
       RETURNING *;
     `;
-    const { rows: reviewRows } = await client.query(upsertReviewQuery, [
+    const { rows: reviewRows } = await client.query(reviewQuery, [
       productId,
       userId,
       numericRating,
-      comment ? comment.trim() : null
+      comment ? comment.trim() : null,
     ]);
 
-    // 4. Update product aggregate values
-    const updateProductAggregatesQuery = `
+    // Recalculate average rating & total review count
+    const updateStatsQuery = `
       WITH stats AS (
         SELECT 
           COALESCE(AVG(rating), 0) AS avg_rating,
-          COUNT(*) AS total_reviews
+          COUNT(*)::int AS total_reviews
         FROM market.product_reviews
         WHERE product_id = $1
       )
@@ -89,19 +90,18 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
         reviews_count = (SELECT total_reviews FROM stats)
       WHERE id = $1;
     `;
-    await client.query(updateProductAggregatesQuery, [productId]);
+    await client.query(updateStatsQuery, [productId]);
 
     await client.query("COMMIT");
 
     res.status(201).json({
       success: true,
-      message: "Review submitted successfully",
-      data: reviewRows[0]
+      message: "Rating submitted successfully!",
+      data: reviewRows[0],
     });
-
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[POST /api/products/:idOrSlug/reviews]", err.message);
+    console.error("[POST /reviews Error]:", err.message);
     res.status(500).json({ success: false, message: "Failed to submit rating." });
   } finally {
     client.release();
