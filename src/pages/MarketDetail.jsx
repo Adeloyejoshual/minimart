@@ -105,7 +105,7 @@ const buildBreadcrumbs = (product) => {
 
   const items = [{ label: "Home", path: "/loemart" }];
 
-  // 1. Array path in backend (e.g. category_path from recursive CTE query)
+  // 1. Array path in backend
   const rawPath = product.category_path || product.breadcrumb_path || product.category_tree || product.categories;
   
   if (Array.isArray(rawPath) && rawPath.length > 0) {
@@ -137,7 +137,7 @@ const buildBreadcrumbs = (product) => {
     }
   }
 
-  // 4. Inject Brand before Product Name for SEO & Jumia layout matching
+  // 4. Inject Brand before Product Name for SEO
   if (product.brand) {
     const lastItemLabel = items[items.length - 1]?.label?.toLowerCase();
     if (lastItemLabel !== product.brand.toLowerCase()) {
@@ -154,7 +154,7 @@ const buildBreadcrumbs = (product) => {
     }
   }
 
-  // 5. Product Title (Leaf node)
+  // 5. Product Title
   if (product.name) {
     items.push({ label: product.name, isCurrent: true });
   }
@@ -609,6 +609,21 @@ export default function MarketDetail() {
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
   const primaryCat   = useMemo(() => getPrimaryCategoryName(product), [product]);
 
+  // Sync Gallery with selected variant assets if they exist
+  const galleryImages = useMemo(() => {
+    if (!product) return [];
+    if (selectedVariant?.images && selectedVariant.images.length > 0) {
+      return selectedVariant.images;
+    }
+    if (selectedVariant?.image) {
+      const parentImgs = product.images ?? [];
+      if (!parentImgs.includes(selectedVariant.image)) {
+        return [selectedVariant.image, ...parentImgs];
+      }
+    }
+    return product.images ?? [];
+  }, [product, selectedVariant]);
+
   // Extract First Key Feature for SEO Subtitle
   const firstKeyFeature = useMemo(() => {
     if (!product?.key_features || product.key_features.length === 0) return null;
@@ -617,7 +632,7 @@ export default function MarketDetail() {
   }, [product]);
 
   /* ════════════════════════════════════════════════════════
-     DATA SYNC
+     DATA SYNC & SEO TITLE
   ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isLoggedIn()) fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
@@ -647,6 +662,17 @@ export default function MarketDetail() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [slug]);
+
+  // Document Title update for SEO
+  useEffect(() => {
+    if (product?.name) {
+      const suffix = product.brand ? ` | ${product.brand}` : "";
+      document.title = `${product.name}${suffix} - Loemart`;
+    }
+    return () => {
+      document.title = "Loemart Marketplace";
+    };
+  }, [product]);
 
   /* Sticky Mini Header Intersection Observer */
   useEffect(() => {
@@ -697,10 +723,24 @@ export default function MarketDetail() {
     setAddingToCart(true); setCartError(null);
     try {
       if (isLoggedIn()) {
-        await axios.post(CART_ITEMS_URL, { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty, quantity: qty }, { headers: authHeaders(), timeout: 15_000 });
-        const count = await fetchServerCartCount();
-        if (count !== null) setCartCount(count);
-        window.dispatchEvent(new Event("cart-updated"));
+        try {
+          await axios.post(
+            CART_ITEMS_URL, 
+            { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty, quantity: qty }, 
+            { headers: authHeaders(), timeout: 15_000 }
+          );
+          const count = await fetchServerCartCount();
+          if (count !== null) setCartCount(count);
+          window.dispatchEvent(new Event("cart-updated"));
+        } catch (apiErr) {
+          // If auth fails (e.g. 401 unauthorized), downgrade gracefully to Guest Cart
+          if (apiErr.response?.status === 401) {
+            localStorage.removeItem("marketplace_token");
+            setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty));
+          } else {
+            throw apiErr;
+          }
+        }
       } else {
         setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty));
       }
@@ -765,7 +805,7 @@ export default function MarketDetail() {
             <Breadcrumbs product={product} />
 
             <div className="mdp-section mdp-section-gallery">
-              <ImageGallery images={product.images ?? []} name={product.name} />
+              <ImageGallery images={galleryImages} name={product.name} />
             </div>
 
             <div className="md-content mdp-content">
@@ -875,6 +915,13 @@ export default function MarketDetail() {
                 </div>
               )}
 
+              {/* Product Specifications */}
+              {(product.specifications?.length > 0 || product.specs?.length > 0 || product.attributes?.length > 0) && (
+                <div className="mdp-section mdp-section--specs">
+                  <SpecsSection specs={product.specifications || product.specs || product.attributes} />
+                </div>
+              )}
+
               {/* Features */}
               {product.key_features?.length > 0 && (
                 <div className="md-section mdp-section mdp-section--features">
@@ -910,6 +957,15 @@ export default function MarketDetail() {
               )}
 
               <FAQAccordion />
+
+              {/* Related Products Section */}
+              <div className="mdp-section mdp-section--related">
+                <RelatedProducts 
+                  productId={product.id} 
+                  category={product.category} 
+                  brand={product.brand}
+                />
+              </div>
 
               {/* Seller Info & Trust Badges */}
               <div className="mdp-section mdp-section--seller">
