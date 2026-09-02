@@ -59,16 +59,11 @@ const Icon = {
   cart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
   minus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/></svg>,
   plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
-  star: <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
-  starOutline: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   truck: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
   chevron: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><polyline points="9 18 15 12 9 6"/></svg>,
   arrow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
-  eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
-  heart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
   box: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
   shield: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
-  fire: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>,
   sparkle: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15 8 21 9 16 13 18 19 12 16 6 19 8 13 3 9 9 8 12 2"/></svg>,
   money: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="18" x2="12" y2="6"/></svg>,
   return: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
@@ -96,7 +91,7 @@ const REPORT_REASONS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   JUMIA BREADCRUMB BUILDER (Targeting /catalog)
+   BREADCRUMB BUILDER
 ═══════════════════════════════════════════════════════════════ */
 const isUuid = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || ""));
 
@@ -105,7 +100,6 @@ const buildBreadcrumbs = (product) => {
 
   const items = [{ label: "Home", path: "/loemart" }];
 
-  // 1. Array path in backend
   const rawPath = product.category_path || product.breadcrumb_path || product.category_tree || product.categories;
   
   if (Array.isArray(rawPath) && rawPath.length > 0) {
@@ -116,9 +110,7 @@ const buildBreadcrumbs = (product) => {
         items.push({ label: name, path: `/catalog?category=${encodeURIComponent(slug)}` });
       }
     });
-  } 
-  // 2. Nested category tree fallback
-  else if (product.category && typeof product.category === "object") {
+  } else if (product.category && typeof product.category === "object") {
     const catList = [];
     let curr = product.category;
     while (curr && typeof curr === "object") {
@@ -128,16 +120,13 @@ const buildBreadcrumbs = (product) => {
       curr = curr.parent || curr.category;
     }
     items.push(...catList);
-  } 
-  // 3. String category legacy fallback
-  else {
+  } else {
     const catName = typeof product.category === "string" ? product.category : product.category?.name;
     if (catName && !isUuid(catName)) {
       items.push({ label: catName, path: `/catalog?category=${encodeURIComponent(catName)}` });
     }
   }
 
-  // 4. Inject Brand before Product Name for SEO
   if (product.brand) {
     const lastItemLabel = items[items.length - 1]?.label?.toLowerCase();
     if (lastItemLabel !== product.brand.toLowerCase()) {
@@ -147,14 +136,10 @@ const buildBreadcrumbs = (product) => {
         ? `/catalog?category=${encodeURIComponent(deepestCat)}&brand=${encodeURIComponent(product.brand)}`
         : `/catalog?brand=${encodeURIComponent(product.brand)}`;
 
-      items.push({ 
-        label: product.brand, 
-        path: brandPath 
-      });
+      items.push({ label: product.brand, path: brandPath });
     }
   }
 
-  // 5. Product Title
   if (product.name) {
     items.push({ label: product.name, isCurrent: true });
   }
@@ -162,21 +147,6 @@ const buildBreadcrumbs = (product) => {
   return items;
 };
 
-// Gets the deepest category name to display inside badge pills
-const getPrimaryCategoryName = (product) => {
-  const rawPath = product?.category_path || [];
-  if (Array.isArray(rawPath) && rawPath.length > 0) {
-    const last = rawPath[rawPath.length - 1];
-    return typeof last === "string" ? last : last?.name;
-  }
-  return typeof product?.category === "string" && !isUuid(product.category) 
-    ? product.category 
-    : "Store Item";
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   BREADCRUMBS COMPONENT
-═══════════════════════════════════════════════════════════════ */
 const Breadcrumbs = memo(function Breadcrumbs({ product }) {
   const navigate = useNavigate();
   const items = useMemo(() => buildBreadcrumbs(product), [product]);
@@ -188,7 +158,6 @@ const Breadcrumbs = memo(function Breadcrumbs({ product }) {
       <div className="mdp-breadcrumbs__inner">
         {items.map((item, idx) => {
           const isLast = idx === items.length - 1;
-
           return (
             <span key={idx} className="mdp-breadcrumbs__item">
               {idx > 0 && <span className="mdp-breadcrumbs__sep" aria-hidden="true">&gt;</span>}
@@ -244,7 +213,7 @@ const StickyMiniHeader = memo(function StickyMiniHeader({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS & API LOGIC
+   HELPERS & CART LOGIC
 ═══════════════════════════════════════════════════════════════ */
 const isLoggedIn = () => !!localStorage.getItem("marketplace_token");
 
@@ -315,21 +284,8 @@ const getDeliveryEstimate = () => {
   return `${fmt(min)} – ${fmt(max)}`;
 };
 
-const getRating = (product) => {
-  if (product?.rating && Number(product.rating) > 0) return Number(product.rating);
-  if (product?.average_rating && Number(product.average_rating) > 0) return Number(product.average_rating);
-  const seed = (product?.view_count ?? 0) + (product?.save_count ?? 0);
-  return Math.min(5, 3.8 + (seed % 12) / 10);
-};
-
-const getReviewCount = (product) => {
-  if (product?.reviews_count !== undefined && product?.reviews_count !== null) return product.reviews_count;
-  if (product?.review_count !== undefined && product?.review_count !== null) return product.review_count;
-  return Math.floor(((product?.view_count ?? 0) % 350) + 14);
-};
-
 /* ═══════════════════════════════════════════════════════════════
-   PREMIUM SKELETON
+   SKELETON, QUANTITY & CART TOAST
 ═══════════════════════════════════════════════════════════════ */
 function ProductSkeleton() {
   return (
@@ -339,7 +295,6 @@ function ProductSkeleton() {
         {[0,1,2,3,4].map((i) => <div key={i} className="mdp-skel mdp-skel-thumb" />)}
       </div>
       <div className="mdp-skel-body">
-        <div className="mdp-skel" style={{ width:"30%", height:12, borderRadius:4, marginBottom: 16 }} />
         <div className="mdp-skel" style={{ width:"85%", height:24, borderRadius:5, marginBottom: 16 }} />
         <div className="mdp-skel" style={{ width:"60%", height:16, borderRadius:4, marginBottom: 24 }} />
         <div className="mdp-skel" style={{ width:"35%", height:32, borderRadius:6, marginBottom: 32 }} />
@@ -350,30 +305,6 @@ function ProductSkeleton() {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   STAR RATING
-═══════════════════════════════════════════════════════════════ */
-const StarRating = memo(function StarRating({ rating }) {
-  return (
-    <div className="mdp-stars" aria-label={`${rating.toFixed(1)} out of 5 stars`}>
-      {Array.from({ length: 5 }).map((_, i) => {
-        const fill = Math.min(1, Math.max(0, rating - i));
-        return (
-          <span key={i} className="mdp-star-wrapper">
-            <span className="mdp-star-bg">{Icon.starOutline}</span>
-            <span className="mdp-star-fg" style={{ clipPath: `inset(0 ${(1 - fill) * 100}% 0 0)` }}>
-              {Icon.star}
-            </span>
-          </span>
-        );
-      })}
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   QUANTITY SELECTOR
-═══════════════════════════════════════════════════════════════ */
 const QuantitySelector = memo(function QuantitySelector({ value, onChange, max = MAX_QTY, disabled }) {
   const clamp = (v) => Math.max(1, Math.min(max, v));
 
@@ -402,9 +333,6 @@ const QuantitySelector = memo(function QuantitySelector({ value, onChange, max =
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   CART TOAST
-═══════════════════════════════════════════════════════════════ */
 const CartToast = memo(function CartToast({ show, productName, qty, image, onView, onClose }) {
   if (!show) return null;
 
@@ -425,7 +353,7 @@ const CartToast = memo(function CartToast({ show, productName, qty, image, onVie
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   MODALS (Report & Buyer Protection)
+   MODALS & FAQS
 ═══════════════════════════════════════════════════════════════ */
 const ReportModal = memo(function ReportModal({ productId, onClose }) {
   const [reason,     setReason]     = useState("");
@@ -541,9 +469,6 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   RETURNS & REFUNDS FAQ COMPONENT
-═══════════════════════════════════════════════════════════════ */
 const FAQAccordion = memo(function FAQAccordion() {
   const [openIndex, setOpenIndex] = useState(null);
   const faqs = useMemo(() => [
@@ -604,12 +529,9 @@ export default function MarketDetail() {
   
   /* ── Derived Values ── */
   const isWishlisted = product ? wishlist.has(product.id) : false;
-  const rating       = useMemo(() => (product ? getRating(product) : 0), [product]);
-  const reviewCount  = useMemo(() => (product ? getReviewCount(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
-  const primaryCat   = useMemo(() => getPrimaryCategoryName(product), [product]);
 
-  // Sync Gallery with selected variant assets if they exist
+  // Gallery Variant Sync
   const galleryImages = useMemo(() => {
     if (!product) return [];
     if (selectedVariant?.images && selectedVariant.images.length > 0) {
@@ -624,7 +546,7 @@ export default function MarketDetail() {
     return product.images ?? [];
   }, [product, selectedVariant]);
 
-  // Extract First Key Feature for SEO Subtitle
+  // Key Highlight Feature
   const firstKeyFeature = useMemo(() => {
     if (!product?.key_features || product.key_features.length === 0) return null;
     const f = product.key_features[0];
@@ -663,15 +585,12 @@ export default function MarketDetail() {
     return () => { cancelled = true; };
   }, [slug]);
 
-  // Document Title update for SEO
   useEffect(() => {
     if (product?.name) {
       const suffix = product.brand ? ` | ${product.brand}` : "";
       document.title = `${product.name}${suffix} - Loemart`;
     }
-    return () => {
-      document.title = "Loemart Marketplace";
-    };
+    return () => { document.title = "Loemart Marketplace"; };
   }, [product]);
 
   /* Sticky Mini Header Intersection Observer */
@@ -686,18 +605,13 @@ export default function MarketDetail() {
   }, [product]);
 
   /* ════════════════════════════════════════════════════════
-     PRICING LOGIC
+     PRICING & STOCK LOGIC
   ════════════════════════════════════════════════════════ */
   const displayPrice = useMemo(() => selectedVariant?.price ? Number(selectedVariant.price) : Number(product?.price ?? 0), [selectedVariant, product]);
   const originalPrice = useMemo(() => Number(product?.original_price ?? product?.compare_price ?? 0), [product]);
   const discount = useMemo(() => calcDiscount(displayPrice, originalPrice), [displayPrice, originalPrice]);
   const savings = useMemo(() => originalPrice > displayPrice ? originalPrice - displayPrice : 0, [originalPrice, displayPrice]);
   const total = useMemo(() => displayPrice * qty, [displayPrice, qty]);
-
-  const viewLabel = useMemo(() => {
-    const v = product?.view_count ?? 0;
-    return v > 999 ? `${(v / 1000).toFixed(1)}k` : String(v);
-  }, [product?.view_count]);
 
   const isOutOfStock = useMemo(() => {
     if (selectedVariant) return typeof selectedVariant.stock === "number" && selectedVariant.stock <= 0;
@@ -733,7 +647,6 @@ export default function MarketDetail() {
           if (count !== null) setCartCount(count);
           window.dispatchEvent(new Event("cart-updated"));
         } catch (apiErr) {
-          // If auth fails (e.g. 401 unauthorized), downgrade gracefully to Guest Cart
           if (apiErr.response?.status === 401) {
             localStorage.removeItem("marketplace_token");
             setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty));
@@ -787,7 +700,13 @@ export default function MarketDetail() {
   return (
     <>
       <div className="md-page mdp-page">
-        <MarketDetailHeader productName={product?.name} cartCount={cartCount} isWishlisted={isWishlisted} onToggleWishlist={() => toggleWishlist(product?.id)} productLoaded={!!product} />
+        <MarketDetailHeader 
+          productName={product?.name} 
+          cartCount={cartCount} 
+          isWishlisted={isWishlisted} 
+          onToggleWishlist={() => toggleWishlist(product?.id)} 
+          productLoaded={!!product} 
+        />
 
         <StickyMiniHeader
           visible={miniHeaderVisible}
@@ -801,7 +720,7 @@ export default function MarketDetail() {
 
         {!loading && product && (
           <div className="mdp-main-layout">
-            {/* Jumia Multi-Level Breadcrumbs -> Points to /catalog */}
+            {/* Multi-Level Breadcrumbs */}
             <Breadcrumbs product={product} />
 
             <div className="mdp-section mdp-section-gallery">
@@ -809,15 +728,14 @@ export default function MarketDetail() {
             </div>
 
             <div className="md-content mdp-content">
-              {/* Badges Row */}
-              <div className="md-badges-row mdp-badges-row">
-                {primaryCat && <span className="md-cat-pill mdp-cat-pill">{primaryCat}</span>}
-                {product.is_featured && <span className="md-badge mdp-badge mdp-badge--featured"><span className="mdp-icon-inline">{Icon.star}</span> Featured</span>}
-                {product.is_trending && <span className="md-badge mdp-badge mdp-badge--trending"><span className="mdp-icon-inline">{Icon.fire}</span> Trending</span>}
-                {discount > 0 && <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>}
-              </div>
+              {/* Discount-Only Badge */}
+              {discount > 0 && (
+                <div className="md-badges-row mdp-badges-row">
+                  <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>
+                </div>
+              )}
 
-              {/* Title & SEO Top Feature */}
+              {/* Title & SEO Highlight */}
               <h1 ref={titleRef} className="md-title mdp-title">{product.name}</h1>
               {firstKeyFeature && (
                 <h2 className="mdp-seo-subtitle">
@@ -826,15 +744,12 @@ export default function MarketDetail() {
                 </h2>
               )}
 
-              {/* Brand & Ratings */}
-              <div className="mdp-brand-rating-row">
-                {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
-                <div className="mdp-rating-inline">
-                  <StarRating rating={rating} />
-                  <span className="mdp-rating-num">{rating.toFixed(1)}</span>
-                  <span className="mdp-rating-count">({reviewCount.toLocaleString()} reviews)</span>
+              {/* Brand Row */}
+              {product.brand && (
+                <div className="mdp-brand-row">
+                  <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>
                 </div>
-              </div>
+              )}
 
               {/* Pricing Section */}
               <div className="mdp-section mdp-section--price">
@@ -852,22 +767,14 @@ export default function MarketDetail() {
                     <span className="mdp-icon-inline">{Icon.sparkle}</span> You save {formatPrice(savings)} today
                   </p>
                 )}
-                {stockLeft !== null && (
-                  <div className={`mdp-stock ${stockLeft === 0 ? "mdp-stock--out" : stockLeft <= 5 ? "mdp-stock--low" : "mdp-stock--ok"}`}>
+                {/* Out of Stock notice */}
+                {isOutOfStock && (
+                  <div className="mdp-stock mdp-stock--out">
                     <span className="mdp-stock__dot" />
-                    <span className="mdp-stock__text">{stockLeft === 0 ? "Out of stock" : stockLeft <= 5 ? `Only ${stockLeft} left — order soon!` : "In stock — ready to ship"}</span>
+                    <span className="mdp-stock__text">Out of stock</span>
                   </div>
                 )}
               </div>
-
-              {/* Stats */}
-              {(product.view_count > 0 || product.save_count > 0 || product.variants?.length > 0) && (
-                <div className="md-stats-row mdp-stats-row">
-                  {product.view_count > 0 && <span className="md-stat mdp-stat"><span className="mdp-icon-inline">{Icon.eye}</span> {viewLabel} views</span>}
-                  {product.save_count > 0 && <span className="md-stat mdp-stat"><span className="mdp-icon-inline">{Icon.heart}</span> {product.save_count} saved</span>}
-                  {product.variants?.length > 0 && <span className="md-stat mdp-stat"><span className="mdp-icon-inline">{Icon.box}</span> {product.variants.length} variants</span>}
-                </div>
-              )}
 
               {/* Variants */}
               {product.variants?.length > 0 && (
@@ -887,7 +794,7 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Cards */}
+              {/* Delivery & Buyer Protection Cards */}
               <div className="mdp-section mdp-section--cards">
                 <div className="mdp-delivery-card">
                   <div className="mdp-delivery-card__icon">{Icon.truck}</div>
@@ -915,14 +822,14 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Product Specifications */}
+              {/* Specifications */}
               {(product.specifications?.length > 0 || product.specs?.length > 0 || product.attributes?.length > 0) && (
                 <div className="mdp-section mdp-section--specs">
                   <SpecsSection specs={product.specifications || product.specs || product.attributes} />
                 </div>
               )}
 
-              {/* Features */}
+              {/* Key Features */}
               {product.key_features?.length > 0 && (
                 <div className="md-section mdp-section mdp-section--features">
                   <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.sparkle}</span> Key Features</h3>
@@ -937,7 +844,7 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Policies & FAQ */}
+              {/* Policies */}
               {(product.return_policy || product.warranty) && (
                 <div className="md-section mdp-section">
                   <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> Policies</h3>
@@ -958,7 +865,7 @@ export default function MarketDetail() {
 
               <FAQAccordion />
 
-              {/* Related Products Section */}
+              {/* Related Products */}
               <div className="mdp-section mdp-section--related">
                 <RelatedProducts 
                   productId={product.id} 
