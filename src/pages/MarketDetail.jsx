@@ -59,6 +59,8 @@ const Icon = {
   cart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
   minus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/></svg>,
   plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  star: <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+  starOutline: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   truck: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
   chevron: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><polyline points="9 18 15 12 9 6"/></svg>,
   arrow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
@@ -266,7 +268,6 @@ const fetchServerCartCount = async () => {
 };
 
 const addToRecentlyViewed = (product) => {
-  if (!product || !product.id) return;
   try {
     const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((p) => p.id !== product.id);
     list.unshift({
@@ -285,8 +286,14 @@ const getDeliveryEstimate = () => {
   return `${fmt(min)} – ${fmt(max)}`;
 };
 
+const getRating = (product) => {
+  if (product?.rating && Number(product.rating) > 0) return Number(product.rating);
+  if (product?.average_rating && Number(product.average_rating) > 0) return Number(product.average_rating);
+  return 0;
+};
+
 /* ═══════════════════════════════════════════════════════════════
-   SKELETON, QUANTITY & CART TOAST
+   SKELETON & STARS
 ═══════════════════════════════════════════════════════════════ */
 function ProductSkeleton() {
   return (
@@ -305,6 +312,24 @@ function ProductSkeleton() {
     </div>
   );
 }
+
+const StarRating = memo(function StarRating({ rating }) {
+  return (
+    <div className="mdp-stars" aria-label={`${rating.toFixed(1)} out of 5 stars`}>
+      {Array.from({ length: 5 }).map((_, i) => {
+        const fill = Math.min(1, Math.max(0, rating - i));
+        return (
+          <span key={i} className="mdp-star-wrapper">
+            <span className="mdp-star-bg">{Icon.starOutline}</span>
+            <span className="mdp-star-fg" style={{ clipPath: `inset(0 ${(1 - fill) * 100}% 0 0)` }}>
+              {Icon.star}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+});
 
 const QuantitySelector = memo(function QuantitySelector({ value, onChange, max = MAX_QTY, disabled }) {
   const clamp = (v) => Math.max(1, Math.min(max, v));
@@ -512,7 +537,6 @@ export default function MarketDetail() {
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState(null);
   const [selectedVariant, setSelectedVariant] = useState(null);
-  const [retryCount,      setRetryCount]      = useState(0);
 
   /* ── Cart State ── */
   const [qty,          setQty]          = useState(1);
@@ -531,6 +555,7 @@ export default function MarketDetail() {
   
   /* ── Derived Values ── */
   const isWishlisted = product ? wishlist.has(product.id) : false;
+  const rating       = useMemo(() => (product ? getRating(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
 
   // Gallery Variant Sync
@@ -572,49 +597,20 @@ export default function MarketDetail() {
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
-    setLoading(true); 
-    setError(null); 
-    setProduct(null); 
-    setSelectedVariant(null); 
-    setQty(1);
+    setLoading(true); setError(null); setProduct(null); setSelectedVariant(null); setQty(1);
 
-    // Form cleanly formatted request URL
-    const cleanBase = (API_URL || `${API}/products`).replace(/\/+$/, "");
-    const targetUrl = `${cleanBase}/${encodeURIComponent(slug)}`;
-
-    axios.get(targetUrl, { timeout: 15_000, headers: authHeaders() })
+    axios.get(`${API_URL}/${slug}`, { timeout: 12_000 })
       .then(({ data }) => {
         if (cancelled) return;
-        
-        // Multi-level unwrapping for all possible backend API payload conventions
-        const p = data?.data?.product ?? data?.product ?? data?.data ?? data?.item ?? data;
-
-        if (!p || typeof p !== "object" || (!p.id && !p.name)) {
-          throw new Error("Invalid product payload structure");
-        }
-
+        const p = data?.data ?? data?.product ?? data;
         setProduct(p);
-        if (Array.isArray(p?.variants) && p.variants.length > 0) {
-          setSelectedVariant(p.variants[0]);
-        }
+        if (p?.variants?.length > 0) setSelectedVariant(p.variants[0]);
         addToRecentlyViewed(p);
       })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error("❌ MarketDetail fetch error:", {
-          url: targetUrl,
-          status: err.response?.status,
-          message: err.message,
-          data: err.response?.data
-        });
-        setError(err.response?.status === 404 ? "404" : "error");
-      })
-      .finally(() => { 
-        if (!cancelled) setLoading(false); 
-      });
-
+      .catch((err) => { if (!cancelled) setError(err.response?.status === 404 ? "404" : "error"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [slug, retryCount]);
+  }, [slug]);
 
   useEffect(() => {
     if (product?.name) {
@@ -715,17 +711,11 @@ export default function MarketDetail() {
       <div className="mdp-not-found">
         <div className="mdp-nf-illustration" aria-hidden="true">{error === "404" ? Icon.search : Icon.alert}</div>
         <h2>{error === "404" ? "Product Not Found" : "Something went wrong"}</h2>
-        <p>{error === "404" ? "This listing may have been removed or does not exist." : "Could not load this product. Please check your connection and try again."}</p>
+        <p>{error === "404" ? "This listing may have been removed." : "Could not load this product. Please try again."}</p>
         <div className="mdp-nf-actions">
-          {error === "404" ? (
-            <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => navigate("/loemart")}>
-              Browse Products
-            </button>
-          ) : (
-            <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => setRetryCount((c) => c + 1)}>
-              Try Again
-            </button>
-          )}
+          <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => error === "404" ? navigate("/loemart") : window.location.reload()}>
+            {error === "404" ? "Browse Products" : "Try Again"}
+          </button>
         </div>
       </div>
     );
@@ -781,12 +771,16 @@ export default function MarketDetail() {
                 </h2>
               )}
 
-              {/* Brand Row */}
-              {product.brand && (
-                <div className="mdp-brand-row">
-                  <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>
-                </div>
-              )}
+              {/* Brand & Star Rating (Review count text stripped) */}
+              <div className="mdp-brand-rating-row">
+                {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
+                {rating > 0 && (
+                  <div className="mdp-rating-inline">
+                    <StarRating rating={rating} />
+                    <span className="mdp-rating-num">{rating.toFixed(1)}</span>
+                  </div>
+                )}
+              </div>
 
               {/* Pricing Section */}
               <div className="mdp-section mdp-section--price">
@@ -804,7 +798,7 @@ export default function MarketDetail() {
                     <span className="mdp-icon-inline">{Icon.sparkle}</span> You save {formatPrice(savings)} today
                   </p>
                 )}
-                {/* Out of Stock notice */}
+                {/* Clean Out of Stock status only */}
                 {isOutOfStock && (
                   <div className="mdp-stock mdp-stock--out">
                     <span className="mdp-stock__dot" />
