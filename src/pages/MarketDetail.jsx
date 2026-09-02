@@ -30,6 +30,7 @@ import SellerCard         from "./MarketDetail/SellerCard";
 import ProductInfo        from "./MarketDetail/ProductInfo";
 import SpecsSection       from "./MarketDetail/SpecsSection";
 import RelatedProducts    from "./MarketDetail/RelatedProducts";
+import RateProductModal   from "./MarketDetail/RateProductModal";
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
@@ -75,6 +76,8 @@ const Icon = {
   search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   alert: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
   tag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
+  share: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>,
+  pencil: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>,
 };
 
 const TRUST_BADGES = [
@@ -101,7 +104,6 @@ const buildBreadcrumbs = (product) => {
   if (!product) return [];
 
   const items = [{ label: "Home", path: "/loemart" }];
-
   const rawPath = product.category_path || product.breadcrumb_path || product.category_tree || product.categories;
   
   if (Array.isArray(rawPath) && rawPath.length > 0) {
@@ -390,8 +392,12 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
   useEffect(() => {
     const fn = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", fn);
+    const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { window.removeEventListener("keydown", fn); document.body.style.overflow = ""; };
+    return () => { 
+      window.removeEventListener("keydown", fn); 
+      document.body.style.overflow = originalOverflow; 
+    };
   }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
@@ -453,8 +459,13 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
 const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
   useEffect(() => {
     const fn = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", fn); document.body.style.overflow = "hidden";
-    return () => { window.removeEventListener("keydown", fn); document.body.style.overflow = ""; };
+    window.addEventListener("keydown", fn); 
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { 
+      window.removeEventListener("keydown", fn); 
+      document.body.style.overflow = originalOverflow; 
+    };
   }, [onClose]);
 
   return (
@@ -550,8 +561,12 @@ export default function MarketDetail() {
   /* ── Modals & Sticky Observers ── */
   const [showReport,        setShowReport]        = useState(false);
   const [showProtection,    setShowProtection]    = useState(false);
+  const [showRateModal,     setShowRateModal]     = useState(false);
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
+  
   const titleRef = useRef(null);
+  const toastTimeoutRef = useRef(null);
+  const errorTimeoutRef = useRef(null);
   
   /* ── Derived Values ── */
   const isWishlisted = product ? wishlist.has(product.id) : false;
@@ -581,7 +596,18 @@ export default function MarketDetail() {
   }, [product]);
 
   /* ════════════════════════════════════════════════════════
-     DATA SYNC & SEO TITLE
+     SCROLL TO TOP & CLEANUP TIMEOUTS ON ROUTE CHANGE
+  ════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+    };
+  }, [slug]);
+
+  /* ════════════════════════════════════════════════════════
+     DATA SYNC & SEO TITLE + JSON-LD SCHEMA
   ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isLoggedIn()) fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
@@ -593,6 +619,21 @@ export default function MarketDetail() {
     window.addEventListener("storage", sync);
     return () => { window.removeEventListener("cart-updated", sync); window.removeEventListener("storage", sync); };
   }, []);
+
+  const fetchProduct = useCallback(() => {
+    if (!slug) return;
+    setLoading(true); setError(null);
+
+    axios.get(`${API_URL}/${slug}`, { timeout: 12_000 })
+      .then(({ data }) => {
+        const p = data?.data ?? data?.product ?? data;
+        setProduct(p);
+        if (p?.variants?.length > 0) setSelectedVariant(p.variants[0]);
+        addToRecentlyViewed(p);
+      })
+      .catch((err) => setError(err.response?.status === 404 ? "404" : "error"))
+      .finally(() => setLoading(false));
+  }, [slug]);
 
   useEffect(() => {
     if (!slug) return;
@@ -612,10 +653,43 @@ export default function MarketDetail() {
     return () => { cancelled = true; };
   }, [slug]);
 
+  /* Dynamic Meta Title and JSON-LD Rich Snippets for SEO */
   useEffect(() => {
     if (product?.name) {
       const suffix = product.brand ? ` | ${product.brand}` : "";
       document.title = `${product.name}${suffix} - Loemart`;
+
+      const script = document.createElement("script");
+      script.type = "application/ld+json";
+      script.text = JSON.stringify({
+        "@context": "https://schema.org/",
+        "@type": "Product",
+        "name": product.name,
+        "image": product.images || [getProductImage(product)],
+        "description": product.description || product.name,
+        "brand": { "@type": "Brand", "name": product.brand || "Loemart" },
+        "offers": {
+          "@type": "Offer",
+          "priceCurrency": "NGN",
+          "price": product.price,
+          "availability": (product.stock > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+          "url": window.location.href
+        },
+        ...(product.rating ? {
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": product.rating,
+            "reviewCount": product.reviews_count || 1
+          }
+        } : {})
+      });
+      document.head.appendChild(script);
+
+      return () => {
+        if (document.head.contains(script)) {
+          document.head.removeChild(script);
+        }
+      };
     }
     return () => { document.title = "Loemart Marketplace"; };
   }, [product]);
@@ -686,11 +760,14 @@ export default function MarketDetail() {
       }
       setAddedToCart(true);
       window.navigator?.vibrate?.([25, 15, 25]);
-      setTimeout(() => setAddedToCart(false), 3500);
+      
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
       return true;
     } catch (err) {
       setCartError(err.response?.data?.message ?? err.message ?? "Failed to add to cart");
-      setTimeout(() => setCartError(null), 4000);
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+      errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
       return false;
     } finally {
       setAddingToCart(false);
@@ -698,10 +775,28 @@ export default function MarketDetail() {
   }, [product, selectedVariant, displayPrice, originalPrice, qty, addingToCart, isOutOfStock]);
 
   const handleBuyNow = useCallback(async () => {
-    if (await handleAddToCart()) navigate("/shop/cart");
+    const success = await handleAddToCart();
+    if (success) navigate("/shop/cart");
   }, [handleAddToCart, navigate]);
 
+  const handleShare = useCallback(() => {
+    if (navigator.share && product) {
+      navigator.share({
+        title: product.name,
+        text: `Check out ${product.name} on Loemart!`,
+        url: window.location.href,
+      }).catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(window.location.href);
+    }
+  }, [product]);
+
   const goToCart = useCallback(() => navigate("/shop/cart"), [navigate]);
+
+  const handleRatingSubmitted = useCallback(() => {
+    // Refetch product to get updated rating
+    fetchProduct();
+  }, [fetchProduct]);
 
   /* ════════════════════════════════════════════════════════
      ERROR SCREENS
@@ -771,15 +866,29 @@ export default function MarketDetail() {
                 </h2>
               )}
 
-              {/* Brand & Star Rating (Review count text stripped) */}
+              {/* Brand, Rating, Rate Product & Share */}
               <div className="mdp-brand-rating-row">
                 {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
-                {rating > 0 && (
-                  <div className="mdp-rating-inline">
-                    <StarRating rating={rating} />
-                    <span className="mdp-rating-num">{rating.toFixed(1)}</span>
-                  </div>
-                )}
+                
+                <div className="mdp-rating-inline">
+                  <StarRating rating={rating} />
+                  {rating > 0 && <span className="mdp-rating-num">{rating.toFixed(1)}</span>}
+                  
+                  {/* Rate Product CTA */}
+                  <button
+                    type="button"
+                    className="mdp-rate-link-btn"
+                    onClick={() => setShowRateModal(true)}
+                    aria-label="Rate this product"
+                  >
+                    <span className="mdp-icon-inline" aria-hidden="true">{Icon.pencil}</span>
+                    Rate Product
+                  </button>
+                </div>
+
+                <button type="button" className="mdp-share-btn" onClick={handleShare} aria-label="Share product">
+                  {Icon.share}
+                </button>
               </div>
 
               {/* Pricing Section */}
@@ -966,6 +1075,14 @@ export default function MarketDetail() {
       <CartToast show={addedToCart} productName={product?.name ?? "Item"} qty={qty} image={product ? getProductImage(product) : null} onView={goToCart} onClose={() => setAddedToCart(false)} />
       {showReport && product && <ReportModal productId={product.id} onClose={() => setShowReport(false)} />}
       {showProtection && <BuyerProtectionModal onClose={() => setShowProtection(false)} />}
+      {showRateModal && product && (
+        <RateProductModal
+          productId={product.id}
+          productName={product.name}
+          onClose={() => setShowRateModal(false)}
+          onRatingSubmitted={handleRatingSubmitted}
+        />
+      )}
     </>
   );
 }
