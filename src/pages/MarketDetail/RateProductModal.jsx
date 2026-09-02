@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
+import { API_URL } from "../../config/marketplace";
 
 const StarIcon = ({ filled }) => (
   <svg
@@ -13,8 +14,8 @@ const StarIcon = ({ filled }) => (
     strokeWidth={2}
     strokeLinecap="round"
     strokeLinejoin="round"
-    width={28}
-    height={28}
+    width={32}
+    height={32}
   >
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
   </svg>
@@ -45,30 +46,40 @@ export default function RateProductModal({ productId, productName, onClose, onRa
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!rating) return;
+
+    const token = localStorage.getItem("marketplace_token");
+    if (!token) {
+      setError("Please log in to submit a rating.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
-    const token = localStorage.getItem("marketplace_token");
-    const headers = token
-      ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
-      : { "Content-Type": "application/json" };
-
-    const RAW_BASE = import.meta.env.VITE_API_BASE_URL || "";
-    const API = `${RAW_BASE.replace(/\/+$/, "")}/api`;
-
     try {
+      // Points correctly to /api/shop/:id/reviews
       await axios.post(
-        `${API}/products/${productId}/reviews`,
+        `${API_URL}/${productId}/reviews`,
         { rating, comment },
-        { headers, timeout: 10000 }
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 10000,
+        }
       );
       setSubmitted(true);
-      if (onRatingSubmitted) onRatingSubmitted({ rating, comment });
+      if (onRatingSubmitted) onRatingSubmitted();
     } catch (err) {
-      setError(
-        err.response?.data?.message ||
-        "Failed to submit rating. Please check your connection and try again."
-      );
+      const status = err.response?.status;
+      if (status === 401) {
+        setError("Session expired. Please log in to submit a rating.");
+      } else if (status === 404) {
+        setError("Product or endpoint not found.");
+      } else {
+        setError(err.response?.data?.message || "Failed to submit rating. Please check your connection.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -80,7 +91,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
         {submitted ? (
           <div className="mdp-report-done" style={{ textAlign: "center", padding: "2rem 1rem" }}>
             <div style={{ fontSize: "3rem", color: "#10B981", marginBottom: "0.5rem" }}>✓</div>
-            <h3 style={{ margin: "0 0 0.5rem" }}>Thank You for Your Review!</h3>
+            <h3 style={{ margin: "0 0 0.5rem" }}>Thank You!</h3>
             <p style={{ color: "#6B7280", margin: "0 0 1.5rem" }}>
               Your rating helps other buyers make informed choices.
             </p>
@@ -88,7 +99,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
               type="button"
               className="mdp-done-btn"
               onClick={onClose}
-              style={{ padding: "0.6rem 2rem", borderRadius: "8px", background: "#111", color: "#fff", border: "none", cursor: "pointer" }}
+              style={{ width: "100%", padding: "0.8rem", borderRadius: "8px", background: "#111", color: "#fff", border: "none", cursor: "pointer", fontWeight: "bold" }}
             >
               Close
             </button>
@@ -153,7 +164,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
               />
 
               {error && (
-                <p style={{ color: "#EF4444", fontSize: "0.85rem", marginTop: "0.5rem" }}>
+                <p style={{ color: "#EF4444", fontSize: "0.85rem", marginTop: "0.75rem", fontWeight: "500" }}>
                   {error}
                 </p>
               )}
@@ -168,7 +179,8 @@ export default function RateProductModal({ productId, productName, onClose, onRa
                     border: "1px solid #D1D5DB",
                     background: "#F3F4F6",
                     color: "#374151",
-                    cursor: "pointer"
+                    cursor: "pointer",
+                    fontWeight: 500
                   }}
                 >
                   Cancel
