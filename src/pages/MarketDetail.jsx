@@ -266,6 +266,7 @@ const fetchServerCartCount = async () => {
 };
 
 const addToRecentlyViewed = (product) => {
+  if (!product || !product.id) return;
   try {
     const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((p) => p.id !== product.id);
     list.unshift({
@@ -511,6 +512,7 @@ export default function MarketDetail() {
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState(null);
   const [selectedVariant, setSelectedVariant] = useState(null);
+  const [retryCount,      setRetryCount]      = useState(0);
 
   /* ── Cart State ── */
   const [qty,          setQty]          = useState(1);
@@ -570,20 +572,49 @@ export default function MarketDetail() {
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
-    setLoading(true); setError(null); setProduct(null); setSelectedVariant(null); setQty(1);
+    setLoading(true); 
+    setError(null); 
+    setProduct(null); 
+    setSelectedVariant(null); 
+    setQty(1);
 
-    axios.get(`${API_URL}/${slug}`, { timeout: 12_000 })
+    // Form cleanly formatted request URL
+    const cleanBase = (API_URL || `${API}/products`).replace(/\/+$/, "");
+    const targetUrl = `${cleanBase}/${encodeURIComponent(slug)}`;
+
+    axios.get(targetUrl, { timeout: 15_000, headers: authHeaders() })
       .then(({ data }) => {
         if (cancelled) return;
-        const p = data?.data ?? data?.product ?? data;
+        
+        // Multi-level unwrapping for all possible backend API payload conventions
+        const p = data?.data?.product ?? data?.product ?? data?.data ?? data?.item ?? data;
+
+        if (!p || typeof p !== "object" || (!p.id && !p.name)) {
+          throw new Error("Invalid product payload structure");
+        }
+
         setProduct(p);
-        if (p?.variants?.length > 0) setSelectedVariant(p.variants[0]);
+        if (Array.isArray(p?.variants) && p.variants.length > 0) {
+          setSelectedVariant(p.variants[0]);
+        }
         addToRecentlyViewed(p);
       })
-      .catch((err) => { if (!cancelled) setError(err.response?.status === 404 ? "404" : "error"); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("❌ MarketDetail fetch error:", {
+          url: targetUrl,
+          status: err.response?.status,
+          message: err.message,
+          data: err.response?.data
+        });
+        setError(err.response?.status === 404 ? "404" : "error");
+      })
+      .finally(() => { 
+        if (!cancelled) setLoading(false); 
+      });
+
     return () => { cancelled = true; };
-  }, [slug]);
+  }, [slug, retryCount]);
 
   useEffect(() => {
     if (product?.name) {
@@ -684,11 +715,17 @@ export default function MarketDetail() {
       <div className="mdp-not-found">
         <div className="mdp-nf-illustration" aria-hidden="true">{error === "404" ? Icon.search : Icon.alert}</div>
         <h2>{error === "404" ? "Product Not Found" : "Something went wrong"}</h2>
-        <p>{error === "404" ? "This listing may have been removed." : "Could not load this product. Please try again."}</p>
+        <p>{error === "404" ? "This listing may have been removed or does not exist." : "Could not load this product. Please check your connection and try again."}</p>
         <div className="mdp-nf-actions">
-          <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => error === "404" ? navigate("/loemart") : window.location.reload()}>
-            {error === "404" ? "Browse Products" : "Try Again"}
-          </button>
+          {error === "404" ? (
+            <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => navigate("/loemart")}>
+              Browse Products
+            </button>
+          ) : (
+            <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => setRetryCount((c) => c + 1)}>
+              Try Again
+            </button>
+          )}
         </div>
       </div>
     );
