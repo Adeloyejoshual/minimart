@@ -4,7 +4,6 @@
 
 import React, { useState, useEffect, useCallback, memo } from "react";
 import axios from "axios";
-import { API_URL } from "../../config/marketplace";
 
 const StarIcon = ({ filled }) => (
   <svg viewBox="0 0 24 24" fill={filled ? "#F59E0B" : "none"} stroke="#F59E0B" strokeWidth={2} width={16} height={16}>
@@ -53,7 +52,9 @@ export default function ProductReviews({ productId, rating, reviewsCount, onOpen
     if (!productId) return;
     const currentOffset = reset ? 0 : offset;
     try {
-      const res = await axios.get(`${API_URL}/${productId}/reviews`, {
+      const rawBase = import.meta.env.VITE_API_BASE_URL || "";
+      const base = rawBase.replace(/\/+$/, "");
+      const res = await axios.get(`${base}/api/shop/${productId}/reviews`, {
         params: { limit: LIMIT, offset: currentOffset },
         timeout: 10000,
       });
@@ -157,7 +158,6 @@ export default function ProductReviews({ productId, rating, reviewsCount, onOpen
                 background: "#FFFFFF",
               }}
             >
-              {/* Review Header: User avatar, name, stars, date */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   {rev.user_avatar ? (
@@ -200,12 +200,10 @@ export default function ProductReviews({ productId, rating, reviewsCount, onOpen
                 </span>
               </div>
 
-              {/* Star Rating for this review */}
               <div style={{ marginBottom: "8px" }}>
                 <StarRating rating={rev.rating} />
               </div>
 
-              {/* Review Comment Text */}
               {rev.comment ? (
                 <p style={{ margin: 0, fontSize: "0.92rem", color: "#374151", lineHeight: "1.5" }}>
                   {rev.comment}
@@ -216,7 +214,6 @@ export default function ProductReviews({ productId, rating, reviewsCount, onOpen
             </div>
           ))}
 
-          {/* Load More Button */}
           {reviews.length < total && (
             <div style={{ textAlign: "center", marginTop: "12px" }}>
               <button
