@@ -8,28 +8,21 @@ import wishlistRouter        from "./wishlist.js";
 import reportRouter          from "./report.js";
 import shareRouter           from "./share.js";
 import reviewsRouter         from "./reviews.js";
-import getProductRouter      from "./getProduct.js"; // ← Moved to bottom!
+import getProductRouter      from "./getProduct.js"; // ← MUST BE LAST
 
 const router = express.Router();
 
-/* ══════════════════════════════════════════════════════════
-   ⚠️ EXPRESS ROUTE ORDER IS CRITICAL
-   1. Static routes (/suggestions, /trending)
-   2. Sub-action routes (/:id/reviews, /:slug/report, etc.)
-   3. General product detail route (/:slug) MUST BE LAST
-══════════════════════════════════════════════════════════ */
+/* Static routes */
+router.use("/", suggestionsRouter);
 
-/* 1. Static routes first */
-router.use("/", suggestionsRouter);      // GET /suggestions, /trending
-
-/* 2. Sub-action routes second */
-router.use("/", reviewsRouter);          // POST & GET /:idOrSlug/reviews
+/* Sub-action routes */
+router.use("/", reviewsRouter);          // POST /:idOrSlug/reviews
 router.use("/", relatedProductsRouter);  // GET /:slug/related
 router.use("/", wishlistRouter);         // POST /:slug/wishlist
 router.use("/", reportRouter);           // POST /:slug/report
 router.use("/", shareRouter);            // POST /:slug/share
 
-/* 3. Catch-all product detail route LAST */
+/* Catch-all route (LAST) */
 router.use("/", getProductRouter);       // GET /:slug
 
 export default router;
