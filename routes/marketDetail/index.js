@@ -1,4 +1,4 @@
-// routes/products/index.js
+// routes/marketDetail/index.js
 
 import express from "express";
 
