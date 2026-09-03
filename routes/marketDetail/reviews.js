@@ -1,15 +1,46 @@
 /**
  * routes/marketDetail/reviews.js
  * POST /api/shop/:idOrSlug/reviews
- * GET  /api/shop/:idOrSlug/reviews
  */
 
 import express from "express";
 import jwt from "jsonwebtoken";
-import { pool } from "../../config/db.js"; // or wherever your pool export is
+import { pool } from "../../config/db.js";
 
 const router = express.Router();
 
+let tableInitialized = false;
+
+// CockroachDB DDL statements MUST run outside explicit transactions
+async function ensureReviewsTable() {
+  if (tableInitialized) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS market.product_reviews (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        product_id UUID NOT NULL,
+        user_id TEXT NOT NULL,
+        rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        comment TEXT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT market_product_reviews_unique UNIQUE (product_id, user_id)
+      );
+    `);
+
+    await pool.query(`
+      ALTER TABLE market.products
+        ADD COLUMN IF NOT EXISTS rating NUMERIC(3,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS reviews_count INT DEFAULT 0;
+    `);
+
+    tableInitialized = true;
+  } catch (err) {
+    console.warn("[reviews schema init warning]:", err.message);
+  }
+}
+
+// Authentication Middleware
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -20,13 +51,13 @@ const authenticate = (req, res, next) => {
       });
     }
     const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret_key");
     req.user = decoded;
     next();
-  } catch {
+  } catch (err) {
     return res.status(401).json({
       success: false,
-      message: "Session expired. Please log in again.",
+      message: "Session expired or invalid token. Please log in again.",
     });
   }
 };
@@ -45,22 +76,26 @@ async function resolveProductId(idOrSlug) {
   return rows[0]?.id ?? null;
 }
 
-/* POST /:idOrSlug/reviews */
 router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
+  // 1. Ensure table exists BEFORE starting transaction block
+  await ensureReviewsTable();
+
   const client = await pool.connect();
   try {
     const { idOrSlug } = req.params;
     const { rating, comment } = req.body;
-    const userId = req.user.id || req.user.user_id;
+    
+    // Support all token payload structures
+    const userId = req.user?.id || req.user?.user_id || req.user?.userId || req.user?.sub;
 
     const numericRating = parseInt(rating, 10);
     if (!userId) {
-      return res.status(401).json({ success: false, message: "Invalid user token." });
+      return res.status(401).json({ success: false, message: "User ID not found in token." });
     }
     if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
       return res.status(400).json({
         success: false,
-        message: "Rating must be between 1 and 5.",
+        message: "Rating must be an integer between 1 and 5.",
       });
     }
 
@@ -69,36 +104,43 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found." });
     }
 
+    // 2. Pure DML Transaction Block
     await client.query("BEGIN");
 
-    const { rows: reviewRows } = await client.query(
-      `INSERT INTO market.product_reviews
-         (product_id, user_id, rating, comment, updated_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-       ON CONFLICT (product_id, user_id)
-       DO UPDATE SET
-         rating     = EXCLUDED.rating,
-         comment    = EXCLUDED.comment,
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [productId, userId, numericRating, comment?.trim() || null]
-    );
+    const upsertQuery = `
+      INSERT INTO market.product_reviews (product_id, user_id, rating, comment, updated_at)
+      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+      ON CONFLICT (product_id, user_id)
+      DO UPDATE SET
+        rating = EXCLUDED.rating,
+        comment = EXCLUDED.comment,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *;
+    `;
 
-    await client.query(
-      `WITH stats AS (
-         SELECT
-           COALESCE(AVG(rating), 0) AS avg_rating,
-           COUNT(*)::int            AS total_reviews
-         FROM market.product_reviews
-         WHERE product_id = $1
-       )
-       UPDATE market.products
-       SET
-         rating        = (SELECT avg_rating FROM stats),
-         reviews_count = (SELECT total_reviews FROM stats)
-       WHERE id = $1`,
-      [productId]
-    );
+    const { rows: reviewRows } = await client.query(upsertQuery, [
+      productId,
+      String(userId),
+      numericRating,
+      comment ? comment.trim() : null,
+    ]);
+
+    const updateStatsQuery = `
+      WITH stats AS (
+        SELECT
+          COALESCE(AVG(rating), 0) AS avg_rating,
+          COUNT(*)::int AS total_reviews
+        FROM market.product_reviews
+        WHERE product_id = $1
+      )
+      UPDATE market.products
+      SET
+        rating = (SELECT avg_rating FROM stats),
+        reviews_count = (SELECT total_reviews FROM stats)
+      WHERE id = $1;
+    `;
+
+    await client.query(updateStatsQuery, [productId]);
 
     await client.query("COMMIT");
 
@@ -108,59 +150,18 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
       data: reviewRows[0],
     });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("[POST /api/shop/:id/reviews]", err.message);
+    try { await client.query("ROLLBACK"); } catch (_) {}
+    console.error("[POST /api/shop/:id/reviews Error]:", err.message);
+    
+    // Return actual error message to the debug panel
     return res.status(500).json({
       success: false,
-      message: "Failed to submit review.",
+      message: err.message || "Failed to submit review.",
+      code: err.code,
+      detail: err.detail || err.hint,
     });
   } finally {
     client.release();
-  }
-});
-
-/* GET /:idOrSlug/reviews (optional list) */
-router.get("/:idOrSlug/reviews", async (req, res) => {
-  try {
-    const productId = await resolveProductId(req.params.idOrSlug);
-    if (!productId) {
-      return res.status(404).json({ success: false, message: "Product not found." });
-    }
-
-    const limit = Math.min(parseInt(req.query.limit || "10", 10), 50);
-    const offset = parseInt(req.query.offset || "0", 10);
-
-    const { rows } = await pool.query(
-      `SELECT
-         r.id, r.rating, r.comment, r.created_at,
-         u.name AS user_name,
-         u.profile_image AS user_avatar
-       FROM market.product_reviews r
-       LEFT JOIN market.users u ON u.id = r.user_id
-       WHERE r.product_id = $1
-       ORDER BY r.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [productId, limit, offset]
-    );
-
-    const countRes = await pool.query(
-      `SELECT COUNT(*)::int AS total
-       FROM market.product_reviews
-       WHERE product_id = $1`,
-      [productId]
-    );
-
-    return res.json({
-      success: true,
-      data: rows,
-      total: countRes.rows[0]?.total ?? 0,
-    });
-  } catch (err) {
-    console.error("[GET /api/shop/:id/reviews]", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load reviews.",
-    });
   }
 });
 
