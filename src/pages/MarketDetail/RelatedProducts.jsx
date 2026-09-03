@@ -1,30 +1,34 @@
-import React, { useState, useEffect, useCallback, memo } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import {
-  API_URL,
-  formatPrice,
-  getProductImage,
-  calcDiscount,
-} from "../../config/marketplace";
+import { API_URL, formatPrice, calcDiscount } from "../../config/marketplace";
 
-const RelatedProducts = memo(function RelatedProducts({ category, excludeId }) {
-  const navigate          = useNavigate();
+const RelatedProducts = React.memo(function RelatedProducts({ slug, limit = 6 }) {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
 
   useEffect(() => {
-    if (!category) return;
+    if (!slug) return;
+
+    let cancelled = false;
+
     axios
-      .get(API_URL, {
-        params: { category, limit: 8, sort: "newest" },
+      .get(`${API_URL}/${slug}/related`, {
+        params: { limit },
         timeout: 8000,
       })
       .then(({ data }) => {
-        const all = data?.data?.products ?? data?.products ?? [];
-        setItems(all.filter((p) => p.id !== excludeId).slice(0, 6));
+        if (cancelled) return;
+        setItems(data?.data ?? []);
       })
-      .catch(() => {});
-  }, [category, excludeId]);
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, limit]);
 
   if (!items.length) return null;
 
@@ -32,30 +36,19 @@ const RelatedProducts = memo(function RelatedProducts({ category, excludeId }) {
     <div className="md-related">
       <div className="md-related-header">
         <h3>You might also like</h3>
-        <button
-          className="md-related-all"
-          onClick={() => navigate(`/minimart?cat=${category}`)}
-        >
-          See all →
-        </button>
       </div>
 
       <div className="md-related-scroll">
         {items.map((p) => (
-          <RelatedCard
-            key={p.id}
-            product={p}
-            navigate={navigate}
-          />
+          <RelatedCard key={p.id} product={p} navigate={navigate} />
         ))}
       </div>
     </div>
   );
 });
 
-const RelatedCard = memo(function RelatedCard({ product: p, navigate }) {
-  const img = getProductImage(p);
-  const pct = calcDiscount(p.price, p.original_price);
+const RelatedCard = React.memo(function RelatedCard({ product: p, navigate }) {
+  const pct = calcDiscount(p.price, p.compare_at_price);
 
   const handleClick = useCallback(() => {
     navigate(`/shop/${p.slug ?? p.id}`);
@@ -71,14 +64,12 @@ const RelatedCard = memo(function RelatedCard({ product: p, navigate }) {
       aria-label={`${p.name} — ${formatPrice(p.price)}`}
     >
       <div className="md-related-img-wrap">
-        {img ? (
-          <img src={img} alt={p.name} loading="lazy" />
+        {p.image_url ? (
+          <img src={p.image_url} alt={p.name} loading="lazy" />
         ) : (
           <div className="md-related-placeholder">📦</div>
         )}
-        {pct >= 10 && (
-          <span className="md-related-disc">-{pct}%</span>
-        )}
+        {pct >= 10 && <span className="md-related-disc">-{pct}%</span>}
       </div>
       <div className="md-related-info">
         <p className="md-related-name">{p.name}</p>
