@@ -1,6 +1,6 @@
 /**
  * routes/products/reviews.js
- * Handles: POST /api/shop/:idOrSlug/reviews
+ * POST /api/shop/:idOrSlug/reviews
  */
 
 import express from "express";
@@ -9,23 +9,22 @@ import { pool } from "../../config/db.js";
 
 const router = express.Router();
 
-// Auth Middleware
+// JWT Middleware
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ success: false, message: "Please log in to leave a review." });
+      return res.status(401).json({ success: false, message: "Please log in to submit a review." });
     }
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret_key");
     req.user = decoded;
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, message: "Session expired. Please log in again." });
+    return res.status(401).json({ success: false, message: "Invalid or expired token. Please log in again." });
   }
 };
 
-// POST /:idOrSlug/reviews
 router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -38,44 +37,39 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: "Rating must be between 1 and 5." });
     }
 
-    // Resolve Product UUID if slug was passed
+    // Resolve Product by ID or Slug
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
-    let productId = null;
+    const productQuery = isUuid
+      ? "SELECT id FROM market.products WHERE id = $1 AND deleted_at IS NULL"
+      : "SELECT id FROM market.products WHERE slug = $1 AND deleted_at IS NULL";
 
-    if (isUuid) {
-      productId = idOrSlug;
-    } else {
-      const pRes = await client.query(
-        "SELECT id FROM market.products WHERE slug = $1 AND deleted_at IS NULL",
-        [idOrSlug]
-      );
-      if (!pRes.rows.length) {
-        return res.status(404).json({ success: false, message: "Product not found." });
-      }
-      productId = pRes.rows[0].id;
+    const pRes = await client.query(productQuery, [idOrSlug]);
+    if (!pRes.rows.length) {
+      return res.status(404).json({ success: false, message: "Product not found." });
     }
+    const productId = pRes.rows[0].id;
 
     await client.query("BEGIN");
 
     // Upsert review (1 review per user per product)
-    const reviewQuery = `
+    const upsertQuery = `
       INSERT INTO market.product_reviews (product_id, user_id, rating, comment, updated_at)
       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-      ON CONFLICT (product_id, user_id) 
-      DO UPDATE SET 
+      ON CONFLICT (product_id, user_id)
+      DO UPDATE SET
         rating = EXCLUDED.rating,
         comment = EXCLUDED.comment,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *;
     `;
-    const { rows: reviewRows } = await client.query(reviewQuery, [
+    const { rows: reviewRows } = await client.query(upsertQuery, [
       productId,
       userId,
       numericRating,
-      comment ? comment.trim() : null,
+      comment ? comment.trim() : null
     ]);
 
-    // Recalculate average rating & total review count
+    // Recalculate average rating & total reviews
     const updateStatsQuery = `
       WITH stats AS (
         SELECT 
@@ -96,13 +90,13 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Rating submitted successfully!",
-      data: reviewRows[0],
+      message: "Review submitted successfully!",
+      data: reviewRows[0]
     });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[POST /reviews Error]:", err.message);
-    res.status(500).json({ success: false, message: "Failed to submit rating." });
+    res.status(500).json({ success: false, message: "Failed to submit review." });
   } finally {
     client.release();
   }
