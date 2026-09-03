@@ -31,6 +31,7 @@ import ProductInfo        from "./MarketDetail/ProductInfo";
 import SpecsSection       from "./MarketDetail/SpecsSection";
 import RelatedProducts    from "./MarketDetail/RelatedProducts";
 import RateProductModal   from "./MarketDetail/RateProductModal";
+import ProductReviews     from "./MarketDetail/ProductReviews";
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
@@ -544,10 +545,11 @@ export default function MarketDetail() {
   const { items: wishlist, toggle: toggleWishlist } = useWishlist();
 
   /* ── Product State ── */
-  const [product,         setProduct]         = useState(null);
-  const [loading,         setLoading]         = useState(true);
-  const [error,           setError]           = useState(null);
-  const [selectedVariant, setSelectedVariant] = useState(null);
+  const [product,          setProduct]          = useState(null);
+  const [loading,          setLoading]          = useState(true);
+  const [error,            setError]            = useState(null);
+  const [selectedVariant,  setSelectedVariant]  = useState(null);
+  const [reviewRefreshKey, setReviewRefreshKey] = useState(0);
 
   /* ── Cart State ── */
   const [qty,          setQty]          = useState(1);
@@ -856,7 +858,7 @@ export default function MarketDetail() {
                 </h2>
               )}
 
-              {/* Brand, Static Rating & Share (No Rate CTA here anymore) */}
+              {/* Brand, Static Rating & Share */}
               <div className="mdp-brand-rating-row">
                 {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
                 
@@ -986,40 +988,14 @@ export default function MarketDetail() {
 
               <FAQAccordion />
 
-              {/* ── Ratings & Reviews (Lower Section) ── */}
-              <div className="md-section mdp-section mdp-section--reviews">
-                <h3 className="md-section-title mdp-section-title">
-                  <span className="mdp-icon-inline" aria-hidden="true">{Icon.star}</span> 
-                  Ratings & Reviews
-                </h3>
-
-                <div className="mdp-reviews-summary" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '12px', padding: '16px', marginTop: '8px' }}>
-                  <div className="mdp-reviews-score" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <span style={{ fontSize: '2.2rem', fontWeight: 'bold', lineHeight: 1, color: '#111827' }}>
-                      {rating > 0 ? rating.toFixed(1) : "—"}
-                    </span>
-                    <StarRating rating={rating} />
-                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#6B7280' }}>
-                      {product.reviews_count > 0 
-                        ? `Based on ${product.reviews_count} review${product.reviews_count > 1 ? 's' : ''}` 
-                        : "No ratings yet"}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowRateModal(true)}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 18px',
-                      background: '#111827', color: '#ffffff', border: 'none', borderRadius: '8px',
-                      fontSize: '0.92rem', fontWeight: 600, cursor: 'pointer'
-                    }}
-                  >
-                    <span aria-hidden="true">{Icon.pencil}</span>
-                    Rate this product
-                  </button>
-                </div>
-              </div>
+              {/* ── Ratings & Reviews Feedback List Section ── */}
+              <ProductReviews
+                productId={product.id}
+                rating={rating}
+                reviewsCount={product.reviews_count}
+                onOpenRateModal={() => setShowRateModal(true)}
+                refreshKey={reviewRefreshKey}
+              />
 
               {/* Related Products */}
               <div className="mdp-section mdp-section--related">
@@ -1098,7 +1074,8 @@ export default function MarketDetail() {
           onClose={() => setShowRateModal(false)}
           onRatingSubmitted={() => {
             setShowRateModal(false);
-            fetchProduct(); // silently refresh to get the updated rating
+            fetchProduct(); // silently refresh product stats
+            setReviewRefreshKey((k) => k + 1); // refresh review feedback list
           }}
         />
       )}
