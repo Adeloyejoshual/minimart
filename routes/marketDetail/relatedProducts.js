@@ -9,6 +9,38 @@ import { pool } from "../../config/db.js";
 
 const router = express.Router();
 
+let tableInitialized = false;
+
+// CockroachDB DDL statements MUST run outside explicit transactions
+async function ensureReviewsTable() {
+  if (tableInitialized) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS market.product_reviews (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        product_id UUID NOT NULL,
+        user_id TEXT NOT NULL,
+        rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        comment TEXT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT market_product_reviews_unique UNIQUE (product_id, user_id)
+      );
+    `);
+
+    await pool.query(`
+      ALTER TABLE market.products
+        ADD COLUMN IF NOT EXISTS rating NUMERIC(3,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS reviews_count INT DEFAULT 0;
+    `);
+
+    tableInitialized = true;
+  } catch (err) {
+    console.warn("[reviews schema init warning]:", err.message);
+  }
+}
+
+// Authentication Middleware
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -45,11 +77,16 @@ async function resolveProductId(idOrSlug) {
 }
 
 router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
+  // 1. Ensure table exists BEFORE starting transaction block
+  await ensureReviewsTable();
+
   const client = await pool.connect();
   try {
     const { idOrSlug } = req.params;
     const { rating, comment } = req.body;
-    const userId = req.user.id || req.user.user_id || req.user.userId;
+    
+    // Support all token payload structures
+    const userId = req.user?.id || req.user?.user_id || req.user?.userId || req.user?.sub;
 
     const numericRating = parseInt(rating, 10);
     if (!userId) {
@@ -67,59 +104,43 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found." });
     }
 
+    // 2. Pure DML Transaction Block
     await client.query("BEGIN");
 
-    // 1. Auto-ensure table exists (CockroachDB safe)
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS market.product_reviews (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        product_id UUID NOT NULL,
-        user_id UUID NOT NULL,
-        rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
-        comment TEXT,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT market_product_reviews_unique UNIQUE (product_id, user_id)
-      );
-    `);
+    const upsertQuery = `
+      INSERT INTO market.product_reviews (product_id, user_id, rating, comment, updated_at)
+      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+      ON CONFLICT (product_id, user_id)
+      DO UPDATE SET
+        rating = EXCLUDED.rating,
+        comment = EXCLUDED.comment,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *;
+    `;
 
-    // 2. Ensure rating stats columns exist on market.products
-    await client.query(`
-      ALTER TABLE market.products
-        ADD COLUMN IF NOT EXISTS rating NUMERIC(3,2) DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS reviews_count INT DEFAULT 0;
-    `);
+    const { rows: reviewRows } = await client.query(upsertQuery, [
+      productId,
+      String(userId),
+      numericRating,
+      comment ? comment.trim() : null,
+    ]);
 
-    // 3. Upsert review
-    const { rows: reviewRows } = await client.query(
-      `INSERT INTO market.product_reviews
-         (product_id, user_id, rating, comment, updated_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-       ON CONFLICT (product_id, user_id)
-       DO UPDATE SET
-         rating     = EXCLUDED.rating,
-         comment    = EXCLUDED.comment,
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [productId, userId, numericRating, comment?.trim() || null]
-    );
+    const updateStatsQuery = `
+      WITH stats AS (
+        SELECT
+          COALESCE(AVG(rating), 0) AS avg_rating,
+          COUNT(*)::int AS total_reviews
+        FROM market.product_reviews
+        WHERE product_id = $1
+      )
+      UPDATE market.products
+      SET
+        rating = (SELECT avg_rating FROM stats),
+        reviews_count = (SELECT total_reviews FROM stats)
+      WHERE id = $1;
+    `;
 
-    // 4. Recalculate average rating & reviews count
-    await client.query(
-      `WITH stats AS (
-         SELECT
-           COALESCE(AVG(rating), 0) AS avg_rating,
-           COUNT(*)::int            AS total_reviews
-         FROM market.product_reviews
-         WHERE product_id = $1
-       )
-       UPDATE market.products
-       SET
-         rating        = (SELECT avg_rating FROM stats),
-         reviews_count = (SELECT total_reviews FROM stats)
-       WHERE id = $1`,
-      [productId]
-    );
+    await client.query(updateStatsQuery, [productId]);
 
     await client.query("COMMIT");
 
@@ -129,8 +150,10 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
       data: reviewRows[0],
     });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("[POST /api/shop/:id/reviews Error]:", err);
+    try { await client.query("ROLLBACK"); } catch (_) {}
+    console.error("[POST /api/shop/:id/reviews Error]:", err.message);
+    
+    // Return actual error message to the debug panel
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to submit review.",
