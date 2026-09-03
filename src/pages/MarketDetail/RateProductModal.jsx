@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
+import { API_URL } from "../../config/marketplace";
 
 const StarIcon = ({ filled }) => (
   <svg
@@ -43,6 +44,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
     e.preventDefault();
     if (!rating || !productId) return;
 
+    // Get marketplace_token from localStorage
     const token = localStorage.getItem("marketplace_token");
     if (!token) {
       setError("Please log in to submit a rating.");
@@ -53,14 +55,9 @@ export default function RateProductModal({ productId, productName, onClose, onRa
     setError(null);
 
     try {
-      const RAW_BASE = import.meta.env.VITE_API_BASE_URL || "";
-      const BASE = RAW_BASE.replace(/\/+$/, "");
-      
-      // Explicitly target /api/shop/:id/reviews
-      const targetUrl = `${BASE}/api/shop/${productId}/reviews`;
-
+      // API_URL = /api/shop -> POST /api/shop/:productId/reviews
       await axios.post(
-        targetUrl,
+        `${API_URL}/${productId}/reviews`,
         { rating, comment },
         {
           headers: {
@@ -74,11 +71,11 @@ export default function RateProductModal({ productId, productName, onClose, onRa
       setSubmitted(true);
       if (onRatingSubmitted) onRatingSubmitted();
     } catch (err) {
-      const backendMessage = err.response?.data?.message;
-      if (backendMessage) {
-        setError(backendMessage);
-      } else if (err.response?.status === 404) {
-        setError("Endpoint not found. Please restart your backend server.");
+      const msg = err.response?.data?.message;
+      if (msg) {
+        setError(msg);
+      } else if (err.response?.status === 401) {
+        setError("Session expired. Please log in again.");
       } else {
         setError("Failed to submit rating. Please try again.");
       }
