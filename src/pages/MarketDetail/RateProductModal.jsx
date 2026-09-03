@@ -29,11 +29,8 @@ export default function RateProductModal({ productId, productName, onClose, onRa
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
 
-  // Close on Escape key and prevent background scroll
   useEffect(() => {
-    const handleKey = (e) => {
-      if (e.key === "Escape") onClose();
-    };
+    const handleKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handleKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -57,9 +54,9 @@ export default function RateProductModal({ productId, productName, onClose, onRa
     setError(null);
 
     try {
-      // Points correctly to /api/shop/:id/reviews
+      const targetId = productId || "";
       await axios.post(
-        `${API_URL}/${productId}/reviews`,
+        `${API_URL}/${targetId}/reviews`,
         { rating, comment },
         {
           headers: {
@@ -72,13 +69,13 @@ export default function RateProductModal({ productId, productName, onClose, onRa
       setSubmitted(true);
       if (onRatingSubmitted) onRatingSubmitted();
     } catch (err) {
-      const status = err.response?.status;
-      if (status === 401) {
-        setError("Session expired. Please log in to submit a rating.");
-      } else if (status === 404) {
-        setError("Product or endpoint not found.");
+      const backendMessage = err.response?.data?.message;
+      if (backendMessage) {
+        setError(backendMessage);
+      } else if (err.response?.status === 404) {
+        setError("Endpoint or product not found. Please restart your backend server.");
       } else {
-        setError(err.response?.data?.message || "Failed to submit rating. Please check your connection.");
+        setError("Failed to submit rating. Please try again.");
       }
     } finally {
       setSubmitting(false);
