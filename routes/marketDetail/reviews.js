@@ -1,5 +1,6 @@
 /**
  * routes/marketDetail/reviews.js
+ * GET /api/shop/:idOrSlug/reviews
  * POST /api/shop/:idOrSlug/reviews
  */
 
@@ -11,7 +12,6 @@ const router = express.Router();
 
 let tableInitialized = false;
 
-// CockroachDB DDL statements MUST run outside explicit transactions
 async function ensureReviewsTable() {
   if (tableInitialized) return;
   try {
@@ -27,47 +27,29 @@ async function ensureReviewsTable() {
         CONSTRAINT market_product_reviews_unique UNIQUE (product_id, user_id)
       );
     `);
-
-    await pool.query(`
-      ALTER TABLE market.products
-        ADD COLUMN IF NOT EXISTS rating NUMERIC(3,2) DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS reviews_count INT DEFAULT 0;
-    `);
-
     tableInitialized = true;
   } catch (err) {
     console.warn("[reviews schema init warning]:", err.message);
   }
 }
 
-// Authentication Middleware
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        message: "Please log in to submit a review.",
-      });
+      return res.status(401).json({ success: false, message: "Please log in to submit a review." });
     }
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret_key");
     req.user = decoded;
     next();
-  } catch (err) {
-    return res.status(401).json({
-      success: false,
-      message: "Session expired or invalid token. Please log in again.",
-    });
+  } catch {
+    return res.status(401).json({ success: false, message: "Session expired. Please log in again." });
   }
 };
 
 async function resolveProductId(idOrSlug) {
-  const isUuid =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      idOrSlug
-    );
-
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
   const q = isUuid
     ? `SELECT id FROM market.products WHERE id = $1 AND deleted_at IS NULL`
     : `SELECT id FROM market.products WHERE slug = $1 AND deleted_at IS NULL`;
@@ -76,16 +58,59 @@ async function resolveProductId(idOrSlug) {
   return rows[0]?.id ?? null;
 }
 
-router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
-  // 1. Ensure table exists BEFORE starting transaction block
+/* ── 1. GET /api/shop/:idOrSlug/reviews ── */
+router.get("/:idOrSlug/reviews", async (req, res) => {
   await ensureReviewsTable();
+  try {
+    const { idOrSlug } = req.params;
+    const limit = Math.min(parseInt(req.query.limit || "10", 10), 50);
+    const offset = parseInt(req.query.offset || "0", 10);
 
+    const productId = await resolveProductId(idOrSlug);
+    if (!productId) {
+      return res.status(404).json({ success: false, message: "Product not found." });
+    }
+
+    // Join with public.users or market.users to get reviewer name & avatar
+    const { rows } = await pool.query(
+      `SELECT
+         r.id, 
+         r.rating, 
+         r.comment, 
+         r.created_at,
+         COALESCE(u.name, 'Verified Buyer') AS user_name,
+         u.profile_image AS user_avatar
+       FROM market.product_reviews r
+       LEFT JOIN public.users u ON u.id::text = r.user_id
+       WHERE r.product_id = $1
+       ORDER BY r.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [productId, limit, offset]
+    );
+
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM market.product_reviews WHERE product_id = $1`,
+      [productId]
+    );
+
+    return res.json({
+      success: true,
+      data: rows,
+      total: countRes.rows[0]?.total ?? 0,
+    });
+  } catch (err) {
+    console.error("[GET /api/shop/:id/reviews Error]:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to load reviews." });
+  }
+});
+
+/* ── 2. POST /api/shop/:idOrSlug/reviews ── */
+router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
+  await ensureReviewsTable();
   const client = await pool.connect();
   try {
     const { idOrSlug } = req.params;
     const { rating, comment } = req.body;
-    
-    // Support all token payload structures
     const userId = req.user?.id || req.user?.user_id || req.user?.userId || req.user?.sub;
 
     const numericRating = parseInt(rating, 10);
@@ -93,10 +118,7 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
       return res.status(401).json({ success: false, message: "User ID not found in token." });
     }
     if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
-      return res.status(400).json({
-        success: false,
-        message: "Rating must be an integer between 1 and 5.",
-      });
+      return res.status(400).json({ success: false, message: "Rating must be between 1 and 5." });
     }
 
     const productId = await resolveProductId(idOrSlug);
@@ -104,7 +126,6 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found." });
     }
 
-    // 2. Pure DML Transaction Block
     await client.query("BEGIN");
 
     const upsertQuery = `
@@ -141,7 +162,6 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
     `;
 
     await client.query(updateStatsQuery, [productId]);
-
     await client.query("COMMIT");
 
     return res.status(201).json({
@@ -152,13 +172,9 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) {}
     console.error("[POST /api/shop/:id/reviews Error]:", err.message);
-    
-    // Return actual error message to the debug panel
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to submit review.",
-      code: err.code,
-      detail: err.detail || err.hint,
     });
   } finally {
     client.release();
