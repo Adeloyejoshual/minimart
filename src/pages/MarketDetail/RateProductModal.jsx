@@ -32,11 +32,11 @@ export default function RateProductModal({ productId, productName, onClose, onRa
   useEffect(() => {
     const handleKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handleKey);
-    const prev = document.body.style.overflow;
+    const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", handleKey);
-      document.body.style.overflow = prev;
+      document.body.style.overflow = prevOverflow;
     };
   }, [onClose]);
 
@@ -44,7 +44,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
     e.preventDefault();
     if (!rating || !productId) return;
 
-    // Get marketplace_token from localStorage
+    // Use marketplace_token from localStorage
     const token = localStorage.getItem("marketplace_token");
     if (!token) {
       setError("Please log in to submit a rating.");
@@ -55,7 +55,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
     setError(null);
 
     try {
-      // API_URL = /api/shop -> POST /api/shop/:productId/reviews
+      // Sends request to /api/shop/:productId/reviews
       await axios.post(
         `${API_URL}/${productId}/reviews`,
         { rating, comment },
@@ -71,9 +71,9 @@ export default function RateProductModal({ productId, productName, onClose, onRa
       setSubmitted(true);
       if (onRatingSubmitted) onRatingSubmitted();
     } catch (err) {
-      const msg = err.response?.data?.message;
-      if (msg) {
-        setError(msg);
+      const backendMsg = err.response?.data?.message;
+      if (backendMsg) {
+        setError(backendMsg);
       } else if (err.response?.status === 401) {
         setError("Session expired. Please log in again.");
       } else {
@@ -92,7 +92,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
             <div style={{ fontSize: "3rem", color: "#10B981", marginBottom: "0.5rem" }}>✓</div>
             <h3 style={{ margin: "0 0 0.5rem" }}>Thank You!</h3>
             <p style={{ color: "#6B7280", margin: "0 0 1.5rem" }}>
-              Your rating helps other buyers make informed choices.
+              Your review has been published.
             </p>
             <button
               type="button"
@@ -108,6 +108,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
             <div className="mdp-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #E5E7EB", padding: "1rem 1.25rem" }}>
               <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 600 }}>Rate & Review</h3>
               <button
+                type="button"
                 onClick={onClose}
                 aria-label="Close modal"
                 style={{ background: "none", border: "none", fontSize: "1.25rem", cursor: "pointer", color: "#6B7280" }}
@@ -121,7 +122,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
                 How would you rate <strong>{productName}</strong>?
               </p>
 
-              {/* Star Rating Picker */}
+              {/* Star Rating Selection */}
               <div
                 style={{ display: "flex", gap: "6px", marginBottom: "1.25rem", cursor: "pointer" }}
                 onMouseLeave={() => setHoverRating(0)}
@@ -140,7 +141,7 @@ export default function RateProductModal({ productId, productName, onClose, onRa
                 ))}
               </div>
 
-              {/* Review Text */}
+              {/* Optional Text Review */}
               <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.9rem", color: "#4B5563" }}>
                 Write your review (Optional)
               </label>
