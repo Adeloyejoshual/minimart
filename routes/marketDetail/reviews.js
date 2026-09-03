@@ -1,6 +1,6 @@
 /**
  * routes/products/reviews.js
- * POST /api/shop/:idOrSlug/reviews
+ * Handles: POST /:idOrSlug/reviews
  */
 
 import express from "express";
@@ -9,7 +9,7 @@ import { pool } from "../../config/db.js";
 
 const router = express.Router();
 
-// JWT Middleware
+// Authentication Middleware
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -21,7 +21,7 @@ const authenticate = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, message: "Invalid or expired token. Please log in again." });
+    return res.status(401).json({ success: false, message: "Session expired. Please log in again." });
   }
 };
 
@@ -37,21 +37,23 @@ router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: "Rating must be between 1 and 5." });
     }
 
-    // Resolve Product by ID or Slug
+    // Check if ID is UUID or Slug
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
-    const productQuery = isUuid
+    const findQuery = isUuid
       ? "SELECT id FROM market.products WHERE id = $1 AND deleted_at IS NULL"
       : "SELECT id FROM market.products WHERE slug = $1 AND deleted_at IS NULL";
 
-    const pRes = await client.query(productQuery, [idOrSlug]);
-    if (!pRes.rows.length) {
+    const { rows: productRows } = await client.query(findQuery, [idOrSlug]);
+
+    if (!productRows.length) {
       return res.status(404).json({ success: false, message: "Product not found." });
     }
-    const productId = pRes.rows[0].id;
+
+    const productId = productRows[0].id;
 
     await client.query("BEGIN");
 
-    // Upsert review (1 review per user per product)
+    // Upsert review into DB
     const upsertQuery = `
       INSERT INTO market.product_reviews (product_id, user_id, rating, comment, updated_at)
       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
