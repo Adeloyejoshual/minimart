@@ -1,167 +1,111 @@
 /**
- * routes/marketDetail/reviews.js
- * POST /api/shop/:idOrSlug/reviews
+ * routes/market/getrelatedproducts.js
+ * GET /api/shop/:slug/related
+ *
+ * Returns related products for a given product slug, using the
+ * CockroachDB category tree so results degrade gracefully:
+ *  depth 0 = same category
+ *  depth 1 = same parent category (siblings)
+ *  depth 2 = same grandparent category, etc.
+ * Nearer-category matches are ranked first, then by popularity/recency.
  */
 
 import express from "express";
-import jwt from "jsonwebtoken";
 import { pool } from "../../config/db.js";
 
 const router = express.Router();
 
-let tableInitialized = false;
-
-// CockroachDB DDL statements MUST run outside explicit transactions
-async function ensureReviewsTable() {
-  if (tableInitialized) return;
+router.get("/:slug/related", async (req, res) => {
   try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS market.product_reviews (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        product_id UUID NOT NULL,
-        user_id TEXT NOT NULL,
-        rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
-        comment TEXT,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT market_product_reviews_unique UNIQUE (product_id, user_id)
-      );
-    `);
+    const { slug } = req.params;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 12, 50);
 
-    await pool.query(`
-      ALTER TABLE market.products
-        ADD COLUMN IF NOT EXISTS rating NUMERIC(3,2) DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS reviews_count INT DEFAULT 0;
-    `);
+    const query = `
+      WITH RECURSIVE target AS (
+        SELECT p.id, p.category_id
+        FROM market.products p
+        WHERE p.slug = $1 AND p.deleted_at IS NULL
+      ),
+      category_ancestors AS (
+        -- Anchor: the target product's own category, depth 0
+        SELECT c.id, c.parent_id, 0 AS depth
+        FROM market.categories c
+        JOIN target t ON t.category_id = c.id
 
-    tableInitialized = true;
-  } catch (err) {
-    console.warn("[reviews schema init warning]:", err.message);
-  }
-}
+        UNION ALL
 
-// Authentication Middleware
-const authenticate = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        message: "Please log in to submit a review.",
-      });
-    }
-    const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret_key");
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({
-      success: false,
-      message: "Session expired or invalid token. Please log in again.",
-    });
-  }
-};
-
-async function resolveProductId(idOrSlug) {
-  const isUuid =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      idOrSlug
-    );
-
-  const q = isUuid
-    ? `SELECT id FROM market.products WHERE id = $1 AND deleted_at IS NULL`
-    : `SELECT id FROM market.products WHERE slug = $1 AND deleted_at IS NULL`;
-
-  const { rows } = await pool.query(q, [idOrSlug]);
-  return rows[0]?.id ?? null;
-}
-
-router.post("/:idOrSlug/reviews", authenticate, async (req, res) => {
-  // 1. Ensure table exists BEFORE starting transaction block
-  await ensureReviewsTable();
-
-  const client = await pool.connect();
-  try {
-    const { idOrSlug } = req.params;
-    const { rating, comment } = req.body;
-    
-    // Support all token payload structures
-    const userId = req.user?.id || req.user?.user_id || req.user?.userId || req.user?.sub;
-
-    const numericRating = parseInt(rating, 10);
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "User ID not found in token." });
-    }
-    if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
-      return res.status(400).json({
-        success: false,
-        message: "Rating must be an integer between 1 and 5.",
-      });
-    }
-
-    const productId = await resolveProductId(idOrSlug);
-    if (!productId) {
-      return res.status(404).json({ success: false, message: "Product not found." });
-    }
-
-    // 2. Pure DML Transaction Block
-    await client.query("BEGIN");
-
-    const upsertQuery = `
-      INSERT INTO market.product_reviews (product_id, user_id, rating, comment, updated_at)
-      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-      ON CONFLICT (product_id, user_id)
-      DO UPDATE SET
-        rating = EXCLUDED.rating,
-        comment = EXCLUDED.comment,
-        updated_at = CURRENT_TIMESTAMP
-      RETURNING *;
-    `;
-
-    const { rows: reviewRows } = await client.query(upsertQuery, [
-      productId,
-      String(userId),
-      numericRating,
-      comment ? comment.trim() : null,
-    ]);
-
-    const updateStatsQuery = `
-      WITH stats AS (
-        SELECT
-          COALESCE(AVG(rating), 0) AS avg_rating,
-          COUNT(*)::int AS total_reviews
-        FROM market.product_reviews
-        WHERE product_id = $1
+        -- Recursive: walk up to parent categories, depth increases
+        SELECT c.id, c.parent_id, ca.depth + 1
+        FROM market.categories c
+        JOIN category_ancestors ca ON c.id = ca.parent_id
+      ),
+      candidate_products AS (
+        SELECT DISTINCT ON (p.id)
+          p.id,
+          p.slug,
+          p.name,
+          p.price,
+          p.compare_at_price,
+          p.view_count,
+          p.created_at,
+          ca.depth AS category_distance
+        FROM market.products p
+        JOIN category_ancestors ca ON ca.id = p.category_id
+        CROSS JOIN target t
+        WHERE p.id != t.id
+          AND p.status IN ('approved', 'active')
+          AND p.is_active = true
+          AND p.is_hidden = false
+          AND p.is_paused = false
+          AND p.deleted_at IS NULL
+        ORDER BY p.id, ca.depth ASC
       )
-      UPDATE market.products
-      SET
-        rating = (SELECT avg_rating FROM stats),
-        reviews_count = (SELECT total_reviews FROM stats)
-      WHERE id = $1;
+      SELECT
+        cp.id,
+        cp.slug,
+        cp.name,
+        cp.price,
+        cp.compare_at_price,
+        cp.category_distance,
+        cp.view_count,
+        (
+          SELECT pi.image_url
+          FROM market.product_images pi
+          WHERE pi.product_id = cp.id
+          ORDER BY pi.is_primary DESC, pi.sort_order ASC, pi.id ASC
+          LIMIT 1
+        ) AS image_url
+      FROM candidate_products cp
+      ORDER BY cp.category_distance ASC, cp.view_count DESC, cp.created_at DESC
+      LIMIT $2;
     `;
 
-    await client.query(updateStatsQuery, [productId]);
+    const { rows } = await pool.query(query, [slug, limit]);
 
-    await client.query("COMMIT");
+    // Distinguish "product doesn't exist" from "product exists, no relatives"
+    if (!rows.length) {
+      const exists = await pool.query(
+        "SELECT 1 FROM market.products WHERE slug = $1 AND deleted_at IS NULL",
+        [slug]
+      );
+      if (!exists.rows.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+      }
+    }
 
-    return res.status(201).json({
+    res.json({
       success: true,
-      message: "Review submitted successfully!",
-      data: reviewRows[0],
+      data: rows,
     });
   } catch (err) {
-    try { await client.query("ROLLBACK"); } catch (_) {}
-    console.error("[POST /api/shop/:id/reviews Error]:", err.message);
-    
-    // Return actual error message to the debug panel
-    return res.status(500).json({
+    console.error("[GET /api/shop/:slug/related]", err.message);
+    res.status(500).json({
       success: false,
-      message: err.message || "Failed to submit review.",
-      code: err.code,
-      detail: err.detail || err.hint,
+      message: "Failed to fetch related products",
     });
-  } finally {
-    client.release();
   }
 });
 
