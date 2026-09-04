@@ -36,36 +36,24 @@ import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
 
-/* ═══════════════════════════════════════════════════════════════
-   ENV + API
-═══════════════════════════════════════════════════════════════ */
 const RAW_BASE       = import.meta.env.VITE_API_BASE_URL || "";
 const BASE           = RAW_BASE.replace(/\/+$/, "");
 const API            = `${BASE}/api`;
 const CART_ITEMS_URL = `${API}/cart/items`;
 const CART_URL       = `${API}/cart`;
 
-/* ═══════════════════════════════════════════════════════════════
-   CONSTANTS
-═══════════════════════════════════════════════════════════════ */
 const CART_KEY   = "mm_cart";
 const RECENT_KEY = "lm-recently-viewed";
 const MAX_QTY    = 10;
 
-/* ═══════════════════════════════════════════════════════════════
-   TRANSPARENT SVG ICONS
-═══════════════════════════════════════════════════════════════ */
 const Icon = {
   flag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
   check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polyline points="20 6 9 17 4 12"/></svg>,
   cart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
-  minus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/></svg>,
-  plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
   star: <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   starOutline: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   truck: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
   chevron: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><polyline points="9 18 15 12 9 6"/></svg>,
-  arrow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
   box: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
   shield: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   sparkle: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15 8 21 9 16 13 18 19 12 16 6 19 8 13 3 9 9 8 12 2"/></svg>,
@@ -96,115 +84,6 @@ const REPORT_REASONS = [
   { key: "other",         label: "Other reason",                    icon: Icon.info },
 ];
 
-/* ═══════════════════════════════════════════════════════════════
-   BREADCRUMBS & COMPONENTS
-═══════════════════════════════════════════════════════════════ */
-const isUuid = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || ""));
-const buildBreadcrumbs = (product) => {
-  if (!product) return [];
-  const items = [{ label: "Home", path: "/loemart" }];
-  const rawPath = product.category_path || product.breadcrumb_path || product.category_tree || product.categories;
-  
-  if (Array.isArray(rawPath) && rawPath.length > 0) {
-    rawPath.forEach((cat) => {
-      const name = typeof cat === "string" ? cat : cat?.name || cat?.title;
-      const slug = cat?.slug || name;
-      if (name && !isUuid(name)) {
-        items.push({ label: name, path: `/catalog?category=${encodeURIComponent(slug)}` });
-      }
-    });
-  } else if (product.category && typeof product.category === "object") {
-    const catList = [];
-    let curr = product.category;
-    while (curr && typeof curr === "object") {
-      if (curr.name && !isUuid(curr.name)) {
-        catList.unshift({ label: curr.name, path: `/catalog?category=${encodeURIComponent(curr.slug || curr.name)}` });
-      }
-      curr = curr.parent || curr.category;
-    }
-    items.push(...catList);
-  } else {
-    const catName = typeof product.category === "string" ? product.category : product.category?.name;
-    if (catName && !isUuid(catName)) {
-      items.push({ label: catName, path: `/catalog?category=${encodeURIComponent(catName)}` });
-    }
-  }
-
-  if (product.brand) {
-    const lastItemLabel = items[items.length - 1]?.label?.toLowerCase();
-    if (lastItemLabel !== product.brand.toLowerCase()) {
-      const deepestCat = Array.isArray(rawPath) && rawPath.length > 0 ? (rawPath[rawPath.length - 1]?.slug || rawPath[rawPath.length - 1]?.name) : null;
-      const brandPath = deepestCat
-        ? `/catalog?category=${encodeURIComponent(deepestCat)}&brand=${encodeURIComponent(product.brand)}`
-        : `/catalog?brand=${encodeURIComponent(product.brand)}`;
-      items.push({ label: product.brand, path: brandPath });
-    }
-  }
-
-  if (product.name) {
-    items.push({ label: product.name, isCurrent: true });
-  }
-  return items;
-};
-
-const Breadcrumbs = memo(function Breadcrumbs({ product }) {
-  const navigate = useNavigate();
-  const items = useMemo(() => buildBreadcrumbs(product), [product]);
-  if (!items.length) return null;
-
-  return (
-    <nav className="mdp-breadcrumbs" aria-label="Breadcrumb">
-      <div className="mdp-breadcrumbs__inner">
-        {items.map((item, idx) => {
-          const isLast = idx === items.length - 1;
-          return (
-            <span key={idx} className="mdp-breadcrumbs__item">
-              {idx > 0 && <span className="mdp-breadcrumbs__sep" aria-hidden="true">&gt;</span>}
-              {isLast ? (
-                <span className="mdp-breadcrumbs__current" aria-current="page">{item.label}</span>
-              ) : (
-                <button type="button" className="mdp-breadcrumbs__link" onClick={() => item.path && navigate(item.path)}>
-                  {item.label}
-                </button>
-              )}
-            </span>
-          );
-        })}
-      </div>
-    </nav>
-  );
-});
-
-const StickyMiniHeader = memo(function StickyMiniHeader({
-  visible, product, displayPrice, onAddToCart, disabled,
-}) {
-  if (!product) return null;
-  const img = getProductImage(product);
-
-  return (
-    <div className={`mdp-mini-header ${visible ? "mdp-mini-header--visible" : ""}`} aria-hidden={!visible}>
-      <div className="mdp-mini-header__inner">
-        {img && <img src={img} alt="" className="mdp-mini-header__img" aria-hidden="true" />}
-        <div className="mdp-mini-header__body">
-          <p className="mdp-mini-header__name">{product.name}</p>
-          <p className="mdp-mini-header__price">{formatPrice(displayPrice)}</p>
-        </div>
-        <button
-          type="button"
-          className="mdp-mini-header__cta"
-          onClick={onAddToCart}
-          disabled={disabled}
-        >
-          Add
-        </button>
-      </div>
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS & CART LOGIC
-═══════════════════════════════════════════════════════════════ */
 const isLoggedIn = () => !!localStorage.getItem("marketplace_token");
 const authHeaders = () => {
   const token = localStorage.getItem("marketplace_token");
@@ -243,17 +122,6 @@ const fetchServerCartCount = async () => {
   } catch { return null; }
 };
 
-const addToRecentlyViewed = (product) => {
-  try {
-    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((p) => p.id !== product.id);
-    list.unshift({
-      id: product.id, name: product.name, price: product.price,
-      image: getProductImage(product), slug: product.slug ?? product.id,
-    });
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
-  } catch {}
-};
-
 const getDeliveryEstimate = () => {
   const now = new Date();
   const min = new Date(now); min.setDate(min.getDate() + 2);
@@ -268,9 +136,6 @@ const getRating = (product) => {
   return 0;
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   SKELETON & STARS
-═══════════════════════════════════════════════════════════════ */
 function ProductSkeleton() {
   return (
     <div className="mdp-skeleton" aria-busy="true" aria-label="Loading product">
@@ -325,164 +190,6 @@ const CartToast = memo(function CartToast({ show, productName, qty, image, onVie
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   MODALS & FAQS
-═══════════════════════════════════════════════════════════════ */
-const ReportModal = memo(function ReportModal({ productId, onClose }) {
-  const [reason,     setReason]     = useState("");
-  const [details,    setDetails]    = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted,  setSubmitted]  = useState(false);
-
-  useEffect(() => {
-    const fn = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", fn);
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { 
-      window.removeEventListener("keydown", fn); 
-      document.body.style.overflow = originalOverflow; 
-    };
-  }, [onClose]);
-
-  const handleSubmit = useCallback(async () => {
-    if (!reason) return;
-    setSubmitting(true);
-    try {
-      await axios.post(`${API_URL}/${productId}/report`, { reason, details }, { headers: authHeaders() });
-      setSubmitted(true);
-    } catch { /* Fallback */ } finally { setSubmitting(false); }
-  }, [productId, reason, details]);
-
-  return (
-    <div className="mdp-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Report listing">
-      <div className="mdp-modal" onClick={(e) => e.stopPropagation()}>
-        {submitted ? (
-          <div className="mdp-report-done">
-            <div className="mdp-report-check">{Icon.check}</div>
-            <h3>Report Submitted</h3>
-            <p>Our team will review this listing. Thank you for keeping Loemart safe.</p>
-            <button className="mdp-done-btn" onClick={onClose}>Done</button>
-          </div>
-        ) : (
-          <>
-            <div className="mdp-modal-header">
-              <h3>Report Listing</h3>
-              <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
-            </div>
-            <div className="mdp-modal-body">
-              <p className="mdp-modal-sub">Why are you reporting this listing?</p>
-              <div className="mdp-report-reasons">
-                {REPORT_REASONS.map((r) => (
-                  <button key={r.key} type="button" className={`mdp-reason-btn${reason === r.label ? " mdp-reason-btn--on" : ""}`} onClick={() => setReason(r.label)}>
-                    <span className="mdp-reason-icon" aria-hidden="true">{r.icon}</span>
-                    <span>{r.label}</span>
-                    {reason === r.label && <span className="mdp-reason-check" aria-hidden="true">{Icon.check}</span>}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                className="mdp-report-textarea"
-                placeholder="Additional details (optional)…"
-                value={details} onChange={(e) => setDetails(e.target.value)}
-                rows={3} maxLength={500} aria-label="Additional details"
-              />
-            </div>
-            <div className="mdp-modal-footer">
-              <button className="mdp-modal-cancel" onClick={onClose}>Cancel</button>
-              <button className="mdp-modal-submit" onClick={handleSubmit} disabled={!reason || submitting}>
-                {submitting ? "Submitting…" : "Submit Report"}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-});
-
-const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
-  useEffect(() => {
-    const fn = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", fn); 
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { 
-      window.removeEventListener("keydown", fn); 
-      document.body.style.overflow = originalOverflow; 
-    };
-  }, [onClose]);
-
-  return (
-    <div className="mdp-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Buyer Protection">
-      <div className="mdp-modal mdp-modal--protection" onClick={(e) => e.stopPropagation()}>
-        <div className="mdp-modal-header">
-          <h3><span className="mdp-icon-inline">{Icon.shield}</span> Buyer Protection Guarantee</h3>
-          <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
-        </div>
-        <div className="mdp-modal-body">
-          <div className="mdp-protection-highlight">
-            <span className="mdp-shield-icon">{Icon.lock}</span>
-            <div>
-              <h4>Payments Held in Escrow</h4>
-              <p>We securely hold your payment. The seller is only paid after you confirm receipt, or after your 7-day inspection window closes.</p>
-            </div>
-          </div>
-          <div className="mdp-protection-grid">
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.money}</span>
-              <div><h5>Full Refund Guarantee</h5><p>Eligible for a 100% refund if your order never arrives or is damaged.</p></div>
-            </div>
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.return}</span>
-              <div><h5>7-Day Window</h5><p>Verify authenticity and condition. File returns easily from your Account.</p></div>
-            </div>
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.scale}</span>
-              <div><h5>Dispute Mediation</h5><p>If you face a disagreement, our claims team steps in to mediate fairly.</p></div>
-            </div>
-          </div>
-        </div>
-        <div className="mdp-modal-footer">
-          <button className="mdp-done-btn" style={{ width: "100%" }} onClick={onClose}>Got it, thanks!</button>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-const FAQAccordion = memo(function FAQAccordion() {
-  const [openIndex, setOpenIndex] = useState(null);
-  const faqs = useMemo(() => [
-    { q: "How do returns and refunds work?", a: "Once your item is delivered, go to Account > Purchases, select the order, and tap 'Request Return/Refund' within 7 days." },
-    { q: "When is the seller paid?", a: "Sellers are only paid after you confirm satisfaction, or automatically after the 7-day window closes." },
-    { q: "What is covered under Guarantee?", a: "You are fully covered if your item does not arrive, is counterfeit, arrives broken, or does not match specs." }
-  ], []);
-
-  return (
-    <div className="md-section mdp-section mdp-faq-section">
-      <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> FAQ</h3>
-      <div className="mdp-faq-list">
-        {faqs.map((faq, idx) => {
-          const isOpen = openIndex === idx;
-          return (
-            <div key={idx} className={`mdp-faq-item ${isOpen ? "mdp-faq-item--open" : ""}`}>
-              <button type="button" className="mdp-faq-trigger" onClick={() => setOpenIndex(isOpen ? null : idx)} aria-expanded={isOpen}>
-                <span>{faq.q}</span>
-                <span className="mdp-faq-arrow" aria-hidden="true">{Icon.chevron}</span>
-              </button>
-              {isOpen && <div className="mdp-faq-content" aria-live="polite"><p>{faq.a}</p></div>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
-═══════════════════════════════════════════════════════════════ */
 export default function MarketDetail() {
   const { slug }   = useParams();
   const navigate   = useNavigate();
@@ -519,9 +226,7 @@ export default function MarketDetail() {
   const isWishlisted = product ? wishlist.has(product.id) : false;
   const rating       = useMemo(() => (product ? getRating(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
-
-  // Has Variants check
-  const hasVariants = useMemo(() => (product?.variants?.length ?? 0) > 0, [product]);
+  const hasVariants  = useMemo(() => (product?.variants?.length ?? 0) > 0, [product]);
 
   // Gallery Variant Sync
   const galleryImages = useMemo(() => {
@@ -538,16 +243,12 @@ export default function MarketDetail() {
     return product.images ?? [];
   }, [product, selectedVariant]);
 
-  // Key Highlight Feature
   const firstKeyFeature = useMemo(() => {
     if (!product?.key_features || product.key_features.length === 0) return null;
     const f = product.key_features[0];
     return typeof f === "string" ? f : f?.feature;
   }, [product]);
 
-  /* ════════════════════════════════════════════════════════
-     SCROLL TO TOP & CLEANUP TIMEOUTS ON ROUTE CHANGE
-  ════════════════════════════════════════════════════════ */
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     return () => {
@@ -556,9 +257,6 @@ export default function MarketDetail() {
     };
   }, [slug]);
 
-  /* ════════════════════════════════════════════════════════
-     DATA SYNC & SEO TITLE + JSON-LD SCHEMA
-  ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isLoggedIn()) fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
     const sync = () => {
@@ -577,7 +275,7 @@ export default function MarketDetail() {
         const p = data?.data ?? data?.product ?? data;
         setProduct(p);
       })
-      .catch(() => {}); // silent refresh fail
+      .catch(() => {});
   }, [slug]);
 
   useEffect(() => {
@@ -591,68 +289,13 @@ export default function MarketDetail() {
         const p = data?.data ?? data?.product ?? data;
         setProduct(p);
         if (p?.variants?.length > 0) setSelectedVariant(p.variants[0]);
-        addToRecentlyViewed(p);
       })
       .catch((err) => { if (!cancelled) setError(err.response?.status === 404 ? "404" : "error"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [slug]);
 
-  /* Dynamic Meta Title and JSON-LD Rich Snippets for SEO */
-  useEffect(() => {
-    if (product?.name) {
-      const suffix = product.brand ? ` | ${product.brand}` : "";
-      document.title = `${product.name}${suffix} - Loemart`;
-
-      const script = document.createElement("script");
-      script.type = "application/ld+json";
-      script.text = JSON.stringify({
-        "@context": "https://schema.org/",
-        "@type": "Product",
-        "name": product.name,
-        "image": product.images || [getProductImage(product)],
-        "description": product.description || product.name,
-        "brand": { "@type": "Brand", "name": product.brand || "Loemart" },
-        "offers": {
-          "@type": "Offer",
-          "priceCurrency": "NGN",
-          "price": product.price,
-          "availability": (product.stock > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-          "url": window.location.href
-        },
-        ...(product.rating ? {
-          "aggregateRating": {
-            "@type": "AggregateRating",
-            "ratingValue": product.rating,
-            "reviewCount": product.reviews_count || 1
-          }
-        } : {})
-      });
-      document.head.appendChild(script);
-
-      return () => {
-        if (document.head.contains(script)) {
-          document.head.removeChild(script);
-        }
-      };
-    }
-    return () => { document.title = "Loemart Marketplace"; };
-  }, [product]);
-
-  /* Sticky Mini Header Intersection Observer */
-  useEffect(() => {
-    if (!titleRef.current) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => setMiniHeaderVisible(!entry.isIntersecting),
-      { threshold: 0, rootMargin: "-80px 0px 0px 0px" }
-    );
-    obs.observe(titleRef.current);
-    return () => obs.disconnect();
-  }, [product]);
-
-  /* ════════════════════════════════════════════════════════
-     PRICING & STOCK LOGIC
-  ════════════════════════════════════════════════════════ */
+  /* Pricing */
   const displayPrice = useMemo(() => selectedVariant?.price ? Number(selectedVariant.price) : Number(product?.price ?? 0), [selectedVariant, product]);
   const originalPrice = useMemo(() => Number(product?.original_price ?? product?.compare_price ?? 0), [product]);
   const discount = useMemo(() => calcDiscount(displayPrice, originalPrice), [displayPrice, originalPrice]);
@@ -676,11 +319,12 @@ export default function MarketDetail() {
   }, [stockLeft, qty]);
 
   /* ════════════════════════════════════════════════════════
-     SMART ADD TO CART ACTIONS
+     SAFE ADD TO CART LOGIC
   ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart || isOutOfStock) return false;
-    setAddingToCart(true); setCartError(null);
+    setAddingToCart(true); 
+    setCartError(null);
     try {
       if (isLoggedIn()) {
         try {
@@ -710,7 +354,9 @@ export default function MarketDetail() {
       toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
       return true;
     } catch (err) {
-      setCartError(err.response?.data?.message ?? err.message ?? "Failed to add to cart");
+      const rawMsg = err.response?.data?.message ?? err.message ?? "Failed to add to cart";
+      const safeMsg = typeof rawMsg === "object" ? JSON.stringify(rawMsg) : String(rawMsg);
+      setCartError(safeMsg);
       if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
       errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
       return false;
@@ -719,7 +365,6 @@ export default function MarketDetail() {
     }
   }, [product, selectedVariant, displayPrice, originalPrice, qty, addingToCart, isOutOfStock]);
 
-  /** Open sheet if variants exist; otherwise add directly */
   const onAddToCartPress = useCallback(() => {
     if (!product || isOutOfStock || addingToCart) return;
     if (hasVariants) {
@@ -729,7 +374,6 @@ export default function MarketDetail() {
     handleAddToCart();
   }, [product, isOutOfStock, addingToCart, hasVariants, handleAddToCart]);
 
-  /** Called by the bottom sheet Confirm button */
   const onSheetConfirm = useCallback(async () => {
     return await handleAddToCart();
   }, [handleAddToCart]);
@@ -748,9 +392,6 @@ export default function MarketDetail() {
 
   const goToCart = useCallback(() => navigate("/shop/cart"), [navigate]);
 
-  /* ════════════════════════════════════════════════════════
-     ERROR SCREENS
-  ════════════════════════════════════════════════════════ */
   if (!loading && error) {
     return (
       <div className="mdp-not-found">
@@ -766,9 +407,6 @@ export default function MarketDetail() {
     );
   }
 
-  /* ════════════════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════════════════ */
   return (
     <>
       <div className="md-page mdp-page">
@@ -792,8 +430,6 @@ export default function MarketDetail() {
 
         {!loading && product && (
           <div className="mdp-main-layout">
-            <Breadcrumbs product={product} />
-
             <div className="mdp-section mdp-section-gallery">
               <ImageGallery images={galleryImages} name={product.name} />
             </div>
@@ -850,15 +486,14 @@ export default function MarketDetail() {
                 )}
               </div>
 
-              {/* ── MODERN SELECTION TRIGGER ROW ── */}
+              {/* Options Row Trigger */}
               <div 
                 className="mdp-selection-trigger" 
                 onClick={() => setSheetIntent('cart')}
                 style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "16px", background: "#f9fafb", borderRadius: "12px",
-                  border: "1px solid #e5e7eb", cursor: "pointer", marginBottom: "24px",
-                  transition: "background 0.2s"
+                  border: "1px solid #e5e7eb", cursor: "pointer", marginBottom: "24px"
                 }}
               >
                 <div>
@@ -876,7 +511,6 @@ export default function MarketDetail() {
                 <span style={{ color: "#9ca3af", fontWeight: "bold" }}>&gt;</span>
               </div>
 
-              {/* Delivery Cards */}
               <div className="mdp-section mdp-section--cards">
                 <div className="mdp-delivery-card">
                   <div className="mdp-delivery-card__icon">{Icon.truck}</div>
@@ -897,51 +531,20 @@ export default function MarketDetail() {
                 </div>
               </div>
 
-              {/* Details & Specs */}
               {product.description && (
                 <div className="mdp-section mdp-section--desc">
                   <ProductInfo description={product.description} />
                 </div>
               )}
+
               {(product.specifications?.length > 0 || product.specs?.length > 0 || product.attributes?.length > 0) && (
                 <div className="mdp-section mdp-section--specs">
                   <SpecsSection specs={product.specifications || product.specs || product.attributes} />
                 </div>
               )}
-              {product.key_features?.length > 0 && (
-                <div className="md-section mdp-section mdp-section--features">
-                  <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.sparkle}</span> Key Features</h3>
-                  <ul className="md-features-list mdp-features-list">
-                    {product.key_features.map((f, i) => (
-                      <li key={i} className="md-feature-item mdp-feature-item">
-                        <span className="md-feat-check mdp-feat-check">{Icon.check}</span>
-                        <span>{f?.feature ?? f}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {(product.return_policy || product.warranty) && (
-                <div className="md-section mdp-section">
-                  <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> Policies</h3>
-                  {product.return_policy && (
-                    <div className="md-policy-item mdp-policy-item">
-                      <span className="mdp-policy-icon">{Icon.return}</span>
-                      <div><strong>Return Policy</strong><p>{product.return_policy}</p></div>
-                    </div>
-                  )}
-                  {product.warranty && (
-                    <div className="md-policy-item mdp-policy-item">
-                      <span className="mdp-policy-icon">{Icon.shield}</span>
-                      <div><strong>Warranty</strong><p>{product.warranty}</p></div>
-                    </div>
-                  )}
-                </div>
-              )}
 
               <FAQAccordion />
 
-              {/* Ratings & Reviews Feedback List */}
               <ProductReviews
                 productId={product.id}
                 rating={rating}
@@ -1030,7 +633,7 @@ export default function MarketDetail() {
         </button>
       )}
 
-      {/* ── TEMU-STYLE VARIANT BOTTOM SHEET ── */}
+      {/* Action Bottom Sheet */}
       <VariantBottomSheet
         isOpen={!!sheetIntent}
         onClose={() => setSheetIntent(null)}
@@ -1057,8 +660,8 @@ export default function MarketDetail() {
           onClose={() => setShowRateModal(false)}
           onRatingSubmitted={() => {
             setShowRateModal(false);
-            fetchProduct(); // silently refresh product stats
-            setReviewRefreshKey((k) => k + 1); // refresh review feedback list
+            fetchProduct();
+            setReviewRefreshKey((k) => k + 1);
           }}
         />
       )}
