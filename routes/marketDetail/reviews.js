@@ -71,26 +71,27 @@ router.get("/:idOrSlug/reviews", async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found." });
     }
 
-    // Join with public.users or market.users to get reviewer name & avatar
+    // Join with public.users OR market.users safely using ::text casting
     const { rows } = await pool.query(
       `SELECT
          r.id, 
          r.rating, 
          r.comment, 
          r.created_at,
-         COALESCE(u.name, 'Verified Buyer') AS user_name,
-         u.profile_image AS user_avatar
+         COALESCE(u1.name, u2.name, 'Verified Buyer') AS user_name,
+         COALESCE(u1.profile_image, u2.profile_image) AS user_avatar
        FROM market.product_reviews r
-       LEFT JOIN public.users u ON u.id::text = r.user_id
-       WHERE r.product_id = $1
+       LEFT JOIN public.users u1 ON u1.id::text = r.user_id::text
+       LEFT JOIN market.users u2 ON u2.id::text = r.user_id::text
+       WHERE r.product_id::text = $1::text
        ORDER BY r.created_at DESC
        LIMIT $2 OFFSET $3`,
-      [productId, limit, offset]
+      [String(productId), limit, offset]
     );
 
     const countRes = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM market.product_reviews WHERE product_id = $1`,
-      [productId]
+      `SELECT COUNT(*)::int AS total FROM market.product_reviews WHERE product_id::text = $1::text`,
+      [String(productId)]
     );
 
     return res.json({
@@ -100,7 +101,7 @@ router.get("/:idOrSlug/reviews", async (req, res) => {
     });
   } catch (err) {
     console.error("[GET /api/shop/:id/reviews Error]:", err.message);
-    return res.status(500).json({ success: false, message: "Failed to load reviews." });
+    return res.status(500).json({ success: false, message: "Failed to load reviews.", details: err.message });
   }
 });
 
