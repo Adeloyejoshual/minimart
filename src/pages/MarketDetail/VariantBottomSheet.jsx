@@ -3,15 +3,23 @@
  * Crash-proof modern action sheet
  */
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { formatPrice, getProductImage } from "../../config/marketplace";
 
-// Helper to safely extract string image URLs
 const getSafeImageUrl = (img) => {
   if (!img) return "";
   if (typeof img === "string") return img;
   if (typeof img === "object") return img.url || img.image_url || img.src || "";
   return "";
+};
+
+/** Always unlock body scroll — prevents app-wide freeze */
+const unlockBodyScroll = () => {
+  document.body.style.overflow = "";
+  document.body.style.position = "";
+  document.body.style.top = "";
+  document.body.style.width = "";
+  document.documentElement.style.overflow = "";
 };
 
 export default function VariantBottomSheet({
@@ -29,28 +37,57 @@ export default function VariantBottomSheet({
   isSubmitting,
 }) {
   const [closing, setClosing] = useState(false);
+  const closingTimerRef = useRef(null);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
+    if (closingTimerRef.current) clearTimeout(closingTimerRef.current);
     setClosing(true);
-    setTimeout(() => {
+    // Unlock immediately so the page never stays frozen
+    unlockBodyScroll();
+    closingTimerRef.current = setTimeout(() => {
       setClosing(false);
-      onClose();
-    }, 250);
-  };
+      onClose?.();
+    }, 220);
+  }, [onClose]);
 
+  // Lock scroll only while fully open
   useEffect(() => {
-    if (!isOpen) return;
-    const prev = document.body.style.overflow;
+    if (!isOpen) {
+      unlockBodyScroll();
+      return;
+    }
+
+    const prevBody = document.body.style.overflow;
+    const prevHtml = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e) => e.key === "Escape" && handleClose();
+    document.documentElement.style.overflow = "hidden";
+
+    const onKey = (e) => {
+      if (e.key === "Escape") handleClose();
+    };
     window.addEventListener("keydown", onKey);
+
     return () => {
-      document.body.style.overflow = prev;
+      document.body.style.overflow = prevBody || "";
+      document.documentElement.style.overflow = prevHtml || "";
+      unlockBodyScroll();
       window.removeEventListener("keydown", onKey);
     };
+  }, [isOpen, handleClose]);
+
+  // Cleanup on unmount (route change, etc.)
+  useEffect(() => {
+    return () => {
+      if (closingTimerRef.current) clearTimeout(closingTimerRef.current);
+      unlockBodyScroll();
+    };
+  }, []);
+
+  // Reset closing flag when reopened
+  useEffect(() => {
+    if (isOpen) setClosing(false);
   }, [isOpen]);
 
-  // Extract all attribute keys safely
   const attributeKeys = useMemo(() => {
     const keys = new Set();
     if (Array.isArray(variants)) {
@@ -69,11 +106,22 @@ export default function VariantBottomSheet({
   };
 
   const handleSelectOption = (key, val) => {
-    const match = variants.find((v) => v.attributes?.[key] === val);
+    // Prefer a variant that matches this attr AND keeps other selected attrs when possible
+    const current = selectedVariant?.attributes || {};
+    const match =
+      variants.find(
+        (v) =>
+          v.attributes?.[key] === val &&
+          Object.keys(current).every(
+            (k) => k === key || v.attributes?.[k] === current[k]
+          )
+      ) || variants.find((v) => v.attributes?.[key] === val);
+
     if (match) onSelectVariant(match);
   };
 
   if (!isOpen && !closing) return null;
+  if (!product) return null;
 
   const displayPrice = selectedVariant?.price
     ? Number(selectedVariant.price)
@@ -85,22 +133,42 @@ export default function VariantBottomSheet({
     getProductImage(product) ||
     getSafeImageUrl(product?.images?.[0]);
 
-  const isOutOfStock = stockLeft !== null && stockLeft !== undefined && stockLeft <= 0;
-  const max = Math.min(maxQty, stockLeft > 0 ? stockLeft : maxQty);
+  const isOutOfStock =
+    stockLeft !== null && stockLeft !== undefined && Number(stockLeft) <= 0;
+  const max = Math.min(maxQty, stockLeft > 0 ? Number(stockLeft) : maxQty);
 
-  // Safely convert selected labels to strings
   const selectedLabels = selectedVariant?.attributes
     ? Object.values(selectedVariant.attributes)
-        .map((v) => (typeof v === "object" ? v?.name || v?.title || String(v) : String(v)))
+        .map((v) =>
+          typeof v === "object" ? v?.name || v?.title || String(v) : String(v)
+        )
         .filter(Boolean)
     : [];
+
+  const handleConfirm = async () => {
+    if (isOutOfStock || isSubmitting) return;
+    try {
+      const ok = await onConfirm?.();
+      // Always close + unlock after attempt (success or handled failure)
+      if (ok !== false) {
+        handleClose();
+      } else {
+        unlockBodyScroll();
+      }
+    } catch (e) {
+      console.error("Cart error:", e);
+      unlockBodyScroll();
+    }
+  };
 
   return (
     <div
       className="mdp-bs-overlay"
       onClick={handleClose}
       style={{
-        animation: closing ? "mdpFadeOut 0.25s forwards" : "mdpFadeIn 0.25s forwards",
+        animation: closing
+          ? "mdpFadeOut 0.22s forwards"
+          : "mdpFadeIn 0.22s forwards",
       }}
     >
       <div
@@ -108,8 +176,8 @@ export default function VariantBottomSheet({
         onClick={(e) => e.stopPropagation()}
         style={{
           animation: closing
-            ? "mdpSlideDown 0.25s forwards"
-            : "mdpSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+            ? "mdpSlideDown 0.22s forwards"
+            : "mdpSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         }}
       >
         {/* Header */}
@@ -123,7 +191,9 @@ export default function VariantBottomSheet({
             <p className="mdp-bs-price">{formatPrice(displayPrice)}</p>
             <p className="mdp-bs-stock">
               {isOutOfStock ? (
-                <span style={{ color: "#EF4444", fontWeight: 600 }}>Out of stock</span>
+                <span style={{ color: "#EF4444", fontWeight: 600 }}>
+                  Out of stock
+                </span>
               ) : stockLeft != null ? (
                 <span>In stock: {stockLeft}</span>
               ) : (
@@ -136,7 +206,12 @@ export default function VariantBottomSheet({
               </p>
             )}
           </div>
-          <button type="button" className="mdp-bs-close" onClick={handleClose} aria-label="Close">
+          <button
+            type="button"
+            className="mdp-bs-close"
+            onClick={handleClose}
+            aria-label="Close"
+          >
             ✕
           </button>
         </div>
@@ -149,21 +224,31 @@ export default function VariantBottomSheet({
 
             return (
               <div key={String(key)} className="mdp-bs-group">
-                <p className="mdp-bs-label" style={{ textTransform: "capitalize" }}>
+                <p
+                  className="mdp-bs-label"
+                  style={{ textTransform: "capitalize" }}
+                >
                   {String(key)}
                 </p>
                 <div className="mdp-bs-options">
                   {values.map((val) => {
-                    const matchedVar = variants.find((v) => v.attributes?.[key] === val);
-                    const oos = Number(matchedVar?.stock ?? 0) === 0;
+                    const matchedVar = variants.find(
+                      (v) => v.attributes?.[key] === val
+                    );
+                    const oos = Number(matchedVar?.stock ?? 1) === 0;
                     const active = selectedVariant?.attributes?.[key] === val;
-                    const valText = typeof val === "object" ? val?.name || val?.title || String(val) : String(val);
+                    const valText =
+                      typeof val === "object"
+                        ? val?.name || val?.title || String(val)
+                        : String(val);
 
                     return (
                       <button
                         key={valText}
                         type="button"
-                        className={`mdp-bs-btn ${active ? "active" : ""} ${oos ? "oos" : ""}`}
+                        className={`mdp-bs-btn ${active ? "active" : ""} ${
+                          oos ? "oos" : ""
+                        }`}
                         onClick={() => handleSelectOption(key, val)}
                         disabled={oos}
                       >
@@ -176,7 +261,7 @@ export default function VariantBottomSheet({
             );
           })}
 
-          {/* Quantity */}
+          {/* Quantity — always show */}
           <div className="mdp-bs-group mdp-bs-qty-row">
             <p className="mdp-bs-label" style={{ margin: 0 }}>
               Quantity
@@ -209,21 +294,13 @@ export default function VariantBottomSheet({
             type="button"
             className="mdp-bs-confirm mdp-bs-confirm--cart"
             disabled={isOutOfStock || isSubmitting}
-            onClick={async () => {
-              if (isOutOfStock || isSubmitting) return;
-              try {
-                const ok = await onConfirm();
-                if (ok !== false) handleClose();
-              } catch (e) {
-                console.error("Cart error:", e);
-              }
-            }}
+            onClick={handleConfirm}
           >
             {isSubmitting
               ? "Adding…"
               : isOutOfStock
-                ? "Out of Stock"
-                : `Add to Cart · ${formatPrice(displayPrice * qty)}`}
+              ? "Out of Stock"
+              : `Add to Cart · ${formatPrice(displayPrice * qty)}`}
           </button>
         </div>
       </div>
