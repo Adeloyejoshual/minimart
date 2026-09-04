@@ -15,6 +15,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import {
+  API_URL,
   formatPrice,
   calcDiscount,
   getProductImage,
@@ -34,7 +35,7 @@ import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
-import "../styles/MarketDetailCompact.css"; // 👈 Compact Jumia-style Layout
+import "../styles/MarketDetailCompact.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API ROUTES
@@ -53,7 +54,6 @@ const CART_KEY   = "mm_cart";
 const RECENT_KEY = "lm-recently-viewed";
 const MAX_QTY    = 10;
 
-/** First positive number wins (safely handles 0, null, or string prices) */
 const pickPrice = (...vals) => {
   for (const v of vals) {
     if (v == null || v === "") continue;
@@ -117,9 +117,7 @@ const getAuthToken = () => {
 const isLoggedIn = () => !!getAuthToken();
 const authHeaders = () => {
   const token = getAuthToken();
-  const h = { "Content-Type": "application/json", Accept: "application/json" };
-  if (token) h.Authorization = `Bearer ${token}`;
-  return h;
+  return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 };
 
 const readGuestCart = () => {
@@ -136,8 +134,7 @@ const writeGuestCart = (cart) => {
 const guestCartCount = (cart = readGuestCart()) =>
   cart.reduce((s, i) => s + (Number(i.qty) || 1), 0);
 
-const lineKey = (productId, variantId) =>
-  `${productId}__${variantId ?? "default"}`;
+const lineKey = (productId, variantId) => `${productId}__${variantId ?? "default"}`;
 
 const addToGuestCart = (product, selectedVariant, displayPrice, originalPrice, qty = 1) => {
   const cart = readGuestCart();
@@ -711,7 +708,7 @@ const FAQAccordion = memo(function FAQAccordion() {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN
+   MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function MarketDetail() {
   const { slug } = useParams();
@@ -773,7 +770,7 @@ export default function MarketDetail() {
     return typeof f === "string" ? f : f?.feature;
   }, [product]);
 
-  /* Safe Price Resolvers using pickPrice */
+  /* Safe Price Resolvers */
   const displayPrice = useMemo(
     () =>
       pickPrice(
@@ -822,7 +819,7 @@ export default function MarketDetail() {
     return null;
   }, [selectedVariant, product]);
 
-  /* route cleanup */
+  /* Route cleanup */
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     setInCart(false);
@@ -839,7 +836,7 @@ export default function MarketDetail() {
     };
   }, [slug]);
 
-  /* cart badge sync */
+  /* Cart badge sync */
   useEffect(() => {
     const sync = () => {
       if (isLoggedIn()) {
@@ -860,7 +857,7 @@ export default function MarketDetail() {
   const fetchProduct = useCallback(() => {
     if (!slug) return;
     axios
-      .get(`${SHOP_URL}/${slug}`, { timeout: 12000 })
+      .get(`${API_URL}/${slug}`, { timeout: 12000 })
       .then(({ data }) => setProduct(data?.data ?? data?.product ?? data))
       .catch(() => {});
   }, [slug]);
@@ -874,7 +871,7 @@ export default function MarketDetail() {
     setSelectedVariant(null);
 
     axios
-      .get(`${SHOP_URL}/${slug}`, { timeout: 12000 })
+      .get(`${API_URL}/${slug}`, { timeout: 12000 })
       .then(({ data }) => {
         if (cancelled) return;
         const p = data?.data ?? data?.product ?? data;
@@ -980,160 +977,142 @@ export default function MarketDetail() {
     };
   }, [product?.id, selectedVariant?.id, product?.variants]);
 
+  /* ════════════════════════════════════════════════════════
+     HIGH-SPEED OPTIMISTIC ADD TO CART (No Vibrate, 0ms Instant UI)
+  ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
-    if (!product || addingToCart || isOutOfStock) return false;
+    if (!product || isOutOfStock) return false;
     const addQty = Math.max(1, parseInt(qty, 10) || 1);
-    setAddingToCart(true);
+
+    // 1. INSTANT OPTIMISTIC UI UPDATE (0ms Speed)
+    setAddedToCart(true);
+    setInCart(true);
+    const newQty = inCart ? cartLineQty + addQty : addQty;
+    setCartLineQty(newQty);
+    setCartCount((c) => c + addQty);
     setCartError(null);
 
-    try {
-      if (isLoggedIn()) {
-        try {
-          await axios.post(
-            CART_ITEMS_URL,
-            {
-              product_id: product.id,
-              variant_id: selectedVariant?.id ?? null,
-              qty: addQty,
-            },
-            { headers: authHeaders(), timeout: 15000 }
-          );
-          const count = await fetchServerCartCount();
-          setCartCount(count !== null ? count : (c) => c + addQty);
-        } catch (apiErr) {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
+
+    // 2. ASYNCHRONOUS BACKGROUND NETWORK SYNC
+    if (isLoggedIn()) {
+      axios
+        .post(
+          CART_ITEMS_URL,
+          {
+            product_id: product.id,
+            variant_id: selectedVariant?.id ?? null,
+            qty: addQty,
+          },
+          { headers: authHeaders(), timeout: 15000 }
+        )
+        .then(() => fetchServerCartCount())
+        .then((count) => {
+          if (count !== null) setCartCount(count);
+          return findServerCartLine(product.id, selectedVariant?.id ?? null);
+        })
+        .then((line) => {
+          if (line?.id) setCartItemId(line.id);
+          if (line?.qty != null) setCartLineQty(Number(line.qty));
+          window.dispatchEvent(new Event("cart-updated"));
+        })
+        .catch((apiErr) => {
           const status = apiErr?.response?.status;
           if (status === 401 || status === 403) {
             TOKEN_KEYS.forEach((k) => localStorage.removeItem(k));
-            setCartCount(
-              addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty)
-            );
+            addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty);
           } else {
-            setCartError(
-              apiErr?.response?.data?.message ||
-                apiErr?.response?.data?.error ||
-                "Failed to add to cart"
-            );
+            // Revert or show background error if network completely fails
+            setCartError(apiErr?.response?.data?.message || "Failed to sync cart");
             if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
             errorTimeoutRef.current = setTimeout(() => setCartError(null), 5000);
-            return false;
           }
-        }
-      } else {
-        setCartCount(
-          addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty)
-        );
-      }
-
-      setAddedToCart(true);
-      setInCart(true);
-      setCartLineQty(addQty);
-
-      if (isLoggedIn()) {
-        const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
-        if (line?.id) setCartItemId(line.id);
-        if (line?.qty != null) setCartLineQty(Number(line.qty));
-      }
-
-      window.dispatchEvent(new Event("cart-updated"));
-      window.navigator?.vibrate?.([25, 15, 25]);
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-      toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
-      return true;
-    } catch {
-      setCartError("Failed to add to cart");
-      return false;
-    } finally {
-      setAddingToCart(false);
+        });
+    } else {
+      addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty);
     }
+
+    return true;
   }, [
     product,
     selectedVariant,
     displayPrice,
     originalPrice,
     qty,
-    addingToCart,
+    inCart,
+    cartLineQty,
     isOutOfStock,
   ]);
 
+  /* FAST OPTIMISTIC QUANTITY STEPPER (- 1 +) */
   const handleStickyQtyChange = useCallback(
     async (nextQty) => {
-      if (!product || updatingQty) return;
+      if (!product) return;
       const stockCap =
         stockLeft != null && stockLeft > 0 ? Math.min(stockLeft, MAX_QTY) : MAX_QTY;
       let q = Math.max(0, Math.min(Number(nextQty) || 0, stockCap));
 
-      setUpdatingQty(true);
-      try {
-        if (q <= 0) {
-          if (isLoggedIn() && cartItemId) {
-            try {
-              await axios.delete(`${CART_ITEMS_URL}/${cartItemId}`, {
-                headers: authHeaders(),
-                timeout: 10000,
-              });
-            } catch {}
+      const oldQty = cartLineQty;
+      const diff = q - oldQty;
+
+      // 1. INSTANT OPTIMISTIC UI UPDATE
+      if (q <= 0) {
+        setInCart(false);
+        setCartLineQty(0);
+        setCartItemId(null);
+        setAddedToCart(false);
+        setCartCount((c) => Math.max(0, c - oldQty));
+      } else {
+        setCartLineQty(q);
+        setQty(q);
+        setCartCount((c) => Math.max(0, c + diff));
+      }
+
+      // 2. BACKGROUND API CALL
+      if (isLoggedIn()) {
+        (async () => {
+          try {
+            if (q <= 0) {
+              if (cartItemId) {
+                await axios.delete(`${CART_ITEMS_URL}/${cartItemId}`, {
+                  headers: authHeaders(),
+                  timeout: 10000,
+                });
+              }
+            } else {
+              let itemId = cartItemId;
+              if (!itemId) {
+                const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
+                itemId = line?.id ?? null;
+                if (itemId) setCartItemId(itemId);
+              }
+
+              if (itemId) {
+                await axios.patch(
+                  `${CART_ITEMS_URL}/${itemId}`,
+                  { qty: q },
+                  { headers: authHeaders(), timeout: 10000 }
+                );
+              } else {
+                await axios.post(
+                  CART_ITEMS_URL,
+                  { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty: q },
+                  { headers: authHeaders(), timeout: 10000 }
+                );
+              }
+            }
             const count = await fetchServerCartCount();
             if (count !== null) setCartCount(count);
-          } else {
-            setCartCount(
-              setGuestLineQty(product, selectedVariant, displayPrice, originalPrice, 0)
-            );
+            window.dispatchEvent(new Event("cart-updated"));
+          } catch (err) {
+            setCartError("Could not update quantity");
+            if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+            errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
           }
-          setInCart(false);
-          setCartLineQty(0);
-          setCartItemId(null);
-          setAddedToCart(false);
-          window.dispatchEvent(new Event("cart-updated"));
-          return;
-        }
-
-        if (isLoggedIn()) {
-          let itemId = cartItemId;
-          if (!itemId) {
-            const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
-            itemId = line?.id ?? null;
-            if (itemId) setCartItemId(itemId);
-          }
-
-          if (itemId) {
-            await axios.patch(
-              `${CART_ITEMS_URL}/${itemId}`,
-              { qty: q },
-              { headers: authHeaders(), timeout: 10000 }
-            );
-          } else {
-            await axios.post(
-              CART_ITEMS_URL,
-              {
-                product_id: product.id,
-                variant_id: selectedVariant?.id ?? null,
-                qty: q,
-              },
-              { headers: authHeaders(), timeout: 10000 }
-            );
-          }
-
-          const count = await fetchServerCartCount();
-          if (count !== null) setCartCount(count);
-          const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
-          if (line?.id) setCartItemId(line.id);
-          if (line?.qty != null) q = Number(line.qty);
-        } else {
-          setCartCount(
-            setGuestLineQty(product, selectedVariant, displayPrice, originalPrice, q)
-          );
-        }
-
-        setCartLineQty(q);
-        setInCart(true);
-        setQty(q);
-        window.dispatchEvent(new Event("cart-updated"));
-      } catch (err) {
-        setCartError(err?.response?.data?.message || "Could not update quantity");
-        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-        errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
-      } finally {
-        setUpdatingQty(false);
+        })();
+      } else {
+        setGuestLineQty(product, selectedVariant, displayPrice, originalPrice, q);
       }
     },
     [
@@ -1142,26 +1121,20 @@ export default function MarketDetail() {
       displayPrice,
       originalPrice,
       stockLeft,
-      updatingQty,
       cartItemId,
+      cartLineQty,
     ]
   );
 
-  /* SMART CLICK: Always allow opening sheet if hasVariants */
   const handleCartClick = useCallback(() => {
-    if (!product || isOutOfStock || addingToCart) return;
-    
-    // Always open options if product has variants (even if already in cart)
+    if (!product || isOutOfStock) return;
     if (hasVariants) {
       setSheetIntent("cart");
       return;
     }
-    
-    // If no variants and already in cart, don't trigger add again
     if (inCart) return;
-
     handleAddToCart();
-  }, [product, isOutOfStock, addingToCart, hasVariants, inCart, handleAddToCart]);
+  }, [product, isOutOfStock, hasVariants, inCart, handleAddToCart]);
 
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
@@ -1224,7 +1197,7 @@ export default function MarketDetail() {
           product={product}
           displayPrice={displayPrice}
           onCartClick={handleCartClick}
-          disabled={addingToCart || isOutOfStock}
+          disabled={isOutOfStock}
         />
 
         {loading && <ProductSkeleton />}
@@ -1305,7 +1278,6 @@ export default function MarketDetail() {
                 )}
               </div>
 
-              {/* ALWAYS ALLOW OPENING OPTIONS IF HAS VARIANTS */}
               {hasVariants ? (
                 <div
                   className="mdp-selection-trigger"
@@ -1461,7 +1433,7 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* Sticky: price left | ADD or − qty + after add */}
+      {/* Sticky Bar */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
@@ -1480,16 +1452,12 @@ export default function MarketDetail() {
 
             {inCart ? (
               <>
-                {/* Always allow reopening sheet from sticky bar if variants exist */}
                 {hasVariants && (
                   <button
                     type="button"
+                    className="mdp-sticky-options-btn"
                     onClick={() => setSheetIntent('cart')}
-                    style={{
-                      height: 42, padding: "0 10px", borderRadius: 8,
-                      border: "1px solid #e5e7eb", background: "#fff",
-                      fontSize: 12, fontWeight: 700, color: "#374151", flexShrink: 0
-                    }}
+                    aria-label="Options"
                   >
                     Options
                   </button>
@@ -1504,9 +1472,7 @@ export default function MarketDetail() {
                   >
                     −
                   </button>
-                  <span className="mdp-sticky-qty__val">
-                    {updatingQty ? "…" : cartLineQty}
-                  </span>
+                  <span className="mdp-sticky-qty__val">{cartLineQty}</span>
                   <button
                     type="button"
                     className="mdp-sticky-qty__btn"
@@ -1531,7 +1497,7 @@ export default function MarketDetail() {
                       type="button"
                       className="mdp-sticky-qty__btn"
                       onClick={() => setQty((q) => Math.max(1, q - 1))}
-                      disabled={qty <= 1 || isOutOfStock || addingToCart}
+                      disabled={qty <= 1 || isOutOfStock}
                     >
                       −
                     </button>
@@ -1549,7 +1515,6 @@ export default function MarketDetail() {
                       }
                       disabled={
                         isOutOfStock ||
-                        addingToCart ||
                         qty >= MAX_QTY ||
                         (stockLeft != null && qty >= stockLeft)
                       }
@@ -1564,13 +1529,9 @@ export default function MarketDetail() {
                     addedToCart ? " mdp-btn-cart-primary--done" : ""
                   }`}
                   onClick={handleCartClick}
-                  disabled={isOutOfStock || addingToCart}
+                  disabled={isOutOfStock}
                 >
-                  {isOutOfStock
-                    ? "OUT OF STOCK"
-                    : addingToCart
-                    ? "ADDING..."
-                    : "ADD TO CART"}
+                  {isOutOfStock ? "OUT OF STOCK" : "ADD TO CART"}
                 </button>
               </>
             )}
@@ -1604,7 +1565,7 @@ export default function MarketDetail() {
         stockLeft={stockLeft}
         maxQty={MAX_QTY}
         onConfirm={handleAddToCart}
-        isSubmitting={addingToCart}
+        isSubmitting={false}
       />
 
       <CartToast
