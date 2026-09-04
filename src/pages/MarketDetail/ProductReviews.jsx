@@ -2,7 +2,7 @@
  * src/pages/MarketDetail/ProductReviews.jsx
  */
 
-import React, { useState, useEffect, useCallback, memo } from "react";
+import React, { useState, useEffect, memo } from "react";
 import axios from "axios";
 
 const StarIcon = ({ filled }) => (
@@ -45,41 +45,33 @@ export default function ProductReviews({ productId, rating, reviewsCount, onOpen
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const LIMIT = 5;
-
-  const fetchReviews = useCallback(async (reset = false) => {
-    if (!productId) return;
-    const currentOffset = reset ? 0 : offset;
-    try {
-      const rawBase = import.meta.env.VITE_API_BASE_URL || "";
-      const base = rawBase.replace(/\/+$/, "");
-      const res = await axios.get(`${base}/api/shop/${productId}/reviews`, {
-        params: { limit: LIMIT, offset: currentOffset },
-        timeout: 10000,
-      });
-
-      const newReviews = res.data?.data || [];
-      const totalReviews = res.data?.total || 0;
-
-      if (reset) {
-        setReviews(newReviews);
-        setOffset(LIMIT);
-      } else {
-        setReviews((prev) => [...prev, ...newReviews]);
-        setOffset((prev) => prev + LIMIT);
-      }
-      setTotal(totalReviews);
-    } catch (err) {
-      console.warn("Failed to load reviews:", err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [productId, offset]);
 
   useEffect(() => {
+    if (!productId) return;
+    let isMounted = true;
     setLoading(true);
-    fetchReviews(true);
+
+    const rawBase = import.meta.env.VITE_API_BASE_URL || "";
+    const base = rawBase.replace(/\/+$/, "");
+
+    axios
+      .get(`${base}/api/shop/${productId}/reviews?limit=20&offset=0`, { timeout: 10000 })
+      .then((res) => {
+        if (isMounted) {
+          setReviews(res.data?.data || []);
+          setTotal(res.data?.total || 0);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load review list:", err.message);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [productId, refreshKey]);
 
   return (
@@ -158,6 +150,7 @@ export default function ProductReviews({ productId, rating, reviewsCount, onOpen
                 background: "#FFFFFF",
               }}
             >
+              {/* Review Header: User avatar, name, stars, date */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   {rev.user_avatar ? (
@@ -200,10 +193,12 @@ export default function ProductReviews({ productId, rating, reviewsCount, onOpen
                 </span>
               </div>
 
+              {/* Star Rating for this review */}
               <div style={{ marginBottom: "8px" }}>
                 <StarRating rating={rev.rating} />
               </div>
 
+              {/* Review Comment Text */}
               {rev.comment ? (
                 <p style={{ margin: 0, fontSize: "0.92rem", color: "#374151", lineHeight: "1.5" }}>
                   {rev.comment}
@@ -213,27 +208,6 @@ export default function ProductReviews({ productId, rating, reviewsCount, onOpen
               )}
             </div>
           ))}
-
-          {reviews.length < total && (
-            <div style={{ textAlign: "center", marginTop: "12px" }}>
-              <button
-                type="button"
-                onClick={() => fetchReviews(false)}
-                style={{
-                  background: "#F3F4F6",
-                  border: "1px solid #D1D5DB",
-                  padding: "8px 24px",
-                  borderRadius: "8px",
-                  fontSize: "0.88rem",
-                  fontWeight: "600",
-                  color: "#374151",
-                  cursor: "pointer",
-                }}
-              >
-                Load More Reviews
-              </button>
-            </div>
-          )}
         </div>
       ) : (
         <div style={{ textAlign: "center", padding: "30px 16px", background: "#F9FAFB", borderRadius: "10px", color: "#6B7280" }}>
