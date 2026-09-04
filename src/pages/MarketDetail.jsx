@@ -15,7 +15,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import {
-  API_URL, // Used for fetching products
+  API_URL,
   formatPrice,
   calcDiscount,
   getProductImage,
@@ -35,16 +35,16 @@ import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
-import "../styles/MarketDetailCompact.css"; // 👈 Jumia-style compact CSS
+import "../styles/MarketDetailCompact.css"; // 👈 Compact Layout
 
 /* ═══════════════════════════════════════════════════════════════
-   ENV + API (Cart URLs separated from Shop URLs)
+   ENV + API
 ═══════════════════════════════════════════════════════════════ */
 const RAW_BASE       = import.meta.env.VITE_API_BASE_URL || "";
 const BASE           = RAW_BASE.replace(/\/+$/, "");
 const API            = `${BASE}/api`;
-const CART_ITEMS_URL = `${API}/cart/items`; // 👈 MUST match routes/cart/write.js
-const CART_URL       = `${API}/cart`;       // 👈 MUST match routes/cart/read.js
+const CART_ITEMS_URL = `${API}/cart/items`;
+const CART_URL       = `${API}/cart`;
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -192,7 +192,7 @@ const StickyMiniHeader = memo(function StickyMiniHeader({
           onClick={onCartClick}
           disabled={disabled}
         >
-          ADD TO CART
+          ADD
         </button>
       </div>
     </div>
@@ -669,6 +669,7 @@ export default function MarketDetail() {
   const originalPrice = useMemo(() => Number(product?.original_price ?? product?.compare_price ?? 0), [product]);
   const discount = useMemo(() => calcDiscount(displayPrice, originalPrice), [displayPrice, originalPrice]);
   const savings = useMemo(() => originalPrice > displayPrice ? originalPrice - displayPrice : 0, [originalPrice, displayPrice]);
+  const total = useMemo(() => displayPrice * qty, [displayPrice, qty]);
 
   const isOutOfStock = useMemo(() => {
     if (selectedVariant) return typeof selectedVariant.stock === "number" && selectedVariant.stock <= 0;
@@ -709,12 +710,10 @@ export default function MarketDetail() {
           window.dispatchEvent(new Event("cart-updated"));
         } catch (apiErr) {
           const status = apiErr?.response?.status;
-          // Fallback to guest if unauthorized
           if (status === 401 || status === 403) {
             TOKEN_KEYS.forEach(k => localStorage.removeItem(k));
             setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty));
           } else {
-            // Real Error (e.g. stock issue on server)
             setCartError(apiErr?.response?.data?.message || "Failed to add to cart");
             if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
             errorTimeoutRef.current = setTimeout(() => setCartError(null), 5000);
@@ -722,11 +721,9 @@ export default function MarketDetail() {
           }
         }
       } else {
-        // Guest Cart
         setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty));
       }
 
-      // Success UI handling
       setAddedToCart(true);
       window.navigator?.vibrate?.([25, 15, 25]);
       
@@ -876,11 +873,6 @@ export default function MarketDetail() {
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && handleCartClick()}
-                  style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "16px", background: "#f9fafb", borderRadius: "12px",
-                    border: "1px solid #e5e7eb", cursor: "pointer", marginBottom: "24px"
-                  }}
                 >
                   <div>
                     <span style={{ fontSize: "0.85rem", color: "#6b7280", display: "block", marginBottom: "2px" }}>
@@ -895,23 +887,19 @@ export default function MarketDetail() {
                   <span style={{ color: "#9ca3af", fontWeight: "bold" }}>&gt;</span>
                 </div>
               ) : (
-                <div className="mdp-qty-row" style={{ marginBottom: 24, display: "flex", alignItems: "center", gap: 14 }}>
-                  <span className="mdp-qty-label" style={{ fontWeight: 800, color: "#111827", fontSize: "14px" }}>Quantity</span>
-                  <div className="mdp-qty" style={{ display: "inline-flex", alignItems: "center", border: "1.5px solid #e5e7eb", borderRadius: "10px", overflow: "hidden", background: "#fff" }}>
+                <div className="mdp-qty-row">
+                  <span className="mdp-qty-label">Quantity</span>
+                  <div className="mdp-qty">
                     <button
                       type="button"
                       className="mdp-qty__btn"
-                      style={{ width: "38px", height: "38px", border: "none", background: "none", fontSize: "18px", color: "#475569", cursor: "pointer" }}
                       onClick={() => setQty((q) => Math.max(1, q - 1))}
                       disabled={qty <= 1 || isOutOfStock || addingToCart}
                     >−</button>
-                    <span className="mdp-qty__value" style={{ minWidth: "40px", textAlign: "center", fontWeight: 900, color: "#0f172a", fontSize: "15px" }}>
-                      {qty}
-                    </span>
+                    <span className="mdp-qty__value">{qty}</span>
                     <button
                       type="button"
                       className="mdp-qty__btn"
-                      style={{ width: "38px", height: "38px", border: "none", background: "none", fontSize: "18px", color: "#475569", cursor: "pointer" }}
                       onClick={() => setQty((q) => Math.min(MAX_QTY, stockLeft > 0 ? Math.min(stockLeft, q + 1) : q + 1))}
                       disabled={isOutOfStock || addingToCart || qty >= MAX_QTY || (stockLeft != null && qty >= stockLeft)}
                     >+</button>
@@ -1005,13 +993,26 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* ── STICKY BOTTOM ACTIONS (JUMIA STYLE COMPACT) ── */}
+      {/* ── STICKY BOTTOM ACTIONS (PRICE + STEPPER + BUTTON) ── */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
+          
+          {/* Restored Price on Left */}
+          <div className="mdp-sticky-left">
+            <div className="mdp-sticky-price-wrap">
+              <span className="mdp-sticky-price">{formatPrice(total)}</span>
+              {qty > 1 && (
+                <span className="mdp-sticky-qty-note">
+                  {formatPrice(displayPrice)} × {qty}
+                </span>
+              )}
+            </div>
+          </div>
+
           <div className="mdp-sticky-actions">
             {cartError && <span className="mdp-sticky-error">{cartError}</span>}
 
-            {/* Sticky Qty Stepper (Hidden if hasVariants, because variants use bottom sheet) */}
+            {/* Stepper beside button (Only if product has no variants) */}
             {!hasVariants && (
               <div className="mdp-sticky-qty">
                 <button
@@ -1019,6 +1020,7 @@ export default function MarketDetail() {
                   className="mdp-sticky-qty__btn"
                   onClick={() => setQty((q) => Math.max(1, q - 1))}
                   disabled={qty <= 1 || isOutOfStock || addingToCart}
+                  aria-label="Decrease quantity"
                 >
                   −
                 </button>
@@ -1028,6 +1030,7 @@ export default function MarketDetail() {
                   className="mdp-sticky-qty__btn"
                   onClick={() => setQty((q) => Math.min(MAX_QTY, stockLeft > 0 ? Math.min(stockLeft, q + 1) : q + 1))}
                   disabled={isOutOfStock || addingToCart || qty >= MAX_QTY || (stockLeft != null && qty >= stockLeft)}
+                  aria-label="Increase quantity"
                 >
                   +
                 </button>
@@ -1046,9 +1049,9 @@ export default function MarketDetail() {
               ) : addingToCart ? (
                 "ADDING..."
               ) : addedToCart ? (
-                "ADDED"
+                <>{Icon.check} ADDED ({qty})</>
               ) : (
-                "ADD TO CART"
+                <>{Icon.cart} ADD TO CART</>
               )}
             </button>
           </div>
