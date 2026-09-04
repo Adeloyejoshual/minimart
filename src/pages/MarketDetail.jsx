@@ -15,195 +15,98 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import {
-  API_URL,
   formatPrice,
   calcDiscount,
   getProductImage,
 } from "../config/marketplace";
 import useWishlist from "../hooks/useWishlist";
 
+/* ── Child components ── */
 import MarketDetailHeader from "../components/MarketDetailHeader";
-import ImageGallery from "./MarketDetail/ImageGallery";
-import SellerCard from "./MarketDetail/SellerCard";
-import ProductInfo from "./MarketDetail/ProductInfo";
-import SpecsSection from "./MarketDetail/SpecsSection";
-import RelatedProducts from "./MarketDetail/RelatedProducts";
-import RateProductModal from "./MarketDetail/RateProductModal";
-import ProductReviews from "./MarketDetail/ProductReviews";
+import ImageGallery       from "./MarketDetail/ImageGallery";
+import SellerCard         from "./MarketDetail/SellerCard";
+import ProductInfo        from "./MarketDetail/ProductInfo";
+import SpecsSection       from "./MarketDetail/SpecsSection";
+import RelatedProducts    from "./MarketDetail/RelatedProducts";
+import RateProductModal   from "./MarketDetail/RateProductModal";
+import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
-import "../styles/MarketDetailCompact.css";
+import "../styles/MarketDetailCompact.css"; // 👈 Compact Jumia-style Layout
 
 /* ═══════════════════════════════════════════════════════════════
-   API
+   ENV + API ROUTES
 ═══════════════════════════════════════════════════════════════ */
-const RAW_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
-const API_ROOT = RAW_BASE
-  ? RAW_BASE.endsWith("/api")
-    ? RAW_BASE
-    : `${RAW_BASE}/api`
-  : "/api";
+const RAW_BASE       = import.meta.env.VITE_API_BASE_URL || "";
+const API_ROOT       = RAW_BASE ? (RAW_BASE.endsWith("/api") ? RAW_BASE : `${RAW_BASE}/api`) : "/api";
 
-const CART_URL = `${API_ROOT}/cart`;
+const SHOP_URL       = `${API_ROOT}/shop`;
+const CART_URL       = `${API_ROOT}/cart`;
 const CART_ITEMS_URL = `${API_ROOT}/cart/items`;
 
-const CART_KEY = "mm_cart";
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS & HELPERS
+═══════════════════════════════════════════════════════════════ */
+const CART_KEY   = "mm_cart";
 const RECENT_KEY = "lm-recently-viewed";
-const MAX_QTY = 10;
+const MAX_QTY    = 10;
 
-const TOKEN_KEYS = [
-  "marketplace_token",
-  "buyer_token",
-  "token",
-  "auth_token",
-  "access_token",
-];
+/** First positive number wins (safely handles 0, null, or string prices) */
+const pickPrice = (...vals) => {
+  for (const v of vals) {
+    if (v == null || v === "") continue;
+    const n = typeof v === "string" ? Number(String(v).replace(/,/g, "")) : Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+};
 
 /* ═══════════════════════════════════════════════════════════════
    ICONS
 ═══════════════════════════════════════════════════════════════ */
 const Icon = {
-  flag: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-      <line x1="4" y1="22" x2="4" y2="15" />
-    </svg>
-  ),
-  check: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}>
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  cart: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <circle cx="9" cy="21" r="1" />
-      <circle cx="20" cy="21" r="1" />
-      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-    </svg>
-  ),
-  star: (
-    <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}>
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  ),
-  starOutline: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}>
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  ),
-  truck: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <rect x="1" y="3" width="15" height="13" />
-      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
-      <circle cx="5.5" cy="18.5" r="2.5" />
-      <circle cx="18.5" cy="18.5" r="2.5" />
-    </svg>
-  ),
-  chevron: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  ),
-  box: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}>
-      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-      <line x1="12" y1="22.08" x2="12" y2="12" />
-    </svg>
-  ),
-  shield: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  ),
-  sparkle: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}>
-      <polygon points="12 2 15 8 21 9 16 13 18 19 12 16 6 19 8 13 3 9 9 8 12 2" />
-    </svg>
-  ),
-  money: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
-      <line x1="12" y1="18" x2="12" y2="6" />
-    </svg>
-  ),
-  return: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <polyline points="9 14 4 9 9 4" />
-      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-    </svg>
-  ),
-  scale: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <path d="M12 3v18" />
-      <rect x="4" y="16" width="16" height="5" rx="2" />
-      <path d="M6 8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v8H6z" />
-    </svg>
-  ),
-  lock: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
-  ),
-  info: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  ),
-  search: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}>
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
-  alert: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}>
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  ),
-  tag: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
-      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-      <line x1="7" y1="7" x2="7.01" y2="7" />
-    </svg>
-  ),
-  share: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <circle cx="18" cy="5" r="3" />
-      <circle cx="6" cy="12" r="3" />
-      <circle cx="18" cy="19" r="3" />
-      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-    </svg>
-  ),
+  flag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
+  check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polyline points="20 6 9 17 4 12"/></svg>,
+  cart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
+  star: <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+  starOutline: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+  truck: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
+  chevron: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><polyline points="9 18 15 12 9 6"/></svg>,
+  box: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
+  shield: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+  sparkle: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15 8 21 9 16 13 18 19 12 16 6 19 8 13 3 9 9 8 12 2"/></svg>,
+  money: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="18" x2="12" y2="6"/></svg>,
+  return: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
+  scale: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M12 3v18"/><rect x="4" y="16" width="16" height="5" rx="2"/><path d="M6 8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v8H6z"/></svg>,
+  lock: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+  info: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
+  search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  alert: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+  tag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
+  share: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>,
 };
 
 const TRUST_BADGES = [
-  { icon: Icon.lock, label: "Secure Payment", sub: "Protected checkout" },
-  { icon: Icon.check, label: "Verified Seller", sub: "Identity confirmed" },
-  { icon: Icon.truck, label: "Fast Delivery", sub: "2-5 business days" },
-  { icon: Icon.return, label: "Easy Returns", sub: "7-day return window" },
+  { icon: Icon.lock,   label: "Secure Payment",  sub: "Protected checkout"  },
+  { icon: Icon.check,  label: "Verified Seller", sub: "Identity confirmed"  },
+  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-5 business days"   },
+  { icon: Icon.return, label: "Easy Returns",    sub: "7-day return window" },
 ];
 
 const REPORT_REASONS = [
-  { key: "fake", label: "Fake or counterfeit product", icon: Icon.alert },
-  { key: "misleading", label: "Wrong or misleading information", icon: Icon.info },
-  { key: "prohibited", label: "Prohibited item", icon: Icon.alert },
-  { key: "scam", label: "Spam or scam", icon: Icon.alert },
-  { key: "other", label: "Other reason", icon: Icon.info },
+  { key: "fake",          label: "Fake or counterfeit product",     icon: Icon.alert },
+  { key: "misleading",    label: "Wrong or misleading information", icon: Icon.info },
+  { key: "prohibited",    label: "Prohibited item",                 icon: Icon.alert },
+  { key: "scam",          label: "Spam or scam",                    icon: Icon.alert },
+  { key: "other",         label: "Other reason",                    icon: Icon.info },
 ];
 
 /* ═══════════════════════════════════════════════════════════════
    AUTH + CART HELPERS
 ═══════════════════════════════════════════════════════════════ */
+const TOKEN_KEYS = ["marketplace_token", "buyer_token", "token", "auth_token"];
 const getAuthToken = () => {
   for (const k of TOKEN_KEYS) {
     const t = localStorage.getItem(k);
@@ -372,7 +275,7 @@ const getRating = (product) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SMALL UI PIECES
+   BREADCRUMBS & COMPONENTS
 ═══════════════════════════════════════════════════════════════ */
 const isUuid = (str) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -607,7 +510,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
     setSubmitting(true);
     try {
       await axios.post(
-        `${API_URL}/${productId}/report`,
+        `${SHOP_URL}/${productId}/report`,
         { reason, details },
         { headers: authHeaders() }
       );
@@ -870,25 +773,40 @@ export default function MarketDetail() {
     return typeof f === "string" ? f : f?.feature;
   }, [product]);
 
+  /* Safe Price Resolvers using pickPrice */
   const displayPrice = useMemo(
     () =>
-      selectedVariant?.price != null
-        ? Number(selectedVariant.price)
-        : Number(product?.price ?? 0),
+      pickPrice(
+        selectedVariant?.price,
+        selectedVariant?.sale_price,
+        product?.price,
+        product?.sale_price,
+        product?.selling_price
+      ),
     [selectedVariant, product]
   );
+
   const originalPrice = useMemo(
-    () => Number(product?.original_price ?? product?.compare_price ?? 0),
-    [product]
+    () =>
+      pickPrice(
+        product?.original_price,
+        product?.compare_price,
+        product?.list_price,
+        selectedVariant?.original_price
+      ),
+    [product, selectedVariant]
   );
-  const discount = useMemo(
-    () => calcDiscount(displayPrice, originalPrice),
-    [displayPrice, originalPrice]
-  );
+
+  const discount = useMemo(() => {
+    if (displayPrice <= 0 || originalPrice <= displayPrice) return 0;
+    return calcDiscount(displayPrice, originalPrice);
+  }, [displayPrice, originalPrice]);
+
   const savings = useMemo(
-    () => (originalPrice > displayPrice ? originalPrice - displayPrice : 0),
+    () => (originalPrice > displayPrice && displayPrice > 0 ? originalPrice - displayPrice : 0),
     [originalPrice, displayPrice]
   );
+
   const total = useMemo(() => displayPrice * qty, [displayPrice, qty]);
 
   const isOutOfStock = useMemo(() => {
@@ -942,7 +860,7 @@ export default function MarketDetail() {
   const fetchProduct = useCallback(() => {
     if (!slug) return;
     axios
-      .get(`${API_URL}/${slug}`, { timeout: 12000 })
+      .get(`${SHOP_URL}/${slug}`, { timeout: 12000 })
       .then(({ data }) => setProduct(data?.data ?? data?.product ?? data))
       .catch(() => {});
   }, [slug]);
@@ -956,7 +874,7 @@ export default function MarketDetail() {
     setSelectedVariant(null);
 
     axios
-      .get(`${API_URL}/${slug}`, { timeout: 12000 })
+      .get(`${SHOP_URL}/${slug}`, { timeout: 12000 })
       .then(({ data }) => {
         if (cancelled) return;
         const p = data?.data ?? data?.product ?? data;
@@ -999,14 +917,29 @@ export default function MarketDetail() {
     if (stockLeft != null && stockLeft > 0 && qty > stockLeft) setQty(stockLeft);
   }, [stockLeft, qty]);
 
-  /* already in cart? */
+  /* RESTORE CART LINE ON LOAD / REFRESH */
   useEffect(() => {
     if (!product?.id) return;
     let cancelled = false;
 
-    (async () => {
+    const restore = async () => {
       if (isLoggedIn()) {
-        const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
+        let line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
+        if (!line) {
+          try {
+            const res = await axios.get(CART_URL, { headers: authHeaders(), timeout: 8000 });
+            const d = res.data?.data ?? res.data;
+            const items = d?.items ?? d?.data?.items ?? [];
+            const productLines = items.filter((it) => String(it.product_id) === String(product.id));
+            if (productLines.length) {
+              line = productLines[0];
+              if (line.variant_id && Array.isArray(product.variants)) {
+                const v = product.variants.find((x) => String(x.id) === String(line.variant_id));
+                if (v) setSelectedVariant(v);
+              }
+            }
+          } catch {}
+        }
         if (cancelled) return;
         if (line) {
           setInCart(true);
@@ -1019,8 +952,16 @@ export default function MarketDetail() {
           setCartItemId(null);
         }
       } else {
+        const cart = readGuestCart();
         const key = lineKey(product.id, selectedVariant?.id ?? null);
-        const row = readGuestCart().find((c) => c.id === key);
+        let row = cart.find((c) => c.id === key);
+        if (!row) {
+          row = cart.find((c) => String(c.productId || c.product_id) === String(product.id));
+          if (row?.variant_id && Array.isArray(product.variants)) {
+            const v = product.variants.find((x) => String(x.id) === String(row.variant_id));
+            if (v) setSelectedVariant(v);
+          }
+        }
         if (cancelled) return;
         if (row) {
           setInCart(true);
@@ -1031,12 +972,13 @@ export default function MarketDetail() {
           setCartLineQty(0);
         }
       }
-    })();
+    };
 
+    restore();
     return () => {
       cancelled = true;
     };
-  }, [product?.id, selectedVariant?.id]);
+  }, [product?.id, selectedVariant?.id, product?.variants]);
 
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart || isOutOfStock) return false;
@@ -1205,12 +1147,21 @@ export default function MarketDetail() {
     ]
   );
 
+  /* SMART CLICK: Always allow opening sheet if hasVariants */
   const handleCartClick = useCallback(() => {
     if (!product || isOutOfStock || addingToCart) return;
+    
+    // Always open options if product has variants (even if already in cart)
+    if (hasVariants) {
+      setSheetIntent("cart");
+      return;
+    }
+    
+    // If no variants and already in cart, don't trigger add again
     if (inCart) return;
-    if (hasVariants) setSheetIntent("cart");
-    else handleAddToCart();
-  }, [product, isOutOfStock, addingToCart, inCart, hasVariants, handleAddToCart]);
+
+    handleAddToCart();
+  }, [product, isOutOfStock, addingToCart, hasVariants, inCart, handleAddToCart]);
 
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
@@ -1273,7 +1224,7 @@ export default function MarketDetail() {
           product={product}
           displayPrice={displayPrice}
           onCartClick={handleCartClick}
-          disabled={addingToCart || isOutOfStock || inCart}
+          disabled={addingToCart || isOutOfStock}
         />
 
         {loading && <ProductSkeleton />}
@@ -1287,7 +1238,7 @@ export default function MarketDetail() {
             </div>
 
             <div className="md-content mdp-content">
-              {discount > 0 && (
+              {discount > 0 && displayPrice > 0 && (
                 <div className="md-badges-row mdp-badges-row">
                   <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>
                 </div>
@@ -1354,13 +1305,14 @@ export default function MarketDetail() {
                 )}
               </div>
 
+              {/* ALWAYS ALLOW OPENING OPTIONS IF HAS VARIANTS */}
               {hasVariants ? (
                 <div
                   className="mdp-selection-trigger"
-                  onClick={handleCartClick}
+                  onClick={() => setSheetIntent('cart')}
                   role="button"
                   tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && handleCartClick()}
+                  onKeyDown={(e) => e.key === "Enter" && setSheetIntent('cart')}
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
@@ -1393,6 +1345,7 @@ export default function MarketDetail() {
                             "Selected"
                           } • Qty: ${stickyQty}`
                         : "Select options"}
+                      {inCart ? "  ·  In cart" : ""}
                     </span>
                   </div>
                   <span style={{ color: "#9ca3af", fontWeight: "bold" }}>&gt;</span>
@@ -1526,34 +1479,50 @@ export default function MarketDetail() {
             {cartError && <span className="mdp-sticky-error">{cartError}</span>}
 
             {inCart ? (
-              <div className="mdp-sticky-qty mdp-sticky-qty--full">
-                <button
-                  type="button"
-                  className="mdp-sticky-qty__btn"
-                  onClick={() => handleStickyQtyChange(cartLineQty - 1)}
-                  disabled={updatingQty}
-                  aria-label="Decrease"
-                >
-                  −
-                </button>
-                <span className="mdp-sticky-qty__val">
-                  {updatingQty ? "…" : cartLineQty}
-                </span>
-                <button
-                  type="button"
-                  className="mdp-sticky-qty__btn"
-                  onClick={() => handleStickyQtyChange(cartLineQty + 1)}
-                  disabled={
-                    updatingQty ||
-                    isOutOfStock ||
-                    cartLineQty >= MAX_QTY ||
-                    (stockLeft != null && cartLineQty >= stockLeft)
-                  }
-                  aria-label="Increase"
-                >
-                  +
-                </button>
-              </div>
+              <>
+                {/* Always allow reopening sheet from sticky bar if variants exist */}
+                {hasVariants && (
+                  <button
+                    type="button"
+                    onClick={() => setSheetIntent('cart')}
+                    style={{
+                      height: 42, padding: "0 10px", borderRadius: 8,
+                      border: "1px solid #e5e7eb", background: "#fff",
+                      fontSize: 12, fontWeight: 700, color: "#374151", flexShrink: 0
+                    }}
+                  >
+                    Options
+                  </button>
+                )}
+                <div className="mdp-sticky-qty mdp-sticky-qty--full">
+                  <button
+                    type="button"
+                    className="mdp-sticky-qty__btn"
+                    onClick={() => handleStickyQtyChange(cartLineQty - 1)}
+                    disabled={updatingQty}
+                    aria-label="Decrease"
+                  >
+                    −
+                  </button>
+                  <span className="mdp-sticky-qty__val">
+                    {updatingQty ? "…" : cartLineQty}
+                  </span>
+                  <button
+                    type="button"
+                    className="mdp-sticky-qty__btn"
+                    onClick={() => handleStickyQtyChange(cartLineQty + 1)}
+                    disabled={
+                      updatingQty ||
+                      isOutOfStock ||
+                      cartLineQty >= MAX_QTY ||
+                      (stockLeft != null && cartLineQty >= stockLeft)
+                    }
+                    aria-label="Increase"
+                  >
+                    +
+                  </button>
+                </div>
+              </>
             ) : (
               <>
                 {!hasVariants && (
