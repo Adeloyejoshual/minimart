@@ -1,12 +1,12 @@
 /* ════════════════════════════════════════════════════════════
    MarketDetailCompact.css
-   Jumia-style compact layout — import LAST
+   Jumia-style compact layout with price & quantity stepper
 ════════════════════════════════════════════════════════════ */
 
 /* ── Global tighter typography ── */
 .mdp-page {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
-  padding-bottom: 72px !important;
+  padding-bottom: 76px !important;
   background: #f5f5f5 !important;
 }
 
@@ -24,7 +24,7 @@
 
 .mdp-section-gallery { padding: 0 !important; background: #fff; }
 
-/* ── Section titles: smaller, medium weight ── */
+/* ── Section titles ── */
 .mdp-section-title,
 .md-section-title {
   font-size: 15px !important;
@@ -34,7 +34,7 @@
   letter-spacing: 0 !important;
 }
 
-/* ── Breadcrumbs: compact ── */
+/* ── Breadcrumbs ── */
 .mdp-breadcrumbs { padding: 6px 12px !important; font-size: 11px !important; }
 .mdp-breadcrumbs__link,
 .mdp-breadcrumbs__current { font-size: 11px !important; font-weight: 500 !important; }
@@ -53,19 +53,10 @@
   .mdp-title { font-size: 18px !important; }
 }
 
-/* ── SEO subtitle ── */
-.mdp-seo-subtitle {
-  font-size: 12px !important;
-  font-weight: 500 !important;
-  color: #555 !important;
-  margin: 0 0 6px !important;
-}
-
-/* ── Brand + rating ── */
+/* ── Brand + Rating ── */
 .mdp-brand,
 .md-brand { font-size: 12px !important; margin: 0 !important; color: #666 !important; }
 .mdp-rating-num { font-size: 12px !important; font-weight: 600 !important; }
-.mdp-share-btn { padding: 6px !important; }
 
 /* ── Price ── */
 .mdp-price,
@@ -87,11 +78,7 @@
   border-radius: 4px !important;
 }
 
-/* ── Badges ── */
-.mdp-badge,
-.md-badge { font-size: 10px !important; padding: 2px 6px !important; border-radius: 4px !important; }
-
-/* ── Delivery & Protection cards: compact ── */
+/* ── Delivery & Protection ── */
 .mdp-delivery-card,
 .mdp-protection-card {
   padding: 10px !important;
@@ -123,7 +110,7 @@
 .mdp-selection-trigger span:first-child { font-size: 11px !important; }
 .mdp-selection-trigger span[style*="font-weight"] { font-size: 13px !important; font-weight: 600 !important; }
 
-/* ── Quantity stepper (inline) ── */
+/* ── Quantity stepper (inline on page) ── */
 .mdp-qty-row { gap: 10px !important; margin-bottom: 14px !important; }
 .mdp-qty-label { font-size: 12px !important; font-weight: 600 !important; }
 .mdp-qty { border-radius: 6px !important; }
@@ -167,108 +154,153 @@
 .mdp-report-btn { padding: 8px !important; font-size: 12px !important; border-radius: 6px !important; }
 
 /* ════════════════════════════════════════════════════════════
-   STICKY BAR — Jumia style: qty stepper + orange Add to Cart
+   STICKY BAR — Price on Left + Stepper + Add to Cart Button
 ════════════════════════════════════════════════════════════ */
 .mdp-sticky-bar,
 .md-sticky-bar {
-  padding: 8px 10px !important;
+  padding: 8px 12px !important;
   padding-bottom: calc(8px + env(safe-area-inset-bottom)) !important;
-  gap: 8px !important;
-  background: #fff !important;
-  border-top: 1px solid #eee !important;
-  box-shadow: 0 -2px 8px rgba(0,0,0,0.05) !important;
+  gap: 10px !important;
+  background: #ffffff !important;
+  border-top: 1px solid #e5e7eb !important;
+  box-shadow: 0 -3px 12px rgba(0, 0, 0, 0.08) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
 
-/* Hide the total price on the left (Jumia doesn't show it in the sticky bar) */
-.mdp-sticky-left { display: none !important; }
+/* Price on Left */
+.mdp-sticky-left {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  min-width: 0 !important;
+}
 
+.mdp-sticky-price {
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  color: #f68b1e !important; /* Jumia orange */
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+}
+
+.mdp-sticky-qty-note {
+  font-size: 10px !important;
+  color: #6b7280 !important;
+  font-weight: 600 !important;
+  margin-top: 2px !important;
+  white-space: nowrap !important;
+}
+
+/* Actions wrapper */
 .mdp-sticky-actions {
   flex: 1 !important;
   display: flex !important;
   align-items: center !important;
-  gap: 6px !important;
-  justify-content: space-between !important;
+  gap: 8px !important;
+  justify-content: flex-end !important;
+  min-width: 0 !important;
 }
 
-/* Inline qty stepper inside sticky bar */
-.mdp-sticky-actions::before {
-  /* placeholder — real qty rendered from JSX (see step 2) */
+/* Sticky quantity stepper (- 1 +) */
+.mdp-sticky-qty {
+  display: inline-flex;
+  align-items: center;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  height: 42px;
+  flex-shrink: 0;
 }
 
-/* Orange Add to Cart button (Jumia style) */
+.mdp-sticky-qty__btn {
+  width: 32px;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.mdp-sticky-qty__btn:hover:not(:disabled) {
+  background: #f68b1e;
+  color: #ffffff;
+}
+
+.mdp-sticky-qty__btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.mdp-sticky-qty__val {
+  min-width: 28px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #111827;
+}
+
+/* Orange Add to Cart button */
 .mdp-btn-cart-primary,
 .mdp-btn-cart {
   height: 42px !important;
-  border-radius: 6px !important;
-  background: #f68b1e !important;
-  color: #fff !important;
+  border-radius: 8px !important;
+  background: #f68b1e !important; /* Jumia style orange */
+  color: #ffffff !important;
   font-size: 13px !important;
-  font-weight: 700 !important;
+  font-weight: 800 !important;
   text-transform: uppercase !important;
   letter-spacing: 0.3px !important;
   gap: 6px !important;
   padding: 0 14px !important;
   box-shadow: none !important;
   flex: 1 !important;
+  max-width: 180px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: background 0.15s !important;
 }
 
 .mdp-btn-cart-primary:hover:not(:disabled),
 .mdp-btn-cart:hover:not(:disabled) {
   background: #e07a10 !important;
   transform: none !important;
-  box-shadow: none !important;
 }
 
 .mdp-btn-cart-primary:disabled,
 .mdp-btn-cart:disabled {
   background: #f5c78a !important;
-  color: #fff !important;
+  color: #ffffff !important;
+  cursor: not-allowed;
 }
 
 .mdp-btn-cart-primary--done,
 .mdp-btn-cart--done {
-  background: #16a34a !important;
+  background: #10b981 !important; /* Success Green */
   box-shadow: none !important;
 }
 
 .mdp-btn-cart-primary svg,
 .mdp-btn-cart svg { width: 16px !important; height: 16px !important; }
 
-/* Sticky quantity stepper (compact orange) */
-.mdp-sticky-qty {
-  display: inline-flex;
-  align-items: center;
-  border: none;
-  gap: 4px;
-}
+/* Hide legacy Buy Now */
+.mdp-btn-buy, .md-btn-buy { display: none !important; }
 
-.mdp-sticky-qty__btn {
-  width: 42px;
-  height: 42px;
-  border: none;
-  background: #f68b1e;
-  color: #fff;
-  font-size: 20px;
-  font-weight: 700;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.mdp-sticky-qty__btn:disabled { background: #f5c78a; cursor: not-allowed; }
-
-.mdp-sticky-qty__val {
-  min-width: 32px;
-  text-align: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: #222;
-}
-
-/* Mini header CTA (also orange) */
+/* Mini header CTA */
 .mdp-mini-header__cta {
   background: #f68b1e !important;
   border-radius: 6px !important;
@@ -279,14 +311,14 @@
   box-shadow: none !important;
 }
 
-/* Floating cart – smaller */
+/* Floating cart */
 .mdp-float-cart {
   width: 44px !important;
   height: 44px !important;
-  bottom: 74px !important;
+  bottom: 82px !important;
 }
 
-/* Toast – smaller */
+/* Toast */
 .mdp-toast {
   min-width: 280px !important;
   padding: 8px 10px !important;
