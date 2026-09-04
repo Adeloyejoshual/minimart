@@ -15,7 +15,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import {
-  API_URL,
   formatPrice,
   calcDiscount,
   getProductImage,
@@ -35,16 +34,17 @@ import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
-import "../styles/MarketDetailCompact.css"; // 👈 Compact Layout
+import "../styles/MarketDetailCompact.css"; // 👈 Compact Jumia-style Layout
 
 /* ═══════════════════════════════════════════════════════════════
-   ENV + API
+   ENV + API ROUTES
 ═══════════════════════════════════════════════════════════════ */
 const RAW_BASE       = import.meta.env.VITE_API_BASE_URL || "";
-const BASE           = RAW_BASE.replace(/\/+$/, "");
-const API            = `${BASE}/api`;
-const CART_ITEMS_URL = `${API}/cart/items`;
-const CART_URL       = `${API}/cart`;
+const API_ROOT       = RAW_BASE ? (RAW_BASE.endsWith("/api") ? RAW_BASE : `${RAW_BASE}/api`) : "/api";
+
+const SHOP_URL       = `${API_ROOT}/shop`;
+const CART_URL       = `${API_ROOT}/cart`;
+const CART_ITEMS_URL = `${API_ROOT}/cart/items`;
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -92,6 +92,126 @@ const REPORT_REASONS = [
   { key: "scam",          label: "Spam or scam",                    icon: Icon.alert },
   { key: "other",         label: "Other reason",                    icon: Icon.info },
 ];
+
+/* ═══════════════════════════════════════════════════════════════
+   CART & AUTH HELPERS
+═══════════════════════════════════════════════════════════════ */
+const TOKEN_KEYS = ["marketplace_token", "buyer_token", "token", "auth_token"];
+const getAuthToken = () => {
+  for (const k of TOKEN_KEYS) {
+    const t = localStorage.getItem(k);
+    if (t && t !== "null" && t !== "undefined") return t.trim();
+  }
+  return null;
+};
+const isLoggedIn = () => !!getAuthToken();
+
+const authHeaders = () => {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+};
+
+const readGuestCart = () => { try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } catch { return []; } };
+const writeGuestCart = (cart) => { localStorage.setItem(CART_KEY, JSON.stringify(cart)); window.dispatchEvent(new Event("cart-updated")); };
+const guestCartCount = (cart = readGuestCart()) => cart.reduce((s, i) => s + (Number(i.qty) || 1), 0);
+
+const addToGuestCart = (product, selectedVariant, displayPrice, originalPrice, qty = 1) => {
+  const cart      = readGuestCart();
+  const variantId = selectedVariant?.id ?? null;
+  const itemKey   = `${product.id}__${variantId ?? "default"}`;
+  const idx       = cart.findIndex((c) => c.id === itemKey);
+  const stock     = Number(selectedVariant?.stock ?? product?.stock ?? 99);
+
+  const item = {
+    id: itemKey, productId: product.id, product_id: product.id, name: product.name,
+    image: getProductImage(product), price: Number(displayPrice),
+    originalPrice: originalPrice > displayPrice ? Number(originalPrice) : null,
+    variant: selectedVariant ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku } : null,
+    variant_id: variantId, slug: product.slug ?? product.id, qty: Math.max(1, Number(qty) || 1), stock, addedAt: Date.now(),
+  };
+
+  if (idx >= 0) cart[idx].qty = Math.min((Number(cart[idx].qty) || 0) + item.qty, stock);
+  else cart.push(item);
+  writeGuestCart(cart);
+  return guestCartCount(cart);
+};
+
+const setGuestLineQty = (product, selectedVariant, displayPrice, originalPrice, newQty) => {
+  const cart = readGuestCart();
+  const variantId = selectedVariant?.id ?? null;
+  const itemKey = `${product.id}__${variantId ?? "default"}`;
+  const idx = cart.findIndex((c) => c.id === itemKey);
+
+  if (newQty <= 0) {
+    if (idx >= 0) cart.splice(idx, 1);
+    writeGuestCart(cart);
+    return guestCartCount(cart);
+  }
+
+  const stock = Number(selectedVariant?.stock ?? product?.stock ?? 99);
+  const qty = Math.min(Math.max(1, newQty), stock);
+
+  if (idx >= 0) {
+    cart[idx].qty = qty;
+  } else {
+    cart.push({
+      id: itemKey, productId: product.id, product_id: product.id, name: product.name,
+      image: getProductImage(product), price: Number(displayPrice),
+      originalPrice: originalPrice > displayPrice ? Number(originalPrice) : null,
+      variant: selectedVariant ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku } : null,
+      variant_id: variantId, slug: product.slug ?? product.id, qty, stock, addedAt: Date.now(),
+    });
+  }
+  writeGuestCart(cart);
+  return guestCartCount(cart);
+};
+
+const fetchServerCartCount = async () => {
+  try {
+    const token = getAuthToken();
+    if (!token) return null;
+    const res = await axios.get(CART_URL, { headers: authHeaders(), timeout: 8_000 });
+    const inner = res.data?.data ?? res.data;
+    return inner?.total_qty ?? inner?.item_count ?? null;
+  } catch { return null; }
+};
+
+const findServerCartLine = async (productId, variantId) => {
+  try {
+    const res = await axios.get(CART_URL, { headers: authHeaders(), timeout: 8_000 });
+    const data = res.data?.data ?? res.data;
+    const items = data?.items ?? data?.data?.items ?? [];
+    return items.find((it) =>
+      String(it.product_id) === String(productId) &&
+      String(it.variant_id ?? "") === String(variantId ?? "")
+    ) || null;
+  } catch { return null; }
+};
+
+const addToRecentlyViewed = (product) => {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((p) => p.id !== product.id);
+    list.unshift({
+      id: product.id, name: product.name, price: product.price,
+      image: getProductImage(product), slug: product.slug ?? product.id,
+    });
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
+  } catch {}
+};
+
+const getDeliveryEstimate = () => {
+  const now = new Date();
+  const min = new Date(now); min.setDate(min.getDate() + 2);
+  const max = new Date(now); max.setDate(max.getDate() + 5);
+  const fmt = (d) => d.toLocaleDateString("en-NG", { weekday: "short", month: "short", day: "numeric" });
+  return `${fmt(min)} – ${fmt(max)}`;
+};
+
+const getRating = (product) => {
+  if (product?.rating && Number(product.rating) > 0) return Number(product.rating);
+  if (product?.average_rating && Number(product.average_rating) > 0) return Number(product.average_rating);
+  return 0;
+};
 
 /* ═══════════════════════════════════════════════════════════════
    BREADCRUMBS & COMPONENTS
@@ -199,86 +319,6 @@ const StickyMiniHeader = memo(function StickyMiniHeader({
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS
-═══════════════════════════════════════════════════════════════ */
-const TOKEN_KEYS = ["marketplace_token", "buyer_token", "token", "auth_token"];
-const getAuthToken = () => {
-  for (const k of TOKEN_KEYS) {
-    const t = localStorage.getItem(k);
-    if (t && t !== "null" && t !== "undefined") return t.trim();
-  }
-  return null;
-};
-const isLoggedIn = () => !!getAuthToken();
-
-const authHeaders = () => {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
-};
-const readGuestCart = () => { try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } catch { return []; } };
-const writeGuestCart = (cart) => { localStorage.setItem(CART_KEY, JSON.stringify(cart)); window.dispatchEvent(new Event("cart-updated")); };
-const guestCartCount = (cart = readGuestCart()) => cart.reduce((s, i) => s + (Number(i.qty) || 1), 0);
-
-const addToGuestCart = (product, selectedVariant, displayPrice, originalPrice, qty = 1) => {
-  const cart      = readGuestCart();
-  const variantId = selectedVariant?.id ?? null;
-  const itemKey   = `${product.id}__${variantId ?? "default"}`;
-  const existing  = cart.findIndex((c) => c.id === itemKey);
-  const stock     = selectedVariant?.stock ?? product?.stock ?? 99;
-
-  const item = {
-    id: itemKey, productId: product.id, product_id: product.id, name: product.name,
-    image: getProductImage(product), price: displayPrice,
-    originalPrice: originalPrice > displayPrice ? originalPrice : null,
-    variant: selectedVariant ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku } : null,
-    variant_id: variantId, slug: product.slug ?? product.id, qty, stock, addedAt: Date.now(),
-  };
-
-  if (existing >= 0) cart[existing].qty = Math.min((cart[existing].qty || 0) + qty, stock);
-  else cart.push(item);
-  writeGuestCart(cart);
-  return guestCartCount(cart);
-};
-
-const fetchServerCartCount = async () => {
-  try {
-    const token = getAuthToken();
-    if (!token) return null;
-    const res = await axios.get(CART_URL, { headers: authHeaders(), timeout: 5_000 });
-    const inner = res.data?.data ?? res.data;
-    return inner?.total_qty ?? inner?.item_count ?? null;
-  } catch { return null; }
-};
-
-const addToRecentlyViewed = (product) => {
-  try {
-    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((p) => p.id !== product.id);
-    list.unshift({
-      id: product.id, name: product.name, price: product.price,
-      image: getProductImage(product), slug: product.slug ?? product.id,
-    });
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
-  } catch {}
-};
-
-const getDeliveryEstimate = () => {
-  const now = new Date();
-  const min = new Date(now); min.setDate(min.getDate() + 2);
-  const max = new Date(now); max.setDate(max.getDate() + 5);
-  const fmt = (d) => d.toLocaleDateString("en-NG", { weekday: "short", month: "short", day: "numeric" });
-  return `${fmt(min)} – ${fmt(max)}`;
-};
-
-const getRating = (product) => {
-  if (product?.rating && Number(product.rating) > 0) return Number(product.rating);
-  if (product?.average_rating && Number(product.average_rating) > 0) return Number(product.average_rating);
-  return 0;
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   SKELETON & STARS
-═══════════════════════════════════════════════════════════════ */
 function ProductSkeleton() {
   return (
     <div className="mdp-skeleton" aria-busy="true" aria-label="Loading product">
@@ -291,7 +331,6 @@ function ProductSkeleton() {
         <div className="mdp-skel" style={{ width:"60%", height:16, borderRadius:4, marginBottom: 24 }} />
         <div className="mdp-skel" style={{ width:"35%", height:32, borderRadius:6, marginBottom: 32 }} />
         <div className="mdp-skel" style={{ width:"100%", height:80, borderRadius:12, marginBottom: 16 }} />
-        <div className="mdp-skel" style={{ width:"100%", height:120, borderRadius:12 }} />
       </div>
     </div>
   );
@@ -311,179 +350,6 @@ const StarRating = memo(function StarRating({ rating }) {
           </span>
         );
       })}
-    </div>
-  );
-});
-
-const CartToast = memo(function CartToast({ show, productName, qty, image, onView, onClose }) {
-  if (!show) return null;
-  return (
-    <div role="status" aria-live="polite" className="mdp-toast">
-      <div className="mdp-toast__img-wrap">
-        {image ? <img src={image} alt="" className="mdp-toast__img" /> : <div className="mdp-toast__img-ph">{Icon.box}</div>}
-      </div>
-      <div className="mdp-toast__body">
-        <p className="mdp-toast__label"><span aria-hidden="true">{Icon.check}</span> Added to cart</p>
-        <p className="mdp-toast__name">{productName}</p>
-        <p className="mdp-toast__qty">Qty: {qty}</p>
-      </div>
-      <button type="button" onClick={onView} className="mdp-toast__view">View Cart</button>
-      <button type="button" onClick={onClose} className="mdp-toast__close" aria-label="Dismiss">✕</button>
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   MODALS & FAQS
-═══════════════════════════════════════════════════════════════ */
-const ReportModal = memo(function ReportModal({ productId, onClose }) {
-  const [reason,     setReason]     = useState("");
-  const [details,    setDetails]    = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted,  setSubmitted]  = useState(false);
-
-  useEffect(() => {
-    const fn = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", fn);
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { 
-      window.removeEventListener("keydown", fn); 
-      document.body.style.overflow = originalOverflow || ""; 
-    };
-  }, [onClose]);
-
-  const handleSubmit = useCallback(async () => {
-    if (!reason) return;
-    setSubmitting(true);
-    try {
-      await axios.post(`${API_URL}/${productId}/report`, { reason, details }, { headers: authHeaders() });
-      setSubmitted(true);
-    } catch { /* Fallback */ } finally { setSubmitting(false); }
-  }, [productId, reason, details]);
-
-  return (
-    <div className="mdp-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Report listing">
-      <div className="mdp-modal" onClick={(e) => e.stopPropagation()}>
-        {submitted ? (
-          <div className="mdp-report-done">
-            <div className="mdp-report-check">{Icon.check}</div>
-            <h3>Report Submitted</h3>
-            <p>Our team will review this listing. Thank you for keeping Loemart safe.</p>
-            <button className="mdp-done-btn" onClick={onClose}>Done</button>
-          </div>
-        ) : (
-          <>
-            <div className="mdp-modal-header">
-              <h3>Report Listing</h3>
-              <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
-            </div>
-            <div className="mdp-modal-body">
-              <p className="mdp-modal-sub">Why are you reporting this listing?</p>
-              <div className="mdp-report-reasons">
-                {REPORT_REASONS.map((r) => (
-                  <button key={r.key} type="button" className={`mdp-reason-btn${reason === r.label ? " mdp-reason-btn--on" : ""}`} onClick={() => setReason(r.label)}>
-                    <span className="mdp-reason-icon" aria-hidden="true">{r.icon}</span>
-                    <span>{r.label}</span>
-                    {reason === r.label && <span className="mdp-reason-check" aria-hidden="true">{Icon.check}</span>}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                className="mdp-report-textarea"
-                placeholder="Additional details (optional)…"
-                value={details} onChange={(e) => setDetails(e.target.value)}
-                rows={3} maxLength={500} aria-label="Additional details"
-              />
-            </div>
-            <div className="mdp-modal-footer">
-              <button className="mdp-modal-cancel" onClick={onClose}>Cancel</button>
-              <button className="mdp-modal-submit" onClick={handleSubmit} disabled={!reason || submitting}>
-                {submitting ? "Submitting…" : "Submit Report"}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-});
-
-const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
-  useEffect(() => {
-    const fn = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", fn); 
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { 
-      window.removeEventListener("keydown", fn); 
-      document.body.style.overflow = originalOverflow || ""; 
-    };
-  }, [onClose]);
-
-  return (
-    <div className="mdp-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Buyer Protection">
-      <div className="mdp-modal mdp-modal--protection" onClick={(e) => e.stopPropagation()}>
-        <div className="mdp-modal-header">
-          <h3><span className="mdp-icon-inline">{Icon.shield}</span> Buyer Protection Guarantee</h3>
-          <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
-        </div>
-        <div className="mdp-modal-body">
-          <div className="mdp-protection-highlight">
-            <span className="mdp-shield-icon">{Icon.lock}</span>
-            <div>
-              <h4>Payments Held in Escrow</h4>
-              <p>We securely hold your payment. The seller is only paid after you confirm receipt, or after your 7-day inspection window closes.</p>
-            </div>
-          </div>
-          <div className="mdp-protection-grid">
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.money}</span>
-              <div><h5>Full Refund Guarantee</h5><p>Eligible for a 100% refund if your order never arrives or is damaged.</p></div>
-            </div>
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.return}</span>
-              <div><h5>7-Day Window</h5><p>Verify authenticity and condition. File returns easily from your Account.</p></div>
-            </div>
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.scale}</span>
-              <div><h5>Dispute Mediation</h5><p>If you face a disagreement, our claims team steps in to mediate fairly.</p></div>
-            </div>
-          </div>
-        </div>
-        <div className="mdp-modal-footer">
-          <button className="mdp-done-btn" style={{ width: "100%" }} onClick={onClose}>Got it, thanks!</button>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-const FAQAccordion = memo(function FAQAccordion() {
-  const [openIndex, setOpenIndex] = useState(null);
-  const faqs = useMemo(() => [
-    { q: "How do returns and refunds work?", a: "Once your item is delivered, go to Account > Purchases, select the order, and tap 'Request Return/Refund' within 7 days." },
-    { q: "When is the seller paid?", a: "Sellers are only paid after you confirm satisfaction, or automatically after the 7-day window closes." },
-    { q: "What is covered under Guarantee?", a: "You are fully covered if your item does not arrive, is counterfeit, arrives broken, or does not match specs." }
-  ], []);
-
-  return (
-    <div className="md-section mdp-section mdp-faq-section">
-      <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> FAQ</h3>
-      <div className="mdp-faq-list">
-        {faqs.map((faq, idx) => {
-          const isOpen = openIndex === idx;
-          return (
-            <div key={idx} className={`mdp-faq-item ${isOpen ? "mdp-faq-item--open" : ""}`}>
-              <button type="button" className="mdp-faq-trigger" onClick={() => setOpenIndex(isOpen ? null : idx)} aria-expanded={isOpen}>
-                <span>{faq.q}</span>
-                <span className="mdp-faq-arrow" aria-hidden="true">{Icon.chevron}</span>
-              </button>
-              {isOpen && <div className="mdp-faq-content" aria-live="polite"><p>{faq.a}</p></div>}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 });
@@ -508,9 +374,13 @@ export default function MarketDetail() {
   const [addedToCart,  setAddedToCart]  = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
   const [cartError,    setCartError]    = useState(null);
-  const [cartCount,    setCartCount]    = useState(() =>
-    isLoggedIn() ? 0 : guestCartCount()
-  );
+  const [cartCount,    setCartCount]    = useState(() => isLoggedIn() ? 0 : guestCartCount());
+  
+  /* ── Live Line State (For Stepper) ── */
+  const [inCart,       setInCart]       = useState(false);
+  const [cartLineQty,  setCartLineQty]  = useState(0);
+  const [cartItemId,   setCartItemId]   = useState(null); // server cart_items.id
+  const [updatingQty,  setUpdatingQty]  = useState(false);
 
   /* ── Modals & Sticky Observers ── */
   const [showReport,        setShowReport]        = useState(false);
@@ -528,27 +398,18 @@ export default function MarketDetail() {
   const rating       = useMemo(() => (product ? getRating(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
 
-  // Has Variants Check
-  const hasVariants = useMemo(() => {
-    return Array.isArray(product?.variants) && product.variants.length > 0;
-  }, [product]);
+  const hasVariants = useMemo(() => Array.isArray(product?.variants) && product.variants.length > 0, [product]);
 
-  // Gallery Variant Sync
   const galleryImages = useMemo(() => {
     if (!product) return [];
-    if (selectedVariant?.images && selectedVariant.images.length > 0) {
-      return selectedVariant.images;
-    }
+    if (selectedVariant?.images && selectedVariant.images.length > 0) return selectedVariant.images;
     if (selectedVariant?.image) {
       const parentImgs = product.images ?? [];
-      if (!parentImgs.includes(selectedVariant.image)) {
-        return [selectedVariant.image, ...parentImgs];
-      }
+      if (!parentImgs.includes(selectedVariant.image)) return [selectedVariant.image, ...parentImgs];
     }
     return product.images ?? [];
   }, [product, selectedVariant]);
 
-  // Key Highlight Feature
   const firstKeyFeature = useMemo(() => {
     if (!product?.key_features || product.key_features.length === 0) return null;
     const f = product.key_features[0];
@@ -556,10 +417,18 @@ export default function MarketDetail() {
   }, [product]);
 
   /* ════════════════════════════════════════════════════════
-     GLOBAL SCROLL CLEANUP & SCROLL TO TOP
+     GLOBAL SCROLL CLEANUP & ROUTE CHANGES
   ════════════════════════════════════════════════════════ */
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    
+    // Reset states on new product
+    setInCart(false);
+    setCartLineQty(0);
+    setCartItemId(null);
+    setAddedToCart(false);
+    setQty(1);
+
     return () => {
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
@@ -569,15 +438,9 @@ export default function MarketDetail() {
   }, [slug]);
 
   /* ════════════════════════════════════════════════════════
-     DATA SYNC & SEO TITLE + JSON-LD SCHEMA
+     DATA SYNC (Count)
   ════════════════════════════════════════════════════════ */
   useEffect(() => {
-    if (isLoggedIn()) {
-      fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
-    } else {
-      setCartCount(guestCartCount());
-    }
-
     const sync = () => {
       if (isLoggedIn()) {
         fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
@@ -585,19 +448,19 @@ export default function MarketDetail() {
         setCartCount(guestCartCount());
       }
     };
-
+    sync();
     window.addEventListener("cart-updated", sync);
     window.addEventListener("storage", sync);
     return () => { window.removeEventListener("cart-updated", sync); window.removeEventListener("storage", sync); };
   }, []);
 
+  /* ════════════════════════════════════════════════════════
+     FETCH PRODUCT
+  ════════════════════════════════════════════════════════ */
   const fetchProduct = useCallback(() => {
     if (!slug) return;
-    axios.get(`${API_URL}/${slug}`, { timeout: 12_000 })
-      .then(({ data }) => {
-        const p = data?.data ?? data?.product ?? data;
-        setProduct(p);
-      })
+    axios.get(`${SHOP_URL}/${slug}`, { timeout: 12_000 })
+      .then(({ data }) => setProduct(data?.data ?? data?.product ?? data))
       .catch(() => {});
   }, [slug]);
 
@@ -606,7 +469,7 @@ export default function MarketDetail() {
     let cancelled = false;
     setLoading(true); setError(null); setProduct(null); setSelectedVariant(null); setQty(1);
 
-    axios.get(`${API_URL}/${slug}`, { timeout: 12_000 })
+    axios.get(`${SHOP_URL}/${slug}`, { timeout: 12_000 })
       .then(({ data }) => {
         if (cancelled) return;
         const p = data?.data ?? data?.product ?? data;
@@ -619,51 +482,23 @@ export default function MarketDetail() {
     return () => { cancelled = true; };
   }, [slug]);
 
+  /* Set Page Title */
   useEffect(() => {
     if (product?.name) {
-      const suffix = product.brand ? ` | ${product.brand}` : "";
-      document.title = `${product.name}${suffix} - Loemart`;
-
-      const script = document.createElement("script");
-      script.type = "application/ld+json";
-      script.text = JSON.stringify({
-        "@context": "https://schema.org/",
-        "@type": "Product",
-        "name": product.name,
-        "image": product.images || [getProductImage(product)],
-        "description": product.description || product.name,
-        "brand": { "@type": "Brand", "name": product.brand || "Loemart" },
-        "offers": {
-          "@type": "Offer",
-          "priceCurrency": "NGN",
-          "price": product.price,
-          "availability": (product.stock > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-          "url": window.location.href
-        },
-      });
-      document.head.appendChild(script);
-
-      return () => {
-        if (document.head.contains(script)) {
-          document.head.removeChild(script);
-        }
-      };
+      document.title = `${product.name}${product.brand ? ` | ${product.brand}` : ""} - Loemart`;
     }
-    return () => { document.title = "Loemart Marketplace"; };
   }, [product]);
 
+  /* Sticky Title Observer */
   useEffect(() => {
     if (!titleRef.current) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => setMiniHeaderVisible(!entry.isIntersecting),
-      { threshold: 0, rootMargin: "-80px 0px 0px 0px" }
-    );
+    const obs = new IntersectionObserver(([entry]) => setMiniHeaderVisible(!entry.isIntersecting), { threshold: 0, rootMargin: "-80px 0px 0px 0px" });
     obs.observe(titleRef.current);
     return () => obs.disconnect();
   }, [product]);
 
   /* ════════════════════════════════════════════════════════
-     PRICING & STOCK LOGIC
+     PRICING, STOCK, & CART SYNC
   ════════════════════════════════════════════════════════ */
   const displayPrice = useMemo(() => selectedVariant?.price ? Number(selectedVariant.price) : Number(product?.price ?? 0), [selectedVariant, product]);
   const originalPrice = useMemo(() => Number(product?.original_price ?? product?.compare_price ?? 0), [product]);
@@ -678,17 +513,55 @@ export default function MarketDetail() {
   }, [selectedVariant, product]);
 
   const stockLeft = useMemo(() => {
-    if (selectedVariant?.stock !== undefined) return selectedVariant.stock;
-    if (product?.stock !== undefined) return product.stock;
+    if (selectedVariant?.stock !== undefined) return Number(selectedVariant.stock);
+    if (product?.stock !== undefined) return Number(product.stock);
     return null;
   }, [selectedVariant, product]);
 
+  // Adjust pre-qty if stock drops
   useEffect(() => {
     if (stockLeft !== null && stockLeft > 0 && qty > stockLeft) setQty(stockLeft);
   }, [stockLeft, qty]);
 
+  // Detect if item is already in cart on load / variant change
+  useEffect(() => {
+    if (!product?.id) return;
+    let cancelled = false;
+
+    (async () => {
+      if (isLoggedIn()) {
+        const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
+        if (cancelled) return;
+        if (line) {
+          setInCart(true);
+          setCartLineQty(Number(line.qty) || 1);
+          setCartItemId(line.id);
+          setQty(Number(line.qty) || 1);
+        } else {
+          setInCart(false);
+          setCartLineQty(0);
+          setCartItemId(null);
+        }
+      } else {
+        const variantId = selectedVariant?.id ?? null;
+        const itemKey = `${product.id}__${variantId ?? "default"}`;
+        const row = readGuestCart().find((c) => c.id === itemKey);
+        if (cancelled) return;
+        if (row) {
+          setInCart(true);
+          setCartLineQty(Number(row.qty) || 1);
+          setQty(Number(row.qty) || 1);
+        } else {
+          setInCart(false);
+          setCartLineQty(0);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [product?.id, selectedVariant?.id]);
+
   /* ════════════════════════════════════════════════════════
-     BULLETPROOF CART ACTION (Writes to API or localStorage)
+     CART ACTIONS
   ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart || isOutOfStock) return false;
@@ -707,7 +580,6 @@ export default function MarketDetail() {
           );
           const count = await fetchServerCartCount();
           setCartCount(count !== null ? count : (c => c + addQty));
-          window.dispatchEvent(new Event("cart-updated"));
         } catch (apiErr) {
           const status = apiErr?.response?.status;
           if (status === 401 || status === 403) {
@@ -724,7 +596,20 @@ export default function MarketDetail() {
         setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty));
       }
 
+      // Success UI handling
       setAddedToCart(true);
+      setInCart(true);
+      setCartLineQty(addQty);
+      
+      // Capture server line id for later PATCHing
+      if (isLoggedIn()) {
+        findServerCartLine(product.id, selectedVariant?.id ?? null).then((line) => {
+          if (line?.id) setCartItemId(line.id);
+          if (line?.qty != null) setCartLineQty(Number(line.qty));
+        });
+      }
+      
+      window.dispatchEvent(new Event("cart-updated"));
       window.navigator?.vibrate?.([25, 15, 25]);
       
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -738,23 +623,80 @@ export default function MarketDetail() {
     }
   }, [product, selectedVariant, displayPrice, originalPrice, qty, addingToCart, isOutOfStock]);
 
-  /* SMART CLICK: Open sheet ONLY if variants exist, else Add Straight */
+  /* Handling quantity modifications AFTER item is already in cart */
+  const handleStickyQtyChange = useCallback(async (nextQty) => {
+    if (!product || updatingQty || isOutOfStock) return;
+
+    const stock = stockLeft != null && stockLeft > 0 ? stockLeft : MAX_QTY;
+    let q = Math.max(0, Math.min(Number(nextQty) || 0, stock, MAX_QTY));
+
+    setUpdatingQty(true);
+    try {
+      if (q <= 0) {
+        // Remove from cart
+        if (isLoggedIn() && cartItemId) {
+          try {
+            await axios.delete(`${CART_ITEMS_URL}/${cartItemId}`, { headers: authHeaders(), timeout: 10_000 });
+          } catch (e) { console.warn("Remove failed", e); }
+          const count = await fetchServerCartCount();
+          if (count !== null) setCartCount(count);
+        } else {
+          setCartCount(setGuestLineQty(product, selectedVariant, displayPrice, originalPrice, 0));
+        }
+        setInCart(false);
+        setCartLineQty(0);
+        setCartItemId(null);
+        setAddedToCart(false);
+        window.dispatchEvent(new Event("cart-updated"));
+        return;
+      }
+
+      // Update qty in cart
+      if (isLoggedIn()) {
+        let itemId = cartItemId;
+        if (!itemId) {
+          const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
+          itemId = line?.id ?? null;
+          if (itemId) setCartItemId(itemId);
+        }
+
+        if (itemId) {
+          await axios.patch(`${CART_ITEMS_URL}/${itemId}`, { qty: q }, { headers: authHeaders(), timeout: 10_000 });
+        } else {
+          await axios.post(CART_ITEMS_URL, { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty: q }, { headers: authHeaders(), timeout: 10_000 });
+        }
+        const count = await fetchServerCartCount();
+        if (count !== null) setCartCount(count);
+
+        const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
+        if (line?.id) setCartItemId(line.id);
+        if (line?.qty != null) q = Number(line.qty);
+      } else {
+        setCartCount(setGuestLineQty(product, selectedVariant, displayPrice, originalPrice, q));
+      }
+
+      setCartLineQty(q);
+      setInCart(true);
+      setQty(q); 
+      window.dispatchEvent(new Event("cart-updated"));
+    } catch (err) {
+      setCartError(err?.response?.data?.message || "Could not update quantity");
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+      errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
+    } finally {
+      setUpdatingQty(false);
+    }
+  }, [product, selectedVariant, displayPrice, originalPrice, stockLeft, isOutOfStock, updatingQty, cartItemId]);
+
   const handleCartClick = useCallback(() => {
     if (!product || isOutOfStock || addingToCart) return;
-    if (hasVariants) {
-      setSheetIntent('cart');
-    } else {
-      handleAddToCart();
-    }
+    if (hasVariants) setSheetIntent('cart');
+    else handleAddToCart();
   }, [product, isOutOfStock, addingToCart, hasVariants, handleAddToCart]);
 
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
-      navigator.share({
-        title: product.name,
-        text: `Check out ${product.name} on Loemart!`,
-        url: window.location.href,
-      }).catch(() => {});
+      navigator.share({ title: product.name, text: `Check out ${product.name} on Loemart!`, url: window.location.href }).catch(() => {});
     } else {
       navigator.clipboard?.writeText(window.location.href);
     }
@@ -865,7 +807,7 @@ export default function MarketDetail() {
                 )}
               </div>
 
-              {/* Options or Direct Qty Stepper */}
+              {/* Options or Direct Qty Stepper on Page */}
               {hasVariants ? (
                 <div 
                   className="mdp-selection-trigger" 
@@ -880,7 +822,7 @@ export default function MarketDetail() {
                     </span>
                     <span style={{ fontSize: "1rem", fontWeight: "600", color: "#111827" }}>
                       {selectedVariant 
-                        ? `${selectedVariant.name || selectedVariant.attributes?.color || selectedVariant.attributes?.size || 'Selected'} • Qty: ${qty}`
+                        ? `${selectedVariant.name || selectedVariant.attributes?.color || selectedVariant.attributes?.size || 'Selected'} • Qty: ${inCart ? cartLineQty : qty}`
                         : "Select Color, Size, Quantity"}
                     </span>
                   </div>
@@ -893,15 +835,19 @@ export default function MarketDetail() {
                     <button
                       type="button"
                       className="mdp-qty__btn"
-                      onClick={() => setQty((q) => Math.max(1, q - 1))}
-                      disabled={qty <= 1 || isOutOfStock || addingToCart}
+                      onClick={() => inCart ? handleStickyQtyChange(cartLineQty - 1) : setQty((q) => Math.max(1, q - 1))}
+                      disabled={(inCart ? cartLineQty : qty) <= 1 || isOutOfStock || addingToCart || updatingQty}
                     >−</button>
-                    <span className="mdp-qty__value">{qty}</span>
+                    <span className="mdp-qty__value">{inCart ? cartLineQty : qty}</span>
                     <button
                       type="button"
                       className="mdp-qty__btn"
-                      onClick={() => setQty((q) => Math.min(MAX_QTY, stockLeft > 0 ? Math.min(stockLeft, q + 1) : q + 1))}
-                      disabled={isOutOfStock || addingToCart || qty >= MAX_QTY || (stockLeft != null && qty >= stockLeft)}
+                      onClick={() => {
+                         const current = inCart ? cartLineQty : qty;
+                         const next = Math.min(MAX_QTY, stockLeft > 0 ? Math.min(stockLeft, current + 1) : current + 1);
+                         if (inCart) handleStickyQtyChange(next); else setQty(next);
+                      }}
+                      disabled={isOutOfStock || addingToCart || updatingQty || (inCart ? cartLineQty : qty) >= MAX_QTY || (stockLeft != null && (inCart ? cartLineQty : qty) >= stockLeft)}
                     >+</button>
                   </div>
                 </div>
@@ -970,40 +916,21 @@ export default function MarketDetail() {
                   brand={product.brand}
                 />
               </div>
-
-              <div className="mdp-section mdp-section--seller">
-                <SellerCard product={product} />
-                <div className="mdp-trust-grid">
-                  {TRUST_BADGES.map((b) => (
-                    <div key={b.label} className="mdp-trust-item">
-                      <span className="mdp-trust-icon">{b.icon}</span>
-                      <div className="mdp-trust-body">
-                        <p className="mdp-trust-label">{b.label}</p>
-                        <p className="mdp-trust-sub">{b.sub}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <button type="button" className="md-report-btn mdp-report-btn" onClick={() => setShowReport(true)}>
-                  {Icon.flag}<span>Report this listing</span>
-                </button>
-              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* ── STICKY BOTTOM ACTIONS (PRICE + STEPPER + BUTTON) ── */}
+      {/* ── STICKY BOTTOM ACTIONS ── */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           
-          {/* Restored Price on Left */}
           <div className="mdp-sticky-left">
             <div className="mdp-sticky-price-wrap">
-              <span className="mdp-sticky-price">{formatPrice(total)}</span>
-              {qty > 1 && (
+              <span className="mdp-sticky-price">{formatPrice(inCart ? displayPrice * cartLineQty : total)}</span>
+              {(inCart ? cartLineQty : qty) > 1 && (
                 <span className="mdp-sticky-qty-note">
-                  {formatPrice(displayPrice)} × {qty}
+                  {formatPrice(displayPrice)} × {inCart ? cartLineQty : qty}
                 </span>
               )}
             </div>
@@ -1012,48 +939,58 @@ export default function MarketDetail() {
           <div className="mdp-sticky-actions">
             {cartError && <span className="mdp-sticky-error">{cartError}</span>}
 
-            {/* Stepper beside button (Only if product has no variants) */}
-            {!hasVariants && (
-              <div className="mdp-sticky-qty">
+            {inCart ? (
+              /* After Add: Full width Stepper */
+              <div className="mdp-sticky-qty mdp-sticky-qty--full">
                 <button
                   type="button"
                   className="mdp-sticky-qty__btn"
-                  onClick={() => setQty((q) => Math.max(1, q - 1))}
-                  disabled={qty <= 1 || isOutOfStock || addingToCart}
+                  onClick={() => handleStickyQtyChange(cartLineQty - 1)}
+                  disabled={updatingQty || cartLineQty <= 0}
                   aria-label="Decrease quantity"
-                >
-                  −
-                </button>
-                <span className="mdp-sticky-qty__val">{qty}</span>
+                >−</button>
+                <span className="mdp-sticky-qty__val">
+                  {updatingQty ? "…" : cartLineQty}
+                </span>
                 <button
                   type="button"
                   className="mdp-sticky-qty__btn"
-                  onClick={() => setQty((q) => Math.min(MAX_QTY, stockLeft > 0 ? Math.min(stockLeft, q + 1) : q + 1))}
-                  disabled={isOutOfStock || addingToCart || qty >= MAX_QTY || (stockLeft != null && qty >= stockLeft)}
+                  onClick={() => handleStickyQtyChange(cartLineQty + 1)}
+                  disabled={updatingQty || isOutOfStock || cartLineQty >= MAX_QTY || (stockLeft != null && cartLineQty >= stockLeft)}
                   aria-label="Increase quantity"
-                >
-                  +
-                </button>
+                >+</button>
               </div>
-            )}
+            ) : (
+              /* Before Add: Optional pre-qty + ADD TO CART */
+              <>
+                {!hasVariants && (
+                  <div className="mdp-sticky-qty">
+                    <button
+                      type="button"
+                      className="mdp-sticky-qty__btn"
+                      onClick={() => setQty((q) => Math.max(1, q - 1))}
+                      disabled={qty <= 1 || isOutOfStock || addingToCart}
+                    >−</button>
+                    <span className="mdp-sticky-qty__val">{qty}</span>
+                    <button
+                      type="button"
+                      className="mdp-sticky-qty__btn"
+                      onClick={() => setQty((q) => Math.min(MAX_QTY, stockLeft > 0 ? Math.min(stockLeft, q + 1) : q + 1))}
+                      disabled={isOutOfStock || addingToCart || qty >= MAX_QTY || (stockLeft != null && qty >= stockLeft)}
+                    >+</button>
+                  </div>
+                )}
 
-            <button
-              type="button"
-              className={`mdp-btn-cart-primary${addedToCart ? " mdp-btn-cart-primary--done" : ""}`}
-              onClick={handleCartClick}
-              disabled={isOutOfStock || addingToCart}
-              aria-label={isOutOfStock ? "Out of stock" : "Add to Cart"}
-            >
-              {isOutOfStock ? (
-                "OUT OF STOCK"
-              ) : addingToCart ? (
-                "ADDING..."
-              ) : addedToCart ? (
-                <>{Icon.check} ADDED ({qty})</>
-              ) : (
-                <>{Icon.cart} ADD TO CART</>
-              )}
-            </button>
+                <button
+                  type="button"
+                  className="mdp-btn-cart-primary"
+                  onClick={handleCartClick}
+                  disabled={isOutOfStock || addingToCart}
+                >
+                  {isOutOfStock ? "OUT OF STOCK" : addingToCart ? "ADDING..." : "ADD TO CART"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1080,22 +1017,6 @@ export default function MarketDetail() {
         onConfirm={handleAddToCart}
         isSubmitting={addingToCart}
       />
-
-      <CartToast show={addedToCart} productName={product?.name ?? "Item"} qty={qty} image={product ? getProductImage(product) : null} onView={goToCart} onClose={() => setAddedToCart(false)} />
-      {showReport && product && <ReportModal productId={product.id} onClose={() => setShowReport(false)} />}
-      {showProtection && <BuyerProtectionModal onClose={() => setShowProtection(false)} />}
-      {showRateModal && product && (
-        <RateProductModal
-          productId={product.id}
-          productName={product.name}
-          onClose={() => setShowRateModal(false)}
-          onRatingSubmitted={() => {
-            setShowRateModal(false);
-            fetchProduct();
-            setReviewRefreshKey((k) => k + 1);
-          }}
-        />
-      )}
     </>
   );
 }
