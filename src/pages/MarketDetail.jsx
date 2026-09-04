@@ -15,7 +15,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import {
-  API_URL,
   formatPrice,
   calcDiscount,
   getProductImage,
@@ -28,14 +27,14 @@ import ImageGallery       from "./MarketDetail/ImageGallery";
 import SellerCard         from "./MarketDetail/SellerCard";
 import ProductInfo        from "./MarketDetail/ProductInfo";
 import SpecsSection       from "./MarketDetail/SpecsSection";
-import RelatedProducts    from "./MarketDetail/RelatedProducts";
 import RateProductModal   from "./MarketDetail/RateProductModal";
 import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
+import ProductRails       from "./MarketDetail/ProductRails"; // 👈 New Product Rails
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
-import "../styles/MarketDetailCompact.css";
+import "../styles/MarketDetailCompact.css"; // 👈 Compact Jumia-style Layout
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API ROUTES
@@ -54,6 +53,7 @@ const CART_KEY   = "mm_cart";
 const RECENT_KEY = "lm-recently-viewed";
 const MAX_QTY    = 10;
 
+/** First positive number wins (safely handles 0, null, or string prices) */
 const pickPrice = (...vals) => {
   for (const v of vals) {
     if (v == null || v === "") continue;
@@ -117,7 +117,9 @@ const getAuthToken = () => {
 const isLoggedIn = () => !!getAuthToken();
 const authHeaders = () => {
   const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+  const h = { "Content-Type": "application/json", Accept: "application/json" };
+  if (token) h.Authorization = `Bearer ${token}`;
+  return h;
 };
 
 const readGuestCart = () => {
@@ -770,7 +772,7 @@ export default function MarketDetail() {
     return typeof f === "string" ? f : f?.feature;
   }, [product]);
 
-  /* Safe Price Resolvers */
+  /* Safe Price Resolvers using pickPrice */
   const displayPrice = useMemo(
     () =>
       pickPrice(
@@ -857,7 +859,7 @@ export default function MarketDetail() {
   const fetchProduct = useCallback(() => {
     if (!slug) return;
     axios
-      .get(`${API_URL}/${slug}`, { timeout: 12000 })
+      .get(`${SHOP_URL}/${slug}`, { timeout: 12000 })
       .then(({ data }) => setProduct(data?.data ?? data?.product ?? data))
       .catch(() => {});
   }, [slug]);
@@ -871,7 +873,7 @@ export default function MarketDetail() {
     setSelectedVariant(null);
 
     axios
-      .get(`${API_URL}/${slug}`, { timeout: 12000 })
+      .get(`${SHOP_URL}/${slug}`, { timeout: 12000 })
       .then(({ data }) => {
         if (cancelled) return;
         const p = data?.data ?? data?.product ?? data;
@@ -978,7 +980,7 @@ export default function MarketDetail() {
   }, [product?.id, selectedVariant?.id, product?.variants]);
 
   /* ════════════════════════════════════════════════════════
-     HIGH-SPEED OPTIMISTIC ADD TO CART (No Vibrate, 0ms Instant UI)
+     HIGH-SPEED OPTIMISTIC ADD TO CART
   ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || isOutOfStock) return false;
@@ -1127,14 +1129,19 @@ export default function MarketDetail() {
   );
 
   const handleCartClick = useCallback(() => {
-    if (!product || isOutOfStock) return;
+    if (!product || isOutOfStock || addingToCart) return;
+    
+    // Always open options if product has variants (even if already in cart)
     if (hasVariants) {
       setSheetIntent("cart");
       return;
     }
+    
+    // If no variants and already in cart, don't trigger add again
     if (inCart) return;
+
     handleAddToCart();
-  }, [product, isOutOfStock, hasVariants, inCart, handleAddToCart]);
+  }, [product, isOutOfStock, addingToCart, hasVariants, inCart, handleAddToCart]);
 
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
@@ -1278,6 +1285,7 @@ export default function MarketDetail() {
                 )}
               </div>
 
+              {/* ALWAYS ALLOW OPENING OPTIONS IF HAS VARIANTS */}
               {hasVariants ? (
                 <div
                   className="mdp-selection-trigger"
@@ -1398,12 +1406,9 @@ export default function MarketDetail() {
                 refreshKey={reviewRefreshKey}
               />
 
-              <div className="mdp-section mdp-section--related">
-                <RelatedProducts
-                  productId={product.id}
-                  category={product.category}
-                  brand={product.brand}
-                />
+              {/* ── Product Rails (Related, Seller, Recommended) ── */}
+              <div className="mdp-section mdp-section--rails">
+                <ProductRails product={product} />
               </div>
 
               <div className="mdp-section mdp-section--seller">
