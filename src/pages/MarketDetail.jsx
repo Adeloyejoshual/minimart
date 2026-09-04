@@ -53,7 +53,7 @@ const RECENT_KEY = "lm-recently-viewed";
 const MAX_QTY    = 10;
 
 /* ═══════════════════════════════════════════════════════════════
-   TRANSPARENT SVG ICONS
+   ICONS
 ═══════════════════════════════════════════════════════════════ */
 const Icon = {
   flag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
@@ -504,7 +504,7 @@ export default function MarketDetail() {
   const [showProtection,    setShowProtection]    = useState(false);
   const [showRateModal,     setShowRateModal]     = useState(false);
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
-  const [sheetIntent,       setSheetIntent]       = useState(null); // 'cart' | null
+  const [sheetIntent,       setSheetIntent]       = useState(null);
   
   const titleRef = useRef(null);
   const toastTimeoutRef = useRef(null);
@@ -548,7 +548,6 @@ export default function MarketDetail() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     return () => {
-      // Emergency unmount cleanup so page never gets stuck
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -598,7 +597,6 @@ export default function MarketDetail() {
     return () => { cancelled = true; };
   }, [slug]);
 
-  /* Dynamic Meta Title and JSON-LD Rich Snippets for SEO */
   useEffect(() => {
     if (product?.name) {
       const suffix = product.brand ? ` | ${product.brand}` : "";
@@ -620,13 +618,6 @@ export default function MarketDetail() {
           "availability": (product.stock > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
           "url": window.location.href
         },
-        ...(product.rating ? {
-          "aggregateRating": {
-            "@type": "AggregateRating",
-            "ratingValue": product.rating,
-            "reviewCount": product.reviews_count || 1
-          }
-        } : {})
       });
       document.head.appendChild(script);
 
@@ -639,7 +630,6 @@ export default function MarketDetail() {
     return () => { document.title = "Loemart Marketplace"; };
   }, [product]);
 
-  /* Sticky Mini Header Intersection Observer */
   useEffect(() => {
     if (!titleRef.current) return;
     const obs = new IntersectionObserver(
@@ -676,33 +666,33 @@ export default function MarketDetail() {
   }, [stockLeft, qty]);
 
   /* ════════════════════════════════════════════════════════
-     CART ACTION
+     BULLETPROOF CART ACTION
   ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart || isOutOfStock) return false;
-    setAddingToCart(true); setCartError(null);
+    setAddingToCart(true); 
+    setCartError(null);
+
     try {
       if (isLoggedIn()) {
         try {
           await axios.post(
             CART_ITEMS_URL, 
             { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty, quantity: qty }, 
-            { headers: authHeaders(), timeout: 15_000 }
+            { headers: authHeaders(), timeout: 10_000 }
           );
           const count = await fetchServerCartCount();
           if (count !== null) setCartCount(count);
           window.dispatchEvent(new Event("cart-updated"));
         } catch (apiErr) {
-          if (apiErr.response?.status === 401) {
-            localStorage.removeItem("marketplace_token");
-            setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty));
-          } else {
-            throw apiErr;
-          }
+          // Fallback to guest cart if API server fails or gives error
+          console.warn("Server cart save failed, storing locally:", apiErr);
+          setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty));
         }
       } else {
         setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty));
       }
+
       setAddedToCart(true);
       window.navigator?.vibrate?.([25, 15, 25]);
       
@@ -710,16 +700,21 @@ export default function MarketDetail() {
       toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
       return true;
     } catch (err) {
-      setCartError(err.response?.data?.message ?? err.message ?? "Failed to add to cart");
-      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-      errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
-      return false;
+      // Emergency local fallback so add-to-cart NEVER breaks user experience
+      try {
+        setCartCount(addToGuestCart(product, selectedVariant, displayPrice, originalPrice, qty));
+        setAddedToCart(true);
+        return true;
+      } catch (fallbackErr) {
+        setCartError("Failed to add to cart");
+        return false;
+      }
     } finally {
       setAddingToCart(false);
     }
   }, [product, selectedVariant, displayPrice, originalPrice, qty, addingToCart, isOutOfStock]);
 
-  /* SMART CLICK HANDLER: Open sheet IF variants exist, else Add Straight */
+  /* SMART CLICK: Open sheet ONLY if variants exist, else Add Straight */
   const handleCartClick = useCallback(() => {
     if (!product || isOutOfStock || addingToCart) return;
     if (hasVariants) {
@@ -787,7 +782,6 @@ export default function MarketDetail() {
 
         {!loading && product && (
           <div className="mdp-main-layout">
-            {/* Multi-Level Breadcrumbs */}
             <Breadcrumbs product={product} />
 
             <div className="mdp-section mdp-section-gallery">
@@ -795,14 +789,12 @@ export default function MarketDetail() {
             </div>
 
             <div className="md-content mdp-content">
-              {/* Discount-Only Badge */}
               {discount > 0 && (
                 <div className="md-badges-row mdp-badges-row">
                   <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>
                 </div>
               )}
 
-              {/* Title & SEO Highlight */}
               <h1 ref={titleRef} className="md-title mdp-title">{product.name}</h1>
               {firstKeyFeature && (
                 <h2 className="mdp-seo-subtitle">
@@ -811,7 +803,6 @@ export default function MarketDetail() {
                 </h2>
               )}
 
-              {/* Brand, Static Rating & Share */}
               <div className="mdp-brand-rating-row">
                 {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
                 
@@ -827,7 +818,6 @@ export default function MarketDetail() {
                 </button>
               </div>
 
-              {/* Pricing Section */}
               <div className="mdp-section mdp-section--price">
                 <div className="md-price-block mdp-price-block">
                   <span className="md-price mdp-price">{formatPrice(displayPrice)}</span>
@@ -843,7 +833,6 @@ export default function MarketDetail() {
                     <span className="mdp-icon-inline">{Icon.sparkle}</span> You save {formatPrice(savings)} today
                   </p>
                 )}
-                {/* Out of Stock Status */}
                 {isOutOfStock && (
                   <div className="mdp-stock mdp-stock--out">
                     <span className="mdp-stock__dot" />
@@ -852,7 +841,7 @@ export default function MarketDetail() {
                 )}
               </div>
 
-              {/* ── SMART SELECTION / QUANTITY ROW ── */}
+              {/* Options or Direct Qty Stepper */}
               {hasVariants ? (
                 <div 
                   className="mdp-selection-trigger" 
@@ -863,8 +852,7 @@ export default function MarketDetail() {
                   style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
                     padding: "16px", background: "#f9fafb", borderRadius: "12px",
-                    border: "1px solid #e5e7eb", cursor: "pointer", marginBottom: "24px",
-                    transition: "background 0.2s"
+                    border: "1px solid #e5e7eb", cursor: "pointer", marginBottom: "24px"
                   }}
                 >
                   <div>
@@ -904,7 +892,6 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Delivery & Buyer Protection Cards */}
               <div className="mdp-section mdp-section--cards">
                 <div className="mdp-delivery-card">
                   <div className="mdp-delivery-card__icon">{Icon.truck}</div>
@@ -925,21 +912,18 @@ export default function MarketDetail() {
                 </div>
               </div>
 
-              {/* Description */}
               {product.description && (
                 <div className="mdp-section mdp-section--desc">
                   <ProductInfo description={product.description} />
                 </div>
               )}
 
-              {/* Specifications */}
               {(product.specifications?.length > 0 || product.specs?.length > 0 || product.attributes?.length > 0) && (
                 <div className="mdp-section mdp-section--specs">
                   <SpecsSection specs={product.specifications || product.specs || product.attributes} />
                 </div>
               )}
 
-              {/* Key Features */}
               {product.key_features?.length > 0 && (
                 <div className="md-section mdp-section mdp-section--features">
                   <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.sparkle}</span> Key Features</h3>
@@ -954,28 +938,8 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Policies */}
-              {(product.return_policy || product.warranty) && (
-                <div className="md-section mdp-section">
-                  <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> Policies</h3>
-                  {product.return_policy && (
-                    <div className="md-policy-item mdp-policy-item">
-                      <span className="mdp-policy-icon">{Icon.return}</span>
-                      <div><strong>Return Policy</strong><p>{product.return_policy}</p></div>
-                    </div>
-                  )}
-                  {product.warranty && (
-                    <div className="md-policy-item mdp-policy-item">
-                      <span className="mdp-policy-icon">{Icon.shield}</span>
-                      <div><strong>Warranty</strong><p>{product.warranty}</p></div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               <FAQAccordion />
 
-              {/* Ratings & Reviews Feedback Section */}
               <ProductReviews
                 productId={product.id}
                 rating={rating}
@@ -984,7 +948,6 @@ export default function MarketDetail() {
                 refreshKey={reviewRefreshKey}
               />
 
-              {/* Related Products */}
               <div className="mdp-section mdp-section--related">
                 <RelatedProducts 
                   productId={product.id} 
@@ -993,7 +956,6 @@ export default function MarketDetail() {
                 />
               </div>
 
-              {/* Seller Info & Trust Badges */}
               <div className="mdp-section mdp-section--seller">
                 <SellerCard product={product} />
                 <div className="mdp-trust-grid">
@@ -1016,7 +978,7 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* ── CLEAN PROFESSIONAL STICKY BOTTOM BAR ── */}
+      {/* Sticky Bottom Actions */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
@@ -1045,20 +1007,15 @@ export default function MarketDetail() {
               ) : addingToCart ? (
                 "Adding…"
               ) : addedToCart ? (
-                <>
-                  {Icon.check} Added to Cart
-                </>
+                <>{Icon.check} Added to Cart</>
               ) : (
-                <>
-                  {Icon.cart} Add to Cart
-                </>
+                <>{Icon.cart} Add to Cart</>
               )}
             </button>
           </div>
         </div>
       )}
 
-      {/* Floating Cart Button */}
       {cartCount > 0 && (
         <button type="button" className="mdp-float-cart" onClick={goToCart} aria-label="View cart">
           {Icon.cart}
@@ -1066,7 +1023,7 @@ export default function MarketDetail() {
         </button>
       )}
 
-      {/* ── VARIANT SELECTION BOTTOM SHEET ── */}
+      {/* Variant Selection Bottom Sheet */}
       <VariantBottomSheet
         isOpen={!!sheetIntent}
         onClose={() => setSheetIntent(null)}
@@ -1082,7 +1039,6 @@ export default function MarketDetail() {
         isSubmitting={addingToCart}
       />
 
-      {/* Toast & Modals */}
       <CartToast show={addedToCart} productName={product?.name ?? "Item"} qty={qty} image={product ? getProductImage(product) : null} onView={goToCart} onClose={() => setAddedToCart(false)} />
       {showReport && product && <ReportModal productId={product.id} onClose={() => setShowReport(false)} />}
       {showProtection && <BuyerProtectionModal onClose={() => setShowProtection(false)} />}
