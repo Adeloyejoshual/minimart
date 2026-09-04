@@ -172,7 +172,7 @@ const Breadcrumbs = memo(function Breadcrumbs({ product }) {
 });
 
 const StickyMiniHeader = memo(function StickyMiniHeader({
-  visible, product, displayPrice, onOpenSheet, disabled,
+  visible, product, displayPrice, onCartClick, disabled,
 }) {
   if (!product) return null;
   const img = getProductImage(product);
@@ -188,7 +188,7 @@ const StickyMiniHeader = memo(function StickyMiniHeader({
         <button
           type="button"
           className="mdp-mini-header__cta"
-          onClick={() => onOpenSheet('cart')}
+          onClick={onCartClick}
           disabled={disabled}
         >
           Add
@@ -336,7 +336,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
     document.body.style.overflow = "hidden";
     return () => { 
       window.removeEventListener("keydown", fn); 
-      document.body.style.overflow = originalOverflow; 
+      document.body.style.overflow = originalOverflow || ""; 
     };
   }, [onClose]);
 
@@ -404,7 +404,7 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
     document.body.style.overflow = "hidden";
     return () => { 
       window.removeEventListener("keydown", fn); 
-      document.body.style.overflow = originalOverflow; 
+      document.body.style.overflow = originalOverflow || ""; 
     };
   }, [onClose]);
 
@@ -504,8 +504,6 @@ export default function MarketDetail() {
   const [showProtection,    setShowProtection]    = useState(false);
   const [showRateModal,     setShowRateModal]     = useState(false);
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
-
-  /* ── Bottom Sheet Intent ── */
   const [sheetIntent,       setSheetIntent]       = useState(null); // 'cart' | null
   
   const titleRef = useRef(null);
@@ -516,6 +514,11 @@ export default function MarketDetail() {
   const isWishlisted = product ? wishlist.has(product.id) : false;
   const rating       = useMemo(() => (product ? getRating(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
+
+  // Has Variants Check
+  const hasVariants = useMemo(() => {
+    return Array.isArray(product?.variants) && product.variants.length > 0;
+  }, [product]);
 
   // Gallery Variant Sync
   const galleryImages = useMemo(() => {
@@ -540,11 +543,14 @@ export default function MarketDetail() {
   }, [product]);
 
   /* ════════════════════════════════════════════════════════
-     SCROLL TO TOP & CLEANUP TIMEOUTS ON ROUTE CHANGE
+     GLOBAL SCROLL CLEANUP & SCROLL TO TOP
   ════════════════════════════════════════════════════════ */
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     return () => {
+      // Emergency unmount cleanup so page never gets stuck
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
     };
@@ -670,7 +676,7 @@ export default function MarketDetail() {
   }, [stockLeft, qty]);
 
   /* ════════════════════════════════════════════════════════
-     CART ACTION (Triggered directly or via Bottom Sheet)
+     CART ACTION
   ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart || isOutOfStock) return false;
@@ -712,6 +718,16 @@ export default function MarketDetail() {
       setAddingToCart(false);
     }
   }, [product, selectedVariant, displayPrice, originalPrice, qty, addingToCart, isOutOfStock]);
+
+  /* SMART CLICK HANDLER: Open sheet IF variants exist, else Add Straight */
+  const handleCartClick = useCallback(() => {
+    if (!product || isOutOfStock || addingToCart) return;
+    if (hasVariants) {
+      setSheetIntent('cart');
+    } else {
+      handleAddToCart();
+    }
+  }, [product, isOutOfStock, addingToCart, hasVariants, handleAddToCart]);
 
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
@@ -763,7 +779,7 @@ export default function MarketDetail() {
           visible={miniHeaderVisible}
           product={product}
           displayPrice={displayPrice}
-          onOpenSheet={setSheetIntent}
+          onCartClick={handleCartClick}
           disabled={addingToCart || isOutOfStock}
         />
 
@@ -836,31 +852,57 @@ export default function MarketDetail() {
                 )}
               </div>
 
-              {/* ── MODERN SELECTION TRIGGER ROW ── */}
-              <div 
-                className="mdp-selection-trigger" 
-                onClick={() => setSheetIntent('cart')}
-                style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "16px", background: "#f9fafb", borderRadius: "12px",
-                  border: "1px solid #e5e7eb", cursor: "pointer", marginBottom: "24px",
-                  transition: "background 0.2s"
-                }}
-              >
-                <div>
-                  <span style={{ fontSize: "0.85rem", color: "#6b7280", display: "block", marginBottom: "2px" }}>
-                    Options & Quantity
-                  </span>
-                  <span style={{ fontSize: "1rem", fontWeight: "600", color: "#111827" }}>
-                    {selectedVariant 
-                      ? `${selectedVariant.name || selectedVariant.attributes?.color || selectedVariant.attributes?.size || ''} • Qty: ${qty}`
-                      : product.variants?.length > 0 
-                        ? "Select Color, Size, Quantity" 
-                        : `Qty: ${qty}`}
-                  </span>
+              {/* ── SMART SELECTION / QUANTITY ROW ── */}
+              {hasVariants ? (
+                <div 
+                  className="mdp-selection-trigger" 
+                  onClick={handleCartClick}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && handleCartClick()}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "16px", background: "#f9fafb", borderRadius: "12px",
+                    border: "1px solid #e5e7eb", cursor: "pointer", marginBottom: "24px",
+                    transition: "background 0.2s"
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: "0.85rem", color: "#6b7280", display: "block", marginBottom: "2px" }}>
+                      Options & Quantity
+                    </span>
+                    <span style={{ fontSize: "1rem", fontWeight: "600", color: "#111827" }}>
+                      {selectedVariant 
+                        ? `${selectedVariant.name || selectedVariant.attributes?.color || selectedVariant.attributes?.size || 'Selected'} • Qty: ${qty}`
+                        : "Select Color, Size, Quantity"}
+                    </span>
+                  </div>
+                  <span style={{ color: "#9ca3af", fontWeight: "bold" }}>&gt;</span>
                 </div>
-                <span style={{ color: "#9ca3af", fontWeight: "bold" }}>&gt;</span>
-              </div>
+              ) : (
+                <div className="mdp-qty-row" style={{ marginBottom: 24, display: "flex", alignItems: "center", gap: 14 }}>
+                  <span className="mdp-qty-label" style={{ fontWeight: 800, color: "#111827", fontSize: "14px" }}>Quantity</span>
+                  <div className="mdp-qty" style={{ display: "inline-flex", alignItems: "center", border: "1.5px solid #e5e7eb", borderRadius: "10px", overflow: "hidden", background: "#fff" }}>
+                    <button
+                      type="button"
+                      className="mdp-qty__btn"
+                      style={{ width: "38px", height: "38px", border: "none", background: "none", fontSize: "18px", color: "#475569", cursor: "pointer" }}
+                      onClick={() => setQty((q) => Math.max(1, q - 1))}
+                      disabled={qty <= 1 || isOutOfStock}
+                    >−</button>
+                    <span className="mdp-qty__value" style={{ minWidth: "40px", textAlign: "center", fontWeight: 900, color: "#0f172a", fontSize: "15px" }}>
+                      {qty}
+                    </span>
+                    <button
+                      type="button"
+                      className="mdp-qty__btn"
+                      style={{ width: "38px", height: "38px", border: "none", background: "none", fontSize: "18px", color: "#475569", cursor: "pointer" }}
+                      onClick={() => setQty((q) => Math.min(MAX_QTY, stockLeft > 0 ? Math.min(stockLeft, q + 1) : q + 1))}
+                      disabled={isOutOfStock || qty >= MAX_QTY || (stockLeft != null && qty >= stockLeft)}
+                    >+</button>
+                  </div>
+                </div>
+              )}
 
               {/* Delivery & Buyer Protection Cards */}
               <div className="mdp-section mdp-section--cards">
@@ -994,7 +1036,7 @@ export default function MarketDetail() {
             <button
               type="button"
               className={`mdp-btn-cart-primary${addedToCart ? " mdp-btn-cart-primary--done" : ""}`}
-              onClick={() => setSheetIntent('cart')}
+              onClick={handleCartClick}
               disabled={isOutOfStock || addingToCart}
               aria-label={isOutOfStock ? "Out of stock" : "Add to Cart"}
             >
@@ -1036,7 +1078,6 @@ export default function MarketDetail() {
         setQty={setQty}
         stockLeft={stockLeft}
         maxQty={MAX_QTY}
-        intent={sheetIntent}
         onConfirm={handleAddToCart}
         isSubmitting={addingToCart}
       />
