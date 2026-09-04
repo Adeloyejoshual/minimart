@@ -31,7 +31,7 @@ import SpecsSection       from "./MarketDetail/SpecsSection";
 import RelatedProducts    from "./MarketDetail/RelatedProducts";
 import RateProductModal   from "./MarketDetail/RateProductModal";
 import ProductReviews     from "./MarketDetail/ProductReviews";
-import VariantBottomSheet from "./MarketDetail/VariantSelector"; // 👈 NEW
+import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
@@ -59,6 +59,8 @@ const Icon = {
   flag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
   check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polyline points="20 6 9 17 4 12"/></svg>,
   cart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
+  minus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
   star: <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   starOutline: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   truck: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
@@ -174,7 +176,7 @@ const Breadcrumbs = memo(function Breadcrumbs({ product }) {
 });
 
 const StickyMiniHeader = memo(function StickyMiniHeader({
-  visible, product, displayPrice, onOpenSheet, disabled,
+  visible, product, displayPrice, onAddToCart, disabled,
 }) {
   if (!product) return null;
   const img = getProductImage(product);
@@ -190,7 +192,7 @@ const StickyMiniHeader = memo(function StickyMiniHeader({
         <button
           type="button"
           className="mdp-mini-header__cta"
-          onClick={() => onOpenSheet('cart')}
+          onClick={onAddToCart}
           disabled={disabled}
         >
           Add
@@ -201,7 +203,7 @@ const StickyMiniHeader = memo(function StickyMiniHeader({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS
+   HELPERS & CART LOGIC
 ═══════════════════════════════════════════════════════════════ */
 const isLoggedIn = () => !!localStorage.getItem("marketplace_token");
 const authHeaders = () => {
@@ -210,6 +212,7 @@ const authHeaders = () => {
 };
 const readGuestCart = () => { try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } catch { return []; } };
 const writeGuestCart = (cart) => { localStorage.setItem(CART_KEY, JSON.stringify(cart)); window.dispatchEvent(new Event("cart-updated")); };
+
 const addToGuestCart = (product, selectedVariant, displayPrice, originalPrice, qty = 1) => {
   const cart      = readGuestCart();
   const variantId = selectedVariant?.id ?? null;
@@ -506,9 +509,7 @@ export default function MarketDetail() {
   const [showProtection,    setShowProtection]    = useState(false);
   const [showRateModal,     setShowRateModal]     = useState(false);
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
-
-  /* ── Bottom Sheet ── */
-  const [sheetIntent,       setSheetIntent]       = useState(null); // 'cart' | 'buy' | null
+  const [sheetIntent,       setSheetIntent]       = useState(null); // 'cart' or null
   
   const titleRef = useRef(null);
   const toastTimeoutRef = useRef(null);
@@ -518,6 +519,9 @@ export default function MarketDetail() {
   const isWishlisted = product ? wishlist.has(product.id) : false;
   const rating       = useMemo(() => (product ? getRating(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
+
+  // Has Variants check
+  const hasVariants = useMemo(() => (product?.variants?.length ?? 0) > 0, [product]);
 
   // Gallery Variant Sync
   const galleryImages = useMemo(() => {
@@ -672,7 +676,7 @@ export default function MarketDetail() {
   }, [stockLeft, qty]);
 
   /* ════════════════════════════════════════════════════════
-     ACTIONS (Now triggered by Bottom Sheet)
+     SMART ADD TO CART ACTIONS
   ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart || isOutOfStock) return false;
@@ -715,12 +719,20 @@ export default function MarketDetail() {
     }
   }, [product, selectedVariant, displayPrice, originalPrice, qty, addingToCart, isOutOfStock]);
 
-  const executeAction = useCallback(async (intent) => {
-    const success = await handleAddToCart();
-    if (success && intent === 'buy') {
-      navigate("/shop/cart");
+  /** Open sheet if variants exist; otherwise add directly */
+  const onAddToCartPress = useCallback(() => {
+    if (!product || isOutOfStock || addingToCart) return;
+    if (hasVariants) {
+      setSheetIntent("cart");
+      return;
     }
-  }, [handleAddToCart, navigate]);
+    handleAddToCart();
+  }, [product, isOutOfStock, addingToCart, hasVariants, handleAddToCart]);
+
+  /** Called by the bottom sheet Confirm button */
+  const onSheetConfirm = useCallback(async () => {
+    return await handleAddToCart();
+  }, [handleAddToCart]);
 
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
@@ -772,7 +784,7 @@ export default function MarketDetail() {
           visible={miniHeaderVisible}
           product={product}
           displayPrice={displayPrice}
-          onOpenSheet={setSheetIntent}
+          onAddToCart={onAddToCartPress}
           disabled={addingToCart || isOutOfStock}
         />
 
@@ -780,7 +792,6 @@ export default function MarketDetail() {
 
         {!loading && product && (
           <div className="mdp-main-layout">
-            {/* Multi-Level Breadcrumbs */}
             <Breadcrumbs product={product} />
 
             <div className="mdp-section mdp-section-gallery">
@@ -788,15 +799,14 @@ export default function MarketDetail() {
             </div>
 
             <div className="md-content mdp-content">
-              {/* Discount-Only Badge */}
               {discount > 0 && (
                 <div className="md-badges-row mdp-badges-row">
                   <span className="md-badge mdp-badge mdp-badge--save">Save {discount}%</span>
                 </div>
               )}
 
-              {/* Title & SEO Highlight */}
               <h1 ref={titleRef} className="md-title mdp-title">{product.name}</h1>
+              
               {firstKeyFeature && (
                 <h2 className="mdp-seo-subtitle">
                   <span className="mdp-icon-inline" aria-hidden="true">{Icon.tag}</span> 
@@ -804,23 +814,19 @@ export default function MarketDetail() {
                 </h2>
               )}
 
-              {/* Brand, Static Rating & Share */}
               <div className="mdp-brand-rating-row">
                 {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
-                
                 {rating > 0 && (
                   <div className="mdp-rating-inline">
                     <StarRating rating={rating} />
                     <span className="mdp-rating-num">{rating.toFixed(1)}</span>
                   </div>
                 )}
-
                 <button type="button" className="mdp-share-btn" onClick={handleShare} aria-label="Share product">
                   {Icon.share}
                 </button>
               </div>
 
-              {/* Pricing Section */}
               <div className="mdp-section mdp-section--price">
                 <div className="md-price-block mdp-price-block">
                   <span className="md-price mdp-price">{formatPrice(displayPrice)}</span>
@@ -836,7 +842,6 @@ export default function MarketDetail() {
                     <span className="mdp-icon-inline">{Icon.sparkle}</span> You save {formatPrice(savings)} today
                   </p>
                 )}
-                {/* Clean Out of Stock status only */}
                 {isOutOfStock && (
                   <div className="mdp-stock mdp-stock--out">
                     <span className="mdp-stock__dot" />
@@ -863,7 +868,7 @@ export default function MarketDetail() {
                   <span style={{ fontSize: "1rem", fontWeight: "600", color: "#111827" }}>
                     {selectedVariant 
                       ? `${selectedVariant.name || selectedVariant.attributes?.color || selectedVariant.attributes?.size || ''} • Qty: ${qty}`
-                      : product.variants?.length > 0 
+                      : hasVariants 
                         ? "Select Color, Size, Quantity" 
                         : `Qty: ${qty}`}
                   </span>
@@ -871,7 +876,7 @@ export default function MarketDetail() {
                 <span style={{ color: "#9ca3af", fontWeight: "bold" }}>&gt;</span>
               </div>
 
-              {/* Delivery & Buyer Protection Cards */}
+              {/* Delivery Cards */}
               <div className="mdp-section mdp-section--cards">
                 <div className="mdp-delivery-card">
                   <div className="mdp-delivery-card__icon">{Icon.truck}</div>
@@ -892,21 +897,17 @@ export default function MarketDetail() {
                 </div>
               </div>
 
-              {/* Description */}
+              {/* Details & Specs */}
               {product.description && (
                 <div className="mdp-section mdp-section--desc">
                   <ProductInfo description={product.description} />
                 </div>
               )}
-
-              {/* Specifications */}
               {(product.specifications?.length > 0 || product.specs?.length > 0 || product.attributes?.length > 0) && (
                 <div className="mdp-section mdp-section--specs">
                   <SpecsSection specs={product.specifications || product.specs || product.attributes} />
                 </div>
               )}
-
-              {/* Key Features */}
               {product.key_features?.length > 0 && (
                 <div className="md-section mdp-section mdp-section--features">
                   <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.sparkle}</span> Key Features</h3>
@@ -920,8 +921,6 @@ export default function MarketDetail() {
                   </ul>
                 </div>
               )}
-
-              {/* Policies */}
               {(product.return_policy || product.warranty) && (
                 <div className="md-section mdp-section">
                   <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> Policies</h3>
@@ -942,7 +941,7 @@ export default function MarketDetail() {
 
               <FAQAccordion />
 
-              {/* ── Ratings & Reviews Feedback List Section ── */}
+              {/* Ratings & Reviews Feedback List */}
               <ProductReviews
                 productId={product.id}
                 rating={rating}
@@ -951,7 +950,6 @@ export default function MarketDetail() {
                 refreshKey={reviewRefreshKey}
               />
 
-              {/* Related Products */}
               <div className="mdp-section mdp-section--related">
                 <RelatedProducts 
                   productId={product.id} 
@@ -960,7 +958,6 @@ export default function MarketDetail() {
                 />
               </div>
 
-              {/* Seller Info & Trust Badges */}
               <div className="mdp-section mdp-section--seller">
                 <SellerCard product={product} />
                 <div className="mdp-trust-grid">
@@ -983,32 +980,43 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* Sticky Bottom Actions */}
+      {/* ── MODERN STICKY BOTTOM BAR ── */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
             <div className="mdp-sticky-price-wrap">
               <span className="mdp-sticky-price">{formatPrice(total)}</span>
-              {qty > 1 && <span className="mdp-sticky-qty-note">{formatPrice(displayPrice)} × {qty}</span>}
+              {qty > 1 && (
+                <span className="mdp-sticky-qty-note">
+                  {formatPrice(displayPrice)} × {qty}
+                </span>
+              )}
             </div>
           </div>
+
           <div className="mdp-sticky-actions">
             {cartError && <span className="mdp-sticky-error">{cartError}</span>}
             <button
               type="button"
-              className={`md-btn-cart mdp-btn-cart${addedToCart ? " mdp-btn-cart--done" : ""}`}
-              onClick={() => setSheetIntent('cart')} // 👈 Opens Sheet
-              disabled={isOutOfStock}
+              className={`mdp-btn-cart-modern${addedToCart ? " is-done" : ""}`}
+              onClick={onAddToCartPress}
+              disabled={addingToCart || isOutOfStock}
             >
-              {isOutOfStock ? "Out of Stock" : addedToCart ? <>{Icon.check} Added</> : <>{Icon.cart} Add to Cart</>}
-            </button>
-            <button 
-              type="button" 
-              className="md-btn-buy mdp-btn-buy" 
-              onClick={() => setSheetIntent('buy')} // 👈 Opens Sheet
-              disabled={isOutOfStock}
-            >
-              Buy Now {Icon.arrow}
+              {isOutOfStock ? (
+                "Out of Stock"
+              ) : addingToCart ? (
+                "Adding…"
+              ) : addedToCart ? (
+                <>
+                  <span className="mdp-btn-cart-modern__icon" aria-hidden="true">{Icon.check}</span>
+                  Added
+                </>
+              ) : (
+                <>
+                  <span className="mdp-btn-cart-modern__icon" aria-hidden="true">{Icon.cart}</span>
+                  Add to Cart
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -1034,8 +1042,7 @@ export default function MarketDetail() {
         setQty={setQty}
         stockLeft={stockLeft}
         maxQty={MAX_QTY}
-        intent={sheetIntent}
-        onConfirm={executeAction}
+        onConfirm={onSheetConfirm}
         isSubmitting={addingToCart}
       />
 
