@@ -31,7 +31,7 @@ import SpecsSection       from "./MarketDetail/SpecsSection";
 import RelatedProducts    from "./MarketDetail/RelatedProducts";
 import RateProductModal   from "./MarketDetail/RateProductModal";
 import ProductReviews     from "./MarketDetail/ProductReviews";
-import VariantBottomSheet from "./MarketDetail/VariantBottomSheet"; // 👈 NEW
+import VariantBottomSheet from "./MarketDetail/VariantSelector"; // 👈 NEW
 
 import "../styles/MarketDetail.css";
 import "../styles/MarketDetailPremium.css";
