@@ -1,77 +1,134 @@
 /**
- * routes/market/getrelatedproducts.js
+ * routes/marketDetail/relatedProducts.js
  *
  * GET /:slugOrId/related
- * Returns related products for ProductRails (horizontal "Related products")
  *
- * Strategy (in order):
- *  1. Same category + brand
- *  2. Same category
- *  3. Same brand
- *  4. Same seller
- *  5. Recent approved products (fallback)
+ * Mounted under:
+ *   app.use("/api/shop", marketDetailRouter)
+ *
+ * Examples:
+ *   GET /api/shop/iphone-13-128gb/related
+ *   GET /api/shop/<uuid>/related?limit=12
+ *
+ * Response:
+ * {
+ *   data: {
+ *     product_id: "...",
+ *     products: [ { id, slug, name, brand, price, original_price, image, image_url } ],
+ *     items: [ ... ],   // alias
+ *     count: N
+ *   }
+ * }
  */
 
 import express from "express";
-import { pool, ok, fail } from "./helpers.js"; // adjust path if needed
+import { pool, ok, fail } from "../market/helpers.js";
 
 const router = express.Router({ mergeParams: true });
+
+/* ════════════════════════════════════════════════════════════
+   HELPERS
+════════════════════════════════════════════════════════════ */
 
 const isUuid = (s) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     String(s || "")
   );
 
-async function resolveProduct(client, slugOrId) {
-  if (isUuid(slugOrId)) {
-    const { rows } = await client.query(
+const clampLimit = (raw, fallback = 12, max = 24) => {
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 1) return fallback;
+  return Math.min(n, max);
+};
+
+/**
+ * Resolve product by UUID id or slug.
+ * Uses only common columns; optional columns are selected safely via try/fallback.
+ */
+async function resolveProduct(slugOrId) {
+  const baseSelect = `
+    p.id,
+    p.slug,
+    p.name,
+    p.brand,
+    p.price,
+    p.original_price
+  `;
+
+  // Prefer extended columns when present
+  const tryExtended = async () => {
+    const where = isUuid(slugOrId) ? `p.id = $1` : `p.slug = $1`;
+    const { rows } = await pool.query(
       `SELECT
-         p.id, p.slug, p.name, p.brand, p.category_id,
-         p.seller_id, p.user_id, p.price, p.original_price
+         ${baseSelect},
+         p.category_id,
+         p.seller_id,
+         p.user_id,
+         p.is_active,
+         p.status,
+         p.deleted_at
        FROM market.products p
-       WHERE p.id = $1
-         AND p.deleted_at IS NULL
+       WHERE ${where}
        LIMIT 1`,
       [slugOrId]
     );
     return rows[0] || null;
-  }
+  };
 
-  const { rows } = await client.query(
-    `SELECT
-       p.id, p.slug, p.name, p.brand, p.category_id,
-       p.seller_id, p.user_id, p.price, p.original_price
-     FROM market.products p
-     WHERE p.slug = $1
-       AND p.deleted_at IS NULL
-     LIMIT 1`,
-    [slugOrId]
-  );
-  return rows[0] || null;
+  const tryMinimal = async () => {
+    const where = isUuid(slugOrId) ? `p.id = $1` : `p.slug = $1`;
+    const { rows } = await pool.query(
+      `SELECT ${baseSelect}
+       FROM market.products p
+       WHERE ${where}
+       LIMIT 1`,
+      [slugOrId]
+    );
+    return rows[0] || null;
+  };
+
+  try {
+    return await tryExtended();
+  } catch (err) {
+    // Missing optional columns → minimal select
+    if (err.code === "42703") {
+      return await tryMinimal();
+    }
+    throw err;
+  }
 }
 
-async function primaryImageMap(client, productIds) {
+async function primaryImageMap(productIds) {
   if (!productIds.length) return new Map();
 
-  const { rows } = await client.query(
-    `SELECT DISTINCT ON (product_id)
-       product_id,
-       image_url
-     FROM market.product_images
-     WHERE product_id = ANY($1::uuid[])
-     ORDER BY product_id,
-              is_primary DESC NULLS LAST,
-              sort_order ASC NULLS LAST,
-              created_at ASC NULLS LAST`,
-    [productIds]
-  );
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (product_id)
+         product_id,
+         image_url
+       FROM market.product_images
+       WHERE product_id = ANY($1::uuid[])
+       ORDER BY
+         product_id,
+         is_primary DESC NULLS LAST,
+         sort_order ASC NULLS LAST`,
+      [productIds]
+    );
 
-  const map = new Map();
-  for (const r of rows) map.set(String(r.product_id), r.image_url);
-  return map;
+    const map = new Map();
+    for (const r of rows) {
+      map.set(String(r.product_id), r.image_url || null);
+    }
+    return map;
+  } catch (err) {
+    // Table/columns may differ — don't fail related list
+    console.warn("[relatedProducts] image map skipped:", err.message);
+    return new Map();
+  }
 }
 
 function mapProduct(row, imageMap) {
+  const img = imageMap.get(String(row.id)) || null;
   return {
     id: row.id,
     slug: row.slug,
@@ -79,103 +136,188 @@ function mapProduct(row, imageMap) {
     brand: row.brand || null,
     price: Number(row.price ?? 0),
     original_price: Number(row.original_price ?? 0),
-    image: imageMap.get(String(row.id)) || null,
-    image_url: imageMap.get(String(row.id)) || null,
+    image: img,
+    image_url: img,
     seller_id: row.seller_id || row.user_id || null,
     category_id: row.category_id || null,
   };
 }
 
 /**
- * Core related query builder
+ * Availability filter that works even if some columns are missing.
+ * Built dynamically after a lightweight column probe (cached).
  */
-async function fetchRelated(client, product, limit = 12) {
-  const sellerId = product.seller_id || product.user_id || null;
+let PRODUCT_COLS = null;
+
+async function getProductColumns() {
+  if (PRODUCT_COLS) return PRODUCT_COLS;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'market'
+         AND table_name = 'products'`
+    );
+    PRODUCT_COLS = new Set(rows.map((r) => r.column_name));
+  } catch {
+    PRODUCT_COLS = new Set([
+      "id",
+      "slug",
+      "name",
+      "brand",
+      "price",
+      "original_price",
+      "category_id",
+      "seller_id",
+      "user_id",
+      "is_active",
+      "status",
+      "deleted_at",
+      "created_at",
+      "updated_at",
+    ]);
+  }
+
+  return PRODUCT_COLS;
+}
+
+function availabilitySql(cols, alias = "p") {
+  const parts = [];
+  if (cols.has("deleted_at")) parts.push(`${alias}.deleted_at IS NULL`);
+  if (cols.has("is_active")) parts.push(`${alias}.is_active = true`);
+  if (cols.has("status")) {
+    parts.push(`${alias}.status IN ('approved', 'active')`);
+  }
+  return parts.length ? `AND ${parts.join(" AND ")}` : "";
+}
+
+function orderSql(cols, alias = "p") {
+  if (cols.has("updated_at") && cols.has("created_at")) {
+    return `${alias}.updated_at DESC NULLS LAST, ${alias}.created_at DESC NULLS LAST`;
+  }
+  if (cols.has("created_at")) return `${alias}.created_at DESC NULLS LAST`;
+  if (cols.has("updated_at")) return `${alias}.updated_at DESC NULLS LAST`;
+  return `${alias}.id DESC`;
+}
+
+/**
+ * Scored related products:
+ *  +2 same category
+ *  +2 same brand
+ *  +1 same seller
+ */
+async function fetchRelated(product, limit) {
+  const cols = await getProductColumns();
+  const avail = availabilitySql(cols, "p");
+  const order = orderSql(cols, "p");
+
+  const selectCols = [
+    "p.id",
+    "p.slug",
+    "p.name",
+    "p.brand",
+    "p.price",
+    "p.original_price",
+  ];
+  if (cols.has("category_id")) selectCols.push("p.category_id");
+  if (cols.has("seller_id")) selectCols.push("p.seller_id");
+  if (cols.has("user_id")) selectCols.push("p.user_id");
+
   const params = [product.id];
-  let param = 2;
+  let i = 2;
 
-  // Build scored query: higher score = more relevant
-  // score: same category+brand=4, category=2, brand=2, seller=1
-  const scoreParts = [];
-  const whereExtra = [];
+  const scoreParts = ["0"];
+  const matchParts = [];
 
-  if (product.category_id) {
-    scoreParts.push(
-      `CASE WHEN p.category_id = $${param} THEN 2 ELSE 0 END`
-    );
-    whereExtra.push(`p.category_id = $${param}`);
+  if (cols.has("category_id") && product.category_id) {
+    scoreParts.push(`CASE WHEN p.category_id = $${i} THEN 2 ELSE 0 END`);
+    matchParts.push(`p.category_id = $${i}`);
     params.push(product.category_id);
-    param++;
+    i++;
   }
 
-  if (product.brand) {
+  if (cols.has("brand") && product.brand) {
     scoreParts.push(
-      `CASE WHEN LOWER(COALESCE(p.brand,'')) = LOWER($${param}) THEN 2 ELSE 0 END`
+      `CASE WHEN LOWER(COALESCE(p.brand, '')) = LOWER($${i}) THEN 2 ELSE 0 END`
     );
-    whereExtra.push(`LOWER(COALESCE(p.brand,'')) = LOWER($${param})`);
+    matchParts.push(`LOWER(COALESCE(p.brand, '')) = LOWER($${i})`);
     params.push(product.brand);
-    param++;
+    i++;
   }
 
-  if (sellerId) {
-    scoreParts.push(
-      `CASE WHEN COALESCE(p.seller_id, p.user_id) = $${param} THEN 1 ELSE 0 END`
-    );
-    // don't force seller-only filter; just score
+  const sellerId = product.seller_id || product.user_id || null;
+  if (sellerId && (cols.has("seller_id") || cols.has("user_id"))) {
+    if (cols.has("seller_id") && cols.has("user_id")) {
+      scoreParts.push(
+        `CASE WHEN COALESCE(p.seller_id, p.user_id) = $${i} THEN 1 ELSE 0 END`
+      );
+    } else if (cols.has("seller_id")) {
+      scoreParts.push(`CASE WHEN p.seller_id = $${i} THEN 1 ELSE 0 END`);
+    } else {
+      scoreParts.push(`CASE WHEN p.user_id = $${i} THEN 1 ELSE 0 END`);
+    }
     params.push(sellerId);
-    param++;
+    i++;
   }
 
-  const scoreExpr =
-    scoreParts.length > 0 ? scoreParts.join(" + ") : "0";
-
-  // Prefer products that match at least one signal; else fallback later
-  const filterSql =
-    whereExtra.length > 0
-      ? `AND (${whereExtra.join(" OR ")})`
-      : "";
+  const scoreExpr = scoreParts.join(" + ");
+  const matchSql =
+    matchParts.length > 0 ? `AND (${matchParts.join(" OR ")})` : "";
 
   params.push(limit);
+  const limitIdx = i;
 
   const sql = `
     SELECT
-      p.id,
-      p.slug,
-      p.name,
-      p.brand,
-      p.price,
-      p.original_price,
-      p.category_id,
-      p.seller_id,
-      p.user_id,
+      ${selectCols.join(", ")},
       (${scoreExpr}) AS rel_score
     FROM market.products p
     WHERE p.id <> $1
-      AND p.deleted_at IS NULL
-      AND p.is_active = true
-      AND p.status IN ('approved', 'active')
-      ${filterSql}
-    ORDER BY rel_score DESC, p.updated_at DESC NULLS LAST, p.created_at DESC NULLS LAST
-    LIMIT $${param}
+      ${avail}
+      ${matchSql}
+    ORDER BY rel_score DESC, ${order}
+    LIMIT $${limitIdx}
   `;
 
-  const { rows } = await client.query(sql, params);
+  const { rows } = await pool.query(sql, params);
   return rows;
 }
 
-async function fetchFallback(client, excludeId, limit = 12) {
-  const { rows } = await client.query(
-    `SELECT
-       p.id, p.slug, p.name, p.brand, p.price, p.original_price,
-       p.category_id, p.seller_id, p.user_id
+async function fetchFallback(excludeId, limit, excludeIds = []) {
+  const cols = await getProductColumns();
+  const avail = availabilitySql(cols, "p");
+  const order = orderSql(cols, "p");
+
+  const selectCols = [
+    "p.id",
+    "p.slug",
+    "p.name",
+    "p.brand",
+    "p.price",
+    "p.original_price",
+  ];
+  if (cols.has("category_id")) selectCols.push("p.category_id");
+  if (cols.has("seller_id")) selectCols.push("p.seller_id");
+  if (cols.has("user_id")) selectCols.push("p.user_id");
+
+  const params = [excludeId];
+  let extraExclude = "";
+  if (excludeIds.length) {
+    params.push(excludeIds);
+    extraExclude = `AND NOT (p.id = ANY($${params.length}::uuid[]))`;
+  }
+  params.push(limit);
+
+  const { rows } = await pool.query(
+    `SELECT ${selectCols.join(", ")}
      FROM market.products p
      WHERE p.id <> $1
-       AND p.deleted_at IS NULL
-       AND p.is_active = true
-       AND p.status IN ('approved', 'active')
-     ORDER BY p.updated_at DESC NULLS LAST, p.created_at DESC NULLS LAST
-     LIMIT $2`,
-    [excludeId, limit]
+       ${avail}
+       ${extraExclude}
+     ORDER BY ${order}
+     LIMIT $${params.length}`,
+    params
   );
   return rows;
 }
@@ -183,55 +325,76 @@ async function fetchFallback(client, excludeId, limit = 12) {
 /* ════════════════════════════════════════════════════════════
    GET /:slugOrId/related
 ════════════════════════════════════════════════════════════ */
+
 router.get("/:slugOrId/related", async (req, res) => {
-  const slugOrId = req.params.slugOrId || req.params.slug || req.params.id;
-  const limit = Math.min(
-    Math.max(parseInt(req.query.limit, 10) || 12, 1),
-    24
-  );
+  const slugOrId =
+    req.params.slugOrId || req.params.slug || req.params.id || null;
+  const limit = clampLimit(req.query.limit, 12, 24);
+
+  console.log("[relatedProducts] GET related for:", slugOrId, "limit:", limit);
 
   if (!slugOrId) {
     return fail(res, 400, "Product slug or id is required");
   }
 
-  const client = await pool.connect();
   try {
-    const product = await resolveProduct(client, slugOrId);
+    const product = await resolveProduct(slugOrId);
     if (!product) {
       return fail(res, 404, "Product not found");
     }
 
-    let rows = await fetchRelated(client, product, limit);
+    if (product.deleted_at) {
+      return fail(res, 404, "Product not found");
+    }
 
-    // If too few, top up with fallback (excluding already picked)
+    let rows = [];
+    try {
+      rows = await fetchRelated(product, limit);
+    } catch (err) {
+      console.warn("[relatedProducts] scored query failed:", err.message);
+      rows = [];
+    }
+
+    // Top up if few results
     if (rows.length < Math.min(6, limit)) {
-      const fallback = await fetchFallback(client, product.id, limit);
-      const seen = new Set(rows.map((r) => String(r.id)));
-      for (const f of fallback) {
-        if (seen.has(String(f.id))) continue;
-        rows.push(f);
-        if (rows.length >= limit) break;
+      try {
+        const have = rows.map((r) => r.id);
+        const more = await fetchFallback(product.id, limit, have);
+        const seen = new Set(have.map(String));
+        for (const r of more) {
+          if (seen.has(String(r.id))) continue;
+          rows.push(r);
+          seen.add(String(r.id));
+          if (rows.length >= limit) break;
+        }
+      } catch (err) {
+        console.warn("[relatedProducts] fallback failed:", err.message);
       }
     }
 
     const ids = rows.map((r) => r.id);
-    const imageMap = await primaryImageMap(client, ids);
+    const imageMap = await primaryImageMap(ids);
     const products = rows.map((r) => mapProduct(r, imageMap));
+
+    console.log(
+      "[relatedProducts] ✓",
+      products.length,
+      "items for",
+      product.slug || product.id
+    );
 
     return ok(res, {
       data: {
         product_id: product.id,
         products,
-        items: products, // alias for flexible frontends
+        items: products,
         count: products.length,
       },
     });
   } catch (err) {
-    console.error("[getrelatedproducts] error:", err.message);
-    console.error(err.stack?.split("\n").slice(0, 4).join("\n"));
+    console.error("[relatedProducts] ❌", err.message);
+    console.error(err.stack?.split("\n").slice(0, 5).join("\n"));
     return fail(res, 500, `Failed to load related products: ${err.message}`);
-  } finally {
-    client.release();
   }
 });
 
