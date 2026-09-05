@@ -1,114 +1,218 @@
-// components/MarketDetailHeader.jsx
+/**
+ * src/components/MarketDetailHeader.jsx
+ * Top navigation header for Product Detail Page
+ */
 
-import React, { memo, useMemo } from "react";
+import { memo } from "react";
 import { useNavigate } from "react-router-dom";
 
-/* ── Icons ── */
-const Icons = {
+/* ── SVG ICONS ── */
+const Icon = {
   back: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={2.2} strokeLinecap="round" aria-hidden="true">
-      <path d="M19 12H5M12 5l-7 7 7 7" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}>
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
     </svg>
   ),
-  share: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden="true">
-      <circle cx="18" cy="5" r="3" />
-      <circle cx="6" cy="12" r="3" />
-      <circle cx="18" cy="19" r="3" />
-      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+  heartOutline: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}>
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  ),
+  heartFilled: (
+    <svg viewBox="0 0 24 24" fill="var(--rd)" stroke="var(--rd)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}>
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
     </svg>
   ),
   cart: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden="true">
-      <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
-      <line x1="3" y1="6" x2="21" y2="6" />
-      <path d="M16 10a4 4 0 01-8 0" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}>
+      <circle cx="9" cy="21" r="1" />
+      <circle cx="20" cy="21" r="1" />
+      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
     </svg>
   ),
-  heart: (filled) => (
-    <svg viewBox="0 0 24 24"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden="true">
-      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+  search: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}>
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
     </svg>
   ),
 };
 
-const MarketDetailHeader = memo(function MarketDetailHeader({
+function MarketDetailHeader({
   productName,
-  cartCount,
-  isWishlisted,
-  onShare,
+  cartCount = 0,
+  isWishlisted = false,
   onToggleWishlist,
-  productLoaded,
+  productLoaded = false,
 }) {
   const navigate = useNavigate();
 
-  const title = useMemo(() => {
-    if (!productName) return "Product Detail";
-    return productName.length > 30
-      ? `${productName.slice(0, 30)}…`
-      : productName;
-  }, [productName]);
+  const handleBack = () => {
+    if (window.history.length > 2) {
+      navigate(-1);
+    } else {
+      navigate("/loemart");
+    }
+  };
 
   return (
-    <header className="md-topbar">
+    <header
+      className="md-topbar"
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "10px",
+        padding: "8px 12px",
+        background: "var(--wh)",
+        borderBottom: "1px solid var(--bd)",
+        boxShadow: "var(--s1)",
+      }}
+    >
+      {/* Back Button */}
       <button
+        type="button"
         className="md-back-btn"
-        onClick={() => navigate(-1)}
+        onClick={handleBack}
         aria-label="Go back"
+        style={{
+          width: "36px",
+          height: "36px",
+          borderRadius: "50%",
+          border: "none",
+          background: "var(--bg)",
+          color: "var(--ink)",
+          display: "flex",
+          alignItems: "center",
+          justify-content: "center",
+          cursor: "pointer",
+          flexShrink: 0,
+        }}
       >
-        {Icons.back}
+        {Icon.back}
       </button>
 
-      <span className="md-topbar-title">{title}</span>
+      {/* Product Title / App Name */}
+      <h1
+        className="md-topbar-title"
+        style={{
+          flex: 1,
+          fontSize: "14px",
+          fontWeight: "700",
+          color: "var(--ink)",
+          textAlign: "center",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          margin: 0,
+        }}
+      >
+        {productLoaded && productName ? productName : "Product Details"}
+      </h1>
 
-      <div className="md-topbar-right">
-        {/* Cart */}
+      {/* Right Icons: Search, Wishlist, Cart */}
+      <div
+        className="md-topbar-right"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+          flexShrink: 0,
+        }}
+      >
+        {/* Search */}
         <button
-          className="md-icon-btn"
-          onClick={() => navigate("/shop/cart")}
-          aria-label={`Cart — ${cartCount} item${cartCount !== 1 ? "s" : ""}`}
+          type="button"
+          onClick={() => navigate("/catalog")}
+          aria-label="Search catalog"
+          style={{
+            width: "36px",
+            height: "36px",
+            borderRadius: "50%",
+            border: "none",
+            background: "transparent",
+            color: "var(--ink2)",
+            display: "flex",
+            alignItems: "center",
+            justify-content: "center",
+            cursor: "pointer",
+          }}
         >
-          {Icons.cart}
-          {cartCount > 0 && (
-            <span className="md-cart-dot" aria-hidden="true">
-              {cartCount > 9 ? "9+" : cartCount}
-            </span>
-          )}
-        </button>
-
-        {/* Share */}
-        <button
-          className="md-icon-btn"
-          onClick={onShare}
-          aria-label="Share product"
-          disabled={!productLoaded}
-        >
-          {Icons.share}
+          {Icon.search}
         </button>
 
         {/* Wishlist */}
         <button
-          className={`md-icon-btn${isWishlisted ? " md-icon-btn--heart" : ""}`}
+          type="button"
           onClick={onToggleWishlist}
-          aria-label={isWishlisted ? "Remove from wishlist" : "Save to wishlist"}
-          aria-pressed={isWishlisted}
-          disabled={!productLoaded}
+          aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+          style={{
+            width: "36px",
+            height: "36px",
+            borderRadius: "50%",
+            border: "none",
+            background: "transparent",
+            color: isWishlisted ? "var(--rd)" : "var(--ink2)",
+            display: "flex",
+            alignItems: "center",
+            justify-content: "center",
+            cursor: "pointer",
+          }}
         >
-          {Icons.heart(isWishlisted)}
+          {isWishlisted ? Icon.heartFilled : Icon.heartOutline}
+        </button>
+
+        {/* Cart */}
+        <button
+          type="button"
+          onClick={() => navigate("/shop/cart")}
+          aria-label="View cart"
+          style={{
+            position: "relative",
+            width: "36px",
+            height: "36px",
+            borderRadius: "50%",
+            border: "none",
+            background: "transparent",
+            color: "var(--ink)",
+            display: "flex",
+            alignItems: "center",
+            justify-content: "center",
+            cursor: "pointer",
+          }}
+        >
+          {Icon.cart}
+          {cartCount > 0 && (
+            <span
+              style={{
+                position: "absolute",
+                top: "2px",
+                right: "2px",
+                minWidth: "18px",
+                height: "18px",
+                padding: "0 4px",
+                borderRadius: "999px",
+                background: "var(--o)",
+                color: "var(--wh)",
+                fontSize: "10px",
+                fontWeight: "800",
+                display: "flex",
+                alignItems: "center",
+                justify-content: "center",
+                lineHeight: 1,
+              }}
+            >
+              {cartCount > 99 ? "99+" : cartCount}
+            </span>
+          )}
         </button>
       </div>
     </header>
   );
-});
+}
 
-export default MarketDetailHeader;
+export default memo(MarketDetailHeader);
