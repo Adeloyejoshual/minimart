@@ -1,9 +1,9 @@
 /**
  * src/pages/MarketDetail/ProductRails.jsx
  *
- * 1) You may also like     — 8 items, 2×4 grid
- * 2) More from this seller — 6 items, 2×3 grid
- * 3) Recommended for you   — up to 30, vertical, infinite scroll (10+10+10)
+ * 1) Customers also viewed    — Horizontal swipe rail (Jumia style)
+ * 2) More from this seller   — Horizontal swipe rail (Jumia style)
+ * 3) Recommended for you     — 2-Column Grid (Temu style) with Infinite Load
  */
 
 import {
@@ -31,13 +31,13 @@ const API_ROOT = RAW
   : "/api";
 const SHOP = `${API_ROOT}/shop`;
 
-const RELATED_LIMIT = 8;
-const SELLER_LIMIT = 6;
+const RELATED_LIMIT = 10;
+const SELLER_LIMIT = 10;
 const REC_TOTAL = 30;
-const REC_PAGE = 10;
+const REC_PAGE = 6;
 
 /* ════════════════════════════════════════════════════════════
-   helpers
+   HELPERS
 ════════════════════════════════════════════════════════════ */
 function discOf(item) {
   const price = Number(item.price ?? item.sale_price ?? 0);
@@ -89,7 +89,7 @@ async function getFirstList(urls) {
   for (const url of urls) {
     if (!url) continue;
     try {
-      const { data } = await axios.get(url, { timeout: 10000 });
+      const { data } = await axios.get(url, { timeout: 8000 });
       const list = normalizeList(data);
       if (list.length) return list;
     } catch {
@@ -100,9 +100,9 @@ async function getFirstList(urls) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   GRID CARD (related / seller)
+   1) JUMIA-STYLE HORIZONTAL SWIPE CARD
 ════════════════════════════════════════════════════════════ */
-const GridCard = memo(function GridCard({ item, onOpen }) {
+const HorizontalCard = memo(function HorizontalCard({ item, onOpen }) {
   const price = priceOf(item);
   const original = origOf(item);
   const d = discOf(item);
@@ -111,22 +111,22 @@ const GridCard = memo(function GridCard({ item, onOpen }) {
   return (
     <button
       type="button"
-      className="mdp-pg-card"
+      className="mdp-rail-hcard"
       onClick={() => onOpen(slugOf(item))}
     >
-      <div className="mdp-pg-card__media">
+      <div className="mdp-rail-hcard__media">
         {img ? (
           <img src={img} alt="" loading="lazy" />
         ) : (
-          <div className="mdp-pg-card__ph">📦</div>
+          <div className="mdp-rail-hcard__ph">📦</div>
         )}
-        {d > 0 && <span className="mdp-pg-card__badge">-{d}%</span>}
+        {d > 0 && <span className="mdp-rail-hcard__badge">-{d}%</span>}
       </div>
-      <div className="mdp-pg-card__body">
-        <p className="mdp-pg-card__name">{item.name || item.title}</p>
-        <p className="mdp-pg-card__price">{formatPrice(price)}</p>
+      <div className="mdp-rail-hcard__body">
+        <p className="mdp-rail-hcard__name">{item.name || item.title}</p>
+        <p className="mdp-rail-hcard__price">{formatPrice(price)}</p>
         {original > price && (
-          <p className="mdp-pg-card__orig">{formatPrice(original)}</p>
+          <p className="mdp-rail-hcard__orig">{formatPrice(original)}</p>
         )}
       </div>
     </button>
@@ -134,53 +134,74 @@ const GridCard = memo(function GridCard({ item, onOpen }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   LIST CARD (recommended vertical)
+   2) TEMU-STYLE 2-COLUMN GRID CARD
 ════════════════════════════════════════════════════════════ */
-const ListCard = memo(function ListCard({ item, onOpen }) {
+const TemuGridCard = memo(function TemuGridCard({ item, onOpen }) {
   const price = priceOf(item);
   const original = origOf(item);
   const d = discOf(item);
   const img = imgOf(item);
+  const rating = Number(item.rating || item.average_rating || 0);
 
   return (
-    <button
-      type="button"
-      className="mdp-pl-card"
-      onClick={() => onOpen(slugOf(item))}
-    >
-      <div className="mdp-pl-card__media">
+    <div className="mdp-temu-card" onClick={() => onOpen(slugOf(item))}>
+      <div className="mdp-temu-card__media">
         {img ? (
           <img src={img} alt="" loading="lazy" />
         ) : (
-          <div className="mdp-pl-card__ph">📦</div>
+          <div className="mdp-temu-card__ph">📦</div>
         )}
-        {d > 0 && <span className="mdp-pl-card__badge">-{d}%</span>}
+        {d > 0 && <span className="mdp-temu-card__badge">-{d}%</span>}
       </div>
-      <div className="mdp-pl-card__body">
-        <p className="mdp-pl-card__name">{item.name || item.title}</p>
-        {item.brand && <p className="mdp-pl-card__brand">{item.brand}</p>}
-        <div className="mdp-pl-card__prices">
-          <span className="mdp-pl-card__price">{formatPrice(price)}</span>
-          {original > price && (
-            <span className="mdp-pl-card__orig">{formatPrice(original)}</span>
-          )}
+
+      <div className="mdp-temu-card__body">
+        <p className="mdp-temu-card__title">{item.name || item.title}</p>
+        
+        {rating > 0 && (
+          <div className="mdp-temu-card__rating">
+            <span className="mdp-temu-card__star">★</span>
+            <span className="mdp-temu-card__num">{rating.toFixed(1)}</span>
+            {item.reviews_count > 0 && (
+              <span className="mdp-temu-card__count">({item.reviews_count})</span>
+            )}
+          </div>
+        )}
+
+        <div className="mdp-temu-card__footer">
+          <div className="mdp-temu-card__price-box">
+            <span className="mdp-temu-card__price">{formatPrice(price)}</span>
+            {original > price && (
+              <span className="mdp-temu-card__orig">{formatPrice(original)}</span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className="mdp-temu-card__cart-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(slugOf(item));
+            }}
+            aria-label="Add to cart"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={16} height={16}>
+              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+            </svg>
+          </button>
         </div>
       </div>
-      <span className="mdp-pl-card__chev" aria-hidden="true">
-        ›
-      </span>
-    </button>
+    </div>
   );
 });
 
 /* ════════════════════════════════════════════════════════════
-   SECTION: 2-col product grid
+   RAIL 1 & 2: HORIZONTAL SWIPE SECTION
 ════════════════════════════════════════════════════════════ */
-const ProductGridSection = memo(function ProductGridSection({
+const HorizontalSwipeRail = memo(function HorizontalSwipeRail({
   title,
   items,
   loading,
-  skeletonCount = 4,
   onSeeAll,
 }) {
   const navigate = useNavigate();
@@ -199,15 +220,15 @@ const ProductGridSection = memo(function ProductGridSection({
       </div>
 
       {loading ? (
-        <div className="mdp-pgrid">
-          {Array.from({ length: skeletonCount }).map((_, i) => (
-            <div key={i} className="mdp-pg-skel" />
+        <div className="mdp-rail-hscroll">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="mdp-rail-hskel" />
           ))}
         </div>
       ) : (
-        <div className="mdp-pgrid">
+        <div className="mdp-rail-hscroll">
           {items.map((item) => (
-            <GridCard
+            <HorizontalCard
               key={item.id || item.slug}
               item={item}
               onOpen={(s) => s && navigate(`/shop/${s}`)}
@@ -220,36 +241,34 @@ const ProductGridSection = memo(function ProductGridSection({
 });
 
 /* ════════════════════════════════════════════════════════════
-   SECTION: recommended vertical + infinite scroll
+   RAIL 3: TEMU-STYLE 2-COLUMN RECOMMENDED GRID
 ════════════════════════════════════════════════════════════ */
-const RecommendedSection = memo(function RecommendedSection({
+const RecommendedGridSection = memo(function RecommendedGridSection({
   title = "Recommended for you",
-  allItems, // full pool up to 30
+  allItems = [],
   loading,
 }) {
   const navigate = useNavigate();
-  const [visible, setVisible] = useState(REC_PAGE);
+  const [visibleCount, setVisibleCount] = useState(REC_PAGE);
   const sentinelRef = useRef(null);
   const loadingMoreRef = useRef(false);
 
-  // reset when pool changes
   useEffect(() => {
-    setVisible(REC_PAGE);
+    setVisibleCount(REC_PAGE);
   }, [allItems]);
 
-  const shown = useMemo(
-    () => (allItems || []).slice(0, visible),
-    [allItems, visible]
+  const visibleItems = useMemo(
+    () => (allItems || []).slice(0, visibleCount),
+    [allItems, visibleCount]
   );
 
-  const hasMore = visible < (allItems?.length || 0);
+  const hasMore = visibleCount < (allItems?.length || 0);
 
   const loadMore = useCallback(() => {
     if (loadingMoreRef.current || !hasMore) return;
     loadingMoreRef.current = true;
-    // tiny delay so scroll feels smooth, still snappy
     requestAnimationFrame(() => {
-      setVisible((v) => Math.min(v + REC_PAGE, allItems.length));
+      setVisibleCount((v) => Math.min(v + REC_PAGE, allItems.length));
       loadingMoreRef.current = false;
     });
   }, [hasMore, allItems]);
@@ -262,37 +281,32 @@ const RecommendedSection = memo(function RecommendedSection({
       (entries) => {
         if (entries[0]?.isIntersecting) loadMore();
       },
-      { root: null, rootMargin: "200px 0px", threshold: 0 }
+      { root: null, rootMargin: "250px 0px", threshold: 0 }
     );
 
     io.observe(el);
     return () => io.disconnect();
-  }, [hasMore, loadMore, shown.length]);
+  }, [hasMore, loadMore, visibleItems.length]);
 
   if (!loading && (!allItems || allItems.length === 0)) return null;
 
   return (
-    <section className="mdp-psec mdp-psec--rec">
+    <section className="mdp-psec mdp-psec--recommended">
       <div className="mdp-psec__head">
         <h3 className="mdp-psec__title">{title}</h3>
-        {!loading && allItems?.length > 0 && (
-          <span className="mdp-psec__meta">
-            {Math.min(visible, allItems.length)}/{allItems.length}
-          </span>
-        )}
       </div>
 
       {loading ? (
-        <div className="mdp-plist">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="mdp-pl-skel" />
+        <div className="mdp-temu-grid">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="mdp-temu-skel" />
           ))}
         </div>
       ) : (
         <>
-          <div className="mdp-plist">
-            {shown.map((item) => (
-              <ListCard
+          <div className="mdp-temu-grid">
+            {visibleItems.map((item) => (
+              <TemuGridCard
                 key={item.id || item.slug}
                 item={item}
                 onOpen={(s) => s && navigate(`/shop/${s}`)}
@@ -300,15 +314,10 @@ const RecommendedSection = memo(function RecommendedSection({
             ))}
           </div>
 
-          {/* infinite scroll sentinel */}
           {hasMore && (
-            <div ref={sentinelRef} className="mdp-rec-sentinel" aria-hidden="true">
-              <span className="mdp-rec-loading">Loading more…</span>
+            <div ref={sentinelRef} className="mdp-rec-sentinel">
+              <span className="mdp-rec-loading">Loading more recommendations…</span>
             </div>
-          )}
-
-          {!hasMore && allItems.length > REC_PAGE && (
-            <p className="mdp-rec-end">You’re all caught up</p>
           )}
         </>
       )}
@@ -317,7 +326,7 @@ const RecommendedSection = memo(function RecommendedSection({
 });
 
 /* ════════════════════════════════════════════════════════════
-   MAIN: fetch + compose
+   MAIN PRODUCT RAILS COMPONENT
 ════════════════════════════════════════════════════════════ */
 function ProductRails({ product }) {
   const navigate = useNavigate();
@@ -338,13 +347,13 @@ function ProductRails({ product }) {
 
   const [related, setRelated] = useState([]);
   const [sellerItems, setSellerItems] = useState([]);
-  const [recommendedPool, setRecommendedPool] = useState([]);
+  const [recommended, setRecommended] = useState([]);
 
   const [loadingRel, setLoadingRel] = useState(true);
   const [loadingSeller, setLoadingSeller] = useState(true);
   const [loadingRec, setLoadingRec] = useState(true);
 
-  /* ── 1) Related (8) ── */
+  /* 1) Related (Horizontal) */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -371,7 +380,7 @@ function ProductRails({ product }) {
     };
   }, [productId, slug]);
 
-  /* ── 2) Same seller (6) ── */
+  /* 2) Same Seller (Horizontal) */
   useEffect(() => {
     if (!productId) return;
     let cancelled = false;
@@ -389,7 +398,7 @@ function ProductRails({ product }) {
       }
       if (product?.brand) {
         urls.push(
-          `${API_URL}?brand=${encodeURIComponent(product.brand)}&limit=${SELLER_LIMIT + 4}`
+          `${API_URL}?brand=${encodeURIComponent(product.brand)}&limit=${SELLER_LIMIT}`
         );
       }
 
@@ -405,7 +414,7 @@ function ProductRails({ product }) {
     };
   }, [productId, sellerId, product?.brand]);
 
-  /* ── 3) Recommended pool (30), UI shows 10 at a time ── */
+  /* 3) Recommended (2-Column Grid) */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -413,16 +422,12 @@ function ProductRails({ product }) {
     (async () => {
       setLoadingRec(true);
 
-      // Wait a tick so related/seller can populate for de-dupe (best-effort)
-      await new Promise((r) => setTimeout(r, 0));
-
       let list = excludeIds(
         await getFirstList([
           `${API_URL}/${slug}/recommendations?limit=${REC_TOTAL}`,
           `${SHOP}/${slug}/recommendations?limit=${REC_TOTAL}`,
           `${API_URL}/${productId}/recommended?limit=${REC_TOTAL}`,
           `${SHOP}/recommended?product_id=${productId}&limit=${REC_TOTAL}`,
-          `${API_URL}/${slug}/related?limit=${REC_TOTAL}`, // soft fallback
           catSlug
             ? `${API_URL}?category=${encodeURIComponent(catSlug)}&limit=${REC_TOTAL}`
             : null,
@@ -431,12 +436,11 @@ function ProductRails({ product }) {
       );
 
       if (!cancelled) {
-        // de-dupe against related + seller when available
         const taken = new Set(
           [...related, ...sellerItems].map((p) => String(p.id))
         );
         list = list.filter((p) => !taken.has(String(p.id)));
-        setRecommendedPool(list.slice(0, REC_TOTAL));
+        setRecommended(list.slice(0, REC_TOTAL));
         setLoadingRec(false);
       }
     })();
@@ -444,63 +448,42 @@ function ProductRails({ product }) {
     return () => {
       cancelled = true;
     };
-    // intentionally not depending on related/seller to avoid refetch loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId, slug, catSlug]);
-
-  // secondary de-dupe pass when related/seller finish
-  useEffect(() => {
-    if (!recommendedPool.length) return;
-    const taken = new Set(
-      [...related, ...sellerItems].map((p) => String(p.id))
-    );
-    const next = recommendedPool.filter((p) => !taken.has(String(p.id)));
-    if (next.length !== recommendedPool.length) {
-      setRecommendedPool(next.slice(0, REC_TOTAL));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [related, sellerItems]);
+  }, [productId, slug, catSlug, related, sellerItems]);
 
   if (!product) return null;
 
   return (
     <div className="mdp-rails">
-      {/* 1 */}
-      <ProductGridSection
-        title="You may also like"
+      {/* 1) Customers also viewed (Horizontal Swipe) */}
+      <HorizontalSwipeRail
+        title="Customers also viewed"
         items={related}
         loading={loadingRel}
-        skeletonCount={4}
         onSeeAll={
           catSlug
-            ? () =>
-                navigate(`/catalog?category=${encodeURIComponent(catSlug)}`)
+            ? () => navigate(`/catalog?category=${encodeURIComponent(catSlug)}`)
             : undefined
         }
       />
 
-      {/* 2 */}
-      <ProductGridSection
+      {/* 2) More from this seller (Horizontal Swipe) */}
+      <HorizontalSwipeRail
         title="More from this seller"
         items={sellerItems}
         loading={loadingSeller}
-        skeletonCount={4}
         onSeeAll={
           sellerId
             ? () => navigate(`/seller/${sellerId}`)
             : product?.brand
-            ? () =>
-                navigate(
-                  `/catalog?brand=${encodeURIComponent(product.brand)}`
-                )
+            ? () => navigate(`/catalog?brand=${encodeURIComponent(product.brand)}`)
             : undefined
         }
       />
 
-      {/* 3 */}
-      <RecommendedSection
+      {/* 3) Recommended for you (Temu-style 2-Column Grid) */}
+      <RecommendedGridSection
         title="Recommended for you"
-        allItems={recommendedPool}
+        allItems={recommended}
         loading={loadingRec}
       />
     </div>
