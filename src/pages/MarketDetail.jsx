@@ -15,6 +15,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import {
+  API_URL,
   formatPrice,
   calcDiscount,
   getProductImage,
@@ -32,7 +33,7 @@ import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 import ProductRails       from "./MarketDetail/ProductRails";
 
-import "../styles/MarketDetail.css"; 
+import "../styles/MarketDetail.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API ROUTES
@@ -177,7 +178,7 @@ const fetchServerCartCount = async () => {
     if (!getAuthToken()) return null;
     const res = await axios.get(CART_URL, { headers: authHeaders(), timeout: 8000 });
     const d = res.data?.data ?? res.data;
-    return d?.total_qty ?? d?.item_count ?? d?.data?.total_qty ?? null;
+    return d?.total_qty ?? d?.item_count ?? null;
   } catch { return null; }
 };
 
@@ -458,7 +459,7 @@ const FAQAccordion = memo(function FAQAccordion() {
   ], []);
 
   return (
-    <div className="md-section mdp-section mdp-faq-section">
+    <div className="md-section mdp-section mdp-faq-section" style={{ padding: '0', border: 'none' }}>
       <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> FAQ</h3>
       <div className="mdp-faq-list">
         {faqs.map((faq, idx) => {
@@ -843,7 +844,7 @@ export default function MarketDetail() {
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && setSheetIntent('cart')}
-                  style={{ marginTop: 12 }}
+                  style={{ marginTop: 10 }}
                 >
                   <div>
                     <span style={{ fontSize: "11px", color: "var(--ink2)", display: "block", marginBottom: 2 }}>Options & Quantity</span>
@@ -856,77 +857,77 @@ export default function MarketDetail() {
                 </div>
               ) : null}
 
-              {/* Jumia Style Delivery & Protection Flattened List */}
-              <div className="mdp-section mdp-section--cards" style={{ padding: '12px 0 0', gap: 0, background: 'transparent' }}>
+              {/* 1. Jumia Style Flattened Delivery & Protection List */}
+              <div className="mdp-section" style={{ padding: '10px 0 0', border: 'none', background: 'transparent' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--wh)', border: '1px solid var(--bd)', borderRadius: 'var(--r1)', overflow: 'hidden' }}>
                   
                   {/* Delivery Row */}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--bd)' }}>
-                    <div style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.truck}</div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--bd)' }}>
+                    <div style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.truck}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Fast Delivery</span>
-                      </div>
-                      <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0, lineHeight: 1.4 }}>Estimated arrival: <strong>{deliveryDate}</strong></p>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', marginBottom: 2 }}>Fast Delivery</span>
+                      <p style={{ fontSize: 12, color: 'var(--ink2)', margin: 0 }}>Estimated arrival: <strong>{deliveryDate}</strong></p>
                     </div>
                   </div>
 
-                  {/* Protection Row */}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', cursor: 'pointer' }} onClick={() => setShowProtection(true)}>
-                    <div style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.shield}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Buyer Protection</span>
-                        <span style={{ fontSize: 12, color: 'var(--o)', fontWeight: 600 }}>Learn More &gt;</span>
+                  {/* Protection Row (Flattened on 1 line with Learn More) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer' }} onClick={() => setShowProtection(true)}>
+                    <div style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.shield}</div>
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block' }}>Loemart Buyer Protection</span>
+                        <p style={{ fontSize: 11, color: 'var(--ink2)', margin: 0 }}>Get item ordered or money back</p>
                       </div>
-                      <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0, lineHeight: 1.4 }}>Get the item you ordered or your money back.</p>
+                      <span style={{ fontSize: 12, color: 'var(--o)', fontWeight: 700, flexShrink: 0, marginLeft: 8 }}>Learn More &gt;</span>
                     </div>
                   </div>
 
                 </div>
               </div>
 
-              {/* Description (Full Width Edge-to-Edge styling via mdp-section) */}
+              {/* Description Section */}
               {product.description && (
-                <div className="mdp-section mdp-section--desc" style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 8px', color: 'var(--ink)' }}>Description <span style={{ float: 'right', color: 'var(--ink3)' }}>&gt;</span></h3>
-                  <div style={{ padding: '0' }}>
-                    <ProductInfo description={product.description} />
-                  </div>
+                <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px', color: 'var(--ink)' }}>Description</h3>
+                  <ProductInfo description={product.description} />
                 </div>
               )}
 
+              {/* Specifications Section */}
               {(product.specifications?.length > 0 || product.specs?.length > 0 || product.attributes?.length > 0) && (
-                <div className="mdp-section mdp-section--specs" style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
+                <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
                   <SpecsSection specs={product.specifications || product.specs || product.attributes} />
                 </div>
               )}
 
+              {/* Key Features */}
               {product.key_features?.length > 0 && (
-                <div className="md-section mdp-section mdp-section--features" style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
+                <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
                   <h3 className="md-section-title mdp-section-title">Key Features</h3>
                   <ul className="md-features-list mdp-features-list" style={{ background: 'transparent' }}>
                     {product.key_features.map((f, i) => (
-                      <li key={i} className="md-feature-item mdp-feature-item" style={{ padding: '4px 0', background: 'transparent' }}>
+                      <li key={i} className="md-feature-item mdp-feature-item" style={{ padding: '3px 0', background: 'transparent' }}>
                         <span className="md-feat-check mdp-feat-check">{Icon.check}</span>
-                        <span style={{ fontSize: 13, color: 'var(--ink)' }}>{f?.feature ?? f}</span>
+                        <span style={{ fontSize: 12, color: 'var(--ink)' }}>{f?.feature ?? f}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
 
-              <div style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)' }}>
+              {/* FAQ Accordion */}
+              <div style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)' }}>
                 <FAQAccordion />
               </div>
 
-              {/* SELLER CARD MOVED ABOVE REVIEWS */}
-              <div className="mdp-section mdp-section--seller" style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
-                <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 12px', color: 'var(--ink)' }}>Sold by</h3>
+              {/* 2. SOLD BY (SELLER CARD) MOVED ABOVE REVIEWS */}
+              <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 8px', color: 'var(--ink)' }}>Sold by</h3>
                 <SellerCard product={product} />
               </div>
 
-              <div style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)' }}>
+              {/* Product Reviews */}
+              <div style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)' }}>
                 <ProductReviews
                   productId={product.id}
                   rating={rating}
@@ -936,15 +937,15 @@ export default function MarketDetail() {
                 />
               </div>
 
-              {/* TRUST BADGES & REPORT LISTING MOVED ABOVE RAILS */}
-              <div className="mdp-section" style={{ padding: '16px 0', borderTop: 'none', background: 'transparent' }}>
-                <div className="mdp-trust-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, margin: '0 0 16px' }}>
+              {/* 3. TRUST BADGES & REPORT MOVED ABOVE CUSTOMERS ALSO VIEWED */}
+              <div className="mdp-section" style={{ padding: '12px 0', borderTop: 'none', background: 'transparent' }}>
+                <div className="mdp-trust-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, margin: '0 0 10px' }}>
                   {TRUST_BADGES.map((b) => (
-                    <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--wh)', border: '1px solid var(--bd)', borderRadius: 'var(--r1)' }}>
+                    <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--wh)', border: '1px solid var(--bd)', borderRadius: 'var(--r1)' }}>
                       <span style={{ color: 'var(--o)', display: 'flex' }}>{b.icon}</span>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{b.label}</span>
-                        <span style={{ fontSize: 11, color: 'var(--ink2)' }}>{b.sub}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>{b.label}</span>
+                        <span style={{ fontSize: 10, color: 'var(--ink2)' }}>{b.sub}</span>
                       </div>
                     </div>
                   ))}
@@ -953,13 +954,13 @@ export default function MarketDetail() {
                   type="button"
                   className="md-report-btn mdp-report-btn"
                   onClick={() => setShowReport(true)}
-                  style={{ padding: '12px', background: 'var(--wh)', fontSize: 13 }}
+                  style={{ padding: '10px', background: 'var(--wh)', fontSize: 12 }}
                 >
                   {Icon.flag} <span>Report this listing</span>
                 </button>
               </div>
 
-              {/* ── Product Rails (Related, Seller, Recommended) ── */}
+              {/* 4. Product Rails (Customers also viewed, More from this seller, Recommended for you) */}
               <div className="mdp-section mdp-section--rails">
                 <ProductRails product={product} />
               </div>
@@ -969,7 +970,7 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* Sticky Bar */}
+      {/* Sticky Bottom Bar */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
