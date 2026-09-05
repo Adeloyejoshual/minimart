@@ -15,7 +15,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import {
-  API_URL,
   formatPrice,
   calcDiscount,
   getProductImage,
@@ -33,7 +32,7 @@ import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 import ProductRails       from "./MarketDetail/ProductRails";
 
-import "../styles/MarketDetail.css";
+import "../styles/MarketDetail.css"; 
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API ROUTES
@@ -415,6 +414,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
   );
 });
 
+/* ── UPDATED BUYER PROTECTION MODAL ── */
 const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
   useEffect(() => {
     const fn = (e) => e.key === "Escape" && onClose();
@@ -432,14 +432,44 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
           <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="mdp-modal-body">
-          <div className="mdp-protection-highlight">
-            <span className="mdp-shield-icon">{Icon.lock}</span>
-            <div><h4>Payments Held in Escrow</h4><p>We hold your payment. The seller is paid after you confirm receipt or after the 7-day window.</p></div>
-          </div>
-          <div className="mdp-protection-grid">
-            <div className="mdp-protection-item"><span className="mdp-p-icon">{Icon.money}</span><div><h5>Full Refund Guarantee</h5><p>Eligible if your order never arrives or is damaged.</p></div></div>
-            <div className="mdp-protection-item"><span className="mdp-p-icon">{Icon.return}</span><div><h5>7-Day Window</h5><p>Verify condition and file returns from your Account.</p></div></div>
-            <div className="mdp-protection-item"><span className="mdp-p-icon">{Icon.scale}</span><div><h5>Dispute Mediation</h5><p>Our team mediates fairly if issues arise.</p></div></div>
+          <div className="mdp-protection-grid" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            
+            {/* 1. Payment Protection */}
+            <div className="mdp-protection-item">
+              <span className="mdp-p-icon">{Icon.lock}</span>
+              <div>
+                <h5>Payment Protection</h5>
+                <p>Your payment is processed securely and protected while your order is being completed.</p>
+              </div>
+            </div>
+
+            {/* 2. Refund Protection */}
+            <div className="mdp-protection-item">
+              <span className="mdp-p-icon">{Icon.money}</span>
+              <div>
+                <h5>Refund Protection</h5>
+                <p>If your order doesn’t arrive or arrives damaged, you may be eligible for a refund under our refund policy.</p>
+              </div>
+            </div>
+
+            {/* 3. 7-Day Returns */}
+            <div className="mdp-protection-item">
+              <span className="mdp-p-icon">{Icon.return}</span>
+              <div>
+                <h5>7-Day Returns</h5>
+                <p>Check your order when it arrives. Eligible items can be returned within 7 days.</p>
+              </div>
+            </div>
+
+            {/* 4. Dispute Support */}
+            <div className="mdp-protection-item">
+              <span className="mdp-p-icon">{Icon.scale}</span>
+              <div>
+                <h5>Dispute Support</h5>
+                <p>If there’s a problem with your order, report it from your Account and our support team will help resolve the issue.</p>
+              </div>
+            </div>
+
           </div>
         </div>
         <div className="mdp-modal-footer">
@@ -857,7 +887,7 @@ export default function MarketDetail() {
                 </div>
               ) : null}
 
-              {/* 1. Jumia Style Flattened Delivery & Protection List */}
+              {/* Jumia Style Delivery & Protection Flattened List */}
               <div className="mdp-section" style={{ padding: '10px 0 0', border: 'none', background: 'transparent' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--wh)', border: '1px solid var(--bd)', borderRadius: 'var(--r1)', overflow: 'hidden' }}>
                   
@@ -870,7 +900,7 @@ export default function MarketDetail() {
                     </div>
                   </div>
 
-                  {/* Protection Row (Flattened on 1 line with Learn More) */}
+                  {/* Protection Row */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer' }} onClick={() => setShowProtection(true)}>
                     <div style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.shield}</div>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -915,12 +945,11 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* FAQ Accordion */}
               <div style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)' }}>
                 <FAQAccordion />
               </div>
 
-              {/* 2. SOLD BY (SELLER CARD) MOVED ABOVE REVIEWS */}
+              {/* SELLER CARD MOVED ABOVE REVIEWS */}
               <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 8px', color: 'var(--ink)' }}>Sold by</h3>
                 <SellerCard product={product} />
@@ -937,7 +966,7 @@ export default function MarketDetail() {
                 />
               </div>
 
-              {/* 3. TRUST BADGES & REPORT MOVED ABOVE CUSTOMERS ALSO VIEWED */}
+              {/* TRUST BADGES & REPORT MOVED ABOVE RAILS */}
               <div className="mdp-section" style={{ padding: '12px 0', borderTop: 'none', background: 'transparent' }}>
                 <div className="mdp-trust-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, margin: '0 0 10px' }}>
                   {TRUST_BADGES.map((b) => (
@@ -960,7 +989,7 @@ export default function MarketDetail() {
                 </button>
               </div>
 
-              {/* 4. Product Rails (Customers also viewed, More from this seller, Recommended for you) */}
+              {/* Product Rails */}
               <div className="mdp-section mdp-section--rails">
                 <ProductRails product={product} />
               </div>
@@ -970,7 +999,7 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* Sticky Bottom Bar */}
+      {/* Sticky Bar */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
