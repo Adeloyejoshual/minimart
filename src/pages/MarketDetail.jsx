@@ -32,7 +32,6 @@ import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 import ProductRails       from "./MarketDetail/ProductRails";
 
-/* ── SINGLE UNIFIED CSS IMPORT ── */
 import "../styles/MarketDetail.css"; 
 
 /* ═══════════════════════════════════════════════════════════════
@@ -52,7 +51,6 @@ const CART_KEY   = "mm_cart";
 const RECENT_KEY = "lm-recently-viewed";
 const MAX_QTY    = 10;
 
-/** First positive number wins (safely handles 0, null, or string prices) */
 const pickPrice = (...vals) => {
   for (const v of vals) {
     if (v == null || v === "") continue;
@@ -90,7 +88,7 @@ const Icon = {
 const TRUST_BADGES = [
   { icon: Icon.lock,   label: "Secure Payment",  sub: "Protected checkout"  },
   { icon: Icon.check,  label: "Verified Seller", sub: "Identity confirmed"  },
-  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-5 business days"   },
+  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-10 business days"   },
   { icon: Icon.return, label: "Easy Returns",    sub: "7-day return window" },
 ];
 
@@ -116,22 +114,12 @@ const getAuthToken = () => {
 const isLoggedIn = () => !!getAuthToken();
 const authHeaders = () => {
   const token = getAuthToken();
-  const h = { "Content-Type": "application/json", Accept: "application/json" };
-  if (token) h.Authorization = `Bearer ${token}`;
-  return h;
+  return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 };
 
-const readGuestCart = () => {
-  try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } 
-  catch { return []; }
-};
-const writeGuestCart = (cart) => {
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  window.dispatchEvent(new Event("cart-updated"));
-};
-const guestCartCount = (cart = readGuestCart()) =>
-  cart.reduce((s, i) => s + (Number(i.qty) || 1), 0);
-
+const readGuestCart = () => { try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } catch { return []; } };
+const writeGuestCart = (cart) => { localStorage.setItem(CART_KEY, JSON.stringify(cart)); window.dispatchEvent(new Event("cart-updated")); };
+const guestCartCount = (cart = readGuestCart()) => cart.reduce((s, i) => s + (Number(i.qty) || 1), 0);
 const lineKey = (productId, variantId) => `${productId}__${variantId ?? "default"}`;
 
 const addToGuestCart = (product, selectedVariant, displayPrice, originalPrice, qty = 1) => {
@@ -143,21 +131,11 @@ const addToGuestCart = (product, selectedVariant, displayPrice, originalPrice, q
   const addQty = Math.max(1, Number(qty) || 1);
 
   const item = {
-    id: itemKey,
-    productId: product.id,
-    product_id: product.id,
-    name: product.name,
-    image: getProductImage(product),
-    price: Number(displayPrice),
+    id: itemKey, productId: product.id, product_id: product.id, name: product.name,
+    image: getProductImage(product), price: Number(displayPrice),
     originalPrice: originalPrice > displayPrice ? Number(originalPrice) : null,
-    variant: selectedVariant
-      ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku }
-      : null,
-    variant_id: variantId,
-    slug: product.slug ?? product.id,
-    qty: addQty,
-    stock,
-    addedAt: Date.now(),
+    variant: selectedVariant ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku } : null,
+    variant_id: variantId, slug: product.slug ?? product.id, qty: addQty, stock, addedAt: Date.now(),
   };
 
   if (idx >= 0) cart[idx].qty = Math.min((Number(cart[idx].qty) || 0) + addQty, stock);
@@ -181,25 +159,13 @@ const setGuestLineQty = (product, selectedVariant, displayPrice, originalPrice, 
   }
 
   const qty = Math.min(Math.max(1, Number(newQty) || 1), stock);
-  if (idx >= 0) {
-    cart[idx].qty = qty;
-  } else {
+  if (idx >= 0) { cart[idx].qty = qty; } else {
     cart.push({
-      id: itemKey,
-      productId: product.id,
-      product_id: product.id,
-      name: product.name,
-      image: getProductImage(product),
-      price: Number(displayPrice),
+      id: itemKey, productId: product.id, product_id: product.id, name: product.name,
+      image: getProductImage(product), price: Number(displayPrice),
       originalPrice: originalPrice > displayPrice ? Number(originalPrice) : null,
-      variant: selectedVariant
-        ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku }
-        : null,
-      variant_id: variantId,
-      slug: product.slug ?? product.id,
-      qty,
-      stock,
-      addedAt: Date.now(),
+      variant: selectedVariant ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku } : null,
+      variant_id: variantId, slug: product.slug ?? product.id, qty, stock, addedAt: Date.now(),
     });
   }
   writeGuestCart(cart);
@@ -212,9 +178,7 @@ const fetchServerCartCount = async () => {
     const res = await axios.get(CART_URL, { headers: authHeaders(), timeout: 8000 });
     const d = res.data?.data ?? res.data;
     return d?.total_qty ?? d?.item_count ?? d?.data?.total_qty ?? null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 };
 
 const findServerCartLine = async (productId, variantId) => {
@@ -223,114 +187,75 @@ const findServerCartLine = async (productId, variantId) => {
     const res = await axios.get(CART_URL, { headers: authHeaders(), timeout: 8000 });
     const d = res.data?.data ?? res.data;
     const items = d?.items ?? d?.data?.items ?? [];
-    return (
-      items.find(
-        (it) =>
-          String(it.product_id) === String(productId) &&
-          String(it.variant_id ?? "") === String(variantId ?? "")
-      ) || null
-    );
-  } catch {
-    return null;
-  }
+    return items.find((it) => String(it.product_id) === String(productId) && String(it.variant_id ?? "") === String(variantId ?? "")) || null;
+  } catch { return null; }
 };
 
 const addToRecentlyViewed = (product) => {
   try {
-    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter(
-      (p) => p.id !== product.id
-    );
-    list.unshift({
-      id: product.id,
-      name: product.name,
-      price: product.price,
-      image: getProductImage(product),
-      slug: product.slug ?? product.id,
-    });
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((p) => p.id !== product.id);
+    list.unshift({ id: product.id, name: product.name, price: product.price, image: getProductImage(product), slug: product.slug ?? product.id });
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
   } catch {}
 };
 
+const addBusinessDays = (startDate, numDays) => {
+  const result = new Date(startDate);
+  let added = 0;
+  while (added < numDays) {
+    result.setDate(result.getDate() + 1);
+    const dayOfWeek = result.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) added++;
+  }
+  return result;
+};
+
 const getDeliveryEstimate = () => {
   const now = new Date();
-  const min = new Date(now);
-  min.setDate(min.getDate() + 2);
-  const max = new Date(now);
-  max.setDate(max.getDate() + 5);
-  const fmt = (d) =>
-    d.toLocaleDateString("en-NG", { weekday: "short", month: "short", day: "numeric" });
+  const min = addBusinessDays(now, 2);
+  const max = addBusinessDays(now, 10);
+  const fmt = (d) => d.toLocaleDateString("en-NG", { weekday: "short", day: "numeric", month: "short" });
   return `${fmt(min)} – ${fmt(max)}`;
 };
 
 const getRating = (product) => {
   if (product?.rating && Number(product.rating) > 0) return Number(product.rating);
-  if (product?.average_rating && Number(product.average_rating) > 0)
-    return Number(product.average_rating);
+  if (product?.average_rating && Number(product.average_rating) > 0) return Number(product.average_rating);
   return 0;
 };
 
 /* ═══════════════════════════════════════════════════════════════
    BREADCRUMBS & COMPONENTS
 ═══════════════════════════════════════════════════════════════ */
-const isUuid = (str) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-    String(str || "")
-  );
+const isUuid = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || ""));
 
 const buildBreadcrumbs = (product) => {
   if (!product) return [];
   const items = [{ label: "Home", path: "/loemart" }];
-  const rawPath =
-    product.category_path ||
-    product.breadcrumb_path ||
-    product.category_tree ||
-    product.categories;
+  const rawPath = product.category_path || product.breadcrumb_path || product.category_tree || product.categories;
 
   if (Array.isArray(rawPath) && rawPath.length > 0) {
     rawPath.forEach((cat) => {
       const name = typeof cat === "string" ? cat : cat?.name || cat?.title;
       const s = cat?.slug || name;
-      if (name && !isUuid(name)) {
-        items.push({
-          label: name,
-          path: `/catalog?category=${encodeURIComponent(s)}`,
-        });
-      }
+      if (name && !isUuid(name)) items.push({ label: name, path: `/catalog?category=${encodeURIComponent(s)}` });
     });
   } else if (product.category && typeof product.category === "object") {
     const catList = [];
     let curr = product.category;
     while (curr && typeof curr === "object") {
-      if (curr.name && !isUuid(curr.name)) {
-        catList.unshift({
-          label: curr.name,
-          path: `/catalog?category=${encodeURIComponent(curr.slug || curr.name)}`,
-        });
-      }
+      if (curr.name && !isUuid(curr.name)) catList.unshift({ label: curr.name, path: `/catalog?category=${encodeURIComponent(curr.slug || curr.name)}` });
       curr = curr.parent || curr.category;
     }
     items.push(...catList);
   } else {
-    const catName =
-      typeof product.category === "string"
-        ? product.category
-        : product.category?.name;
-    if (catName && !isUuid(catName)) {
-      items.push({
-        label: catName,
-        path: `/catalog?category=${encodeURIComponent(catName)}`,
-      });
-    }
+    const catName = typeof product.category === "string" ? product.category : product.category?.name;
+    if (catName && !isUuid(catName)) items.push({ label: catName, path: `/catalog?category=${encodeURIComponent(catName)}` });
   }
 
   if (product.brand) {
     const last = items[items.length - 1]?.label?.toLowerCase();
-    if (last !== product.brand.toLowerCase()) {
-      items.push({
-        label: product.brand,
-        path: `/catalog?brand=${encodeURIComponent(product.brand)}`,
-      });
-    }
+    if (last !== product.brand.toLowerCase()) items.push({ label: product.brand, path: `/catalog?brand=${encodeURIComponent(product.brand)}` });
   }
 
   if (product.name) items.push({ label: product.name, isCurrent: true });
@@ -348,24 +273,8 @@ const Breadcrumbs = memo(function Breadcrumbs({ product }) {
           const isLast = idx === items.length - 1;
           return (
             <span key={idx} className="mdp-breadcrumbs__item">
-              {idx > 0 && (
-                <span className="mdp-breadcrumbs__sep" aria-hidden="true">
-                  &gt;
-                </span>
-              )}
-              {isLast ? (
-                <span className="mdp-breadcrumbs__current" aria-current="page">
-                  {item.label}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="mdp-breadcrumbs__link"
-                  onClick={() => item.path && navigate(item.path)}
-                >
-                  {item.label}
-                </button>
-              )}
+              {idx > 0 && <span className="mdp-breadcrumbs__sep" aria-hidden="true">&gt;</span>}
+              {isLast ? <span className="mdp-breadcrumbs__current" aria-current="page">{item.label}</span> : <button type="button" className="mdp-breadcrumbs__link" onClick={() => item.path && navigate(item.path)}>{item.label}</button>}
             </span>
           );
         })}
@@ -374,36 +283,18 @@ const Breadcrumbs = memo(function Breadcrumbs({ product }) {
   );
 });
 
-const StickyMiniHeader = memo(function StickyMiniHeader({
-  visible,
-  product,
-  displayPrice,
-  onCartClick,
-  disabled,
-}) {
+const StickyMiniHeader = memo(function StickyMiniHeader({ visible, product, displayPrice, onCartClick, disabled }) {
   if (!product) return null;
   const img = getProductImage(product);
   return (
-    <div
-      className={`mdp-mini-header ${visible ? "mdp-mini-header--visible" : ""}`}
-      aria-hidden={!visible}
-    >
+    <div className={`mdp-mini-header ${visible ? "mdp-mini-header--visible" : ""}`} aria-hidden={!visible}>
       <div className="mdp-mini-header__inner">
-        {img && (
-          <img src={img} alt="" className="mdp-mini-header__img" aria-hidden="true" />
-        )}
+        {img && <img src={img} alt="" className="mdp-mini-header__img" aria-hidden="true" />}
         <div className="mdp-mini-header__body">
           <p className="mdp-mini-header__name">{product.name}</p>
           <p className="mdp-mini-header__price">{formatPrice(displayPrice)}</p>
         </div>
-        <button
-          type="button"
-          className="mdp-mini-header__cta"
-          onClick={onCartClick}
-          disabled={disabled}
-        >
-          ADD
-        </button>
+        <button type="button" className="mdp-mini-header__cta" onClick={onCartClick} disabled={disabled}>ADD</button>
       </div>
     </div>
   );
@@ -414,9 +305,7 @@ function ProductSkeleton() {
     <div className="mdp-skeleton" aria-busy="true" aria-label="Loading product">
       <div className="mdp-skel mdp-skel-hero" />
       <div className="mdp-skel-thumbs">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} className="mdp-skel mdp-skel-thumb" />
-        ))}
+        {[0, 1, 2, 3, 4].map((i) => <div key={i} className="mdp-skel mdp-skel-thumb" />)}
       </div>
       <div className="mdp-skel-body">
         <div className="mdp-skel" style={{ width: "85%", height: 24, marginBottom: 16 }} />
@@ -435,12 +324,7 @@ const StarRating = memo(function StarRating({ rating }) {
         return (
           <span key={i} className="mdp-star-wrapper">
             <span className="mdp-star-bg">{Icon.starOutline}</span>
-            <span
-              className="mdp-star-fg"
-              style={{ clipPath: `inset(0 ${(1 - fill) * 100}% 0 0)` }}
-            >
-              {Icon.star}
-            </span>
+            <span className="mdp-star-fg" style={{ clipPath: `inset(0 ${(1 - fill) * 100}% 0 0)` }}>{Icon.star}</span>
           </span>
         );
       })}
@@ -448,37 +332,20 @@ const StarRating = memo(function StarRating({ rating }) {
   );
 });
 
-const CartToast = memo(function CartToast({
-  show,
-  productName,
-  qty,
-  image,
-  onView,
-  onClose,
-}) {
+const CartToast = memo(function CartToast({ show, productName, qty, image, onView, onClose }) {
   if (!show) return null;
   return (
     <div role="status" aria-live="polite" className="mdp-toast">
       <div className="mdp-toast__img-wrap">
-        {image ? (
-          <img src={image} alt="" className="mdp-toast__img" />
-        ) : (
-          <div className="mdp-toast__img-ph">{Icon.box}</div>
-        )}
+        {image ? <img src={image} alt="" className="mdp-toast__img" /> : <div className="mdp-toast__img-ph">{Icon.box}</div>}
       </div>
       <div className="mdp-toast__body">
-        <p className="mdp-toast__label">
-          <span aria-hidden="true">{Icon.check}</span> Added to cart
-        </p>
+        <p className="mdp-toast__label"><span aria-hidden="true">{Icon.check}</span> Added to cart</p>
         <p className="mdp-toast__name">{productName}</p>
         <p className="mdp-toast__qty">Qty: {qty}</p>
       </div>
-      <button type="button" onClick={onView} className="mdp-toast__view">
-        View Cart
-      </button>
-      <button type="button" onClick={onClose} className="mdp-toast__close" aria-label="Dismiss">
-        ✕
-      </button>
+      <button type="button" onClick={onView} className="mdp-toast__view">View Cart</button>
+      <button type="button" onClick={onClose} className="mdp-toast__close" aria-label="Dismiss">✕</button>
     </div>
   );
 });
@@ -494,27 +361,17 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
     window.addEventListener("keydown", fn);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", fn);
-      document.body.style.overflow = prev || "";
-    };
+    return () => { window.removeEventListener("keydown", fn); document.body.style.overflow = prev || ""; };
   }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
     if (!reason) return;
     setSubmitting(true);
     try {
-      await axios.post(
-        `${SHOP_URL}/${productId}/report`,
-        { reason, details },
-        { headers: authHeaders() }
-      );
+      await axios.post(`${SHOP_URL}/${productId}/report`, { reason, details }, { headers: authHeaders() });
       setSubmitted(true);
-    } catch {
-      setSubmitted(true);
-    } finally {
-      setSubmitting(false);
-    }
+    } catch { setSubmitted(true); } 
+    finally { setSubmitting(false); }
   }, [productId, reason, details]);
 
   return (
@@ -525,56 +382,30 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
             <div className="mdp-report-check">{Icon.check}</div>
             <h3>Report Submitted</h3>
             <p>Our team will review this listing.</p>
-            <button className="mdp-done-btn" onClick={onClose}>
-              Done
-            </button>
+            <button className="mdp-done-btn" onClick={onClose}>Done</button>
           </div>
         ) : (
           <>
             <div className="mdp-modal-header">
               <h3>Report Listing</h3>
-              <button className="mdp-modal-x" onClick={onClose} aria-label="Close">
-                ✕
-              </button>
+              <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
             </div>
             <div className="mdp-modal-body">
               <p className="mdp-modal-sub">Why are you reporting this listing?</p>
               <div className="mdp-report-reasons">
                 {REPORT_REASONS.map((r) => (
-                  <button
-                    key={r.key}
-                    type="button"
-                    className={`mdp-reason-btn${reason === r.label ? " mdp-reason-btn--on" : ""}`}
-                    onClick={() => setReason(r.label)}
-                  >
+                  <button key={r.key} type="button" className={`mdp-reason-btn${reason === r.label ? " mdp-reason-btn--on" : ""}`} onClick={() => setReason(r.label)}>
                     <span className="mdp-reason-icon">{r.icon}</span>
                     <span>{r.label}</span>
-                    {reason === r.label && (
-                      <span className="mdp-reason-check">{Icon.check}</span>
-                    )}
+                    {reason === r.label && <span className="mdp-reason-check">{Icon.check}</span>}
                   </button>
                 ))}
               </div>
-              <textarea
-                className="mdp-report-textarea"
-                placeholder="Additional details (optional)…"
-                value={details}
-                onChange={(e) => setDetails(e.target.value)}
-                rows={3}
-                maxLength={500}
-              />
+              <textarea className="mdp-report-textarea" placeholder="Additional details (optional)…" value={details} onChange={(e) => setDetails(e.target.value)} rows={3} maxLength={500} />
             </div>
             <div className="mdp-modal-footer">
-              <button className="mdp-modal-cancel" onClick={onClose}>
-                Cancel
-              </button>
-              <button
-                className="mdp-modal-submit"
-                onClick={handleSubmit}
-                disabled={!reason || submitting}
-              >
-                {submitting ? "Submitting…" : "Submit Report"}
-              </button>
+              <button className="mdp-modal-cancel" onClick={onClose}>Cancel</button>
+              <button className="mdp-modal-submit" onClick={handleSubmit} disabled={!reason || submitting}>{submitting ? "Submitting…" : "Submit Report"}</button>
             </div>
           </>
         )}
@@ -589,62 +420,29 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
     window.addEventListener("keydown", fn);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", fn);
-      document.body.style.overflow = prev || "";
-    };
+    return () => { window.removeEventListener("keydown", fn); document.body.style.overflow = prev || ""; };
   }, [onClose]);
 
   return (
     <div className="mdp-modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
       <div className="mdp-modal mdp-modal--protection" onClick={(e) => e.stopPropagation()}>
         <div className="mdp-modal-header">
-          <h3>
-            <span className="mdp-icon-inline">{Icon.shield}</span> Buyer Protection
-          </h3>
-          <button className="mdp-modal-x" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <h3><span className="mdp-icon-inline">{Icon.shield}</span> Buyer Protection</h3>
+          <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="mdp-modal-body">
           <div className="mdp-protection-highlight">
             <span className="mdp-shield-icon">{Icon.lock}</span>
-            <div>
-              <h4>Payments Held in Escrow</h4>
-              <p>
-                We hold your payment. The seller is paid after you confirm receipt or after the
-                7-day window.
-              </p>
-            </div>
+            <div><h4>Payments Held in Escrow</h4><p>We hold your payment. The seller is paid after you confirm receipt or after the 7-day window.</p></div>
           </div>
           <div className="mdp-protection-grid">
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.money}</span>
-              <div>
-                <h5>Full Refund Guarantee</h5>
-                <p>Eligible if your order never arrives or is damaged.</p>
-              </div>
-            </div>
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.return}</span>
-              <div>
-                <h5>7-Day Window</h5>
-                <p>Verify condition and file returns from your Account.</p>
-              </div>
-            </div>
-            <div className="mdp-protection-item">
-              <span className="mdp-p-icon">{Icon.scale}</span>
-              <div>
-                <h5>Dispute Mediation</h5>
-                <p>Our team mediates fairly if issues arise.</p>
-              </div>
-            </div>
+            <div className="mdp-protection-item"><span className="mdp-p-icon">{Icon.money}</span><div><h5>Full Refund Guarantee</h5><p>Eligible if your order never arrives or is damaged.</p></div></div>
+            <div className="mdp-protection-item"><span className="mdp-p-icon">{Icon.return}</span><div><h5>7-Day Window</h5><p>Verify condition and file returns from your Account.</p></div></div>
+            <div className="mdp-protection-item"><span className="mdp-p-icon">{Icon.scale}</span><div><h5>Dispute Mediation</h5><p>Our team mediates fairly if issues arise.</p></div></div>
           </div>
         </div>
         <div className="mdp-modal-footer">
-          <button className="mdp-done-btn" style={{ width: "100%" }} onClick={onClose}>
-            Got it, thanks!
-          </button>
+          <button className="mdp-done-btn" style={{ width: "100%" }} onClick={onClose}>Got it, thanks!</button>
         </div>
       </div>
     </div>
@@ -653,50 +451,24 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
 
 const FAQAccordion = memo(function FAQAccordion() {
   const [openIndex, setOpenIndex] = useState(null);
-  const faqs = useMemo(
-    () => [
-      {
-        q: "How do returns and refunds work?",
-        a: "Go to Account > Purchases, select the order, and request a return/refund within 7 days.",
-      },
-      {
-        q: "When is the seller paid?",
-        a: "After you confirm satisfaction, or automatically when the 7-day window closes.",
-      },
-      {
-        q: "What is covered under Guarantee?",
-        a: "Non-delivery, counterfeit, damaged items, or items that don't match the listing.",
-      },
-    ],
-    []
-  );
+  const faqs = useMemo(() => [
+    { q: "How do returns and refunds work?", a: "Go to Account > Purchases, select the order, and request a return/refund within 7 days." },
+    { q: "When is the seller paid?", a: "After you confirm satisfaction, or automatically when the 7-day window closes." },
+    { q: "What is covered under Guarantee?", a: "Non-delivery, counterfeit, damaged items, or items that don't match the listing." },
+  ], []);
 
   return (
     <div className="md-section mdp-section mdp-faq-section">
-      <h3 className="md-section-title mdp-section-title">
-        <span className="mdp-icon-inline">{Icon.info}</span> FAQ
-      </h3>
+      <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> FAQ</h3>
       <div className="mdp-faq-list">
         {faqs.map((faq, idx) => {
           const isOpen = openIndex === idx;
           return (
             <div key={idx} className={`mdp-faq-item ${isOpen ? "mdp-faq-item--open" : ""}`}>
-              <button
-                type="button"
-                className="mdp-faq-trigger"
-                onClick={() => setOpenIndex(isOpen ? null : idx)}
-                aria-expanded={isOpen}
-              >
-                <span>{faq.q}</span>
-                <span className="mdp-faq-arrow" aria-hidden="true">
-                  {Icon.chevron}
-                </span>
+              <button type="button" className="mdp-faq-trigger" onClick={() => setOpenIndex(isOpen ? null : idx)} aria-expanded={isOpen}>
+                <span>{faq.q}</span><span className="mdp-faq-arrow" aria-hidden="true">{Icon.chevron}</span>
               </button>
-              {isOpen && (
-                <div className="mdp-faq-content">
-                  <p>{faq.a}</p>
-                </div>
-              )}
+              {isOpen && <div className="mdp-faq-content"><p>{faq.a}</p></div>}
             </div>
           );
         })}
@@ -723,9 +495,7 @@ export default function MarketDetail() {
   const [addedToCart, setAddedToCart] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
   const [cartError, setCartError] = useState(null);
-  const [cartCount, setCartCount] = useState(() =>
-    isLoggedIn() ? 0 : guestCartCount()
-  );
+  const [cartCount, setCartCount] = useState(() => isLoggedIn() ? 0 : guestCartCount());
 
   const [inCart, setInCart] = useState(false);
   const [cartLineQty, setCartLineQty] = useState(0);
@@ -745,19 +515,14 @@ export default function MarketDetail() {
   const isWishlisted = product ? wishlist.has(product.id) : false;
   const rating = useMemo(() => (product ? getRating(product) : 0), [product]);
   const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
-  const hasVariants = useMemo(
-    () => Array.isArray(product?.variants) && product.variants.length > 0,
-    [product]
-  );
+  const hasVariants = useMemo(() => Array.isArray(product?.variants) && product.variants.length > 0, [product]);
 
   const galleryImages = useMemo(() => {
     if (!product) return [];
     if (selectedVariant?.images?.length) return selectedVariant.images;
     if (selectedVariant?.image) {
       const parentImgs = product.images ?? [];
-      if (!parentImgs.includes(selectedVariant.image)) {
-        return [selectedVariant.image, ...parentImgs];
-      }
+      if (!parentImgs.includes(selectedVariant.image)) return [selectedVariant.image, ...parentImgs];
     }
     return product.images ?? [];
   }, [product, selectedVariant]);
@@ -768,45 +533,17 @@ export default function MarketDetail() {
     return typeof f === "string" ? f : f?.feature;
   }, [product]);
 
-  /* Safe Price Resolvers using pickPrice */
-  const displayPrice = useMemo(
-    () =>
-      pickPrice(
-        selectedVariant?.price,
-        selectedVariant?.sale_price,
-        product?.price,
-        product?.sale_price,
-        product?.selling_price
-      ),
-    [selectedVariant, product]
-  );
-
-  const originalPrice = useMemo(
-    () =>
-      pickPrice(
-        product?.original_price,
-        product?.compare_price,
-        product?.list_price,
-        selectedVariant?.original_price
-      ),
-    [product, selectedVariant]
-  );
-
+  const displayPrice = useMemo(() => pickPrice(selectedVariant?.price, selectedVariant?.sale_price, product?.price, product?.sale_price, product?.selling_price), [selectedVariant, product]);
+  const originalPrice = useMemo(() => pickPrice(product?.original_price, product?.compare_price, product?.list_price, selectedVariant?.original_price), [product, selectedVariant]);
   const discount = useMemo(() => {
     if (displayPrice <= 0 || originalPrice <= displayPrice) return 0;
     return calcDiscount(displayPrice, originalPrice);
   }, [displayPrice, originalPrice]);
-
-  const savings = useMemo(
-    () => (originalPrice > displayPrice && displayPrice > 0 ? originalPrice - displayPrice : 0),
-    [originalPrice, displayPrice]
-  );
-
+  const savings = useMemo(() => (originalPrice > displayPrice && displayPrice > 0 ? originalPrice - displayPrice : 0), [originalPrice, displayPrice]);
   const total = useMemo(() => displayPrice * qty, [displayPrice, qty]);
 
   const isOutOfStock = useMemo(() => {
-    if (selectedVariant && typeof selectedVariant.stock === "number")
-      return selectedVariant.stock <= 0;
+    if (selectedVariant && typeof selectedVariant.stock === "number") return selectedVariant.stock <= 0;
     if (product && typeof product.stock === "number") return product.stock <= 0;
     return false;
   }, [selectedVariant, product]);
@@ -820,15 +557,9 @@ export default function MarketDetail() {
   /* Route cleanup */
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    setInCart(false);
-    setCartLineQty(0);
-    setCartItemId(null);
-    setAddedToCart(false);
-    setQty(1);
-    setCartError(null);
+    setInCart(false); setCartLineQty(0); setCartItemId(null); setAddedToCart(false); setQty(1); setCartError(null);
     return () => {
-      document.body.style.overflow = "";
-      document.documentElement.style.overflow = "";
+      document.body.style.overflow = ""; document.documentElement.style.overflow = "";
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
     };
@@ -837,39 +568,25 @@ export default function MarketDetail() {
   /* Cart badge sync */
   useEffect(() => {
     const sync = () => {
-      if (isLoggedIn()) {
-        fetchServerCartCount().then((c) => {
-          if (c !== null) setCartCount(c);
-        });
-      } else setCartCount(guestCartCount());
+      if (isLoggedIn()) fetchServerCartCount().then((c) => { if (c !== null) setCartCount(c); });
+      else setCartCount(guestCartCount());
     };
     sync();
-    window.addEventListener("cart-updated", sync);
-    window.addEventListener("storage", sync);
-    return () => {
-      window.removeEventListener("cart-updated", sync);
-      window.removeEventListener("storage", sync);
-    };
+    window.addEventListener("cart-updated", sync); window.addEventListener("storage", sync);
+    return () => { window.removeEventListener("cart-updated", sync); window.removeEventListener("storage", sync); };
   }, []);
 
   const fetchProduct = useCallback(() => {
     if (!slug) return;
-    axios
-      .get(`${SHOP_URL}/${slug}`, { timeout: 12000 })
-      .then(({ data }) => setProduct(data?.data ?? data?.product ?? data))
-      .catch(() => {});
+    axios.get(`${API_URL}/${slug}`, { timeout: 12000 }).then(({ data }) => setProduct(data?.data ?? data?.product ?? data)).catch(() => {});
   }, [slug]);
 
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setProduct(null);
-    setSelectedVariant(null);
+    setLoading(true); setError(null); setProduct(null); setSelectedVariant(null);
 
-    axios
-      .get(`${SHOP_URL}/${slug}`, { timeout: 12000 })
+    axios.get(`${API_URL}/${slug}`, { timeout: 12000 })
       .then(({ data }) => {
         if (cancelled) return;
         const p = data?.data ?? data?.product ?? data;
@@ -877,33 +594,20 @@ export default function MarketDetail() {
         if (p?.variants?.length > 0) setSelectedVariant(p.variants[0]);
         addToRecentlyViewed(p);
       })
-      .catch((err) => {
-        if (!cancelled) setError(err.response?.status === 404 ? "404" : "error");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .catch((err) => { if (!cancelled) setError(err.response?.status === 404 ? "404" : "error"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [slug]);
 
   useEffect(() => {
-    if (product?.name) {
-      document.title = `${product.name}${product.brand ? ` | ${product.brand}` : ""} - Loemart`;
-    }
-    return () => {
-      document.title = "Loemart Marketplace";
-    };
+    if (product?.name) document.title = `${product.name}${product.brand ? ` | ${product.brand}` : ""} - Loemart`;
+    return () => { document.title = "Loemart Marketplace"; };
   }, [product]);
 
   useEffect(() => {
     if (!titleRef.current) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => setMiniHeaderVisible(!entry.isIntersecting),
-      { threshold: 0, rootMargin: "-80px 0px 0px 0px" }
-    );
+    const obs = new IntersectionObserver(([entry]) => setMiniHeaderVisible(!entry.isIntersecting), { threshold: 0, rootMargin: "-80px 0px 0px 0px" });
     obs.observe(titleRef.current);
     return () => obs.disconnect();
   }, [product]);
@@ -936,16 +640,8 @@ export default function MarketDetail() {
           } catch {}
         }
         if (cancelled) return;
-        if (line) {
-          setInCart(true);
-          setCartLineQty(Number(line.qty) || 1);
-          setCartItemId(line.id);
-          setQty(Number(line.qty) || 1);
-        } else {
-          setInCart(false);
-          setCartLineQty(0);
-          setCartItemId(null);
-        }
+        if (line) { setInCart(true); setCartLineQty(Number(line.qty) || 1); setCartItemId(line.id); setQty(Number(line.qty) || 1); }
+        else { setInCart(false); setCartLineQty(0); setCartItemId(null); }
       } else {
         const cart = readGuestCart();
         const key = lineKey(product.id, selectedVariant?.id ?? null);
@@ -958,21 +654,12 @@ export default function MarketDetail() {
           }
         }
         if (cancelled) return;
-        if (row) {
-          setInCart(true);
-          setCartLineQty(Number(row.qty) || 1);
-          setQty(Number(row.qty) || 1);
-        } else {
-          setInCart(false);
-          setCartLineQty(0);
-        }
+        if (row) { setInCart(true); setCartLineQty(Number(row.qty) || 1); setQty(Number(row.qty) || 1); }
+        else { setInCart(false); setCartLineQty(0); }
       }
     };
-
     restore();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [product?.id, selectedVariant?.id, product?.variants]);
 
   /* ════════════════════════════════════════════════════════
@@ -982,39 +669,17 @@ export default function MarketDetail() {
     if (!product || isOutOfStock) return false;
     const addQty = Math.max(1, parseInt(qty, 10) || 1);
 
-    // 1. INSTANT OPTIMISTIC UI UPDATE
-    setAddedToCart(true);
-    setInCart(true);
+    setAddedToCart(true); setInCart(true);
     const newQty = inCart ? cartLineQty + addQty : addQty;
-    setCartLineQty(newQty);
-    setCartCount((c) => c + addQty);
-    setCartError(null);
-
+    setCartLineQty(newQty); setCartCount((c) => c + addQty); setCartError(null);
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
 
-    // 2. ASYNCHRONOUS BACKGROUND NETWORK SYNC
     if (isLoggedIn()) {
-      axios
-        .post(
-          CART_ITEMS_URL,
-          {
-            product_id: product.id,
-            variant_id: selectedVariant?.id ?? null,
-            qty: addQty,
-          },
-          { headers: authHeaders(), timeout: 15000 }
-        )
+      axios.post(CART_ITEMS_URL, { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty: addQty }, { headers: authHeaders(), timeout: 15000 })
         .then(() => fetchServerCartCount())
-        .then((count) => {
-          if (count !== null) setCartCount(count);
-          return findServerCartLine(product.id, selectedVariant?.id ?? null);
-        })
-        .then((line) => {
-          if (line?.id) setCartItemId(line.id);
-          if (line?.qty != null) setCartLineQty(Number(line.qty));
-          window.dispatchEvent(new Event("cart-updated"));
-        })
+        .then((count) => { if (count !== null) setCartCount(count); return findServerCartLine(product.id, selectedVariant?.id ?? null); })
+        .then((line) => { if (line?.id) setCartItemId(line.id); if (line?.qty != null) setCartLineQty(Number(line.qty)); window.dispatchEvent(new Event("cart-updated")); })
         .catch((apiErr) => {
           const status = apiErr?.response?.status;
           if (status === 401 || status === 403) {
@@ -1029,125 +694,61 @@ export default function MarketDetail() {
     } else {
       addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty);
     }
-
     return true;
-  }, [
-    product,
-    selectedVariant,
-    displayPrice,
-    originalPrice,
-    qty,
-    inCart,
-    cartLineQty,
-    isOutOfStock,
-  ]);
+  }, [product, selectedVariant, displayPrice, originalPrice, qty, inCart, cartLineQty, isOutOfStock]);
 
-  /* FAST OPTIMISTIC QUANTITY STEPPER (- 1 +) */
-  const handleStickyQtyChange = useCallback(
-    async (nextQty) => {
-      if (!product) return;
-      const stockCap =
-        stockLeft != null && stockLeft > 0 ? Math.min(stockLeft, MAX_QTY) : MAX_QTY;
-      let q = Math.max(0, Math.min(Number(nextQty) || 0, stockCap));
+  const handleStickyQtyChange = useCallback(async (nextQty) => {
+    if (!product) return;
+    const stockCap = stockLeft != null && stockLeft > 0 ? Math.min(stockLeft, MAX_QTY) : MAX_QTY;
+    let q = Math.max(0, Math.min(Number(nextQty) || 0, stockCap));
+    const oldQty = cartLineQty; const diff = q - oldQty;
 
-      const oldQty = cartLineQty;
-      const diff = q - oldQty;
+    if (q <= 0) {
+      setInCart(false); setCartLineQty(0); setCartItemId(null); setAddedToCart(false); setCartCount((c) => Math.max(0, c - oldQty));
+    } else {
+      setCartLineQty(q); setQty(q); setCartCount((c) => Math.max(0, c + diff));
+    }
 
-      // 1. INSTANT OPTIMISTIC UI UPDATE
-      if (q <= 0) {
-        setInCart(false);
-        setCartLineQty(0);
-        setCartItemId(null);
-        setAddedToCart(false);
-        setCartCount((c) => Math.max(0, c - oldQty));
-      } else {
-        setCartLineQty(q);
-        setQty(q);
-        setCartCount((c) => Math.max(0, c + diff));
-      }
-
-      // 2. BACKGROUND API CALL
-      if (isLoggedIn()) {
-        (async () => {
-          try {
-            if (q <= 0) {
-              if (cartItemId) {
-                await axios.delete(`${CART_ITEMS_URL}/${cartItemId}`, {
-                  headers: authHeaders(),
-                  timeout: 10000,
-                });
-              }
-            } else {
-              let itemId = cartItemId;
-              if (!itemId) {
-                const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
-                itemId = line?.id ?? null;
-                if (itemId) setCartItemId(itemId);
-              }
-
-              if (itemId) {
-                await axios.patch(
-                  `${CART_ITEMS_URL}/${itemId}`,
-                  { qty: q },
-                  { headers: authHeaders(), timeout: 10000 }
-                );
-              } else {
-                await axios.post(
-                  CART_ITEMS_URL,
-                  { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty: q },
-                  { headers: authHeaders(), timeout: 10000 }
-                );
-              }
+    if (isLoggedIn()) {
+      (async () => {
+        try {
+          if (q <= 0) {
+            if (cartItemId) await axios.delete(`${CART_ITEMS_URL}/${cartItemId}`, { headers: authHeaders(), timeout: 10000 });
+          } else {
+            let itemId = cartItemId;
+            if (!itemId) {
+              const line = await findServerCartLine(product.id, selectedVariant?.id ?? null);
+              itemId = line?.id ?? null;
+              if (itemId) setCartItemId(itemId);
             }
-            const count = await fetchServerCartCount();
-            if (count !== null) setCartCount(count);
-            window.dispatchEvent(new Event("cart-updated"));
-          } catch (err) {
-            setCartError("Could not update quantity");
-            if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-            errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
+            if (itemId) await axios.patch(`${CART_ITEMS_URL}/${itemId}`, { qty: q }, { headers: authHeaders(), timeout: 10000 });
+            else await axios.post(CART_ITEMS_URL, { product_id: product.id, variant_id: selectedVariant?.id ?? null, qty: q }, { headers: authHeaders(), timeout: 10000 });
           }
-        })();
-      } else {
-        setGuestLineQty(product, selectedVariant, displayPrice, originalPrice, q);
-      }
-    },
-    [
-      product,
-      selectedVariant,
-      displayPrice,
-      originalPrice,
-      stockLeft,
-      cartItemId,
-      cartLineQty,
-    ]
-  );
+          const count = await fetchServerCartCount();
+          if (count !== null) setCartCount(count);
+          window.dispatchEvent(new Event("cart-updated"));
+        } catch (err) {
+          setCartError("Could not update quantity");
+          if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+          errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
+        }
+      })();
+    } else {
+      setGuestLineQty(product, selectedVariant, displayPrice, originalPrice, q);
+    }
+  }, [product, selectedVariant, displayPrice, originalPrice, stockLeft, cartItemId, cartLineQty]);
 
   const handleCartClick = useCallback(() => {
-    if (!product || isOutOfStock || addingToCart) return;
-    
-    // Always open options if product has variants
-    if (hasVariants) {
-      setSheetIntent("cart");
-      return;
-    }
-    
+    if (!product || isOutOfStock) return;
+    if (hasVariants) { setSheetIntent("cart"); return; }
     if (inCart) return;
     handleAddToCart();
-  }, [product, isOutOfStock, addingToCart, hasVariants, inCart, handleAddToCart]);
+  }, [product, isOutOfStock, hasVariants, inCart, handleAddToCart]);
 
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
-      navigator
-        .share({
-          title: product.name,
-          text: `Check out ${product.name} on Loemart!`,
-          url: window.location.href,
-        })
-        .catch(() => {});
-    } else {
-      navigator.clipboard?.writeText(window.location.href);
-    }
+      navigator.share({ title: product.name, text: `Check out ${product.name} on Loemart!`, url: window.location.href }).catch(() => {});
+    } else { navigator.clipboard?.writeText(window.location.href); }
   }, [product]);
 
   const goToCart = useCallback(() => navigate("/shop/cart"), [navigate]);
@@ -1155,24 +756,11 @@ export default function MarketDetail() {
   if (!loading && error) {
     return (
       <div className="mdp-not-found">
-        <div className="mdp-nf-illustration" aria-hidden="true">
-          {error === "404" ? Icon.search : Icon.alert}
-        </div>
+        <div className="mdp-nf-illustration" aria-hidden="true">{error === "404" ? Icon.search : Icon.alert}</div>
         <h2>{error === "404" ? "Product Not Found" : "Something went wrong"}</h2>
-        <p>
-          {error === "404"
-            ? "This listing may have been removed."
-            : "Could not load this product. Please try again."}
-        </p>
+        <p>{error === "404" ? "This listing may have been removed." : "Could not load this product. Please try again."}</p>
         <div className="mdp-nf-actions">
-          <button
-            className="mdp-nf-btn mdp-nf-btn--primary"
-            onClick={() =>
-              error === "404" ? navigate("/loemart") : window.location.reload()
-            }
-          >
-            {error === "404" ? "Browse Products" : "Try Again"}
-          </button>
+          <button className="mdp-nf-btn mdp-nf-btn--primary" onClick={() => error === "404" ? navigate("/loemart") : window.location.reload()}>{error === "404" ? "Browse Products" : "Try Again"}</button>
         </div>
       </div>
     );
@@ -1184,21 +772,8 @@ export default function MarketDetail() {
   return (
     <>
       <div className="md-page mdp-page">
-        <MarketDetailHeader
-          productName={product?.name}
-          cartCount={cartCount}
-          isWishlisted={isWishlisted}
-          onToggleWishlist={() => toggleWishlist(product?.id)}
-          productLoaded={!!product}
-        />
-
-        <StickyMiniHeader
-          visible={miniHeaderVisible}
-          product={product}
-          displayPrice={displayPrice}
-          onCartClick={handleCartClick}
-          disabled={isOutOfStock}
-        />
+        <MarketDetailHeader productName={product?.name} cartCount={cartCount} isWishlisted={isWishlisted} onToggleWishlist={() => toggleWishlist(product?.id)} productLoaded={!!product} />
+        <StickyMiniHeader visible={miniHeaderVisible} product={product} displayPrice={displayPrice} onCartClick={handleCartClick} disabled={isOutOfStock} />
 
         {loading && <ProductSkeleton />}
 
@@ -1217,57 +792,39 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              <h1 ref={titleRef} className="md-title mdp-title">
-                {product.name}
-              </h1>
+              <h1 ref={titleRef} className="md-title mdp-title">{product.name}</h1>
 
               {firstKeyFeature && (
                 <h2 className="mdp-seo-subtitle">
-                  <span className="mdp-icon-inline" aria-hidden="true">
-                    {Icon.tag}
-                  </span>
+                  <span className="mdp-icon-inline" aria-hidden="true">{Icon.tag}</span>
                   <strong>Highlight:</strong> {firstKeyFeature}
                 </h2>
               )}
 
               <div className="mdp-brand-rating-row">
-                {product.brand && (
-                  <p className="md-brand mdp-brand">
-                    by <strong>{product.brand}</strong>
-                  </p>
-                )}
+                {product.brand && <p className="md-brand mdp-brand">by <strong>{product.brand}</strong></p>}
                 {rating > 0 && (
                   <div className="mdp-rating-inline">
                     <StarRating rating={rating} />
                     <span className="mdp-rating-num">{rating.toFixed(1)}</span>
                   </div>
                 )}
-                <button
-                  type="button"
-                  className="mdp-share-btn"
-                  onClick={handleShare}
-                  aria-label="Share product"
-                >
-                  {Icon.share}
-                </button>
+                <button type="button" className="mdp-share-btn" onClick={handleShare} aria-label="Share product">{Icon.share}</button>
               </div>
 
-              <div className="mdp-section mdp-section--price">
+              <div className="mdp-section mdp-section--price" style={{ padding: '0', border: 'none' }}>
                 <div className="md-price-block mdp-price-block">
                   <span className="md-price mdp-price">{formatPrice(displayPrice)}</span>
                   {originalPrice > displayPrice && (
                     <>
-                      <span className="md-original mdp-original">
-                        {formatPrice(originalPrice)}
-                      </span>
+                      <span className="md-original mdp-original">{formatPrice(originalPrice)}</span>
                       <span className="md-disc-badge mdp-disc-badge">-{discount}%</span>
                     </>
                   )}
                 </div>
                 {savings > 0 && (
                   <p className="md-savings mdp-savings">
-                    <span className="mdp-icon-inline">{Icon.sparkle}</span>
-                    You save {formatPrice(savings)} today
+                    <span className="mdp-icon-inline">{Icon.sparkle}</span> You save {formatPrice(savings)} today
                   </p>
                 )}
                 {isOutOfStock && (
@@ -1278,7 +835,7 @@ export default function MarketDetail() {
                 )}
               </div>
 
-              {/* ALWAYS ALLOW OPENING OPTIONS IF HAS VARIANTS */}
+              {/* Options / Selection Trigger */}
               {hasVariants ? (
                 <div
                   className="mdp-selection-trigger"
@@ -1286,133 +843,108 @@ export default function MarketDetail() {
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && setSheetIntent('cart')}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "12px",
-                    background: "#fafafa",
-                    borderRadius: 8,
-                    border: "1px solid #eee",
-                    cursor: "pointer",
-                    marginBottom: 16,
-                  }}
+                  style={{ marginTop: 12 }}
                 >
                   <div>
-                    <span
-                      style={{
-                        fontSize: "0.8rem",
-                        color: "#6b7280",
-                        display: "block",
-                        marginBottom: 2,
-                      }}
-                    >
-                      Options & Quantity
-                    </span>
-                    <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#111" }}>
-                      {selectedVariant
-                        ? `${
-                            selectedVariant.name ||
-                            selectedVariant.attributes?.color ||
-                            selectedVariant.attributes?.size ||
-                            "Selected"
-                          } • Qty: ${stickyQty}`
-                        : "Select options"}
+                    <span style={{ fontSize: "11px", color: "var(--ink2)", display: "block", marginBottom: 2 }}>Options & Quantity</span>
+                    <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)" }}>
+                      {selectedVariant ? `${selectedVariant.name || selectedVariant.attributes?.color || selectedVariant.attributes?.size || "Selected"} • Qty: ${stickyQty}` : "Select options"}
                       {inCart ? "  ·  In cart" : ""}
                     </span>
                   </div>
-                  <span style={{ color: "#9ca3af", fontWeight: "bold" }}>&gt;</span>
+                  <span style={{ color: "var(--ink3)", fontWeight: "bold" }}>&gt;</span>
                 </div>
               ) : null}
 
-              <div className="mdp-section mdp-section--cards">
-                <div className="mdp-delivery-card">
-                  <div className="mdp-delivery-card__icon">{Icon.truck}</div>
-                  <div className="mdp-delivery-card__body">
-                    <p className="mdp-delivery-card__title">Fast Delivery</p>
-                    <p className="mdp-delivery-card__sub">
-                      Estimated arrival: <strong>{deliveryDate}</strong>
-                    </p>
-                  </div>
-                </div>
-                <div className="mdp-protection-card">
-                  <div className="mdp-protection-card__body">
-                    <span className="mdp-protection-card__shield">{Icon.shield}</span>
-                    <div className="mdp-protection-card__text">
-                      <p className="mdp-protection-card__title">Loemart Buyer Protection</p>
-                      <p className="mdp-protection-card__sub">
-                        Get the item you ordered or your money back.
-                      </p>
+              {/* Jumia Style Delivery & Protection Flattened List */}
+              <div className="mdp-section mdp-section--cards" style={{ padding: '12px 0 0', gap: 0, background: 'transparent' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--wh)', border: '1px solid var(--bd)', borderRadius: 'var(--r1)', overflow: 'hidden' }}>
+                  
+                  {/* Delivery Row */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--bd)' }}>
+                    <div style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.truck}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Fast Delivery</span>
+                      </div>
+                      <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0, lineHeight: 1.4 }}>Estimated arrival: <strong>{deliveryDate}</strong></p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="mdp-protection-card__link"
-                    onClick={() => setShowProtection(true)}
-                  >
-                    Learn More &gt;
-                  </button>
+
+                  {/* Protection Row */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', cursor: 'pointer' }} onClick={() => setShowProtection(true)}>
+                    <div style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.shield}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Buyer Protection</span>
+                        <span style={{ fontSize: 12, color: 'var(--o)', fontWeight: 600 }}>Learn More &gt;</span>
+                      </div>
+                      <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0, lineHeight: 1.4 }}>Get the item you ordered or your money back.</p>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
+              {/* Description (Full Width Edge-to-Edge styling via mdp-section) */}
               {product.description && (
-                <div className="mdp-section mdp-section--desc">
-                  <ProductInfo description={product.description} />
+                <div className="mdp-section mdp-section--desc" style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 8px', color: 'var(--ink)' }}>Description <span style={{ float: 'right', color: 'var(--ink3)' }}>&gt;</span></h3>
+                  <div style={{ padding: '0' }}>
+                    <ProductInfo description={product.description} />
+                  </div>
                 </div>
               )}
 
-              {(product.specifications?.length > 0 ||
-                product.specs?.length > 0 ||
-                product.attributes?.length > 0) && (
-                <div className="mdp-section mdp-section--specs">
-                  <SpecsSection
-                    specs={
-                      product.specifications || product.specs || product.attributes
-                    }
-                  />
+              {(product.specifications?.length > 0 || product.specs?.length > 0 || product.attributes?.length > 0) && (
+                <div className="mdp-section mdp-section--specs" style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
+                  <SpecsSection specs={product.specifications || product.specs || product.attributes} />
                 </div>
               )}
 
               {product.key_features?.length > 0 && (
-                <div className="md-section mdp-section mdp-section--features">
-                  <h3 className="md-section-title mdp-section-title">
-                    <span className="mdp-icon-inline">{Icon.sparkle}</span> Key Features
-                  </h3>
-                  <ul className="md-features-list mdp-features-list">
+                <div className="md-section mdp-section mdp-section--features" style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
+                  <h3 className="md-section-title mdp-section-title">Key Features</h3>
+                  <ul className="md-features-list mdp-features-list" style={{ background: 'transparent' }}>
                     {product.key_features.map((f, i) => (
-                      <li key={i} className="md-feature-item mdp-feature-item">
+                      <li key={i} className="md-feature-item mdp-feature-item" style={{ padding: '4px 0', background: 'transparent' }}>
                         <span className="md-feat-check mdp-feat-check">{Icon.check}</span>
-                        <span>{f?.feature ?? f}</span>
+                        <span style={{ fontSize: 13, color: 'var(--ink)' }}>{f?.feature ?? f}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
 
-              <FAQAccordion />
-
-              <ProductReviews
-                productId={product.id}
-                rating={rating}
-                reviewsCount={product.reviews_count}
-                onOpenRateModal={() => setShowRateModal(true)}
-                refreshKey={reviewRefreshKey}
-              />
-
-              {/* ── Product Rails (Related, Seller, Recommended) ── */}
-              <div className="mdp-section mdp-section--rails">
-                <ProductRails product={product} />
+              <div style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)' }}>
+                <FAQAccordion />
               </div>
 
-              <div className="mdp-section mdp-section--seller">
+              {/* SELLER CARD MOVED ABOVE REVIEWS */}
+              <div className="mdp-section mdp-section--seller" style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 12px', color: 'var(--ink)' }}>Sold by</h3>
                 <SellerCard product={product} />
-                <div className="mdp-trust-grid">
+              </div>
+
+              <div style={{ padding: '16px 0', borderBottom: '1px solid var(--bd)' }}>
+                <ProductReviews
+                  productId={product.id}
+                  rating={rating}
+                  reviewsCount={product.reviews_count}
+                  onOpenRateModal={() => setShowRateModal(true)}
+                  refreshKey={reviewRefreshKey}
+                />
+              </div>
+
+              {/* TRUST BADGES & REPORT LISTING MOVED ABOVE RAILS */}
+              <div className="mdp-section" style={{ padding: '16px 0', borderTop: 'none', background: 'transparent' }}>
+                <div className="mdp-trust-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, margin: '0 0 16px' }}>
                   {TRUST_BADGES.map((b) => (
-                    <div key={b.label} className="mdp-trust-item">
-                      <span className="mdp-trust-icon">{b.icon}</span>
-                      <div className="mdp-trust-body">
-                        <p className="mdp-trust-label">{b.label}</p>
-                        <p className="mdp-trust-sub">{b.sub}</p>
+                    <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--wh)', border: '1px solid var(--bd)', borderRadius: 'var(--r1)' }}>
+                      <span style={{ color: 'var(--o)', display: 'flex' }}>{b.icon}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{b.label}</span>
+                        <span style={{ fontSize: 11, color: 'var(--ink2)' }}>{b.sub}</span>
                       </div>
                     </div>
                   ))}
@@ -1421,11 +953,17 @@ export default function MarketDetail() {
                   type="button"
                   className="md-report-btn mdp-report-btn"
                   onClick={() => setShowReport(true)}
+                  style={{ padding: '12px', background: 'var(--wh)', fontSize: 13 }}
                 >
-                  {Icon.flag}
-                  <span>Report this listing</span>
+                  {Icon.flag} <span>Report this listing</span>
                 </button>
               </div>
+
+              {/* ── Product Rails (Related, Seller, Recommended) ── */}
+              <div className="mdp-section mdp-section--rails">
+                <ProductRails product={product} />
+              </div>
+
             </div>
           </div>
         )}
