@@ -30,11 +30,10 @@ import SpecsSection       from "./MarketDetail/SpecsSection";
 import RateProductModal   from "./MarketDetail/RateProductModal";
 import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
-import ProductRails       from "./MarketDetail/ProductRails"; // 👈 New Product Rails
+import ProductRails       from "./MarketDetail/ProductRails";
 
-import "../styles/MarketDetail.css";
-import "../styles/MarketDetailPremium.css";
-import "../styles/MarketDetailCompact.css"; // 👈 Compact Jumia-style Layout
+/* ── SINGLE UNIFIED CSS IMPORT ── */
+import "../styles/MarketDetail.css"; 
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API ROUTES
@@ -123,11 +122,8 @@ const authHeaders = () => {
 };
 
 const readGuestCart = () => {
-  try {
-    return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } 
+  catch { return []; }
 };
 const writeGuestCart = (cart) => {
   localStorage.setItem(CART_KEY, JSON.stringify(cart));
@@ -986,7 +982,7 @@ export default function MarketDetail() {
     if (!product || isOutOfStock) return false;
     const addQty = Math.max(1, parseInt(qty, 10) || 1);
 
-    // 1. INSTANT OPTIMISTIC UI UPDATE (0ms Speed)
+    // 1. INSTANT OPTIMISTIC UI UPDATE
     setAddedToCart(true);
     setInCart(true);
     const newQty = inCart ? cartLineQty + addQty : addQty;
@@ -1025,7 +1021,6 @@ export default function MarketDetail() {
             TOKEN_KEYS.forEach((k) => localStorage.removeItem(k));
             addToGuestCart(product, selectedVariant, displayPrice, originalPrice, addQty);
           } else {
-            // Revert or show background error if network completely fails
             setCartError(apiErr?.response?.data?.message || "Failed to sync cart");
             if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
             errorTimeoutRef.current = setTimeout(() => setCartError(null), 5000);
@@ -1131,15 +1126,13 @@ export default function MarketDetail() {
   const handleCartClick = useCallback(() => {
     if (!product || isOutOfStock || addingToCart) return;
     
-    // Always open options if product has variants (even if already in cart)
+    // Always open options if product has variants
     if (hasVariants) {
       setSheetIntent("cart");
       return;
     }
     
-    // If no variants and already in cart, don't trigger add again
     if (inCart) return;
-
     handleAddToCart();
   }, [product, isOutOfStock, addingToCart, hasVariants, inCart, handleAddToCart]);
 
