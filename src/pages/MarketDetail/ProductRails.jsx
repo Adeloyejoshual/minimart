@@ -1,9 +1,9 @@
 /**
  * src/pages/MarketDetail/ProductRails.jsx
  *
- * 1) You may also like     — Horizontal swipe (Jumia style)
- * 2) More from this seller — Horizontal swipe (Jumia style)
- * 3) Recommended for you   — 2-Column Grid (Shows 20 items initially + Load More)
+ * 1) You may also like     — Horizontal swipe rail (Jumia style)
+ * 2) More from this seller — Horizontal swipe rail (Jumia style)
+ * 3) Recommended for you   — 2-Column Grid (Temu style: 20 Items initially + Load More)
  */
 
 import {
@@ -36,9 +36,10 @@ const INITIAL_REC_COUNT = 20;
 const BATCH_SIZE = 10;
 
 /* ════════════════════════════════════════════════════════════
-   HELPERS
+   CRASH-PROOF HELPERS
 ════════════════════════════════════════════════════════════ */
 function discOf(item) {
+  if (!item) return 0;
   const price = Number(item.price ?? item.sale_price ?? 0);
   const original = Number(item.original_price ?? item.compare_price ?? 0);
   if (!(original > price && price > 0)) return 0;
@@ -50,21 +51,24 @@ function discOf(item) {
 }
 
 function priceOf(item) {
+  if (!item) return 0;
   const n = Number(item.price ?? item.sale_price ?? item.selling_price ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function origOf(item) {
+  if (!item) return 0;
   const n = Number(item.original_price ?? item.compare_price ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function imgOf(item) {
+  if (!item) return "";
   return getProductImage?.(item) || item.image || item.image_url || item.thumbnail || "";
 }
 
 function slugOf(item) {
-  return item.slug || item.id;
+  return item?.slug || item?.id || "";
 }
 
 function normalizeList(data) {
@@ -76,7 +80,8 @@ function normalizeList(data) {
     data?.items ||
     data ||
     [];
-  return Array.isArray(raw) ? raw : [];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x) => x && typeof x === "object" && (x.id || x.slug));
 }
 
 function excludeIds(list, ids) {
@@ -92,16 +97,17 @@ async function getFirstList(urls) {
       const list = normalizeList(data);
       if (list.length) return list;
     } catch {
-      /* try next fallback URL */
+      /* fallback */
     }
   }
   return [];
 }
 
 /* ════════════════════════════════════════════════════════════
-   1) JUMIA-STYLE HORIZONTAL SWIPE CARD
+   1) JUMIA-STYLE HORIZONTAL CARD
 ════════════════════════════════════════════════════════════ */
 const HorizontalCard = memo(function HorizontalCard({ item, onOpen }) {
+  if (!item) return null;
   const price = priceOf(item);
   const original = origOf(item);
   const d = discOf(item);
@@ -136,6 +142,7 @@ const HorizontalCard = memo(function HorizontalCard({ item, onOpen }) {
    2) TEMU-STYLE 2-COLUMN GRID CARD
 ════════════════════════════════════════════════════════════ */
 const TemuGridCard = memo(function TemuGridCard({ item, onOpen }) {
+  if (!item) return null;
   const price = priceOf(item);
   const original = origOf(item);
   const d = discOf(item);
@@ -226,9 +233,9 @@ const HorizontalSwipeRail = memo(function HorizontalSwipeRail({
         </div>
       ) : (
         <div className="mdp-rail-hscroll">
-          {items.map((item) => (
+          {items.map((item, idx) => (
             <HorizontalCard
-              key={item.id || item.slug}
+              key={item.id || item.slug || idx}
               item={item}
               onOpen={(s) => s && navigate(`/shop/${s}`)}
             />
@@ -287,9 +294,9 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
       ) : (
         <>
           <div className="mdp-temu-grid">
-            {visibleItems.map((item) => (
+            {visibleItems.map((item, idx) => (
               <TemuGridCard
-                key={item.id || item.slug}
+                key={item.id || item.slug || idx}
                 item={item}
                 onOpen={(s) => s && navigate(`/shop/${s}`)}
               />
@@ -303,7 +310,7 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
                 onClick={handleLoadMore}
                 style={{
                   padding: "10px 24px",
-                  borderRadius: "8px",
+                  borderRadius: "var(--r1)",
                   border: "1px solid var(--bd2)",
                   background: "var(--wh)",
                   color: "var(--ink)",
@@ -412,7 +419,7 @@ function ProductRails({ product }) {
     };
   }, [productId, sellerId, product?.brand]);
 
-  /* 3) Recommended Products (Bulletproof Fallback Chain) */
+  /* 3) Recommended Products (Fallback Chain) */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -420,14 +427,13 @@ function ProductRails({ product }) {
     (async () => {
       setLoadingRec(true);
 
-      // Bulletproof list of fallback URLs to ensure recommendations NEVER fail
       const urls = [
         `${API_URL}/${slug}/recommendations?limit=40`,
         `${SHOP}/${slug}/recommendations?limit=40`,
         `${API_URL}/${productId}/recommended?limit=40`,
         `${SHOP}/recommended?product_id=${productId}&limit=40`,
         catSlug ? `${API_URL}?category=${encodeURIComponent(catSlug)}&limit=40` : null,
-        `${API_URL}?limit=40`, // Ultimate catalog fallback
+        `${API_URL}?limit=40`,
         `${SHOP}?limit=40`,
       ];
 
