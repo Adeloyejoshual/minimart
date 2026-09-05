@@ -1,18 +1,17 @@
 /**
  * src/pages/MarketDetail/ProductRails.jsx
  *
- * 1) Customers also viewed    — Horizontal swipe rail (Jumia style)
- * 2) More from this seller   — Horizontal swipe rail (Jumia style)
- * 3) Recommended for you     — 2-Column Grid (Temu style) with Infinite Load
+ * 1) You may also like     — Horizontal swipe (Jumia style)
+ * 2) More from this seller — Horizontal swipe (Jumia style)
+ * 3) Recommended for you   — 2-Column Grid (Shows 20 items initially + Load More)
  */
 
 import {
   useEffect,
   useState,
-  useRef,
-  useCallback,
   memo,
   useMemo,
+  useCallback,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -33,8 +32,8 @@ const SHOP = `${API_ROOT}/shop`;
 
 const RELATED_LIMIT = 10;
 const SELLER_LIMIT = 10;
-const REC_TOTAL = 30;
-const REC_PAGE = 6;
+const INITIAL_REC_COUNT = 20;
+const BATCH_SIZE = 10;
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -93,7 +92,7 @@ async function getFirstList(urls) {
       const list = normalizeList(data);
       if (list.length) return list;
     } catch {
-      /* try next */
+      /* try next fallback URL */
     }
   }
   return [];
@@ -182,9 +181,9 @@ const TemuGridCard = memo(function TemuGridCard({ item, onOpen }) {
               e.stopPropagation();
               onOpen(slugOf(item));
             }}
-            aria-label="Add to cart"
+            aria-label="View product"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={16} height={16}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={15} height={15}>
               <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
             </svg>
@@ -196,7 +195,7 @@ const TemuGridCard = memo(function TemuGridCard({ item, onOpen }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   RAIL 1 & 2: HORIZONTAL SWIPE SECTION
+   HORIZONTAL SWIPE SECTION
 ════════════════════════════════════════════════════════════ */
 const HorizontalSwipeRail = memo(function HorizontalSwipeRail({
   title,
@@ -241,7 +240,7 @@ const HorizontalSwipeRail = memo(function HorizontalSwipeRail({
 });
 
 /* ════════════════════════════════════════════════════════════
-   RAIL 3: TEMU-STYLE 2-COLUMN RECOMMENDED GRID
+   RECOMMENDED SECTION (20 ITEMS INITIAL + LOAD MORE BUTTON)
 ════════════════════════════════════════════════════════════ */
 const RecommendedGridSection = memo(function RecommendedGridSection({
   title = "Recommended for you",
@@ -249,12 +248,10 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
   loading,
 }) {
   const navigate = useNavigate();
-  const [visibleCount, setVisibleCount] = useState(REC_PAGE);
-  const sentinelRef = useRef(null);
-  const loadingMoreRef = useRef(false);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_REC_COUNT);
 
   useEffect(() => {
-    setVisibleCount(REC_PAGE);
+    setVisibleCount(INITIAL_REC_COUNT);
   }, [allItems]);
 
   const visibleItems = useMemo(
@@ -264,29 +261,9 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
 
   const hasMore = visibleCount < (allItems?.length || 0);
 
-  const loadMore = useCallback(() => {
-    if (loadingMoreRef.current || !hasMore) return;
-    loadingMoreRef.current = true;
-    requestAnimationFrame(() => {
-      setVisibleCount((v) => Math.min(v + REC_PAGE, allItems.length));
-      loadingMoreRef.current = false;
-    });
-  }, [hasMore, allItems]);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || !hasMore) return;
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) loadMore();
-      },
-      { root: null, rootMargin: "250px 0px", threshold: 0 }
-    );
-
-    io.observe(el);
-    return () => io.disconnect();
-  }, [hasMore, loadMore, visibleItems.length]);
+  const handleLoadMore = useCallback(() => {
+    setVisibleCount((prev) => Math.min(prev + BATCH_SIZE, allItems.length));
+  }, [allItems]);
 
   if (!loading && (!allItems || allItems.length === 0)) return null;
 
@@ -294,11 +271,16 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
     <section className="mdp-psec mdp-psec--recommended">
       <div className="mdp-psec__head">
         <h3 className="mdp-psec__title">{title}</h3>
+        {!loading && allItems?.length > 0 && (
+          <span className="mdp-psec__meta">
+            Showing {visibleItems.length} of {allItems.length}
+          </span>
+        )}
       </div>
 
       {loading ? (
         <div className="mdp-temu-grid">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="mdp-temu-skel" />
           ))}
         </div>
@@ -315,8 +297,24 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
           </div>
 
           {hasMore && (
-            <div ref={sentinelRef} className="mdp-rec-sentinel">
-              <span className="mdp-rec-loading">Loading more recommendations…</span>
+            <div style={{ textAlign: "center", marginTop: "16px" }}>
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                style={{
+                  padding: "10px 24px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--bd2)",
+                  background: "var(--wh)",
+                  color: "var(--ink)",
+                  fontWeight: "700",
+                  fontSize: "13px",
+                  cursor: "pointer",
+                  boxShadow: "var(--s1)",
+                }}
+              >
+                Load More Products
+              </button>
             </div>
           )}
         </>
@@ -353,7 +351,7 @@ function ProductRails({ product }) {
   const [loadingSeller, setLoadingSeller] = useState(true);
   const [loadingRec, setLoadingRec] = useState(true);
 
-  /* 1) Related (Horizontal) */
+  /* 1) Related Products (Horizontal) */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -380,7 +378,7 @@ function ProductRails({ product }) {
     };
   }, [productId, slug]);
 
-  /* 2) Same Seller (Horizontal) */
+  /* 2) Same Seller Products (Horizontal) */
   useEffect(() => {
     if (!productId) return;
     let cancelled = false;
@@ -414,7 +412,7 @@ function ProductRails({ product }) {
     };
   }, [productId, sellerId, product?.brand]);
 
-  /* 3) Recommended (2-Column Grid) */
+  /* 3) Recommended Products (Bulletproof Fallback Chain) */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -422,25 +420,21 @@ function ProductRails({ product }) {
     (async () => {
       setLoadingRec(true);
 
-      let list = excludeIds(
-        await getFirstList([
-          `${API_URL}/${slug}/recommendations?limit=${REC_TOTAL}`,
-          `${SHOP}/${slug}/recommendations?limit=${REC_TOTAL}`,
-          `${API_URL}/${productId}/recommended?limit=${REC_TOTAL}`,
-          `${SHOP}/recommended?product_id=${productId}&limit=${REC_TOTAL}`,
-          catSlug
-            ? `${API_URL}?category=${encodeURIComponent(catSlug)}&limit=${REC_TOTAL}`
-            : null,
-        ]),
-        [productId]
-      );
+      // Bulletproof list of fallback URLs to ensure recommendations NEVER fail
+      const urls = [
+        `${API_URL}/${slug}/recommendations?limit=40`,
+        `${SHOP}/${slug}/recommendations?limit=40`,
+        `${API_URL}/${productId}/recommended?limit=40`,
+        `${SHOP}/recommended?product_id=${productId}&limit=40`,
+        catSlug ? `${API_URL}?category=${encodeURIComponent(catSlug)}&limit=40` : null,
+        `${API_URL}?limit=40`, // Ultimate catalog fallback
+        `${SHOP}?limit=40`,
+      ];
+
+      let list = excludeIds(await getFirstList(urls), [productId]);
 
       if (!cancelled) {
-        const taken = new Set(
-          [...related, ...sellerItems].map((p) => String(p.id))
-        );
-        list = list.filter((p) => !taken.has(String(p.id)));
-        setRecommended(list.slice(0, REC_TOTAL));
+        setRecommended(list.slice(0, 40));
         setLoadingRec(false);
       }
     })();
@@ -448,7 +442,7 @@ function ProductRails({ product }) {
     return () => {
       cancelled = true;
     };
-  }, [productId, slug, catSlug, related, sellerItems]);
+  }, [productId, slug, catSlug]);
 
   if (!product) return null;
 
@@ -480,7 +474,7 @@ function ProductRails({ product }) {
         }
       />
 
-      {/* 3) Recommended for you (Temu-style 2-Column Grid) */}
+      {/* 3) Recommended for you (20 Items + Load More) */}
       <RecommendedGridSection
         title="Recommended for you"
         allItems={recommended}
