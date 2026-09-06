@@ -1,4 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
+   FILE: src/pages/MarketDetail/styles/ProductInfo.css
    CSS CUSTOM PROPERTIES (Design Tokens)
    Single source of truth for all sizing, spacing, color values.
    Overridden per breakpoint below.
@@ -68,9 +69,7 @@
 
 /* ───────────────────────────────────────────────────────────────
    SMALL PHONE  →  max-width: 374px
-   Compact. Tight padding. Smaller font. Shorter collapse height.
 ─────────────────────────────────────────────────────────────── */
-
 @media (max-width: 374px) {
   :root {
     --pi-font-title:       12px;
@@ -98,12 +97,9 @@
   }
 }
 
-
 /* ───────────────────────────────────────────────────────────────
    NORMAL PHONE  →  375px – 767px  (base / mobile-first default)
-   Comfortable reading. Standard Jumia mobile layout.
 ─────────────────────────────────────────────────────────────── */
-
 @media (min-width: 375px) and (max-width: 767px) {
   :root {
     --pi-font-title:       14px;
@@ -131,12 +127,9 @@
   }
 }
 
-
 /* ───────────────────────────────────────────────────────────────
    SMALL DESKTOP  →  768px – 1199px
-   Tablet / small laptop. More breathing room. Wider content area.
 ─────────────────────────────────────────────────────────────── */
-
 @media (min-width: 768px) and (max-width: 1199px) {
   :root {
     --pi-font-title:       15px;
@@ -164,12 +157,9 @@
   }
 }
 
-
 /* ───────────────────────────────────────────────────────────────
    BIG DESKTOP  →  1200px +
-   Full marketplace layout. Large readable text. Generous spacing.
 ─────────────────────────────────────────────────────────────── */
-
 @media (min-width: 1200px) {
   :root {
     --pi-font-title:       16px;
@@ -200,13 +190,9 @@
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT STYLES
-   All sizing values consumed from CSS custom properties above.
-   No hard-coded sizes here — fully token-driven.
 ═══════════════════════════════════════════════════════════════ */
 
-
 /* ── Section Wrapper ─────────────────────────────────────────── */
-
 .pi-section {
   padding:          var(--pi-section-padding);
   background:       var(--pi-color-bg);
@@ -227,9 +213,7 @@
   text-transform:   uppercase;
 }
 
-
 /* ── Description Body ────────────────────────────────────────── */
-
 .pi-description {
   position:         relative;
   font-size:        var(--pi-font-body);
@@ -244,9 +228,7 @@
   overflow:         hidden;
 }
 
-
 /* ── Line Types ──────────────────────────────────────────────── */
-
 .pi-heading {
   font-size:        var(--pi-font-heading);
   font-weight:      700;
@@ -286,9 +268,37 @@
   font-style:       italic;
 }
 
+/* ── HTML Content (Rich Text Fallback) ───────────────────────── */
+.pi-html-body {
+  font-size:        var(--pi-font-body);
+  line-height:      var(--pi-line-height);
+  color:            var(--pi-color-body);
+  word-break:       break-word;
+}
+
+.pi-html-body img,
+.pi-html-body video {
+  max-width:        100%;
+  height:           auto;
+  border-radius:    var(--pi-radius);
+  margin:           8px 0;
+  display:          block;
+}
+
+.pi-html-body ul,
+.pi-html-body ol {
+  margin:           var(--pi-text-mv) 0 var(--pi-text-mv) var(--pi-bullet-indent);
+  padding-left:     16px;
+  color:            var(--pi-color-bullet);
+}
+
+.pi-html-body a {
+  color:            var(--pi-color-link);
+  text-decoration:  underline;
+}
+
 
 /* ── Links ───────────────────────────────────────────────────── */
-
 .pi-link {
   color:            var(--pi-color-link);
   font-size:        var(--pi-font-link);
@@ -311,7 +321,6 @@
 
 
 /* ── Fade Overlay ────────────────────────────────────────────── */
-
 .pi-fade-overlay {
   position:         absolute;
   bottom:           0;
@@ -324,12 +333,11 @@
                       var(--pi-overlay-mid)    55%,
                       var(--pi-overlay-end)   100%
                     );
-  pointer-events:   none;   /* never blocks taps or text selection */
+  pointer-events:   none;
 }
 
 
 /* ── Toggle Button ───────────────────────────────────────────── */
-
 .pi-toggle-btn {
   display:          inline-flex;
   align-items:      center;
@@ -342,8 +350,7 @@
   color:            var(--pi-color-toggle);
   font-size:        var(--pi-font-toggle);
   font-weight:      600;
-  transition:       color 0.2s ease,
-                    opacity 0.2s ease;
+  transition:       color 0.2s ease, opacity 0.2s ease;
 }
 
 .pi-toggle-btn:hover {
