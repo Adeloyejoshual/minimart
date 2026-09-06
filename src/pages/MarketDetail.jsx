@@ -31,6 +31,7 @@ import RateProductModal   from "./MarketDetail/RateProductModal";
 import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 import ProductRails       from "./MarketDetail/ProductRails";
+import DeliveryCard       from "./MarketDetail/DeliveryCard"; // Added DeliveryCard import
 
 import "../styles/MarketDetail.css"; 
 
@@ -41,6 +42,7 @@ const RAW_BASE       = import.meta.env.VITE_API_BASE_URL || "";
 const API_ROOT       = RAW_BASE ? (RAW_BASE.endsWith("/api") ? RAW_BASE : `${RAW_BASE}/api`) : "/api";
 
 const SHOP_URL       = `${API_ROOT}/shop`;
+const API_URL        = SHOP_URL; // Fixed: Defined API_URL to match your endpoints
 const CART_URL       = `${API_ROOT}/cart`;
 const CART_ITEMS_URL = `${API_ROOT}/cart/items`;
 
@@ -76,7 +78,7 @@ const Icon = {
   sparkle: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}><polygon points="12 2 15 8 21 9 16 13 18 19 12 16 6 19 8 13 3 9 9 8 12 2"/></svg>,
   money: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="18" x2="12" y2="6"/></svg>,
   return: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
-  scale: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M12 3v18"/><rect x="4" y="16" width="16" height="5" rx="2"/><path d="M6 8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v8H6z"/></svg>,
+  scale: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><path d="M12 3v18"/><rect x="4" y="16" width="16" height="5" rx="2"/><path d="M6 8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 8v8H6z"/></svg>,
   lock: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
   info: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
   search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
@@ -88,7 +90,7 @@ const Icon = {
 const TRUST_BADGES = [
   { icon: Icon.lock,   label: "Secure Payment",  sub: "Protected checkout"  },
   { icon: Icon.check,  label: "Verified Seller", sub: "Identity confirmed"  },
-  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-10 business days"   },
+  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-4 business days"   }, // Updated to align with Osun/Ondo schedule
   { icon: Icon.return, label: "Easy Returns",    sub: "7-day return window" },
 ];
 
@@ -197,25 +199,6 @@ const addToRecentlyViewed = (product) => {
     list.unshift({ id: product.id, name: product.name, price: product.price, image: getProductImage(product), slug: product.slug ?? product.id });
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
   } catch {}
-};
-
-const addBusinessDays = (startDate, numDays) => {
-  const result = new Date(startDate);
-  let added = 0;
-  while (added < numDays) {
-    result.setDate(result.getDate() + 1);
-    const dayOfWeek = result.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) added++;
-  }
-  return result;
-};
-
-const getDeliveryEstimate = () => {
-  const now = new Date();
-  const min = addBusinessDays(now, 2);
-  const max = addBusinessDays(now, 10);
-  const fmt = (d) => d.toLocaleDateString("en-NG", { weekday: "short", day: "numeric", month: "short" });
-  return `${fmt(min)} – ${fmt(max)}`;
 };
 
 const getRating = (product) => {
@@ -414,7 +397,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
   );
 });
 
-/* ── UPDATED BUYER PROTECTION MODAL ── */
+/* ── BUYER PROTECTION MODAL ── */
 const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
   useEffect(() => {
     const fn = (e) => e.key === "Escape" && onClose();
@@ -545,7 +528,6 @@ export default function MarketDetail() {
 
   const isWishlisted = product ? wishlist.has(product.id) : false;
   const rating = useMemo(() => (product ? getRating(product) : 0), [product]);
-  const deliveryDate = useMemo(() => getDeliveryEstimate(), []);
   const hasVariants = useMemo(() => Array.isArray(product?.variants) && product.variants.length > 0, [product]);
 
   const galleryImages = useMemo(() => {
@@ -887,21 +869,27 @@ export default function MarketDetail() {
                 </div>
               ) : null}
 
-              {/* Jumia Style Delivery & Protection Flattened List */}
+              {/* Jumia Style Delivery Card & Buyer Protection Block */}
               <div className="mdp-section" style={{ padding: '10px 0 0', border: 'none', background: 'transparent' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--wh)', border: '1px solid var(--bd)', borderRadius: 'var(--r1)', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   
-                  {/* Delivery Row */}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--bd)' }}>
-                    <div style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.truck}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', marginBottom: 2 }}>Fast Delivery</span>
-                      <p style={{ fontSize: 12, color: 'var(--ink2)', margin: 0 }}>Estimated arrival: <strong>{deliveryDate}</strong></p>
-                    </div>
-                  </div>
+                  {/* Location-Aware Delivery Dynamic Component */}
+                  <DeliveryCard />
 
-                  {/* Protection Row */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer' }} onClick={() => setShowProtection(true)}>
+                  {/* Protection Card */}
+                  <div 
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 10, 
+                      padding: '10px 12px', 
+                      background: 'var(--wh)', 
+                      border: '1px solid var(--bd)', 
+                      borderRadius: 'var(--r1)', 
+                      cursor: 'pointer' 
+                    }} 
+                    onClick={() => setShowProtection(true)}
+                  >
                     <div style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.shield}</div>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
