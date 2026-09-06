@@ -1,3 +1,7 @@
+/**
+ * src/pages/MarketDetail/ProductInfo.jsx
+ */
+
 import React, {
   useState,
   memo,
@@ -9,43 +13,52 @@ import React, {
 import "./styles/ProductInfo.css";
 
 const CONFIG = {
-  COLLAPSE_THRESHOLD: 300,
-  LINE_LIMIT: 8,
-  COLLAPSED_HEIGHT: 160,
+  COLLAPSE_THRESHOLD: 250,
+  LINE_LIMIT: 6,
 };
 
+function safeString(input) {
+  if (!input) return "";
+  if (typeof input === "string") return input;
+  if (typeof input === "object") {
+    return input.text || input.content || input.html || input.description || JSON.stringify(input);
+  }
+  return String(input);
+}
+
 function getLineType(line) {
-  if (line.startsWith("### "))              return "heading";
+  if (line.startsWith("### ")) return "heading";
   if (line.startsWith("- ") || line.startsWith("* ")) return "bullet";
-  if (/^[-─═]{3,}$/.test(line))            return "divider";
+  if (/^[-─═]{3,}$/.test(line)) return "divider";
   return "text";
 }
 
 function normalizeContent(line, type) {
   switch (type) {
-    case "heading":  return line.replace(/^###\s*/, "").trim();
-    case "bullet":   return line.replace(/^[-*]\s*/, "• ").trim();
-    case "divider":  return "";
-    default:         return line.trim();
+    case "heading": return line.replace(/^###\s*/, "").trim();
+    case "bullet": return line.replace(/^[-*]\s*/, "• ").trim();
+    case "divider": return "";
+    default: return line.trim();
   }
 }
 
-function parseDescription(raw = "") {
+function parseDescription(rawInput) {
+  const raw = safeString(rawInput);
   if (!raw.trim()) return [];
+
+  // Handle HTML string from backend
+  if (/<[a-z][\s\S]*>/i.test(raw)) {
+    return [{ id: "line-html-0", type: "html", content: raw }];
+  }
 
   return raw
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line, index) => {
-      const type    = getLineType(line);
+      const type = getLineType(line);
       const content = normalizeContent(line, type);
-
-      return {
-        id:      `line-${index}-${type}`,
-        type,
-        content,
-      };
+      return { id: `line-${index}-${type}`, type, content };
     });
 }
 
@@ -63,7 +76,6 @@ function linkify(text) {
           target="_blank"
           rel="noopener noreferrer"
           className="pi-link"
-          aria-label={`External link: ${part}`}
         >
           {part}
         </a>
@@ -74,60 +86,32 @@ function linkify(text) {
   });
 }
 
-function computeIsLong(raw, lines) {
-  return (
-    raw.length    > CONFIG.COLLAPSE_THRESHOLD ||
-    lines.length  > CONFIG.LINE_LIMIT
-  );
-}
-
 function DescriptionLine({ type, content }) {
   switch (type) {
     case "heading":
-      return (
-        <h4 className="pi-heading" aria-label={`Section: ${content}`}>
-          {content}
-        </h4>
-      );
+      return <h4 className="pi-heading">{content}</h4>;
     case "bullet":
-      return (
-        <p className="pi-bullet" role="listitem">
-          {linkify(content)}
-        </p>
-      );
+      return <p className="pi-bullet" role="listitem">{linkify(content)}</p>;
     case "divider":
       return <hr className="pi-divider" aria-hidden="true" />;
+    case "html":
+      return <div className="pi-html-body" dangerouslySetInnerHTML={{ __html: content }} />;
     default:
-      return (
-        <p className="pi-text">
-          {linkify(content)}
-        </p>
-      );
+      return <p className="pi-text">{linkify(content)}</p>;
   }
 }
 
 function FadeOverlay() {
-  return (
-    <div
-      className="pi-fade-overlay"
-      aria-hidden="true"
-      data-testid="fade-overlay"
-    />
-  );
+  return <div className="pi-fade-overlay" aria-hidden="true" />;
 }
 
 function ToggleButton({ expanded, onClick }) {
   return (
     <button
+      type="button"
       className="pi-toggle-btn"
       onClick={onClick}
       aria-expanded={expanded}
-      aria-controls="pi-description-body"
-      aria-label={
-        expanded
-          ? "Collapse product description"
-          : "Expand full product description"
-      }
     >
       <span className="pi-toggle-label">
         {expanded ? "Show less" : "Read more"}
@@ -139,33 +123,20 @@ function ToggleButton({ expanded, onClick }) {
   );
 }
 
-function EmptyDescription() {
-  return (
-    <p className="pi-empty" role="status" aria-live="polite">
-      No description available for this product.
-    </p>
-  );
-}
-
 const ProductInfo = memo(function ProductInfo({ description = "" }) {
   const [expanded, setExpanded] = useState(false);
   const bodyRef = useRef(null);
 
+  const rawStr = useMemo(() => safeString(description), [description]);
+  const lines = useMemo(() => parseDescription(rawStr), [rawStr]);
+
+  const isLong = useMemo(() => {
+    return rawStr.length > CONFIG.COLLAPSE_THRESHOLD || lines.length > CONFIG.LINE_LIMIT;
+  }, [rawStr, lines]);
+
   useEffect(() => {
     setExpanded(false);
   }, [description]);
-
-  useEffect(() => {
-    if (expanded && bodyRef.current) {
-      bodyRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
-    }
-  }, [expanded]);
-
-  const lines = useMemo(() => parseDescription(description), [description]);
-  const isLong = useMemo(() => computeIsLong(description, lines), [description, lines]);
 
   const handleToggle = useCallback(() => {
     setExpanded((prev) => !prev);
@@ -174,46 +145,38 @@ const ProductInfo = memo(function ProductInfo({ description = "" }) {
   const bodyClassName = [
     "pi-description",
     !expanded && isLong ? "pi-description--collapsed" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  ].filter(Boolean).join(" ");
+
+  if (lines.length === 0) {
+    return (
+      <p className="pi-empty">
+        No description available for this product.
+      </p>
+    );
+  }
 
   return (
-    <section
-      className="pi-section"
-      aria-label="Product Description"
-      data-testid="product-info"
-    >
-      <h3 className="pi-section-title">Description</h3>
-
+    <section className="pi-section" data-testid="product-info">
       <div
         id="pi-description-body"
         ref={bodyRef}
         className={bodyClassName}
-        aria-live="polite"
       >
-        {lines.length > 0 ? (
-          <div role={lines.some((l) => l.type === "bullet") ? "list" : undefined}>
-            {lines.map((line) => (
-              <DescriptionLine
-                key={line.id}
-                type={line.type}
-                content={line.content}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptyDescription />
-        )}
+        <div role={lines.some((l) => l.type === "bullet") ? "list" : undefined}>
+          {lines.map((line) => (
+            <DescriptionLine
+              key={line.id}
+              type={line.type}
+              content={line.content}
+            />
+          ))}
+        </div>
 
         {!expanded && isLong && <FadeOverlay />}
       </div>
 
       {isLong && (
-        <ToggleButton
-          expanded={expanded}
-          onClick={handleToggle}
-        />
+        <ToggleButton expanded={expanded} onClick={handleToggle} />
       )}
     </section>
   );
