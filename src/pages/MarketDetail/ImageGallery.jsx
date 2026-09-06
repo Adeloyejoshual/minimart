@@ -7,7 +7,7 @@ import React, {
   memo,
 } from "react";
 
-import "./styles/ImageGallery.css";
+import "../../styles/ImageGallery.css"; // Ensure correct path to your CSS
 
 /* ─────────────────────────────────────────────────────────────
    Constants
@@ -259,7 +259,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [zoomed, total]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [zoomed, total]);
 
   /* ══════════════════════════════════════════════════════
      NAVIGATION
@@ -350,6 +350,9 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
         clearTimeout(longPressTimer.current);
       }
 
+      /* 🛑 If only 1 image, abort horizontal drag translation! */
+      if (total <= 1) return;
+
       /* Ignore mostly-vertical scrolls */
       if (!isDragging && dy > adx * 1.4) return;
 
@@ -357,7 +360,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
       setIsDragging(true);
       setDragOffset(dx);
     },
-    [isDragging],
+    [isDragging, total], // <-- Added 'total' to deps
   );
 
   /* Attach non-passive touchmove to real DOM node */
@@ -373,6 +376,13 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     clearTimeout(longPressTimer.current);
     if (!swipeStart.current) return;
 
+    /* 🛑 If only 1 image, reset swipe memory and abort */
+    if (total <= 1) {
+      swipeStart.current = null;
+      setIsDragging(false);
+      return;
+    }
+
     const dx      = dragOffset;
     const dt      = Date.now() - swipeStart.current.time;
     const dtSafe  = Math.max(dt, MIN_DT);
@@ -386,7 +396,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
 
     swipeStart.current = null;
     setIsDragging(false);
-  }, [dragOffset, next, prev]);
+  }, [dragOffset, next, prev, total]); // <-- Added 'total' to deps
 
   /* ══════════════════════════════════════════════════════
      TOUCH — Zoom overlay  (pinch + pan + double-tap)
@@ -557,16 +567,18 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             ))}
           </div>
 
-          {/* Counter */}
-          <span
-            className="ig-counter"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {current + 1} / {total}
-          </span>
+          {/* Counter (Hidden if only 1 image) */}
+          {total > 1 && (
+            <span
+              className="ig-counter"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {current + 1} / {total}
+            </span>
+          )}
 
-          {/* Dot indicators (≤ 8 slides) */}
+          {/* Dot indicators (≤ 8 slides, Hidden if only 1 image) */}
           {total > 1 && total <= 8 && (
             <div className="ig-dots" aria-hidden="true">
               {urls.map((_, i) => (
@@ -578,7 +590,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             </div>
           )}
 
-          {/* Arrow buttons */}
+          {/* Arrow buttons (Hidden if only 1 image) */}
           {total > 1 && (
             <>
               <button
@@ -608,7 +620,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
           )}
         </div>
 
-        {/* ── Thumbnail strip ──────────────────────────── */}
+        {/* ── Thumbnail strip (Hidden if only 1 image) ── */}
         {total > 1 && (
           <div
             ref={thumbTrack}
@@ -679,7 +691,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             />
           </div>
 
-          {/* Nav bar */}
+          {/* Nav bar (Hidden if only 1 image) */}
           {total > 1 && (
             <div
               className="ig-zoom-nav"
