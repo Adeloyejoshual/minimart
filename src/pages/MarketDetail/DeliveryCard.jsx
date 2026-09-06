@@ -1,11 +1,10 @@
 /**
  * src/pages/MarketDetail/DeliveryCard.jsx
- * Location-Aware Delivery Destination & Fee Calculator Component
+ * Location-Aware Delivery Destination Component
  * Configured strictly for Osun & Ondo (Ondo Town ONLY) coverage rules.
  */
 
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
-import { formatPrice } from "../../config/marketplace";
 
 // Source-of-truth matching backend service/location.js exactly
 const LOCAL_DELIVERY_ZONES = {
@@ -35,7 +34,6 @@ const LOCAL_DELIVERY_ZONES = {
 const DEFAULT_LOCATION = {
   state: "Osun",
   city: "Osogbo",
-  fee: 1500,
   minDays: 2,
   maxDays: 4,
 };
@@ -140,7 +138,6 @@ function DeliveryCard() {
     const newLoc = {
       state: tempState,
       city: savedCity,
-      fee: 1500, // standard flat delivery fee for current scope
       minDays: 2,
       maxDays: 4,
     };
@@ -153,8 +150,8 @@ function DeliveryCard() {
   // Calculated dynamic arrival delivery timeline range
   const estimatedDates = useMemo(() => {
     const now = new Date();
-    const minDate = addBusinessDays(now, location.minDays);
-    const maxDate = addBusinessDays(now, location.maxDays);
+    const minDate = addBusinessDays(now, location.minDays || 2);
+    const maxDate = addBusinessDays(now, location.maxDays || 4);
     const fmt = (d) =>
       d.toLocaleDateString("en-NG", {
         weekday: "short",
@@ -167,7 +164,7 @@ function DeliveryCard() {
   return (
     <>
       <div className="mdp-delivery-box">
-        {/* Destination Info */}
+        {/* Row 1: Destination Info */}
         <div className="mdp-delivery-row">
           <div className="mdp-delivery-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={18} height={18}>
@@ -186,19 +183,19 @@ function DeliveryCard() {
                 Change &gt;
               </button>
             </div>
-            {/* Clean presentation format: "Osogbo, Osun" (Strictly no "State" suffix) */}
+            {/* Clean presentation format: "Osogbo, Osun" */}
             <p className="mdp-delivery-address">
               <strong>{location.city}, {location.state}</strong>
             </p>
           </div>
         </div>
 
-        {/* Dynamic Estimated Timeline */}
-        <div className="mdp-delivery-row">
+        {/* Row 2: Dynamic Estimated Timeline */}
+        <div className="mdp-delivery-row mdp-delivery-row--last">
           <div className="mdp-delivery-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={18} height={18}>
               <rect x="1" y="3" width="15" height="13" />
-              <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+              <polygon points="16 8 20 8 23 11 23 16 16 16 8" />
               <circle cx="5.5" cy="18.5" r="2.5" />
               <circle cx="18.5" cy="18.5" r="2.5" />
             </svg>
@@ -207,23 +204,6 @@ function DeliveryCard() {
             <span className="mdp-delivery-label">Estimated Delivery:</span>
             <p className="mdp-delivery-value">
               <strong>{estimatedDates}</strong>
-            </p>
-          </div>
-        </div>
-
-        {/* Live Delivery Fee */}
-        <div className="mdp-delivery-row mdp-delivery-row--last">
-          <div className="mdp-delivery-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={18} height={18}>
-              <circle cx="12" cy="12" r="10" />
-              <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
-              <line x1="12" y1="18" x2="12" y2="6" />
-            </svg>
-          </div>
-          <div className="mdp-delivery-info">
-            <span className="mdp-delivery-label">Delivery Fee:</span>
-            <p className="mdp-delivery-value">
-              <strong>{formatPrice(location.fee)}</strong>
             </p>
           </div>
         </div>
@@ -287,23 +267,6 @@ function DeliveryCard() {
                     </option>
                   ))}
                 </select>
-              </div>
-
-              {/* Shipping Fee Preview */}
-              <div
-                style={{
-                  padding: "10px 12px",
-                  background: "var(--bg)",
-                  borderRadius: "var(--r1)",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: 12,
-                }}
-              >
-                <span style={{ color: "var(--ink2)" }}>Shipping Fee Preview:</span>
-                <strong style={{ color: "var(--o)", fontWeight: 700 }}>
-                  {formatPrice(location.fee)}
-                </strong>
               </div>
             </div>
 
