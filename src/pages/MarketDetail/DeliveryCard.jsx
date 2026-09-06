@@ -190,7 +190,7 @@ function DeliveryCard() {
           </div>
         </div>
 
-        {/* Row 2: Dynamic Estimated Timeline */}
+                {/* Row 2: Dynamic Estimated Timeline */}
         <div className="mdp-delivery-row mdp-delivery-row--last">
           <div className="mdp-delivery-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={18} height={18}>
@@ -200,14 +200,13 @@ function DeliveryCard() {
               <circle cx="18.5" cy="18.5" r="2.5" />
             </svg>
           </div>
-          <div className="mdp-delivery-info">
-            <span className="mdp-delivery-label">Estimated Delivery:</span>
-            <p className="mdp-delivery-value">
-              <strong>{estimatedDates}</strong>
+          <div className="mdp-delivery-info" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px" }}>
+            <span className="mdp-delivery-label" style={{ fontSize: "11px", color: "var(--ink2)" }}>Estimated Delivery:</span>
+            <p className="mdp-delivery-value" style={{ fontSize: "12px", fontWeight: 700, margin: 0, color: "var(--ink)" }}>
+              {estimatedDates}
             </p>
           </div>
         </div>
-      </div>
 
       {/* ── LOCATION SELECTOR MODAL ── */}
       {isModalOpen && (
