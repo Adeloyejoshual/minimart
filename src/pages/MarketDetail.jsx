@@ -521,7 +521,7 @@ export default function MarketDetail() {
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
   const [sheetIntent, setSheetIntent] = useState(null);
   
-  // State for toggling full Product Details (Description, Specs, Features) fullscreen overlay
+  // State for toggling full Product Details fullscreen overlay sheet
   const [showDescriptionPage, setShowDescriptionPage] = useState(false);
 
   const titleRef = useRef(null);
@@ -568,6 +568,14 @@ export default function MarketDetail() {
     if (product?.stock !== undefined) return Number(product.stock);
     return null;
   }, [selectedVariant, product]);
+
+  // Strip html from description and slice to create a short, clean inline word preview
+  const descriptionPreview = useMemo(() => {
+    if (!product?.description) return "";
+    const stripped = product.description.replace(/<[^>]*>/g, "");
+    if (stripped.length <= 130) return stripped;
+    return stripped.slice(0, 130).trim() + "...";
+  }, [product]);
 
   /* Route cleanup */
   useEffect(() => {
@@ -873,23 +881,36 @@ export default function MarketDetail() {
                 </div>
               ) : null}
 
-              {/* Immersive Product Details Trigger Row */}
+              {/* Clean Preview-Driven Product Details Trigger Block */}
               {hasDescriptionData && (
                 <div
-                  className="mdp-selection-trigger"
                   onClick={() => setShowDescriptionPage(true)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && setShowDescriptionPage(true)}
-                  style={{ marginTop: 10 }}
+                  style={{
+                    marginTop: 10,
+                    padding: "12px",
+                    background: "var(--wh)",
+                    border: "1px solid var(--bd)",
+                    borderRadius: "var(--r1)",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start"
+                  }}
                 >
-                  <div>
-                    <span style={{ fontSize: "11px", color: "var(--ink2)", display: "block", marginBottom: 2 }}>Product Details</span>
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)" }}>
-                      Description, Specs &amp; Features
-                    </span>
-                  </div>
-                  <span style={{ color: "var(--ink3)", fontWeight: "bold" }}>&gt;</span>
+                  <h3 style={{ fontSize: "13px", fontWeight: 700, margin: "0 0 6px", color: "var(--ink)" }}>
+                    Product Details
+                  </h3>
+                  {descriptionPreview && (
+                    <p style={{ fontSize: "12px", color: "var(--ink2)", margin: "0 0 8px", lineHeight: "1.4", textAlign: "left" }}>
+                      {descriptionPreview}
+                    </p>
+                  )}
+                  <span style={{ color: "var(--o)", fontSize: "12px", fontWeight: 700, display: "inline-flex", alignItems: "center" }}>
+                    More Details &gt;
+                  </span>
                 </div>
               )}
 
