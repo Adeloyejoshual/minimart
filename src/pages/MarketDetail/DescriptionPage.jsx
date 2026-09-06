@@ -1,6 +1,6 @@
 /**
  * src/pages/MarketDetail/DescriptionPage.jsx
- * Fullscreen Slide-over Page for Product Description, Key Features & Specifications
+ * Fullscreen page overlay for Product Description, Key Features & Specifications
  */
 
 import { useEffect, memo } from "react";
@@ -46,33 +46,36 @@ function DescriptionPage({ isOpen, onClose, product }) {
   const hasFeatures = product.key_features?.length > 0;
 
   return (
-    <div 
-      className="mdp-modal-overlay" 
+    <div
       style={{
         position: "fixed",
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        zIndex: 1100,
-        background: "var(--wh)",
+        width: "100vw",
+        height: "100vh",
+        zIndex: 9999,
+        background: "var(--wh, #ffffff)",
         display: "flex",
         flexDirection: "column",
-        animation: "slideInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)"
+        overflow: "hidden",
+        boxSizing: "border-box",
       }}
     >
-      {/* Immersive Details Header */}
+      {/* ── Top Navigation Header ── */}
       <header
         style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
+          height: "52px",
+          minHeight: "52px",
+          width: "100%",
           display: "flex",
           alignItems: "center",
           gap: "12px",
-          padding: "10px 14px",
-          background: "var(--wh)",
-          borderBottom: "1px solid var(--bd)",
+          padding: "0 16px",
+          background: "var(--wh, #ffffff)",
+          borderBottom: "1px solid var(--bd, #e5e5e5)",
+          boxSizing: "border-box",
         }}
       >
         <button
@@ -84,21 +87,23 @@ function DescriptionPage({ isOpen, onClose, product }) {
             height: "36px",
             borderRadius: "50%",
             border: "none",
-            background: "var(--bg)",
-            color: "var(--ink)",
+            background: "var(--bg, #f5f5f5)",
+            color: "var(--ink, #111111)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             cursor: "pointer",
+            padding: 0,
+            flexShrink: 0,
           }}
         >
           {Icon.back}
         </button>
         <h1
           style={{
-            fontSize: "15px",
+            fontSize: "16px",
             fontWeight: "700",
-            color: "var(--ink)",
+            color: "var(--ink, #111111)",
             margin: 0,
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -110,60 +115,116 @@ function DescriptionPage({ isOpen, onClose, product }) {
         </h1>
       </header>
 
-      {/* Details Body */}
-      <div 
+      {/* ── Scrollable Content Body ── */}
+      <div
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "16px 14px 40px",
+          padding: "20px 16px 40px",
+          width: "100%",
+          maxWidth: "768px",
+          margin: "0 auto",
+          boxSizing: "border-box",
           display: "flex",
           flexDirection: "column",
-          gap: "24px"
+          gap: "24px",
         }}
       >
-        {/* Product Name Title Header */}
+        {/* Brand & Product Title */}
         <div>
-          <span style={{ fontSize: "11px", color: "var(--ink2)", fontWeight: "600", textTransform: "uppercase" }}>
-            {product.brand || "Brand-Verified Item"}
-          </span>
-          <h2 style={{ fontSize: "16px", fontWeight: "700", color: "var(--ink)", margin: "4px 0 0" }}>
+          {product.brand && (
+            <span
+              style={{
+                fontSize: "12px",
+                color: "var(--ink2, #666666)",
+                fontWeight: "600",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                display: "block",
+                marginBottom: "4px",
+              }}
+            >
+              {product.brand}
+            </span>
+          )}
+          <h2
+            style={{
+              fontSize: "18px",
+              fontWeight: "700",
+              color: "var(--ink, #111111)",
+              margin: 0,
+              lineHeight: "1.3",
+            }}
+          >
             {product.name}
           </h2>
         </div>
 
-        {/* 1. Rich Description Block */}
+        {/* 1. Description Section */}
         {product.description && (
-          <div style={{ borderBottom: "1px solid var(--bd)", paddingBottom: "20px" }}>
-            <h3 style={{ fontSize: "14px", fontWeight: "700", color: "var(--ink)", margin: "0 0 10px" }}>
+          <div style={{ borderBottom: "1px solid var(--bd, #e5e5e5)", paddingBottom: "20px" }}>
+            <h3
+              style={{
+                fontSize: "15px",
+                fontWeight: "700",
+                color: "var(--ink, #111111)",
+                margin: "0 0 12px",
+              }}
+            >
               Description
             </h3>
             <ProductInfo description={product.description} />
           </div>
         )}
 
-        {/* 2. Key Features Block */}
+        {/* 2. Key Features Section */}
         {hasFeatures && (
-          <div style={{ borderBottom: "1px solid var(--bd)", paddingBottom: "20px" }}>
-            <h3 style={{ fontSize: "14px", fontWeight: "700", color: "var(--ink)", margin: "0 0 10px" }}>
+          <div style={{ borderBottom: "1px solid var(--bd, #e5e5e5)", paddingBottom: "20px" }}>
+            <h3
+              style={{
+                fontSize: "15px",
+                fontWeight: "700",
+                color: "var(--ink, #111111)",
+                margin: "0 0 12px",
+              }}
+            >
               Key Features
             </h3>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+              }}
+            >
               {product.key_features.map((f, i) => (
-                <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
                   <span style={{ color: "var(--gr, #2e7d32)", flexShrink: 0, display: "flex", marginTop: "2px" }}>
                     {Icon.check}
                   </span>
-                  <span style={{ fontSize: "13px", color: "var(--ink)" }}>{f?.feature ?? f}</span>
+                  <span style={{ fontSize: "14px", color: "var(--ink, #111111)", lineHeight: "1.4" }}>
+                    {f?.feature ?? f}
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
         )}
 
-        {/* 3. Dynamic Specifications Tables */}
+        {/* 3. Specifications Section */}
         {hasSpecs && (
           <div>
-            <h3 style={{ fontSize: "14px", fontWeight: "700", color: "var(--ink)", margin: "0 0 10px" }}>
+            <h3
+              style={{
+                fontSize: "15px",
+                fontWeight: "700",
+                color: "var(--ink, #111111)",
+                margin: "0 0 12px",
+              }}
+            >
               Specifications
             </h3>
             <SpecsSection specs={product.specifications || product.specs || product.attributes} />
