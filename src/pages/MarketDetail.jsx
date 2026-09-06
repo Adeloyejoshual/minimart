@@ -25,13 +25,12 @@ import useWishlist from "../hooks/useWishlist";
 import MarketDetailHeader from "../components/MarketDetailHeader";
 import ImageGallery       from "./MarketDetail/ImageGallery";
 import SellerCard         from "./MarketDetail/SellerCard";
-import ProductInfo        from "./MarketDetail/ProductInfo";
-import SpecsSection       from "./MarketDetail/SpecsSection";
 import RateProductModal   from "./MarketDetail/RateProductModal";
 import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 import ProductRails       from "./MarketDetail/ProductRails";
-import DeliveryCard       from "./MarketDetail/DeliveryCard"; // Added DeliveryCard import
+import DeliveryCard       from "./MarketDetail/DeliveryCard";
+import DescriptionPage    from "./MarketDetail/DescriptionPage"; // Immersive details overlay
 
 import "../styles/MarketDetail.css"; 
 
@@ -42,7 +41,7 @@ const RAW_BASE       = import.meta.env.VITE_API_BASE_URL || "";
 const API_ROOT       = RAW_BASE ? (RAW_BASE.endsWith("/api") ? RAW_BASE : `${RAW_BASE}/api`) : "/api";
 
 const SHOP_URL       = `${API_ROOT}/shop`;
-const API_URL        = SHOP_URL; // Fixed: Defined API_URL to match your endpoints
+const API_URL        = SHOP_URL; 
 const CART_URL       = `${API_ROOT}/cart`;
 const CART_ITEMS_URL = `${API_ROOT}/cart/items`;
 
@@ -90,7 +89,7 @@ const Icon = {
 const TRUST_BADGES = [
   { icon: Icon.lock,   label: "Secure Payment",  sub: "Protected checkout"  },
   { icon: Icon.check,  label: "Verified Seller", sub: "Identity confirmed"  },
-  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-4 business days"   }, // Updated to align with Osun/Ondo schedule
+  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-4 business days"   }, 
   { icon: Icon.return, label: "Easy Returns",    sub: "7-day return window" },
 ];
 
@@ -521,6 +520,9 @@ export default function MarketDetail() {
   const [showRateModal, setShowRateModal] = useState(false);
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
   const [sheetIntent, setSheetIntent] = useState(null);
+  
+  // State for toggling full Product Details (Description, Specs, Features) fullscreen overlay
+  const [showDescriptionPage, setShowDescriptionPage] = useState(false);
 
   const titleRef = useRef(null);
   const toastTimeoutRef = useRef(null);
@@ -782,6 +784,8 @@ export default function MarketDetail() {
   const stickyQty = inCart ? cartLineQty : qty;
   const stickyTotal = displayPrice * stickyQty;
 
+  const hasDescriptionData = !!(product?.description || product?.key_features?.length > 0 || product?.specifications?.length > 0 || product?.specs?.length > 0 || product?.attributes?.length > 0);
+
   return (
     <>
       <div className="md-page mdp-page">
@@ -869,6 +873,26 @@ export default function MarketDetail() {
                 </div>
               ) : null}
 
+              {/* Immersive Product Details Trigger Row */}
+              {hasDescriptionData && (
+                <div
+                  className="mdp-selection-trigger"
+                  onClick={() => setShowDescriptionPage(true)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && setShowDescriptionPage(true)}
+                  style={{ marginTop: 10 }}
+                >
+                  <div>
+                    <span style={{ fontSize: "11px", color: "var(--ink2)", display: "block", marginBottom: 2 }}>Product Details</span>
+                    <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)" }}>
+                      Description, Specs &amp; Features
+                    </span>
+                  </div>
+                  <span style={{ color: "var(--ink3)", fontWeight: "bold" }}>&gt;</span>
+                </div>
+              )}
+
               {/* Jumia Style Delivery Card & Buyer Protection Block */}
               <div className="mdp-section" style={{ padding: '10px 0 0', border: 'none', background: 'transparent' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -903,41 +927,12 @@ export default function MarketDetail() {
                 </div>
               </div>
 
-              {/* Description Section */}
-              {product.description && (
-                <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
-                  <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px', color: 'var(--ink)' }}>Description</h3>
-                  <ProductInfo description={product.description} />
-                </div>
-              )}
-
-              {/* Specifications Section */}
-              {(product.specifications?.length > 0 || product.specs?.length > 0 || product.attributes?.length > 0) && (
-                <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
-                  <SpecsSection specs={product.specifications || product.specs || product.attributes} />
-                </div>
-              )}
-
-              {/* Key Features */}
-              {product.key_features?.length > 0 && (
-                <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
-                  <h3 className="md-section-title mdp-section-title">Key Features</h3>
-                  <ul className="md-features-list mdp-features-list" style={{ background: 'transparent' }}>
-                    {product.key_features.map((f, i) => (
-                      <li key={i} className="md-feature-item mdp-feature-item" style={{ padding: '3px 0', background: 'transparent' }}>
-                        <span className="md-feat-check mdp-feat-check">{Icon.check}</span>
-                        <span style={{ fontSize: 12, color: 'var(--ink)' }}>{f?.feature ?? f}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
+              {/* FAQs Section */}
               <div style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)' }}>
                 <FAQAccordion />
               </div>
 
-              {/* SELLER CARD MOVED ABOVE REVIEWS */}
+              {/* Seller Information */}
               <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 8px', color: 'var(--ink)' }}>Sold by</h3>
                 <SellerCard product={product} />
@@ -954,7 +949,7 @@ export default function MarketDetail() {
                 />
               </div>
 
-              {/* TRUST BADGES & REPORT MOVED ABOVE RAILS */}
+              {/* Trust Badges & Safety Report Details */}
               <div className="mdp-section" style={{ padding: '12px 0', borderTop: 'none', background: 'transparent' }}>
                 <div className="mdp-trust-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, margin: '0 0 10px' }}>
                   {TRUST_BADGES.map((b) => (
@@ -977,7 +972,7 @@ export default function MarketDetail() {
                 </button>
               </div>
 
-              {/* Product Rails */}
+              {/* Related Products Rails */}
               <div className="mdp-section mdp-section--rails">
                 <ProductRails product={product} />
               </div>
@@ -987,7 +982,7 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* Sticky Bar */}
+      {/* Sticky Bottom Summary Bar */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
@@ -1093,6 +1088,7 @@ export default function MarketDetail() {
         </div>
       )}
 
+      {/* Floating Action Cart Trigger */}
       {cartCount > 0 && (
         <button
           type="button"
@@ -1107,6 +1103,7 @@ export default function MarketDetail() {
         </button>
       )}
 
+      {/* Variants Selection Sheet */}
       <VariantBottomSheet
         isOpen={!!sheetIntent}
         onClose={() => setSheetIntent(null)}
@@ -1122,6 +1119,7 @@ export default function MarketDetail() {
         isSubmitting={false}
       />
 
+      {/* Toast Confirmation Box */}
       <CartToast
         show={addedToCart}
         productName={product?.name ?? "Item"}
@@ -1129,6 +1127,13 @@ export default function MarketDetail() {
         image={product ? getProductImage(product) : null}
         onView={goToCart}
         onClose={() => setAddedToCart(false)}
+      />
+
+      {/* Fullscreen Product Description & Specifications Sub-page */}
+      <DescriptionPage
+        isOpen={showDescriptionPage}
+        onClose={() => setShowDescriptionPage(false)}
+        product={product}
       />
 
       {showReport && product && (
