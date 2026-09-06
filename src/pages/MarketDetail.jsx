@@ -30,18 +30,17 @@ import ProductReviews     from "./MarketDetail/ProductReviews";
 import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 import ProductRails       from "./MarketDetail/ProductRails";
 import DeliveryCard       from "./MarketDetail/DeliveryCard";
-import DescriptionPage    from "./MarketDetail/DescriptionPage"; // Immersive details overlay
+import DescriptionPage    from "./MarketDetail/DescriptionPage";
 
-import "../styles/MarketDetail.css"; 
+import "../styles/MarketDetail.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API ROUTES
 ═══════════════════════════════════════════════════════════════ */
 const RAW_BASE       = import.meta.env.VITE_API_BASE_URL || "";
 const API_ROOT       = RAW_BASE ? (RAW_BASE.endsWith("/api") ? RAW_BASE : `${RAW_BASE}/api`) : "/api";
-
 const SHOP_URL       = `${API_ROOT}/shop`;
-const API_URL        = SHOP_URL; 
+const API_URL        = SHOP_URL;
 const CART_URL       = `${API_ROOT}/cart`;
 const CART_ITEMS_URL = `${API_ROOT}/cart/items`;
 
@@ -89,16 +88,16 @@ const Icon = {
 const TRUST_BADGES = [
   { icon: Icon.lock,   label: "Secure Payment",  sub: "Protected checkout"  },
   { icon: Icon.check,  label: "Verified Seller", sub: "Identity confirmed"  },
-  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-4 business days"   }, 
+  { icon: Icon.truck,  label: "Fast Delivery",   sub: "2-4 business days"   },
   { icon: Icon.return, label: "Easy Returns",    sub: "7-day return window" },
 ];
 
 const REPORT_REASONS = [
-  { key: "fake",          label: "Fake or counterfeit product",     icon: Icon.alert },
-  { key: "misleading",    label: "Wrong or misleading information", icon: Icon.info },
-  { key: "prohibited",    label: "Prohibited item",                 icon: Icon.alert },
-  { key: "scam",          label: "Spam or scam",                    icon: Icon.alert },
-  { key: "other",         label: "Other reason",                    icon: Icon.info },
+  { key: "fake",       label: "Fake or counterfeit product",     icon: Icon.alert },
+  { key: "misleading", label: "Wrong or misleading information", icon: Icon.info  },
+  { key: "prohibited", label: "Prohibited item",                 icon: Icon.alert },
+  { key: "scam",       label: "Spam or scam",                    icon: Icon.alert },
+  { key: "other",      label: "Other reason",                    icon: Icon.info  },
 ];
 
 /* ═══════════════════════════════════════════════════════════════
@@ -207,7 +206,7 @@ const getRating = (product) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   BREADCRUMBS & COMPONENTS
+   BREADCRUMBS
 ═══════════════════════════════════════════════════════════════ */
 const isUuid = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || ""));
 
@@ -250,21 +249,26 @@ const Breadcrumbs = memo(function Breadcrumbs({ product }) {
   if (!items.length) return null;
   return (
     <nav className="mdp-breadcrumbs" aria-label="Breadcrumb">
-      <div className="mdp-breadcrumbs__inner">
-        {items.map((item, idx) => {
-          const isLast = idx === items.length - 1;
-          return (
-            <span key={idx} className="mdp-breadcrumbs__item">
-              {idx > 0 && <span className="mdp-breadcrumbs__sep" aria-hidden="true">&gt;</span>}
-              {isLast ? <span className="mdp-breadcrumbs__current" aria-current="page">{item.label}</span> : <button type="button" className="mdp-breadcrumbs__link" onClick={() => item.path && navigate(item.path)}>{item.label}</button>}
-            </span>
-          );
-        })}
-      </div>
+      {items.map((item, idx) => {
+        const isLast = idx === items.length - 1;
+        return (
+          <span key={idx} className="mdp-breadcrumbs__item">
+            {idx > 0 && <span className="mdp-breadcrumbs__sep" aria-hidden="true">&gt;</span>}
+            {isLast ? (
+              <span className="mdp-breadcrumbs__current" aria-current="page">{item.label}</span>
+            ) : (
+              <button type="button" className="mdp-breadcrumbs__link" onClick={() => item.path && navigate(item.path)}>{item.label}</button>
+            )}
+          </span>
+        );
+      })}
     </nav>
   );
 });
 
+/* ═══════════════════════════════════════════════════════════════
+   SUB-COMPONENTS
+═══════════════════════════════════════════════════════════════ */
 const StickyMiniHeader = memo(function StickyMiniHeader({ visible, product, displayPrice, onCartClick, disabled }) {
   if (!product) return null;
   const img = getProductImage(product);
@@ -352,7 +356,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
     try {
       await axios.post(`${SHOP_URL}/${productId}/report`, { reason, details }, { headers: authHeaders() });
       setSubmitted(true);
-    } catch { setSubmitted(true); } 
+    } catch { setSubmitted(true); }
     finally { setSubmitting(false); }
   }, [productId, reason, details]);
 
@@ -396,7 +400,6 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
   );
 });
 
-/* ── BUYER PROTECTION MODAL ── */
 const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
   useEffect(() => {
     const fn = (e) => e.key === "Escape" && onClose();
@@ -414,9 +417,7 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
           <button className="mdp-modal-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="mdp-modal-body">
-          <div className="mdp-protection-grid" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            
-            {/* 1. Payment Protection */}
+          <div className="mdp-protection-grid">
             <div className="mdp-protection-item">
               <span className="mdp-p-icon">{Icon.lock}</span>
               <div>
@@ -424,8 +425,6 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
                 <p>Your payment is processed securely and protected while your order is being completed.</p>
               </div>
             </div>
-
-            {/* 2. Refund Protection */}
             <div className="mdp-protection-item">
               <span className="mdp-p-icon">{Icon.money}</span>
               <div>
@@ -433,8 +432,6 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
                 <p>If your order doesn’t arrive or arrives damaged, you may be eligible for a refund under our refund policy.</p>
               </div>
             </div>
-
-            {/* 3. 7-Day Returns */}
             <div className="mdp-protection-item">
               <span className="mdp-p-icon">{Icon.return}</span>
               <div>
@@ -442,8 +439,6 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
                 <p>Check your order when it arrives. Eligible items can be returned within 7 days.</p>
               </div>
             </div>
-
-            {/* 4. Dispute Support */}
             <div className="mdp-protection-item">
               <span className="mdp-p-icon">{Icon.scale}</span>
               <div>
@@ -451,11 +446,10 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
                 <p>If there’s a problem with your order, report it from your Account and our support team will help resolve the issue.</p>
               </div>
             </div>
-
           </div>
         </div>
         <div className="mdp-modal-footer">
-          <button className="mdp-done-btn" style={{ width: "100%" }} onClick={onClose}>Got it, thanks!</button>
+          <button className="mdp-modal-submit" style={{ width: "100%" }} onClick={onClose}>Got it, thanks!</button>
         </div>
       </div>
     </div>
@@ -471,15 +465,16 @@ const FAQAccordion = memo(function FAQAccordion() {
   ], []);
 
   return (
-    <div className="md-section mdp-section mdp-faq-section" style={{ padding: '0', border: 'none' }}>
-      <h3 className="md-section-title mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> FAQ</h3>
+    <div className="mdp-faq-section">
+      <h3 className="mdp-section-title"><span className="mdp-icon-inline">{Icon.info}</span> FAQ</h3>
       <div className="mdp-faq-list">
         {faqs.map((faq, idx) => {
           const isOpen = openIndex === idx;
           return (
             <div key={idx} className={`mdp-faq-item ${isOpen ? "mdp-faq-item--open" : ""}`}>
               <button type="button" className="mdp-faq-trigger" onClick={() => setOpenIndex(isOpen ? null : idx)} aria-expanded={isOpen}>
-                <span>{faq.q}</span><span className="mdp-faq-arrow" aria-hidden="true">{Icon.chevron}</span>
+                <span>{faq.q}</span>
+                <span className="mdp-faq-arrow" aria-hidden="true">{Icon.chevron}</span>
               </button>
               {isOpen && <div className="mdp-faq-content"><p>{faq.a}</p></div>}
             </div>
@@ -506,22 +501,19 @@ export default function MarketDetail() {
 
   const [qty, setQty] = useState(1);
   const [addedToCart, setAddedToCart] = useState(false);
-  const [addingToCart, setAddingToCart] = useState(false);
   const [cartError, setCartError] = useState(null);
   const [cartCount, setCartCount] = useState(() => isLoggedIn() ? 0 : guestCartCount());
 
   const [inCart, setInCart] = useState(false);
   const [cartLineQty, setCartLineQty] = useState(0);
   const [cartItemId, setCartItemId] = useState(null);
-  const [updatingQty, setUpdatingQty] = useState(false);
+  const [updatingQty] = useState(false);
 
   const [showReport, setShowReport] = useState(false);
   const [showProtection, setShowProtection] = useState(false);
   const [showRateModal, setShowRateModal] = useState(false);
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
   const [sheetIntent, setSheetIntent] = useState(null);
-  
-  // State for toggling full Product Details fullscreen overlay sheet
   const [showDescriptionPage, setShowDescriptionPage] = useState(false);
 
   const titleRef = useRef(null);
@@ -555,7 +547,6 @@ export default function MarketDetail() {
     return calcDiscount(displayPrice, originalPrice);
   }, [displayPrice, originalPrice]);
   const savings = useMemo(() => (originalPrice > displayPrice && displayPrice > 0 ? originalPrice - displayPrice : 0), [originalPrice, displayPrice]);
-  const total = useMemo(() => displayPrice * qty, [displayPrice, qty]);
 
   const isOutOfStock = useMemo(() => {
     if (selectedVariant && typeof selectedVariant.stock === "number") return selectedVariant.stock <= 0;
@@ -569,7 +560,6 @@ export default function MarketDetail() {
     return null;
   }, [selectedVariant, product]);
 
-  // Strip html from description and slice to create a short, clean inline word preview
   const descriptionPreview = useMemo(() => {
     if (!product?.description) return "";
     const stripped = product.description.replace(/<[^>]*>/g, "");
@@ -639,7 +629,7 @@ export default function MarketDetail() {
     if (stockLeft != null && stockLeft > 0 && qty > stockLeft) setQty(stockLeft);
   }, [stockLeft, qty]);
 
-  /* RESTORE CART LINE ON LOAD / REFRESH */
+  /* Restore cart line */
   useEffect(() => {
     if (!product?.id) return;
     let cancelled = false;
@@ -685,9 +675,6 @@ export default function MarketDetail() {
     return () => { cancelled = true; };
   }, [product?.id, selectedVariant?.id, product?.variants]);
 
-  /* ════════════════════════════════════════════════════════
-     HIGH-SPEED OPTIMISTIC ADD TO CART
-  ════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || isOutOfStock) return false;
     const addQty = Math.max(1, parseInt(qty, 10) || 1);
@@ -791,7 +778,6 @@ export default function MarketDetail() {
 
   const stickyQty = inCart ? cartLineQty : qty;
   const stickyTotal = displayPrice * stickyQty;
-
   const hasDescriptionData = !!(product?.description || product?.key_features?.length > 0 || product?.specifications?.length > 0 || product?.specs?.length > 0 || product?.attributes?.length > 0);
 
   return (
@@ -837,130 +823,96 @@ export default function MarketDetail() {
                 <button type="button" className="mdp-share-btn" onClick={handleShare} aria-label="Share product">{Icon.share}</button>
               </div>
 
-              <div className="mdp-section mdp-section--price" style={{ padding: '0', border: 'none' }}>
-                <div className="md-price-block mdp-price-block">
-                  <span className="md-price mdp-price">{formatPrice(displayPrice)}</span>
-                  {originalPrice > displayPrice && (
-                    <>
-                      <span className="md-original mdp-original">{formatPrice(originalPrice)}</span>
-                      <span className="md-disc-badge mdp-disc-badge">-{discount}%</span>
-                    </>
-                  )}
-                </div>
-                {savings > 0 && (
-                  <p className="md-savings mdp-savings">
-                    <span className="mdp-icon-inline">{Icon.sparkle}</span> You save {formatPrice(savings)} today
-                  </p>
-                )}
-                {isOutOfStock && (
-                  <div className="mdp-stock mdp-stock--out">
-                    <span className="mdp-stock__dot" />
-                    <span className="mdp-stock__text">Out of stock</span>
-                  </div>
+              <div className="md-price-block mdp-price-block">
+                <span className="md-price mdp-price">{formatPrice(displayPrice)}</span>
+                {originalPrice > displayPrice && (
+                  <>
+                    <span className="md-original mdp-original">{formatPrice(originalPrice)}</span>
+                    <span className="md-disc-badge mdp-disc-badge">-{discount}%</span>
+                  </>
                 )}
               </div>
+              {savings > 0 && (
+                <p className="md-savings mdp-savings">
+                  <span className="mdp-icon-inline">{Icon.sparkle}</span> You save {formatPrice(savings)} today
+                </p>
+              )}
+              {isOutOfStock && (
+                <div className="mdp-stock mdp-stock--out">
+                  <span className="mdp-stock__dot" />
+                  <span className="mdp-stock__text">Out of stock</span>
+                </div>
+              )}
 
               {/* Options / Selection Trigger */}
-              {hasVariants ? (
+              {hasVariants && (
                 <div
                   className="mdp-selection-trigger"
                   onClick={() => setSheetIntent('cart')}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && setSheetIntent('cart')}
-                  style={{ marginTop: 10 }}
                 >
                   <div>
-                    <span style={{ fontSize: "11px", color: "var(--ink2)", display: "block", marginBottom: 2 }}>Options & Quantity</span>
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)" }}>
+                    <span className="mdp-sel-label">Options &amp; Quantity</span>
+                    <span className="mdp-sel-value">
                       {selectedVariant ? `${selectedVariant.name || selectedVariant.attributes?.color || selectedVariant.attributes?.size || "Selected"} • Qty: ${stickyQty}` : "Select options"}
                       {inCart ? "  ·  In cart" : ""}
                     </span>
                   </div>
-                  <span style={{ color: "var(--ink3)", fontWeight: "bold" }}>&gt;</span>
+                  <span className="mdp-sel-chevron" aria-hidden="true">&gt;</span>
                 </div>
-              ) : null}
+              )}
 
-              {/* Clean Preview-Driven Product Details Trigger Block */}
+              {/* Product Details Preview Trigger */}
               {hasDescriptionData && (
                 <div
+                  className="mdp-selection-trigger"
                   onClick={() => setShowDescriptionPage(true)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && setShowDescriptionPage(true)}
-                  style={{
-                    marginTop: 10,
-                    padding: "12px",
-                    background: "var(--wh)",
-                    border: "1px solid var(--bd)",
-                    borderRadius: "var(--r1)",
-                    cursor: "pointer",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-start"
-                  }}
                 >
-                  <h3 style={{ fontSize: "13px", fontWeight: 700, margin: "0 0 6px", color: "var(--ink)" }}>
-                    Product Details
-                  </h3>
-                  {descriptionPreview && (
-                    <p style={{ fontSize: "12px", color: "var(--ink2)", margin: "0 0 8px", lineHeight: "1.4", textAlign: "left" }}>
-                      {descriptionPreview}
-                    </p>
-                  )}
-                  <span style={{ color: "var(--o)", fontSize: "12px", fontWeight: 700, display: "inline-flex", alignItems: "center" }}>
-                    More Details &gt;
-                  </span>
+                  <div>
+                    <span className="mdp-sel-label">Product Details</span>
+                    <span className="mdp-sel-value">
+                      {descriptionPreview || "Description, Specs & Features"}
+                    </span>
+                  </div>
+                  <span className="mdp-sel-chevron" aria-hidden="true">&gt;</span>
                 </div>
               )}
 
-              {/* Jumia Style Delivery Card & Buyer Protection Block */}
-              <div className="mdp-section" style={{ padding: '10px 0 0', border: 'none', background: 'transparent' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  
-                  {/* Location-Aware Delivery Dynamic Component */}
-                  <DeliveryCard />
+              {/* Delivery Card & Buyer Protection */}
+              <DeliveryCard />
 
-                  {/* Protection Card */}
-                  <div 
-                    style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 10, 
-                      padding: '10px 12px', 
-                      background: 'var(--wh)', 
-                      border: '1px solid var(--bd)', 
-                      borderRadius: 'var(--r1)', 
-                      cursor: 'pointer' 
-                    }} 
-                    onClick={() => setShowProtection(true)}
-                  >
-                    <div style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}>{Icon.shield}</div>
-                    <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block' }}>Loemart Buyer Protection</span>
-                        <p style={{ fontSize: 11, color: 'var(--ink2)', margin: 0 }}>Get item ordered or money back</p>
-                      </div>
-                      <span style={{ fontSize: 12, color: 'var(--o)', fontWeight: 700, flexShrink: 0, marginLeft: 8 }}>Learn More &gt;</span>
-                    </div>
-                  </div>
-
+              <div
+                className="mdp-selection-trigger"
+                onClick={() => setShowProtection(true)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && setShowProtection(true)}
+              >
+                <div>
+                  <span className="mdp-sel-label">Loemart Buyer Protection</span>
+                  <span className="mdp-sel-value">Get item ordered or money back</span>
                 </div>
+                <span className="mdp-sel-chevron" aria-hidden="true">&gt;</span>
               </div>
 
-              {/* FAQs Section */}
-              <div style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)' }}>
+              {/* FAQ */}
+              <div className="mdp-section" style={{ padding: "12px 0", borderTop: "1px solid var(--bd)" }}>
                 <FAQAccordion />
               </div>
 
-              {/* Seller Information */}
-              <div className="mdp-section" style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)', borderTop: 'none' }}>
-                <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 8px', color: 'var(--ink)' }}>Sold by</h3>
+              {/* Seller */}
+              <div className="mdp-section" style={{ padding: "10px 0", borderTop: "1px solid var(--bd)" }}>
+                <h3 className="mdp-section-title">Sold by</h3>
                 <SellerCard product={product} />
               </div>
 
-              {/* Product Reviews */}
-              <div style={{ padding: '12px 0', borderBottom: '1px solid var(--bd)' }}>
+              {/* Reviews */}
+              <div className="mdp-reviews-wrapper" style={{ borderTop: "1px solid var(--bd)" }}>
                 <ProductReviews
                   productId={product.id}
                   rating={rating}
@@ -970,49 +922,41 @@ export default function MarketDetail() {
                 />
               </div>
 
-              {/* Trust Badges & Safety Report Details */}
-              <div className="mdp-section" style={{ padding: '12px 0', borderTop: 'none', background: 'transparent' }}>
-                <div className="mdp-trust-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, margin: '0 0 10px' }}>
+              {/* Trust Badges */}
+              <div className="mdp-section" style={{ padding: "10px 0", borderTop: "1px solid var(--bd)" }}>
+                <div className="mdp-trust-grid">
                   {TRUST_BADGES.map((b) => (
-                    <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--wh)', border: '1px solid var(--bd)', borderRadius: 'var(--r1)' }}>
-                      <span style={{ color: 'var(--o)', display: 'flex' }}>{b.icon}</span>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>{b.label}</span>
-                        <span style={{ fontSize: 10, color: 'var(--ink2)' }}>{b.sub}</span>
+                    <div key={b.label} className="mdp-trust-item">
+                      <span className="mdp-trust-icon">{b.icon}</span>
+                      <div>
+                        <p className="mdp-trust-label">{b.label}</p>
+                        <p className="mdp-trust-sub">{b.sub}</p>
                       </div>
                     </div>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  className="md-report-btn mdp-report-btn"
-                  onClick={() => setShowReport(true)}
-                  style={{ padding: '10px', background: 'var(--wh)', fontSize: 12 }}
-                >
+                <button type="button" className="md-report-btn mdp-report-btn" onClick={() => setShowReport(true)}>
                   {Icon.flag} <span>Report this listing</span>
                 </button>
               </div>
 
-              {/* Related Products Rails */}
+              {/* Related Products */}
               <div className="mdp-section mdp-section--rails">
                 <ProductRails product={product} />
               </div>
-
             </div>
           </div>
         )}
       </div>
 
-      {/* Sticky Bottom Summary Bar */}
+      {/* Sticky Bottom Bar */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
             <div className="mdp-sticky-price-wrap">
               <span className="mdp-sticky-price">{formatPrice(stickyTotal)}</span>
               {stickyQty > 1 && (
-                <span className="mdp-sticky-qty-note">
-                  {formatPrice(displayPrice)} × {stickyQty}
-                </span>
+                <span className="mdp-sticky-qty-note">{formatPrice(displayPrice)} × {stickyQty}</span>
               )}
             </div>
           </div>
@@ -1023,84 +967,26 @@ export default function MarketDetail() {
             {inCart ? (
               <>
                 {hasVariants && (
-                  <button
-                    type="button"
-                    className="mdp-sticky-options-btn"
-                    onClick={() => setSheetIntent('cart')}
-                    aria-label="Options"
-                  >
+                  <button type="button" className="mdp-sticky-options-btn" onClick={() => setSheetIntent('cart')} aria-label="Options">
                     Options
                   </button>
                 )}
                 <div className="mdp-sticky-qty mdp-sticky-qty--full">
-                  <button
-                    type="button"
-                    className="mdp-sticky-qty__btn"
-                    onClick={() => handleStickyQtyChange(cartLineQty - 1)}
-                    disabled={updatingQty}
-                    aria-label="Decrease"
-                  >
-                    −
-                  </button>
+                  <button type="button" className="mdp-sticky-qty__btn" onClick={() => handleStickyQtyChange(cartLineQty - 1)} disabled={updatingQty} aria-label="Decrease">−</button>
                   <span className="mdp-sticky-qty__val">{cartLineQty}</span>
-                  <button
-                    type="button"
-                    className="mdp-sticky-qty__btn"
-                    onClick={() => handleStickyQtyChange(cartLineQty + 1)}
-                    disabled={
-                      updatingQty ||
-                      isOutOfStock ||
-                      cartLineQty >= MAX_QTY ||
-                      (stockLeft != null && cartLineQty >= stockLeft)
-                    }
-                    aria-label="Increase"
-                  >
-                    +
-                  </button>
+                  <button type="button" className="mdp-sticky-qty__btn" onClick={() => handleStickyQtyChange(cartLineQty + 1)} disabled={updatingQty || isOutOfStock || cartLineQty >= MAX_QTY || (stockLeft != null && cartLineQty >= stockLeft)} aria-label="Increase">+</button>
                 </div>
               </>
             ) : (
               <>
                 {!hasVariants && (
                   <div className="mdp-sticky-qty">
-                    <button
-                      type="button"
-                      className="mdp-sticky-qty__btn"
-                      onClick={() => setQty((q) => Math.max(1, q - 1))}
-                      disabled={qty <= 1 || isOutOfStock}
-                    >
-                      −
-                    </button>
+                    <button type="button" className="mdp-sticky-qty__btn" onClick={() => setQty((q) => Math.max(1, q - 1))} disabled={qty <= 1 || isOutOfStock}>−</button>
                     <span className="mdp-sticky-qty__val">{qty}</span>
-                    <button
-                      type="button"
-                      className="mdp-sticky-qty__btn"
-                      onClick={() =>
-                        setQty((q) =>
-                          Math.min(
-                            MAX_QTY,
-                            stockLeft > 0 ? Math.min(stockLeft, q + 1) : q + 1
-                          )
-                        )
-                      }
-                      disabled={
-                        isOutOfStock ||
-                        qty >= MAX_QTY ||
-                        (stockLeft != null && qty >= stockLeft)
-                      }
-                    >
-                      +
-                    </button>
+                    <button type="button" className="mdp-sticky-qty__btn" onClick={() => setQty((q) => Math.min(MAX_QTY, stockLeft > 0 ? Math.min(stockLeft, q + 1) : q + 1))} disabled={isOutOfStock || qty >= MAX_QTY || (stockLeft != null && qty >= stockLeft)}>+</button>
                   </div>
                 )}
-                <button
-                  type="button"
-                  className={`mdp-btn-cart-primary${
-                    addedToCart ? " mdp-btn-cart-primary--done" : ""
-                  }`}
-                  onClick={handleCartClick}
-                  disabled={isOutOfStock}
-                >
+                <button type="button" className={`mdp-btn-cart-primary${addedToCart ? " mdp-btn-cart-primary--done" : ""}`} onClick={handleCartClick} disabled={isOutOfStock}>
                   {isOutOfStock ? "OUT OF STOCK" : "ADD TO CART"}
                 </button>
               </>
@@ -1109,22 +995,13 @@ export default function MarketDetail() {
         </div>
       )}
 
-      {/* Floating Action Cart Trigger */}
       {cartCount > 0 && (
-        <button
-          type="button"
-          className="mdp-float-cart"
-          onClick={goToCart}
-          aria-label="View cart"
-        >
+        <button type="button" className="mdp-float-cart" onClick={goToCart} aria-label="View cart">
           {Icon.cart}
-          <span className="mdp-float-cart__badge">
-            {cartCount > 99 ? "99+" : cartCount}
-          </span>
+          <span className="mdp-float-cart__badge">{cartCount > 99 ? "99+" : cartCount}</span>
         </button>
       )}
 
-      {/* Variants Selection Sheet */}
       <VariantBottomSheet
         isOpen={!!sheetIntent}
         onClose={() => setSheetIntent(null)}
@@ -1140,7 +1017,6 @@ export default function MarketDetail() {
         isSubmitting={false}
       />
 
-      {/* Toast Confirmation Box */}
       <CartToast
         show={addedToCart}
         productName={product?.name ?? "Item"}
@@ -1150,7 +1026,6 @@ export default function MarketDetail() {
         onClose={() => setAddedToCart(false)}
       />
 
-      {/* Fullscreen Product Description & Specifications Sub-page */}
       <DescriptionPage
         isOpen={showDescriptionPage}
         onClose={() => setShowDescriptionPage(false)}
