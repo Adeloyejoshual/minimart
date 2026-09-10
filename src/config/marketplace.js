@@ -104,82 +104,144 @@ export function getProductImage(product) {
 
 // ---------------- SIZE GUIDE (clothes & shoes only) ----------------
 const APPAREL_RE =
-  /cloth|apparel|fashion|shirt|t-?shirt|tee\b|polo|jersey|hoodie|sweat|jacket|coat|dress|skirt|jean|trouser|pant|short|legging|top\b|blouse|wear|uniform|kit\b|sock|bra|underwear|cap|hat/;
+  /\b(cloth(?:ing|es)?|apparel|fashion|shirt|t-?shirt|tee|polo|jersey|hoodie|sweatshirt|sweater|jacket|coat|blazer|suit|dress|gown|skirt|jean|jeans|trouser|trousers|pant|pants|short|shorts|legging|leggings|top|blouse|uniform|sock|socks|bra|underwear|boxer|boxers|brief|briefs|lingerie|pyjama|pajama|jumpsuit|romper|cardigan|abaya|kaftan|agbada|ankara|jalabiya|senator|hijab)\b/i;
 
 const FOOTWEAR_RE =
-  /shoe|sneaker|boot|sandal|heel|loafer|slipper|footwear|trainer|cleat/;
+  /\b(shoe|shoes|sneaker|sneakers|boot|boots|sandal|sandals|heel|heels|loafer|loafers|slipper|slippers|slide|slides|footwear|trainer|trainers|cleat|cleats|moccasin|moccasins|brogue|brogues|clog|clogs|espadrille|espadrilles|flip-?flops?|palm slippers?)\b/i;
 
+/* Hard block — electronics & other non-wearables can never show a size guide */
+const NON_APPAREL_RE =
+  /\b(phone|phones|iphone|android|samsung|tecno|infinix|itel|xiaomi|redmi|oppo|vivo|nokia|huawei|pixel|smartphone|tablet|ipad|laptop|macbook|computer|pc|monitor|keyboard|mouse|charger|cable|adapter|power ?bank|earbud|earbuds|airpod|airpods|headphone|headphones|earphone|earphones|speaker|speakers|tv|television|camera|console|playstation|xbox|nintendo|drone|router|modem|ssd|hdd|ram|storage|memory card|flash drive|generator|fridge|freezer|microwave|blender|electronics?|gadget|gadgets|smartwatch)\b/i;
+
+/* Attribute keys that indicate a REAL wearable size (not storage etc.) */
 const SIZE_ATTR_KEYS = new Set([
   "size",
   "sizes",
+  "shirt_size",
+  "cloth_size",
+  "clothing_size",
   "shoe_size",
   "shoe size",
   "eu",
   "uk",
   "us",
   "waist",
+  "chest",
   "length",
+  "inseam",
 ]);
 
+/** Build one lowercase searchable string from all product identity fields */
 function productSearchBlob(product) {
-  const cat = String(
-    product?.category?.name ||
-      product?.category?.title ||
-      product?.category ||
-      product?.category_path?.[0]?.name ||
-      product?.categories?.[0]?.name ||
-      ""
-  );
-  const name = String(product?.name || "");
-  const slug = String(product?.slug || "");
-  return `${cat} ${name} ${slug}`.toLowerCase();
+  if (!product) return "";
+
+  const parts = [
+    product?.name,
+    product?.title,
+    product?.slug,
+    product?.type,
+    product?.product_type,
+    product?.department,
+    product?.subcategory,
+    product?.subcategory_name,
+    product?.category?.name,
+    product?.category?.title,
+    product?.category,
+    product?.category_name,
+    product?.category_path?.[0]?.name,
+    ...(Array.isArray(product?.categories)
+      ? product.categories.map((c) => (typeof c === "object" ? c?.name || c?.title : c))
+      : []),
+    ...(Array.isArray(product?.tags) ? product.tags : []),
+  ];
+
+  return parts
+    .filter(Boolean)
+    .map((v) => String(v).toLowerCase())
+    .join(" ");
 }
 
-/** Clothes or shoes by category / name */
+/** "128GB" is not a size. "XL", "42", "30-32" are. */
+function looksLikeWearableSizeValue(value) {
+  const s = String(value ?? "").trim().toLowerCase();
+  if (!s) return false;
+
+  // explicitly reject storage / capacity values
+  if (/\b\d+\s?(gb|tb|mb|kb)\b/.test(s)) return false;
+
+  return (
+    /^(xxxs|xxs|xs|s|m|l|xl|xxl|xxxl|2xl|3xl|4xl|5xl)$/i.test(s) ||
+    /^(small|medium|large|extra[ -]?large|extra[ -]?small)$/i.test(s) ||
+    /^(free size|one size)$/i.test(s) ||
+    /^\d{2}([–-]\d{2})?$/.test(s) || // 30 or 30-32 (waist/chest)
+    /^\d{1,2}(\.\d)?$/.test(s)       // 6, 7.5, 42 (shoe sizes)
+  );
+}
+
+/** Clothes or shoes by category / name — hard-blocked for electronics */
 export function isApparelOrFootwear(product) {
   if (!product) return false;
+
   const blob = productSearchBlob(product);
+  if (!blob) return false;
+
+  // hard stop: phones, electronics, gadgets
+  if (NON_APPAREL_RE.test(blob)) return false;
+
   return APPAREL_RE.test(blob) || FOOTWEAR_RE.test(blob);
 }
 
 export function isFootwear(product) {
   if (!product) return false;
-  return FOOTWEAR_RE.test(productSearchBlob(product));
+
+  const blob = productSearchBlob(product);
+  if (NON_APPAREL_RE.test(blob)) return false;
+
+  return FOOTWEAR_RE.test(blob);
 }
 
-/** Variants expose a size-like attribute */
+/** Variants expose a REAL clothing/shoe size attribute */
 export function variantHasSize(product) {
   const list = product?.variants;
   if (!Array.isArray(list) || !list.length) return false;
+
   return list.some((v) => {
-    const a = v?.attributes;
-    if (!a || typeof a !== "object") return false;
-    return Object.keys(a).some((k) => SIZE_ATTR_KEYS.has(String(k).toLowerCase()));
+    const attrs = v?.attributes;
+    if (!attrs || typeof attrs !== "object") return false;
+
+    return Object.entries(attrs).some(([key, value]) => {
+      const k = String(key).trim().toLowerCase();
+      if (!SIZE_ATTR_KEYS.has(k)) return false;
+
+      // generic "size" must look like an actual wearable size
+      if (k === "size" || k === "sizes") {
+        return looksLikeWearableSizeValue(value);
+      }
+
+      return true;
+    });
   });
 }
 
 /**
- * Show Size Guide only when:
- * - API has size_guide / size_chart, OR
- * - variants have size, OR
- * - product is clothes / shoes
+ * Show Size Guide ONLY for clothes / footwear.
+ *
+ * Gate order:
+ *  1. Must pass isApparelOrFootwear (phones/electronics hard-blocked)
+ *  2. Then show if backend provided a guide, variants have real sizes,
+ *     or it's simply an apparel product (fallback chart shown)
  */
 export function shouldShowSizeGuide(product) {
   if (!product) return false;
 
-  if (
-    product.size_guide ||
-    product.sizeGuide ||
-    product.size_chart ||
-    product.sizeChart ||
-    product.sizing_guide
-  ) {
-    return true;
-  }
+  // explicit backend override (but never for blocked items)
+  if (product.show_size_guide === true) return isApparelOrFootwear(product);
+  if (product.show_size_guide === false) return false;
 
-  if (variantHasSize(product)) return true;
+  // the single gate that matters
+  if (!isApparelOrFootwear(product)) return false;
 
-  return isApparelOrFootwear(product);
+  return true;
 }
 
 export function getSizeGuideData(product) {
