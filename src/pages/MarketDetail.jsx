@@ -18,6 +18,8 @@ import {
   formatPrice,
   calcDiscount,
   getProductImage,
+  shouldShowSizeGuide,
+  getSizeGuideData,
 } from "../config/marketplace";
 import useWishlist from "../hooks/useWishlist";
 
@@ -30,6 +32,8 @@ import VariantBottomSheet from "./MarketDetail/VariantBottomSheet";
 import ProductRails from "./MarketDetail/ProductRails";
 import DeliveryCard from "./MarketDetail/DeliveryCard";
 import DescriptionPage from "./MarketDetail/DescriptionPage";
+import SizeGuidePage from "./MarketDetail/SizeGuidePage";
+import ReviewsPage from "./MarketDetail/ReviewsPage";
 
 import "../styles/MarketDetail.css";
 
@@ -199,7 +203,7 @@ const REPORT_REASONS = [
 ];
 
 /* ════════════════════════════════════════════════════════════
-   AUTH + CART HELPERS
+   AUTH + CART
 ════════════════════════════════════════════════════════════ */
 const TOKEN_KEYS = ["marketplace_token", "buyer_token", "token", "auth_token"];
 
@@ -555,9 +559,18 @@ function ProductSkeleton() {
         ))}
       </div>
       <div className="mdp-skel-body">
-        <div className="mdp-skel" style={{ width: "85%", height: 24, marginBottom: 16 }} />
-        <div className="mdp-skel" style={{ width: "60%", height: 16, marginBottom: 24 }} />
-        <div className="mdp-skel" style={{ width: "35%", height: 32, marginBottom: 32 }} />
+        <div
+          className="mdp-skel"
+          style={{ width: "85%", height: 24, marginBottom: 16 }}
+        />
+        <div
+          className="mdp-skel"
+          style={{ width: "60%", height: 16, marginBottom: 24 }}
+        />
+        <div
+          className="mdp-skel"
+          style={{ width: "35%", height: 32, marginBottom: 32 }}
+        />
       </div>
     </div>
   );
@@ -674,7 +687,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
             <div className="mdp-report-check">{Icon.check}</div>
             <h3>Report Submitted</h3>
             <p>Our team will review this listing.</p>
-            <button className="mdp-done-btn" onClick={onClose}>
+            <button type="button" className="mdp-done-btn" onClick={onClose}>
               Done
             </button>
           </div>
@@ -683,6 +696,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
             <div className="mdp-modal-header">
               <h3>Report Listing</h3>
               <button
+                type="button"
                 className="mdp-modal-x"
                 onClick={onClose}
                 aria-label="Close"
@@ -720,10 +734,15 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
               />
             </div>
             <div className="mdp-modal-footer">
-              <button className="mdp-modal-cancel" onClick={onClose}>
+              <button
+                type="button"
+                className="mdp-modal-cancel"
+                onClick={onClose}
+              >
                 Cancel
               </button>
               <button
+                type="button"
                 className="mdp-modal-submit"
                 onClick={handleSubmit}
                 disabled={!reason || submitting}
@@ -766,7 +785,12 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
             <span className="mdp-icon-inline">{Icon.shield}</span> Buyer
             Protection
           </h3>
-          <button className="mdp-modal-x" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className="mdp-modal-x"
+            onClick={onClose}
+            aria-label="Close"
+          >
             ✕
           </button>
         </div>
@@ -816,6 +840,7 @@ const BuyerProtectionModal = memo(function BuyerProtectionModal({ onClose }) {
         </div>
         <div className="mdp-modal-footer">
           <button
+            type="button"
             className="mdp-modal-submit"
             style={{ width: "100%" }}
             onClick={onClose}
@@ -885,11 +910,12 @@ const FAQAccordion = memo(function FAQAccordion() {
   );
 });
 
-/** Compact row: label on top, value below, chevron right */
+/** Label top · value bottom · optional right slot · chevron */
 const SelectionTrigger = memo(function SelectionTrigger({
   label,
   value,
   onClick,
+  rightSlot = null,
 }) {
   return (
     <div
@@ -899,10 +925,11 @@ const SelectionTrigger = memo(function SelectionTrigger({
       tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onClick?.()}
     >
-      <div>
+      <div className="mdp-sel-text">
         <span className="mdp-sel-label">{label}</span>
         <span className="mdp-sel-value">{value}</span>
       </div>
+      {rightSlot}
       <span className="mdp-sel-chevron" aria-hidden="true">
         &gt;
       </span>
@@ -942,6 +969,8 @@ export default function MarketDetail() {
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
   const [sheetIntent, setSheetIntent] = useState(null);
   const [showDescriptionPage, setShowDescriptionPage] = useState(false);
+  const [showSizeGuide, setShowSizeGuide] = useState(false);
+  const [showAllReviews, setShowAllReviews] = useState(false);
 
   const titleRef = useRef(null);
   const toastTimeoutRef = useRef(null);
@@ -954,6 +983,17 @@ export default function MarketDetail() {
   );
   const hasVariants = useMemo(
     () => Array.isArray(product?.variants) && product.variants.length > 0,
+    [product]
+  );
+
+  /** Clothes / shoes / size chart only */
+  const showSizeGuideEntry = useMemo(
+    () => shouldShowSizeGuide(product),
+    [product]
+  );
+
+  const sizeGuideData = useMemo(
+    () => getSizeGuideData(product),
     [product]
   );
 
@@ -1030,20 +1070,24 @@ export default function MarketDetail() {
 
   const descriptionPreview = useMemo(() => {
     if (!product?.description) return "";
-    const stripped = product.description.replace(/<[^>]*>/g, "");
-    if (stripped.length <= 80) return stripped;
-    return stripped.slice(0, 80).trim() + "…";
+    const stripped = String(product.description)
+      .replace(/<[^>]*>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (stripped.length <= 120) return stripped;
+    return stripped.slice(0, 120).trim() + "…";
   }, [product]);
 
   const variantLabel = useMemo(() => {
     if (!selectedVariant) return "Select options";
-    const name =
+    return (
       selectedVariant.name ||
       selectedVariant.attributes?.color ||
       selectedVariant.attributes?.size ||
+      selectedVariant.attributes?.Size ||
       selectedVariant.sku ||
-      "Selected";
-    return name;
+      "Selected"
+    );
   }, [selectedVariant]);
 
   /* Route cleanup */
@@ -1055,6 +1099,9 @@ export default function MarketDetail() {
     setAddedToCart(false);
     setQty(1);
     setCartError(null);
+    setShowSizeGuide(false);
+    setShowDescriptionPage(false);
+    setShowAllReviews(false);
     return () => {
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
@@ -1087,9 +1134,7 @@ export default function MarketDetail() {
     if (!slug) return;
     axios
       .get(`${API_URL}/${slug}`, { timeout: 12000 })
-      .then(({ data }) =>
-        setProduct(data?.data ?? data?.product ?? data)
-      )
+      .then(({ data }) => setProduct(data?.data ?? data?.product ?? data))
       .catch(() => {});
   }, [slug]);
 
@@ -1412,6 +1457,11 @@ export default function MarketDetail() {
     handleAddToCart();
   }, [product, isOutOfStock, hasVariants, inCart, handleAddToCart]);
 
+  const openSizeGuide = useCallback((e) => {
+    e?.stopPropagation?.();
+    setShowSizeGuide(true);
+  }, []);
+
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
       navigator
@@ -1444,6 +1494,7 @@ export default function MarketDetail() {
         </p>
         <div className="mdp-nf-actions">
           <button
+            type="button"
             className="mdp-nf-btn mdp-nf-btn--primary"
             onClick={() =>
               error === "404" ? navigate("/loemart") : window.location.reload()
@@ -1469,6 +1520,17 @@ export default function MarketDetail() {
   const optionsValue = selectedVariant
     ? `${variantLabel} · Qty: ${stickyQty}${inCart ? " · In cart" : ""}`
     : "Select options";
+
+  /** Inline Size guide control (circled spot) */
+  const sizeGuideSlot = showSizeGuideEntry ? (
+    <button
+      type="button"
+      className="mdp-size-guide-inline"
+      onClick={openSizeGuide}
+    >
+      Size guide
+    </button>
+  ) : null;
 
   return (
     <>
@@ -1561,7 +1623,6 @@ export default function MarketDetail() {
                 )}
               </div>
 
-              {/* Savings — no star icon */}
               {savings > 0 && (
                 <p className="md-savings mdp-savings">
                   You save {formatPrice(savings)} today
@@ -1575,20 +1636,34 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Options */}
+              {/* Options row — Size guide only in the middle (clothes/shoes) */}
               {hasVariants && (
                 <SelectionTrigger
                   label="Options & Quantity"
                   value={optionsValue}
                   onClick={() => setSheetIntent("cart")}
+                  rightSlot={sizeGuideSlot}
                 />
               )}
 
-              {/* Product Details */}
+              {/* No variants but apparel: still show a slim size guide row */}
+              {!hasVariants && showSizeGuideEntry && (
+                <button
+                  type="button"
+                  className="mdp-size-guide-link mdp-size-guide-link--solo"
+                  onClick={openSizeGuide}
+                >
+                  <span className="mdp-size-guide-link__text">Size guide</span>
+                  <span className="mdp-sel-chevron" aria-hidden="true">
+                    &gt;
+                  </span>
+                </button>
+              )}
+
               {hasDescriptionData && (
                 <SelectionTrigger
                   label="Product Details"
-                  value={descriptionPreview || "Description, Specs & Features"}
+                  value={descriptionPreview || "Description, specs & features"}
                   onClick={() => setShowDescriptionPage(true)}
                 />
               )}
@@ -1630,7 +1705,9 @@ export default function MarketDetail() {
                   productId={product.id}
                   rating={rating}
                   reviewsCount={product.reviews_count}
+                  maxVisible={3}
                   onOpenRateModal={() => setShowRateModal(true)}
+                  onSeeAll={() => setShowAllReviews(true)}
                   refreshKey={reviewRefreshKey}
                 />
               </div>
@@ -1670,7 +1747,7 @@ export default function MarketDetail() {
         )}
       </div>
 
-      {/* Sticky bottom bar */}
+      {/* Sticky bar */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
@@ -1821,6 +1898,11 @@ export default function MarketDetail() {
         maxQty={MAX_QTY}
         onConfirm={handleAddToCart}
         isSubmitting={false}
+        showSizeGuide={showSizeGuideEntry}
+        onOpenSizeGuide={() => {
+          setSheetIntent(null);
+          setShowSizeGuide(true);
+        }}
       />
 
       <CartToast
@@ -1836,6 +1918,28 @@ export default function MarketDetail() {
         isOpen={showDescriptionPage}
         onClose={() => setShowDescriptionPage(false)}
         product={product}
+        maxChars={1000}
+      />
+
+      <SizeGuidePage
+        isOpen={showSizeGuide}
+        onClose={() => setShowSizeGuide(false)}
+        product={product}
+        sizeGuide={sizeGuideData}
+      />
+
+      <ReviewsPage
+        isOpen={showAllReviews}
+        onClose={() => setShowAllReviews(false)}
+        productId={product?.id}
+        productName={product?.name}
+        rating={rating}
+        reviewsCount={product?.reviews_count}
+        onOpenRateModal={() => {
+          setShowAllReviews(false);
+          setShowRateModal(true);
+        }}
+        refreshKey={reviewRefreshKey}
       />
 
       {showReport && product && (
