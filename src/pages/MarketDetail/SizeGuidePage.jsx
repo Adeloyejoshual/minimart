@@ -2,7 +2,7 @@
  * src/pages/MarketDetail/SizeGuidePage.jsx
  */
 import { useEffect, memo, useMemo, useState } from "react";
-import { shouldShowSizeGuide, isFootwearProduct } from "../../config/marketplace";
+import { shouldShowSizeGuide, isFootwear } from "../../config/marketplace";
 import "./styles/SizeGuidePage.css";
 
 const DEFAULT_CLOTHES_ROWS = [
@@ -50,7 +50,7 @@ function normalizeGuide(sizeGuide, isShoe) {
 
 const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, sizeGuide }) {
   const allowed = useMemo(() => shouldShowSizeGuide(product), [product]);
-  const detectedShoe = useMemo(() => isFootwearProduct(product), [product]);
+  const detectedShoe = useMemo(() => isFootwear(product), [product]);
   const [guideType, setGuideType] = useState(detectedShoe ? "shoes" : "clothes");
 
   useEffect(() => {
@@ -72,7 +72,6 @@ const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, si
   const isShoe = guideType === "shoes";
   const guide = useMemo(() => normalizeGuide(sizeGuide, isShoe), [sizeGuide, isShoe]);
 
-  // 🔒 never render for non-apparel products
   if (!isOpen || !allowed) return null;
 
   const rows = Array.isArray(guide.rows) && guide.rows.length
