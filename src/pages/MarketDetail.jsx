@@ -969,7 +969,7 @@ export default function MarketDetail() {
   const [miniHeaderVisible, setMiniHeaderVisible] = useState(false);
   const [sheetIntent, setSheetIntent] = useState(null);
   const [showDescriptionPage, setShowDescriptionPage] = useState(false);
-  const [showSizeGuide, setShowSizeGuide] = useState(false);
+  const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
   const [showAllReviews, setShowAllReviews] = useState(false);
 
   const titleRef = useRef(null);
@@ -986,15 +986,15 @@ export default function MarketDetail() {
     [product]
   );
 
-  /** Clothes / shoes / size chart only */
-  const showSizeGuideEntry = useMemo(
+  /** Clothes / shoes only — never phones / electronics */
+  const canShowSizeGuide = useMemo(
     () => shouldShowSizeGuide(product),
     [product]
   );
 
   const sizeGuideData = useMemo(
-    () => getSizeGuideData(product),
-    [product]
+    () => (canShowSizeGuide ? getSizeGuideData(product) : null),
+    [canShowSizeGuide, product]
   );
 
   const galleryImages = useMemo(() => {
@@ -1099,7 +1099,7 @@ export default function MarketDetail() {
     setAddedToCart(false);
     setQty(1);
     setCartError(null);
-    setShowSizeGuide(false);
+    setSizeGuideOpen(false);
     setShowDescriptionPage(false);
     setShowAllReviews(false);
     return () => {
@@ -1457,10 +1457,14 @@ export default function MarketDetail() {
     handleAddToCart();
   }, [product, isOutOfStock, hasVariants, inCart, handleAddToCart]);
 
-  const openSizeGuide = useCallback((e) => {
-    e?.stopPropagation?.();
-    setShowSizeGuide(true);
-  }, []);
+  const openSizeGuide = useCallback(
+    (e) => {
+      e?.stopPropagation?.();
+      if (!canShowSizeGuide) return;
+      setSizeGuideOpen(true);
+    },
+    [canShowSizeGuide]
+  );
 
   const handleShare = useCallback(() => {
     if (navigator.share && product) {
@@ -1521,8 +1525,8 @@ export default function MarketDetail() {
     ? `${variantLabel} · Qty: ${stickyQty}${inCart ? " · In cart" : ""}`
     : "Select options";
 
-  /** Inline Size guide control (circled spot) */
-  const sizeGuideSlot = showSizeGuideEntry ? (
+  /** Inline Size guide — circled spot, clothes/shoes only */
+  const sizeGuideSlot = canShowSizeGuide ? (
     <button
       type="button"
       className="mdp-size-guide-inline"
@@ -1647,7 +1651,7 @@ export default function MarketDetail() {
               )}
 
               {/* No variants but apparel: still show a slim size guide row */}
-              {!hasVariants && showSizeGuideEntry && (
+              {!hasVariants && canShowSizeGuide && (
                 <button
                   type="button"
                   className="mdp-size-guide-link mdp-size-guide-link--solo"
@@ -1898,10 +1902,11 @@ export default function MarketDetail() {
         maxQty={MAX_QTY}
         onConfirm={handleAddToCart}
         isSubmitting={false}
-        showSizeGuide={showSizeGuideEntry}
+        showSizeGuide={canShowSizeGuide}
         onOpenSizeGuide={() => {
+          if (!canShowSizeGuide) return;
           setSheetIntent(null);
-          setShowSizeGuide(true);
+          setSizeGuideOpen(true);
         }}
       />
 
@@ -1921,12 +1926,14 @@ export default function MarketDetail() {
         maxChars={1000}
       />
 
-      <SizeGuidePage
-        isOpen={showSizeGuide}
-        onClose={() => setShowSizeGuide(false)}
-        product={product}
-        sizeGuide={sizeGuideData}
-      />
+      {canShowSizeGuide && (
+        <SizeGuidePage
+          isOpen={sizeGuideOpen}
+          onClose={() => setSizeGuideOpen(false)}
+          product={product}
+          sizeGuide={sizeGuideData}
+        />
+      )}
 
       <ReviewsPage
         isOpen={showAllReviews}
