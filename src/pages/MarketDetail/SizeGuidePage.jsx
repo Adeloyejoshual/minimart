@@ -2,6 +2,7 @@
  * src/pages/MarketDetail/SizeGuidePage.jsx
  */
 import { useEffect, memo, useMemo } from "react";
+import "./styles/SizeGuidePage.css";
 
 const DEFAULT_ROWS = [
   { size: "S", chest: "36–38", waist: "30–32", length: "27" },
@@ -68,9 +69,7 @@ const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, si
         </div>
 
         <div className="mdp-subpage__body">
-          {product?.name && (
-            <p className="mdp-size-product">{product.name}</p>
-          )}
+          {product?.name && <p className="mdp-size-product">{product.name}</p>}
 
           {guide.note && <p className="mdp-size-note">{guide.note}</p>}
 
