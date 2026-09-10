@@ -1,14 +1,22 @@
 /**
  * src/pages/MarketDetail/VariantBottomSheet.jsx
+ * Options sheet + modern pill quantity stepper
  */
 
-import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import React, {
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import { formatPrice, getProductImage } from "../../config/marketplace";
 
 const getSafeImageUrl = (img) => {
   if (!img) return "";
   if (typeof img === "string") return img;
-  if (typeof img === "object") return img.url || img.image_url || img.src || "";
+  if (typeof img === "object")
+    return img.url || img.image_url || img.src || img.large || "";
   return "";
 };
 
@@ -52,13 +60,12 @@ export default function VariantBottomSheet({
       unlockBodyScroll();
       return;
     }
-
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
-
-    const onKey = (e) => { if (e.key === "Escape") handleClose(); };
+    const onKey = (e) => {
+      if (e.key === "Escape") handleClose();
+    };
     window.addEventListener("keydown", onKey);
-
     return () => {
       unlockBodyScroll();
       window.removeEventListener("keydown", onKey);
@@ -88,49 +95,85 @@ export default function VariantBottomSheet({
     return [...keys];
   }, [variants]);
 
-  const getUniqueAttrValues = (key) => {
-    if (!Array.isArray(variants)) return [];
-    return [...new Set(variants.map((v) => v.attributes?.[key]).filter(Boolean))];
-  };
+  const getUniqueAttrValues = useCallback(
+    (key) => {
+      if (!Array.isArray(variants)) return [];
+      return [
+        ...new Set(
+          variants.map((v) => v.attributes?.[key]).filter((v) => v != null && v !== "")
+        ),
+      ];
+    },
+    [variants]
+  );
 
-  const handleSelectOption = (key, val) => {
-    const current = selectedVariant?.attributes || {};
-    const match =
-      variants.find(
-        (v) =>
-          v.attributes?.[key] === val &&
-          Object.keys(current).every((k) => k === key || v.attributes?.[k] === current[k])
-      ) || variants.find((v) => v.attributes?.[key] === val);
+  const handleSelectOption = useCallback(
+    (key, val) => {
+      const current = selectedVariant?.attributes || {};
+      const match =
+        variants.find(
+          (v) =>
+            v.attributes?.[key] === val &&
+            Object.keys(current).every(
+              (k) => k === key || v.attributes?.[k] === current[k]
+            )
+        ) || variants.find((v) => v.attributes?.[key] === val);
 
-    if (match) onSelectVariant(match);
-  };
+      if (match) onSelectVariant?.(match);
+    },
+    [variants, selectedVariant, onSelectVariant]
+  );
 
-  if (!isOpen && !closing) return null;
-  if (!product) return null;
+  const displayPrice = useMemo(() => {
+    const raw =
+      selectedVariant?.price ??
+      selectedVariant?.sale_price ??
+      product?.price ??
+      product?.sale_price ??
+      0;
+    return Number(raw) || 0;
+  }, [selectedVariant, product]);
 
-  const displayPrice = selectedVariant?.price
-    ? Number(selectedVariant.price)
-    : Number(product?.price || 0);
+  const displayImage = useMemo(() => {
+    return (
+      getSafeImageUrl(selectedVariant?.image) ||
+      getSafeImageUrl(selectedVariant?.images?.[0]) ||
+      getProductImage(product) ||
+      getSafeImageUrl(product?.images?.[0])
+    );
+  }, [selectedVariant, product]);
 
-  const displayImage =
-    getSafeImageUrl(selectedVariant?.image) ||
-    getSafeImageUrl(selectedVariant?.images?.[0]) ||
-    getProductImage(product) ||
-    getSafeImageUrl(product?.images?.[0]);
+  const isOutOfStock =
+    stockLeft !== null &&
+    stockLeft !== undefined &&
+    Number(stockLeft) <= 0;
 
-  const isOutOfStock = stockLeft !== null && stockLeft !== undefined && Number(stockLeft) <= 0;
-  const max = Math.min(maxQty, stockLeft > 0 ? Number(stockLeft) : maxQty);
+  const max = Math.min(
+    maxQty,
+    stockLeft > 0 ? Number(stockLeft) : maxQty
+  );
 
-  const selectedLabels = selectedVariant?.attributes
-    ? Object.values(selectedVariant.attributes)
-        .map((v) => (typeof v === "object" ? v?.name || v?.title || String(v) : String(v)))
-        .filter(Boolean)
-    : [];
+  const selectedLabels = useMemo(() => {
+    if (!selectedVariant?.attributes) return [];
+    return Object.values(selectedVariant.attributes)
+      .map((v) =>
+        typeof v === "object" ? v?.name || v?.title || String(v) : String(v)
+      )
+      .filter(Boolean);
+  }, [selectedVariant]);
+
+  const decQty = useCallback(() => {
+    setQty?.((q) => Math.max(1, (Number(q) || 1) - 1));
+  }, [setQty]);
+
+  const incQty = useCallback(() => {
+    setQty?.((q) => Math.min(max, (Number(q) || 1) + 1));
+  }, [setQty, max]);
 
   const handleConfirm = async () => {
     if (isOutOfStock || isSubmitting) return;
     try {
-      const ok = await onConfirm?.();
+      await onConfirm?.();
       handleClose();
     } catch (e) {
       console.error("Cart error:", e);
@@ -138,34 +181,47 @@ export default function VariantBottomSheet({
     }
   };
 
+  if (!isOpen && !closing) return null;
+  if (!product) return null;
+
+  const lineTotal = displayPrice * Math.max(1, Number(qty) || 1);
+
   return (
     <div
       className="mdp-bs-overlay"
       onClick={handleClose}
+      role="presentation"
       style={{
-        animation: closing ? "mdpFadeOut 0.2s forwards" : "mdpFadeIn 0.2s forwards",
+        animation: closing
+          ? "mdpFadeOut 0.2s forwards"
+          : "mdpFadeIn 0.2s forwards",
       }}
     >
       <div
         className="mdp-bs-container"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Choose options"
         style={{
           animation: closing
             ? "mdpSlideDown 0.2s forwards"
             : "mdpSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         }}
       >
+        {/* Header */}
         <div className="mdp-bs-header">
           {displayImage ? (
             <img src={displayImage} alt="" className="mdp-bs-img" />
           ) : (
-            <div className="mdp-bs-img mdp-bs-img--ph" />
+            <div className="mdp-bs-img mdp-bs-img--ph" aria-hidden="true" />
           )}
+
           <div className="mdp-bs-header-info">
             <p className="mdp-bs-price">{formatPrice(displayPrice)}</p>
             <p className="mdp-bs-stock">
               {isOutOfStock ? (
-                <span style={{ color: "#EF4444", fontWeight: 600 }}>Out of stock</span>
+                <span className="mdp-bs-stock--out">Out of stock</span>
               ) : stockLeft != null ? (
                 <span>In stock: {stockLeft}</span>
               ) : (
@@ -178,11 +234,18 @@ export default function VariantBottomSheet({
               </p>
             )}
           </div>
-          <button type="button" className="mdp-bs-close" onClick={handleClose} aria-label="Close">
+
+          <button
+            type="button"
+            className="mdp-bs-close"
+            onClick={handleClose}
+            aria-label="Close"
+          >
             ✕
           </button>
         </div>
 
+        {/* Body */}
         <div className="mdp-bs-body">
           {attributeKeys.map((key) => {
             const values = getUniqueAttrValues(key);
@@ -190,21 +253,27 @@ export default function VariantBottomSheet({
 
             return (
               <div key={String(key)} className="mdp-bs-group">
-                <p className="mdp-bs-label" style={{ textTransform: "capitalize" }}>
-                  {String(key)}
-                </p>
+                <p className="mdp-bs-label">{String(key)}</p>
                 <div className="mdp-bs-options">
                   {values.map((val) => {
-                    const matchedVar = variants.find((v) => v.attributes?.[key] === val);
-                    const oos = Number(matchedVar?.stock ?? 1) === 0;
-                    const active = selectedVariant?.attributes?.[key] === val;
-                    const valText = typeof val === "object" ? val?.name || val?.title || String(val) : String(val);
+                    const matchedVar = variants.find(
+                      (v) => v.attributes?.[key] === val
+                    );
+                    const oos = Number(matchedVar?.stock ?? 1) <= 0;
+                    const active =
+                      selectedVariant?.attributes?.[key] === val;
+                    const valText =
+                      typeof val === "object"
+                        ? val?.name || val?.title || String(val)
+                        : String(val);
 
                     return (
                       <button
                         key={valText}
                         type="button"
-                        className={`mdp-bs-btn ${active ? "active" : ""} ${oos ? "oos" : ""}`}
+                        className={`mdp-bs-btn${active ? " active" : ""}${
+                          oos ? " oos" : ""
+                        }`}
                         onClick={() => handleSelectOption(key, val)}
                         disabled={oos}
                       >
@@ -217,24 +286,41 @@ export default function VariantBottomSheet({
             );
           })}
 
+          {/* Quantity — modern pill (not −1+) */}
           <div className="mdp-bs-group mdp-bs-qty-row">
-            <p className="mdp-bs-label" style={{ margin: 0 }}>Quantity</p>
-            <div className="mdp-bs-qty-controls">
+            <p className="mdp-bs-label">Quantity</p>
+
+            <div
+              className="mdp-bs-qty"
+              role="group"
+              aria-label="Quantity"
+            >
               <button
                 type="button"
-                onClick={() => setQty(Math.max(1, qty - 1))}
-                disabled={qty <= 1 || isOutOfStock}
-              >−</button>
-              <span>{qty}</span>
+                className="mdp-bs-qty__btn"
+                onClick={decQty}
+                disabled={qty <= 1 || isOutOfStock || isSubmitting}
+                aria-label="Decrease quantity"
+              >
+                −
+              </button>
+              <span className="mdp-bs-qty__val" aria-live="polite">
+                {qty}
+              </span>
               <button
                 type="button"
-                onClick={() => setQty(Math.min(max, qty + 1))}
-                disabled={qty >= max || isOutOfStock}
-              >+</button>
+                className="mdp-bs-qty__btn"
+                onClick={incQty}
+                disabled={qty >= max || isOutOfStock || isSubmitting}
+                aria-label="Increase quantity"
+              >
+                +
+              </button>
             </div>
           </div>
         </div>
 
+        {/* Footer */}
         <div className="mdp-bs-footer">
           <button
             type="button"
@@ -242,7 +328,11 @@ export default function VariantBottomSheet({
             disabled={isOutOfStock || isSubmitting}
             onClick={handleConfirm}
           >
-            {isSubmitting ? "Adding…" : isOutOfStock ? "Out of Stock" : `Add to Cart · ${formatPrice(displayPrice * qty)}`}
+            {isSubmitting
+              ? "Adding…"
+              : isOutOfStock
+              ? "Out of Stock"
+              : `Add to Cart · ${formatPrice(lineTotal)}`}
           </button>
         </div>
       </div>
