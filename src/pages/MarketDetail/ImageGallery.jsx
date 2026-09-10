@@ -1,3 +1,8 @@
+/**
+ * src/pages/MarketDetail/ImageGallery.jsx
+ * Larger stage, prefers high-res URLs, sharper display
+ */
+
 import React, {
   useState,
   useCallback,
@@ -9,53 +14,88 @@ import React, {
 
 import "./styles/ImageGallery.css";
 
-/* ─────────────────────────────────────────────────────────────
-   Constants
-───────────────────────────────────────────────────────────── */
-const SWIPE_THRESHOLD  = 45;
-const SWIPE_VELOCITY   = 0.3;
-const PINCH_ZOOM_MIN   = 1;
-const PINCH_ZOOM_MAX   = 4;
-const LONG_PRESS_MS    = 500;
+const SWIPE_THRESHOLD = 45;
+const SWIPE_VELOCITY = 0.3;
+const PINCH_ZOOM_MIN = 1;
+const PINCH_ZOOM_MAX = 4;
+const LONG_PRESS_MS = 500;
 const LONG_PRESS_DRIFT = 10;
-const DOUBLE_TAP_MS    = 300;
-const DOUBLE_TAP_MIN   = 30;
-const ANIM_DURATION    = 320;
-const MIN_DT           = 16;
+const DOUBLE_TAP_MS = 300;
+const DOUBLE_TAP_MIN = 30;
+const ANIM_DURATION = 320;
+const MIN_DT = 16;
 
-/* ─────────────────────────────────────────────────────────────
-   Pure helpers
-───────────────────────────────────────────────────────────── */
+/* Prefer largest available image asset */
+function resolveImageUrl(img) {
+  if (!img) return "";
+  if (typeof img === "string") return upgradeCdnUrl(img);
+
+  const candidate =
+    img.large ||
+    img.full ||
+    img.original ||
+    img.hires ||
+    img.high ||
+    img.url ||
+    img.src ||
+    img.medium ||
+    img.image ||
+    img.thumbnail ||
+    img.thumb ||
+    "";
+
+  return upgradeCdnUrl(typeof candidate === "string" ? candidate : "");
+}
+
+/** Bump common CDN width/quality params when clearly tiny */
+function upgradeCdnUrl(url) {
+  if (!url || typeof url !== "string") return url;
+  try {
+    // w=100–400 → request larger
+    let u = url.replace(/([?&]w=)(\d{2,3})(?!\d)/gi, (_, p, w) => {
+      const n = Number(w);
+      return n > 0 && n < 800 ? `${p}1080` : `${p}${w}`;
+    });
+    u = u.replace(/([?&]width=)(\d{2,3})(?!\d)/gi, (_, p, w) => {
+      const n = Number(w);
+      return n > 0 && n < 800 ? `${p}1080` : `${p}${w}`;
+    });
+    u = u.replace(/([?&]q=)(\d{1,2})(?!\d)/gi, (_, p, q) => {
+      const n = Number(q);
+      return n > 0 && n < 70 ? `${p}85` : `${p}${q}`;
+    });
+    // Cloudinary-style transforms
+    u = u.replace(/\/w_\d{2,3}(?=,|\/)/g, "/w_1080");
+    u = u.replace(/\/c_thumb/g, "/c_limit");
+    return u;
+  } catch {
+    return url;
+  }
+}
+
 function touchDist(t1, t2) {
   const dx = t1.clientX - t2.clientX;
   const dy = t1.clientY - t2.clientY;
   return Math.sqrt(dx * dx + dy * dy);
 }
-
 function clamp(val, min, max) {
   return Math.min(max, Math.max(min, val));
 }
-
 function mod(n, total) {
   if (!total) return 0;
   return ((n % total) + total) % total;
 }
 
-/* ─────────────────────────────────────────────────────────────
-   Focus-trap hook
-───────────────────────────────────────────────────────────── */
 function useFocusTrap(ref, active) {
   useEffect(() => {
     if (!active || !ref.current) return;
-
-    const el        = ref.current;
+    const el = ref.current;
     const focusable = el.querySelectorAll(
-      'button,[href],input,[tabindex]:not([tabindex="-1"])',
+      'button,[href],input,[tabindex]:not([tabindex="-1"])'
     );
     const first = focusable[0];
-    const last  = focusable[focusable.length - 1];
+    const last = focusable[focusable.length - 1];
     first?.focus();
-
     const trap = (e) => {
       if (e.key !== "Tab") return;
       if (e.shiftKey) {
@@ -63,22 +103,16 @@ function useFocusTrap(ref, active) {
           e.preventDefault();
           last?.focus();
         }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
+      } else if (document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
       }
     };
-
     el.addEventListener("keydown", trap);
     return () => el.removeEventListener("keydown", trap);
   }, [active, ref]);
 }
 
-/* ─────────────────────────────────────────────────────────────
-   Thumb  (fully memoised)
-───────────────────────────────────────────────────────────── */
 const Thumb = memo(function Thumb({
   url,
   index,
@@ -88,7 +122,7 @@ const Thumb = memo(function Thumb({
   onError,
 }) {
   const handleClick = useCallback(() => onSelect(index), [onSelect, index]);
-  const handleError = useCallback(() => onError(url),   [onError,  url]);
+  const handleError = useCallback(() => onError(url), [onError, url]);
 
   return (
     <button
@@ -99,88 +133,68 @@ const Thumb = memo(function Thumb({
       aria-current={active ? "true" : undefined}
       data-index={index}
       role="listitem"
-      tabIndex={0}
+      type="button"
     >
       {hasError ? (
-        <span className="ig-thumb-err" aria-hidden="true">📷</span>
+        <span className="ig-thumb-err" aria-hidden="true">
+          📷
+        </span>
       ) : (
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          onError={handleError}
-        />
+        <img src={url} alt="" loading="lazy" onError={handleError} />
       )}
     </button>
   );
 });
 
-/* ═══════════════════════════════════════════════════════════
-   ImageGallery
-═══════════════════════════════════════════════════════════ */
 const ImageGallery = memo(function ImageGallery({ images, name }) {
-
-  /* ── Stable URL list ──────────────────────────────────── */
   const urls = useMemo(
-    () =>
-      (images ?? [])
-        .map((img) => (typeof img === "string" ? img : img?.url))
-        .filter(Boolean),
-    [images],
+    () => (images ?? []).map(resolveImageUrl).filter(Boolean),
+    [images]
   );
   const total = urls.length;
 
-  /* ── Stable keys — survive duplicate URLs ─────────────── */
   const urlKeys = useMemo(
     () => urls.map((url, i) => `${url}--${i}`),
-    [urls],
+    [urls]
   );
 
-  /* ── State ────────────────────────────────────────────── */
-  const [current,     setCurrent]     = useState(0);
-  const [zoomed,      setZoomed]      = useState(false);
-  const [imgErrs,     setImgErrs]     = useState({});
-  const [dragOffset,  setDragOffset]  = useState(0);
-  const [isDragging,  setIsDragging]  = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [zoomed, setZoomed] = useState(false);
+  const [imgErrs, setImgErrs] = useState({});
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
-  const [scale,       setScale]       = useState(1);
-  const [panOffset,   setPanOffset]   = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
 
-  /* ── Refs ─────────────────────────────────────────────── */
-  const mainRef        = useRef(null);
-  const zoomRef        = useRef(null);
-  const thumbTrack     = useRef(null);
-  const swipeStart     = useRef(null);
-  const pinchRef       = useRef(null);
-  const panStart       = useRef(null);
+  const mainRef = useRef(null);
+  const zoomRef = useRef(null);
+  const thumbTrack = useRef(null);
+  const swipeStart = useRef(null);
+  const pinchRef = useRef(null);
+  const panStart = useRef(null);
   const longPressTimer = useRef(null);
-  const animTimer      = useRef(null);
-  const lastTap        = useRef(0);
+  const animTimer = useRef(null);
+  const lastTap = useRef(0);
 
-  /* Live mirrors — read inside non-passive handlers
-     without needing them as deps (avoids re-attachment) */
   const scaleRef = useRef(scale);
-  useEffect(() => { scaleRef.current = scale; }, [scale]);
-
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
   const panOffsetRef = useRef(panOffset);
-  useEffect(() => { panOffsetRef.current = panOffset; }, [panOffset]);
+  useEffect(() => {
+    panOffsetRef.current = panOffset;
+  }, [panOffset]);
 
-  /* ── Derived ──────────────────────────────────────────── */
-  const currentUrl    = urls[current] ?? "";
+  const currentUrl = urls[current] ?? "";
   const currentHasErr = imgErrs[currentUrl] ?? false;
 
-  /* ── Memoised zoom transform (avoids string rebuild) ──── */
   const zoomTransform = useMemo(
     () =>
       `scale(${scale}) translate(${panOffset.x / scale}px, ${panOffset.y / scale}px)`,
-    [scale, panOffset],
+    [scale, panOffset]
   );
 
-  /* ══════════════════════════════════════════════════════
-     LIFECYCLE
-  ══════════════════════════════════════════════════════ */
-
-  /* Clean up ALL timers on unmount */
   useEffect(() => {
     return () => {
       clearTimeout(animTimer.current);
@@ -188,29 +202,24 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     };
   }, []);
 
-  /* Guard current index when images list shrinks */
   useEffect(() => {
     if (total && current >= total) setCurrent(0);
   }, [total, current]);
 
-  /* Reset drag on every slide change */
   useEffect(() => {
     setDragOffset(0);
   }, [current]);
 
-  /* Reset drag when zoom closes */
   useEffect(() => {
     if (!zoomed) setDragOffset(0);
   }, [zoomed]);
 
-  /* Preload zoom image before overlay opens */
   useEffect(() => {
     if (!zoomed || !currentUrl) return;
     const img = new window.Image();
     img.src = currentUrl;
   }, [zoomed, currentUrl]);
 
-  /* Scroll active thumb into view */
   useEffect(() => {
     const row = thumbTrack.current;
     if (!row) return;
@@ -218,32 +227,23 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
       .querySelector(`[data-index="${current}"]`)
       ?.scrollIntoView({
         behavior: "smooth",
-        block:    "nearest",
-        inline:   "center",
+        block: "nearest",
+        inline: "center",
       });
   }, [current]);
 
-  /* Focus trap inside zoom overlay */
   useFocusTrap(zoomRef, zoomed);
 
-  /* ══════════════════════════════════════════════════════
-     KEYBOARD
-  ══════════════════════════════════════════════════════ */
-
-  /* Gallery keyboard (inactive while zoom is open) */
   useEffect(() => {
     if (zoomed) return;
     const fn = (e) => {
-      if (e.key === "ArrowLeft")
-        setCurrent((c) => mod(c - 1, total));
-      if (e.key === "ArrowRight")
-        setCurrent((c) => mod(c + 1, total));
+      if (e.key === "ArrowLeft") setCurrent((c) => mod(c - 1, total));
+      if (e.key === "ArrowRight") setCurrent((c) => mod(c + 1, total));
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
   }, [total, zoomed]);
 
-  /* Zoom overlay keyboard */
   useEffect(() => {
     if (!zoomed) return;
     const fn = (e) => {
@@ -261,9 +261,6 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     return () => window.removeEventListener("keydown", fn);
   }, [zoomed, total]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ══════════════════════════════════════════════════════
-     NAVIGATION
-  ══════════════════════════════════════════════════════ */
   const goTo = useCallback(
     (idx) => {
       if (!total || isAnimating) return;
@@ -272,10 +269,10 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
       setCurrent(mod(idx, total));
       animTimer.current = setTimeout(
         () => setIsAnimating(false),
-        ANIM_DURATION,
+        ANIM_DURATION
       );
     },
-    [total, isAnimating],
+    [total, isAnimating]
   );
 
   const prev = useCallback(() => {
@@ -288,9 +285,6 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     goTo(current + 1);
   }, [goTo, current, total]);
 
-  /* ══════════════════════════════════════════════════════
-     ZOOM HELPERS
-  ══════════════════════════════════════════════════════ */
   const resetZoom = useCallback(() => {
     setScale(1);
     setPanOffset({ x: 0, y: 0 });
@@ -306,61 +300,41 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     resetZoom();
   }, [resetZoom]);
 
-  /* ══════════════════════════════════════════════════════
-     IMAGE ERROR  (keyed by URL)
-  ══════════════════════════════════════════════════════ */
   const handleImgError = useCallback((url) => {
     setImgErrs((p) => ({ ...p, [url]: true }));
   }, []);
 
-  /* ══════════════════════════════════════════════════════
-     TOUCH — Main gallery
-  ══════════════════════════════════════════════════════ */
   const onMainTouchStart = useCallback(
     (e) => {
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
-      swipeStart.current = {
-        x:    t.clientX,
-        y:    t.clientY,
-        time: Date.now(),
-      };
+      swipeStart.current = { x: t.clientX, y: t.clientY, time: Date.now() };
       setIsDragging(false);
-
       clearTimeout(longPressTimer.current);
       longPressTimer.current = setTimeout(() => {
         if (!currentHasErr) openZoom();
       }, LONG_PRESS_MS);
     },
-    [currentHasErr, openZoom],
+    [currentHasErr, openZoom]
   );
 
-  /* Stable callback — effect re-attaches only when isDragging
-     identity changes, not on every render               */
   const onMainTouchMove = useCallback(
     (e) => {
       if (!swipeStart.current || e.touches.length !== 1) return;
-
-      const dx  = e.touches[0].clientX - swipeStart.current.x;
-      const dy  = Math.abs(e.touches[0].clientY - swipeStart.current.y);
+      const dx = e.touches[0].clientX - swipeStart.current.x;
+      const dy = Math.abs(e.touches[0].clientY - swipeStart.current.y);
       const adx = Math.abs(dx);
-
-      /* Cancel long-press the moment finger drifts on either axis */
       if (adx > LONG_PRESS_DRIFT || dy > LONG_PRESS_DRIFT) {
         clearTimeout(longPressTimer.current);
       }
-
-      /* Ignore mostly-vertical scrolls */
       if (!isDragging && dy > adx * 1.4) return;
-
       e.preventDefault();
       setIsDragging(true);
       setDragOffset(dx);
     },
-    [isDragging],
+    [isDragging]
   );
 
-  /* Attach non-passive touchmove to real DOM node */
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
@@ -372,75 +346,67 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   const onMainTouchEnd = useCallback(() => {
     clearTimeout(longPressTimer.current);
     if (!swipeStart.current) return;
-
-    const dx      = dragOffset;
-    const dt      = Date.now() - swipeStart.current.time;
-    const dtSafe  = Math.max(dt, MIN_DT);
-    const velocity = Math.abs(dx) / dtSafe;
-
+    const dx = dragOffset;
+    const dt = Date.now() - swipeStart.current.time;
+    const velocity = Math.abs(dx) / Math.max(dt, MIN_DT);
     if (Math.abs(dx) > SWIPE_THRESHOLD || velocity > SWIPE_VELOCITY) {
       dx < 0 ? next() : prev();
     } else {
       setDragOffset(0);
     }
-
     swipeStart.current = null;
     setIsDragging(false);
   }, [dragOffset, next, prev]);
 
-  /* ══════════════════════════════════════════════════════
-     TOUCH — Zoom overlay  (pinch + pan + double-tap)
-  ══════════════════════════════════════════════════════ */
   const onZoomTouchStart = useCallback((e) => {
     if (e.touches.length === 2) {
       pinchRef.current = {
-        dist:       touchDist(e.touches[0], e.touches[1]),
+        dist: touchDist(e.touches[0], e.touches[1]),
         startScale: scaleRef.current,
-        startPanX:  panOffsetRef.current.x,
-        startPanY:  panOffsetRef.current.y,
+        startPanX: panOffsetRef.current.x,
+        startPanY: panOffsetRef.current.y,
       };
     } else if (e.touches.length === 1 && scaleRef.current > 1) {
       panStart.current = {
         touchX: e.touches[0].clientX,
         touchY: e.touches[0].clientY,
-        panX:   panOffsetRef.current.x,
-        panY:   panOffsetRef.current.y,
+        panX: panOffsetRef.current.x,
+        panY: panOffsetRef.current.y,
       };
     }
-  }, []); // reads live values from refs — no deps needed
+  }, []);
 
   const onZoomTouchMove = useCallback(
     (e) => {
       e.preventDefault();
-
       if (e.touches.length === 2 && pinchRef.current) {
-        const newDist  = touchDist(e.touches[0], e.touches[1]);
-        const ratio    = newDist / pinchRef.current.dist;
+        const newDist = touchDist(e.touches[0], e.touches[1]);
+        const ratio = newDist / pinchRef.current.dist;
         const newScale = clamp(
           pinchRef.current.startScale * ratio,
           PINCH_ZOOM_MIN,
-          PINCH_ZOOM_MAX,
+          PINCH_ZOOM_MAX
         );
         setScale(newScale);
         if (newScale <= 1.05) requestAnimationFrame(resetZoom);
-
       } else if (
         e.touches.length === 1 &&
         scaleRef.current > 1 &&
         panStart.current
       ) {
         setPanOffset({
-          x: panStart.current.panX +
-             (e.touches[0].clientX - panStart.current.touchX),
-          y: panStart.current.panY +
-             (e.touches[0].clientY - panStart.current.touchY),
+          x:
+            panStart.current.panX +
+            (e.touches[0].clientX - panStart.current.touchX),
+          y:
+            panStart.current.panY +
+            (e.touches[0].clientY - panStart.current.touchY),
         });
       }
     },
-    [resetZoom],
+    [resetZoom]
   );
 
-  /* Attach non-passive touchmove to zoom overlay */
   useEffect(() => {
     const el = zoomRef.current;
     if (!el || !zoomed) return;
@@ -459,31 +425,26 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
       if (e.touches.length === 0) panStart.current = null;
       if (scaleRef.current < 1.05) resetZoom();
     },
-    [resetZoom],
+    [resetZoom]
   );
 
-  /* Double-tap — Android-safe timing guard */
   const onZoomTap = useCallback(
     (e) => {
       e.stopPropagation();
       const now = Date.now();
-      const dt  = now - lastTap.current;
+      const dt = now - lastTap.current;
       if (dt < DOUBLE_TAP_MS && dt > DOUBLE_TAP_MIN) {
-        if (scaleRef.current > 1) {
-          resetZoom();
-        } else {
+        if (scaleRef.current > 1) resetZoom();
+        else {
           setScale(2.5);
           setPanOffset({ x: 0, y: 0 });
         }
       }
       lastTap.current = now;
     },
-    [resetZoom],
+    [resetZoom]
   );
 
-  /* ══════════════════════════════════════════════════════
-     EARLY EXIT
-  ══════════════════════════════════════════════════════ */
   if (!total) {
     return (
       <div className="ig-empty">
@@ -493,23 +454,17 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     );
   }
 
-  /* ══════════════════════════════════════════════════════
-     RENDER
-  ══════════════════════════════════════════════════════ */
   return (
     <>
-      {/* ── Gallery strip ─────────────────────────────── */}
       <div
         className="ig-root"
         aria-roledescription="carousel"
         aria-label={`${name} photos`}
       >
-        {/* Screen-reader navigation hint */}
         <span className="ig-sr-only">
           Use left and right arrow keys to navigate images
         </span>
 
-        {/* ── Main stage ──────────────────────────────── */}
         <div
           ref={mainRef}
           className="ig-stage"
@@ -520,7 +475,6 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
           role="img"
           aria-label={`Photo ${current + 1} of ${total}`}
         >
-          {/* Slide track */}
           <div
             className="ig-track"
             style={{
@@ -537,10 +491,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
                 aria-hidden={i !== current}
               >
                 {imgErrs[url] ? (
-                  <div
-                    className="ig-slide-err"
-                    aria-label="Image unavailable"
-                  >
+                  <div className="ig-slide-err" aria-label="Image unavailable">
                     📷
                   </div>
                 ) : (
@@ -551,22 +502,24 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
                     onError={() => handleImgError(url)}
                     draggable={false}
                     loading={i === 0 ? "eager" : "lazy"}
+                    decoding="async"
+                    sizes="(max-width: 640px) 100vw, 560px"
+                    // Hint browser for sharper decode on retina
+                    style={{
+                      imageRendering: "auto",
+                      WebkitBackfaceVisibility: "hidden",
+                      transform: "translateZ(0)",
+                    }}
                   />
                 )}
               </div>
             ))}
           </div>
 
-          {/* Counter */}
-          <span
-            className="ig-counter"
-            aria-live="polite"
-            aria-atomic="true"
-          >
+          <span className="ig-counter" aria-live="polite" aria-atomic="true">
             {current + 1} / {total}
           </span>
 
-          {/* Dot indicators (≤ 8 slides) */}
           {total > 1 && total <= 8 && (
             <div className="ig-dots" aria-hidden="true">
               {urls.map((_, i) => (
@@ -578,20 +531,27 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             </div>
           )}
 
-          {/* Arrow buttons */}
           {total > 1 && (
             <>
               <button
+                type="button"
                 className="ig-arrow ig-arrow--prev"
-                onClick={(e) => { e.stopPropagation(); prev(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prev();
+                }}
                 aria-label="Previous photo"
                 disabled={isAnimating}
               >
                 ‹
               </button>
               <button
+                type="button"
                 className="ig-arrow ig-arrow--next"
-                onClick={(e) => { e.stopPropagation(); next(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  next();
+                }}
                 aria-label="Next photo"
                 disabled={isAnimating}
               >
@@ -599,16 +559,8 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
               </button>
             </>
           )}
-
-          {/* Zoom hint */}
-          {!currentHasErr && (
-            <span className="ig-zoom-hint" aria-hidden="true">
-              🔍 Tap to zoom
-            </span>
-          )}
         </div>
 
-        {/* ── Thumbnail strip ──────────────────────────── */}
         {total > 1 && (
           <div
             ref={thumbTrack}
@@ -631,7 +583,6 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
         )}
       </div>
 
-      {/* ── Zoom overlay ──────────────────────────────── */}
       {zoomed && (
         <div
           ref={zoomRef}
@@ -643,31 +594,30 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
           onTouchStart={onZoomTouchStart}
           onTouchEnd={onZoomTouchEnd}
         >
-          {/* Close */}
           <button
+            type="button"
             className="ig-zoom-close"
-            onClick={(e) => { e.stopPropagation(); closeZoom(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              closeZoom();
+            }}
             aria-label="Close zoom"
           >
             ✕
           </button>
 
-          {/* Scale pill */}
           {scale > 1.05 && (
             <span className="ig-zoom-scale" aria-hidden="true">
               {scale.toFixed(1)}×
             </span>
           )}
 
-          {/* Zoomable image */}
           <div
             className="ig-zoom-wrap"
             onClick={onZoomTap}
             style={{
-              transform:  zoomTransform,
-              transition: pinchRef.current
-                ? "none"
-                : "transform 0.22s ease",
+              transform: zoomTransform,
+              transition: pinchRef.current ? "none" : "transform 0.22s ease",
               cursor: scale > 1 ? "grab" : "zoom-in",
             }}
           >
@@ -679,22 +629,31 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             />
           </div>
 
-          {/* Nav bar */}
           {total > 1 && (
             <div
               className="ig-zoom-nav"
               onClick={(e) => e.stopPropagation()}
             >
               <button
-                onClick={() => { resetZoom(); prev(); }}
+                type="button"
+                onClick={() => {
+                  resetZoom();
+                  prev();
+                }}
                 aria-label="Previous photo"
                 disabled={isAnimating}
               >
                 ‹
               </button>
-              <span>{current + 1} / {total}</span>
+              <span>
+                {current + 1} / {total}
+              </span>
               <button
-                onClick={() => { resetZoom(); next(); }}
+                type="button"
+                onClick={() => {
+                  resetZoom();
+                  next();
+                }}
                 aria-label="Next photo"
                 disabled={isAnimating}
               >
@@ -703,11 +662,14 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             </div>
           )}
 
-          {/* Reset zoom */}
           {scale > 1 && (
             <button
+              type="button"
               className="ig-zoom-reset"
-              onClick={(e) => { e.stopPropagation(); resetZoom(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                resetZoom();
+              }}
               aria-label="Reset zoom to fit"
             >
               ↺ Reset
