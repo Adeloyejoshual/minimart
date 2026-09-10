@@ -2,6 +2,7 @@
  * src/pages/MarketDetail/SizeGuidePage.jsx
  */
 import { useEffect, memo, useMemo, useState } from "react";
+import { shouldShowSizeGuide, isFootwearProduct } from "../../config/marketplace";
 import "./styles/SizeGuidePage.css";
 
 const DEFAULT_CLOTHES_ROWS = [
@@ -13,26 +14,19 @@ const DEFAULT_CLOTHES_ROWS = [
 ];
 
 const DEFAULT_SHOES_ROWS = [
-  { us: "6", eu: "39", uk: "5.5", foot_cm: "24.1 cm" },
-  { us: "7", eu: "40", uk: "6.5", foot_cm: "24.8 cm" },
-  { us: "8", eu: "41", uk: "7.5", foot_cm: "25.4 cm" },
-  { us: "9", eu: "42", uk: "8.5", foot_cm: "26.0 cm" },
-  { us: "10", eu: "43", uk: "9.5", foot_cm: "26.7 cm" },
-  { us: "11", eu: "44", uk: "10.5", foot_cm: "27.3 cm" },
-  { us: "12", eu: "45", uk: "11.5", foot_cm: "27.9 cm" },
+  { us: "6", eu: "39", uk: "5.5", foot_cm: "24.1" },
+  { us: "7", eu: "40", uk: "6.5", foot_cm: "24.8" },
+  { us: "8", eu: "41", uk: "7.5", foot_cm: "25.4" },
+  { us: "9", eu: "42", uk: "8.5", foot_cm: "26.0" },
+  { us: "10", eu: "43", uk: "9.5", foot_cm: "26.7" },
+  { us: "11", eu: "44", uk: "10.5", foot_cm: "27.3" },
+  { us: "12", eu: "45", uk: "11.5", foot_cm: "27.9" },
 ];
 
-/** Detect if the product is a shoe/footwear */
-function isFootwear(product) {
-  if (!product) return false;
-  const str = `${product.name || ""} ${product.category || ""} ${product.subcategory || ""} ${product.type || ""}`.toLowerCase();
-  return /shoe|sneaker|boot|sandal|footwear|heel|loafer|slide|flipper|cleat|clog/i.test(str);
-}
-
 function normalizeGuide(sizeGuide, isShoe) {
-  const fallbackRows = isShoe ? DEFAULT_SHOES_ROWS : DEFAULT_CLOTHES_ROWS;
+  const fallback = isShoe ? DEFAULT_SHOES_ROWS : DEFAULT_CLOTHES_ROWS;
 
-  if (!sizeGuide) return { rows: fallbackRows, image: null, html: null, note: null };
+  if (!sizeGuide) return { rows: fallback, image: null, html: null, note: null };
 
   if (typeof sizeGuide === "string") {
     const s = sizeGuide.trim();
@@ -47,7 +41,7 @@ function normalizeGuide(sizeGuide, isShoe) {
   }
 
   return {
-    rows: sizeGuide.rows || sizeGuide.chart || sizeGuide.sizes || fallbackRows,
+    rows: sizeGuide.rows || sizeGuide.chart || sizeGuide.sizes || fallback,
     image: sizeGuide.image || sizeGuide.chart_image || null,
     html: sizeGuide.html || sizeGuide.content || null,
     note: sizeGuide.note || sizeGuide.tip || null,
@@ -55,18 +49,16 @@ function normalizeGuide(sizeGuide, isShoe) {
 }
 
 const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, sizeGuide }) {
-  // Detect product type default
-  const detectedShoe = useMemo(() => isFootwear(product), [product]);
-  const [guideType, setGuideType] = useState(() => (detectedShoe ? "shoes" : "clothes"));
+  const allowed = useMemo(() => shouldShowSizeGuide(product), [product]);
+  const detectedShoe = useMemo(() => isFootwearProduct(product), [product]);
+  const [guideType, setGuideType] = useState(detectedShoe ? "shoes" : "clothes");
 
-  // Reset tab when product changes
   useEffect(() => {
     setGuideType(detectedShoe ? "shoes" : "clothes");
-  }, [detectedShoe, product]);
+  }, [detectedShoe]);
 
-  // Lock body scroll when modal is open
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !allowed) return;
     const fn = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", fn);
     const prev = document.body.style.overflow;
@@ -75,62 +67,52 @@ const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, si
       window.removeEventListener("keydown", fn);
       document.body.style.overflow = prev || "";
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, allowed, onClose]);
 
   const isShoe = guideType === "shoes";
+  const guide = useMemo(() => normalizeGuide(sizeGuide, isShoe), [sizeGuide, isShoe]);
 
-  const guide = useMemo(
-    () => normalizeGuide(sizeGuide, isShoe),
-    [sizeGuide, isShoe]
-  );
+  // 🔒 never render for non-apparel products
+  if (!isOpen || !allowed) return null;
 
-  if (!isOpen) return null;
-
-  const rows = Array.isArray(guide.rows) ? guide.rows : (isShoe ? DEFAULT_SHOES_ROWS : DEFAULT_CLOTHES_ROWS);
-  const keys = rows.length
-    ? Object.keys(rows[0]).filter((k) => k !== "id")
+  const rows = Array.isArray(guide.rows) && guide.rows.length
+    ? guide.rows
     : isShoe
-    ? ["us", "eu", "uk", "foot_cm"]
-    : ["size", "chest", "waist", "length"];
+    ? DEFAULT_SHOES_ROWS
+    : DEFAULT_CLOTHES_ROWS;
+
+  const keys = Object.keys(rows[0]).filter((k) => k !== "id");
 
   return (
     <div className="mdp-subpage-overlay" onClick={onClose} role="dialog" aria-modal="true">
       <div className="mdp-subpage" onClick={(e) => e.stopPropagation()}>
-        
-        {/* Header */}
         <div className="mdp-subpage__header">
           <button type="button" className="mdp-subpage__back" onClick={onClose} aria-label="Back">
             ←
           </button>
-          <h2 className="mdp-subpage__title">
-            {isShoe ? "Shoe Size Guide" : "Size Guide"}
-          </h2>
+          <h2 className="mdp-subpage__title">{isShoe ? "Shoe Size Guide" : "Size Guide"}</h2>
           <span className="mdp-subpage__spacer" />
         </div>
 
-        {/* Content Body */}
         <div className="mdp-subpage__body">
-          
-          {/* Category Toggle Tabs */}
           <div className="mdp-size-tabs">
             <button
               type="button"
-              className={`mdp-size-tab ${guideType === "clothes" ? "active" : ""}`}
+              className={`mdp-size-tab ${!isShoe ? "active" : ""}`}
               onClick={() => setGuideType("clothes")}
             >
               Clothing
             </button>
             <button
               type="button"
-              className={`mdp-size-tab ${guideType === "shoes" ? "active" : ""}`}
+              className={`mdp-size-tab ${isShoe ? "active" : ""}`}
               onClick={() => setGuideType("shoes")}
             >
-              Footwear / Shoes
+              Footwear
             </button>
           </div>
 
           {product?.name && <p className="mdp-size-product">{product.name}</p>}
-
           {guide.note && <p className="mdp-size-note">{guide.note}</p>}
 
           {guide.image && (
@@ -140,44 +122,37 @@ const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, si
           )}
 
           {guide.html && !guide.image && (
-            <div
-              className="mdp-size-html"
-              dangerouslySetInnerHTML={{ __html: guide.html }}
-            />
+            <div className="mdp-size-html" dangerouslySetInnerHTML={{ __html: guide.html }} />
           )}
 
-          {/* Size Table */}
-          {rows?.length > 0 && (
-            <div className="mdp-size-table-wrap">
-              <table className="mdp-size-table">
-                <thead>
-                  <tr>
+          <div className="mdp-size-table-wrap">
+            <table className="mdp-size-table">
+              <thead>
+                <tr>
+                  {keys.map((k) => (
+                    <th key={k}>{String(k).replace(/_/g, " ").toUpperCase()}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr key={i}>
                     {keys.map((k) => (
-                      <th key={k}>{String(k).replace(/_/g, " ").toUpperCase()}</th>
+                      <td key={k}>{row[k] ?? row[k.toUpperCase()] ?? "—"}</td>
                     ))}
                   </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, i) => (
-                    <tr key={i}>
-                      {keys.map((k) => (
-                        <td key={k}>{row[k] ?? row[k.toUpperCase()] ?? "—"}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-          {/* Dynamic Measurement Tips */}
           <div className="mdp-size-tips">
             <h4>{isShoe ? "How to measure your feet" : "How to measure"}</h4>
             {isShoe ? (
               <ul>
-                <li><strong>Heel to Toe:</strong> Stand on a sheet of paper against a wall and mark your longest toe.</li>
-                <li><strong>Measure length:</strong> Use a ruler to measure from the wall to the mark (in cm).</li>
-                <li><strong>Fit Tip:</strong> If your foot measurement is between two sizes, choose the larger size.</li>
+                <li><strong>Heel to toe:</strong> Stand on paper against a wall, mark your longest toe.</li>
+                <li><strong>Measure:</strong> Distance from wall to mark, in centimetres.</li>
+                <li><strong>Fit:</strong> Between sizes? Pick the larger one.</li>
               </ul>
             ) : (
               <ul>
@@ -188,11 +163,10 @@ const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, si
             )}
             <p className="mdp-size-tip-foot">
               {isShoe
-                ? "Sizing may vary slightly by brand. If you have wide feet, we recommend sizing up by 0.5 size."
+                ? "Sizing varies by brand. Wide feet? Go up half a size."
                 : "Measurements are approximate (inches). If between sizes, size up for a relaxed fit."}
             </p>
           </div>
-
         </div>
       </div>
     </div>
