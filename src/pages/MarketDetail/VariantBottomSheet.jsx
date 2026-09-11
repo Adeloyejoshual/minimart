@@ -148,6 +148,7 @@ export default function VariantBottomSheet({
     stockLeft !== undefined &&
     Number(stockLeft) <= 0;
 
+  // Calculate safe max for incrementing
   const max = Math.min(
     maxQty,
     stockLeft > 0 ? Number(stockLeft) : maxQty
@@ -167,8 +168,11 @@ export default function VariantBottomSheet({
   }, [setQty]);
 
   const incQty = useCallback(() => {
-    setQty?.((q) => Math.min(max, (Number(q) || 1) + 1));
-  }, [setQty, max]);
+    setQty?.((q) => {
+      const current = Number(q) || 1;
+      return Math.min(max, current + 1);
+    });
+  }, [max, setQty]);
 
   const handleConfirm = async () => {
     if (isOutOfStock || isSubmitting) return;
@@ -253,7 +257,7 @@ export default function VariantBottomSheet({
 
             return (
               <div key={String(key)} className="mdp-bs-group">
-                <p className="mdp-bs-label">{String(key)}</p>
+                <p className="mdp-bs-label">{String(key).replace(/_/g, " ")}</p>
                 <div className="mdp-bs-options">
                   {values.map((val) => {
                     const matchedVar = variants.find(
@@ -286,30 +290,26 @@ export default function VariantBottomSheet({
             );
           })}
 
-          {/* Quantity — modern pill (not −1+) */}
+          {/* Quantity — Modern Pill Stepper */}
           <div className="mdp-bs-group mdp-bs-qty-row">
             <p className="mdp-bs-label">Quantity</p>
 
-            <div
-              className="mdp-bs-qty"
-              role="group"
-              aria-label="Quantity"
-            >
+            <div className="qty-stepper" role="group" aria-label="Quantity">
               <button
                 type="button"
-                className="mdp-bs-qty__btn"
+                className="qty-stepper__btn"
                 onClick={decQty}
                 disabled={qty <= 1 || isOutOfStock || isSubmitting}
                 aria-label="Decrease quantity"
               >
                 −
               </button>
-              <span className="mdp-bs-qty__val" aria-live="polite">
+              <span className="qty-stepper__value" aria-live="polite">
                 {qty}
               </span>
               <button
                 type="button"
-                className="mdp-bs-qty__btn"
+                className="qty-stepper__btn qty-stepper__btn--plus"
                 onClick={incQty}
                 disabled={qty >= max || isOutOfStock || isSubmitting}
                 aria-label="Increase quantity"
