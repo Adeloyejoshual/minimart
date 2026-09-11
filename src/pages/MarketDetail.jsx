@@ -34,6 +34,7 @@ import DeliveryCard from "./MarketDetail/DeliveryCard";
 import DescriptionPage from "./MarketDetail/DescriptionPage";
 import SizeGuidePage from "./MarketDetail/SizeGuidePage";
 import ReviewsPage from "./MarketDetail/ReviewsPage";
+import FloatingCartButton from "../components/FloatingCartButton"; // ← NEW
 
 import "../styles/MarketDetail.css";
 
@@ -1130,14 +1131,6 @@ export default function MarketDetail() {
     };
   }, []);
 
-  const fetchProduct = useCallback(() => {
-    if (!slug) return;
-    axios
-      .get(`${API_URL}/${slug}`, { timeout: 12000 })
-      .then(({ data }) => setProduct(data?.data ?? data?.product ?? data))
-      .catch(() => {});
-  }, [slug]);
-
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
@@ -1875,18 +1868,9 @@ export default function MarketDetail() {
         </div>
       )}
 
+      {/* Draggable Floating Cart Button */}
       {cartCount > 0 && (
-        <button
-          type="button"
-          className="mdp-float-cart"
-          onClick={goToCart}
-          aria-label="View cart"
-        >
-          {Icon.cart}
-          <span className="mdp-float-cart__badge">
-            {cartCount > 99 ? "99+" : cartCount}
-          </span>
-        </button>
+        <FloatingCartButton count={cartCount} onClick={goToCart} icon={Icon.cart} />
       )}
 
       <VariantBottomSheet
