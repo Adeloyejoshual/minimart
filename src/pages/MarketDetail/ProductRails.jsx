@@ -1,9 +1,6 @@
 /**
  * src/pages/MarketDetail/ProductRails.jsx
- *
- * 1) You may also like     — Horizontal swipe rail (Jumia style)
- * 2) More from this seller — Horizontal swipe rail (Jumia style)
- * 3) Recommended for you   — 2-Column Grid (Temu style: 20 Items initially + Load More)
+ * Professional Recommendations & Related Products
  */
 
 import {
@@ -104,7 +101,7 @@ async function getFirstList(urls) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   1) JUMIA-STYLE HORIZONTAL CARD
+   1) HORIZONTAL CARD (Jumia Style)
 ════════════════════════════════════════════════════════════ */
 const HorizontalCard = memo(function HorizontalCard({ item, onOpen }) {
   if (!item) return null;
@@ -139,9 +136,9 @@ const HorizontalCard = memo(function HorizontalCard({ item, onOpen }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   2) TEMU-STYLE 2-COLUMN GRID CARD
+   2) PROFESSIONAL GRID CARD (Temu/Amazon Style)
 ════════════════════════════════════════════════════════════ */
-const TemuGridCard = memo(function TemuGridCard({ item, onOpen }) {
+const ProfessionalCard = memo(function ProfessionalCard({ item, onOpen }) {
   if (!item) return null;
   const price = priceOf(item);
   const original = origOf(item);
@@ -150,53 +147,51 @@ const TemuGridCard = memo(function TemuGridCard({ item, onOpen }) {
   const rating = Number(item.rating || item.average_rating || 0);
 
   return (
-    <div className="mdp-temu-card" onClick={() => onOpen(slugOf(item))}>
-      <div className="mdp-temu-card__media">
+    <div className="pr-card" onClick={() => onOpen(slugOf(item))}>
+      <div className="pr-card__img-wrap">
         {img ? (
-          <img src={img} alt="" loading="lazy" />
+          <img src={img} alt="" loading="lazy" className="pr-card__img" />
         ) : (
-          <div className="mdp-temu-card__ph">📦</div>
+          <div className="pr-card__ph">📦</div>
         )}
-        {d > 0 && <span className="mdp-temu-card__badge">-{d}%</span>}
+        {d > 0 && <span className="pr-card__badge">-{d}% OFF</span>}
       </div>
 
-      <div className="mdp-temu-card__body">
-        <p className="mdp-temu-card__title">{item.name || item.title}</p>
+      <div className="pr-card__body">
+        <p className="pr-card__name">{item.name || item.title}</p>
         
         {rating > 0 && (
-          <div className="mdp-temu-card__rating">
-            <span className="mdp-temu-card__star">★</span>
-            <span className="mdp-temu-card__num">{rating.toFixed(1)}</span>
+          <div className="pr-card__rating">
+            <span className="pr-card__star" aria-hidden="true">★</span>
+            <span className="pr-card__num">{rating.toFixed(1)}</span>
             {item.reviews_count > 0 && (
-              <span className="mdp-temu-card__count">({item.reviews_count})</span>
+              <span className="pr-card__count">· {item.reviews_count}</span>
             )}
           </div>
         )}
 
-        <div className="mdp-temu-card__footer">
-          <div className="mdp-temu-card__price-box">
-            <span className="mdp-temu-card__price">{formatPrice(price)}</span>
-            {original > price && (
-              <span className="mdp-temu-card__orig">{formatPrice(original)}</span>
-            )}
-          </div>
-
-          <button
-            type="button"
-            className="mdp-temu-card__cart-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen(slugOf(item));
-            }}
-            aria-label="View product"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={15} height={15}>
-              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-            </svg>
-          </button>
+        <div className="pr-card__prices">
+          <span className="pr-card__price">{formatPrice(price)}</span>
+          {original > price && (
+            <span className="pr-card__orig">{formatPrice(original)}</span>
+          )}
         </div>
       </div>
+      
+      <button
+        type="button"
+        className="pr-card__add-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(slugOf(item));
+        }}
+        aria-label="View product"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={16} height={16}>
+          <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+        </svg>
+      </button>
     </div>
   );
 });
@@ -220,7 +215,7 @@ const HorizontalSwipeRail = memo(function HorizontalSwipeRail({
         <h3 className="mdp-psec__title">{title}</h3>
         {onSeeAll && items?.length > 0 && (
           <button type="button" className="mdp-psec__all" onClick={onSeeAll}>
-            See all
+            See all →
           </button>
         )}
       </div>
@@ -247,7 +242,7 @@ const HorizontalSwipeRail = memo(function HorizontalSwipeRail({
 });
 
 /* ════════════════════════════════════════════════════════════
-   RECOMMENDED SECTION (20 ITEMS INITIAL + LOAD MORE BUTTON)
+   RECOMMENDED SECTION (GRID)
 ════════════════════════════════════════════════════════════ */
 const RecommendedGridSection = memo(function RecommendedGridSection({
   title = "Recommended for you",
@@ -286,16 +281,16 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
       </div>
 
       {loading ? (
-        <div className="mdp-temu-grid">
+        <div className="pr-grid">
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="mdp-temu-skel" />
+            <div key={i} className="pr-skel" />
           ))}
         </div>
       ) : (
         <>
-          <div className="mdp-temu-grid">
+          <div className="pr-grid">
             {visibleItems.map((item, idx) => (
-              <TemuGridCard
+              <ProfessionalCard
                 key={item.id || item.slug || idx}
                 item={item}
                 onOpen={(s) => s && navigate(`/shop/${s}`)}
@@ -304,21 +299,11 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
           </div>
 
           {hasMore && (
-            <div style={{ textAlign: "center", marginTop: "16px" }}>
+            <div className="pr-load-more-wrap">
               <button
                 type="button"
+                className="pr-load-more-btn"
                 onClick={handleLoadMore}
-                style={{
-                  padding: "10px 24px",
-                  borderRadius: "var(--r1)",
-                  border: "1px solid var(--bd2)",
-                  background: "var(--wh)",
-                  color: "var(--ink)",
-                  fontWeight: "700",
-                  fontSize: "13px",
-                  cursor: "pointer",
-                  boxShadow: "var(--s1)",
-                }}
               >
                 Load More Products
               </button>
@@ -358,7 +343,7 @@ function ProductRails({ product }) {
   const [loadingSeller, setLoadingSeller] = useState(true);
   const [loadingRec, setLoadingRec] = useState(true);
 
-  /* 1) Related Products (Horizontal) */
+  /* 1) Related Products */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -385,7 +370,7 @@ function ProductRails({ product }) {
     };
   }, [productId, slug]);
 
-  /* 2) Same Seller Products (Horizontal) */
+  /* 2) Same Seller Products */
   useEffect(() => {
     if (!productId) return;
     let cancelled = false;
@@ -419,7 +404,7 @@ function ProductRails({ product }) {
     };
   }, [productId, sellerId, product?.brand]);
 
-  /* 3) Recommended Products (Fallback Chain) */
+  /* 3) Recommended Products */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -454,7 +439,7 @@ function ProductRails({ product }) {
 
   return (
     <div className="mdp-rails">
-      {/* 1) Customers also viewed (Horizontal Swipe) */}
+      {/* 1) Customers also viewed */}
       <HorizontalSwipeRail
         title="Customers also viewed"
         items={related}
@@ -466,7 +451,7 @@ function ProductRails({ product }) {
         }
       />
 
-      {/* 2) More from this seller (Horizontal Swipe) */}
+      {/* 2) More from this seller */}
       <HorizontalSwipeRail
         title="More from this seller"
         items={sellerItems}
@@ -480,7 +465,7 @@ function ProductRails({ product }) {
         }
       />
 
-      {/* 3) Recommended for you (20 Items + Load More) */}
+      {/* 3) Recommended for you */}
       <RecommendedGridSection
         title="Recommended for you"
         allItems={recommended}
