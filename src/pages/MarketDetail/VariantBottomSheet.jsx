@@ -1,6 +1,5 @@
 /**
  * src/pages/MarketDetail/VariantBottomSheet.jsx
- * Options sheet + modern pill quantity stepper
  */
 
 import React, {
@@ -11,12 +10,14 @@ import React, {
   useRef,
 } from "react";
 import { formatPrice, getProductImage } from "../../config/marketplace";
+import "./styles/VariantBottomSheet.css";
 
 const getSafeImageUrl = (img) => {
   if (!img) return "";
   if (typeof img === "string") return img;
-  if (typeof img === "object")
-    return img.url || img.image_url || img.src || img.large || "";
+  if (typeof img === "object") {
+    return img.large || img.url || img.image_url || img.src || "";
+  }
   return "";
 };
 
@@ -41,6 +42,8 @@ export default function VariantBottomSheet({
   maxQty = 10,
   onConfirm,
   isSubmitting,
+  showSizeGuide = false,
+  onOpenSizeGuide,
 }) {
   const [closing, setClosing] = useState(false);
   const closingTimerRef = useRef(null);
@@ -100,7 +103,9 @@ export default function VariantBottomSheet({
       if (!Array.isArray(variants)) return [];
       return [
         ...new Set(
-          variants.map((v) => v.attributes?.[key]).filter((v) => v != null && v !== "")
+          variants
+            .map((v) => v.attributes?.[key])
+            .filter((v) => v != null && v !== "")
         ),
       ];
     },
@@ -118,7 +123,6 @@ export default function VariantBottomSheet({
               (k) => k === key || v.attributes?.[k] === current[k]
             )
         ) || variants.find((v) => v.attributes?.[key] === val);
-
       if (match) onSelectVariant?.(match);
     },
     [variants, selectedVariant, onSelectVariant]
@@ -148,11 +152,12 @@ export default function VariantBottomSheet({
     stockLeft !== undefined &&
     Number(stockLeft) <= 0;
 
-  // Calculate safe max for incrementing
   const max = Math.min(
     maxQty,
     stockLeft > 0 ? Number(stockLeft) : maxQty
   );
+
+  const safeQty = Math.max(1, Number(qty) || 1);
 
   const selectedLabels = useMemo(() => {
     if (!selectedVariant?.attributes) return [];
@@ -168,11 +173,8 @@ export default function VariantBottomSheet({
   }, [setQty]);
 
   const incQty = useCallback(() => {
-    setQty?.((q) => {
-      const current = Number(q) || 1;
-      return Math.min(max, current + 1);
-    });
-  }, [max, setQty]);
+    setQty?.((q) => Math.min(max, (Number(q) || 1) + 1));
+  }, [setQty, max]);
 
   const handleConfirm = async () => {
     if (isOutOfStock || isSubmitting) return;
@@ -188,30 +190,20 @@ export default function VariantBottomSheet({
   if (!isOpen && !closing) return null;
   if (!product) return null;
 
-  const lineTotal = displayPrice * Math.max(1, Number(qty) || 1);
+  const lineTotal = displayPrice * safeQty;
 
   return (
     <div
-      className="mdp-bs-overlay"
+      className={`mdp-bs-overlay${closing ? " mdp-bs-overlay--closing" : ""}`}
       onClick={handleClose}
       role="presentation"
-      style={{
-        animation: closing
-          ? "mdpFadeOut 0.2s forwards"
-          : "mdpFadeIn 0.2s forwards",
-      }}
     >
       <div
-        className="mdp-bs-container"
+        className={`mdp-bs-container${closing ? " mdp-bs-container--closing" : ""}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Choose options"
-        style={{
-          animation: closing
-            ? "mdpSlideDown 0.2s forwards"
-            : "mdpSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards",
-        }}
       >
         {/* Header */}
         <div className="mdp-bs-header">
@@ -251,13 +243,23 @@ export default function VariantBottomSheet({
 
         {/* Body */}
         <div className="mdp-bs-body">
+          {showSizeGuide && typeof onOpenSizeGuide === "function" && (
+            <button
+              type="button"
+              className="mdp-bs-size-guide"
+              onClick={() => onOpenSizeGuide()}
+            >
+              Size guide
+            </button>
+          )}
+
           {attributeKeys.map((key) => {
             const values = getUniqueAttrValues(key);
             if (!values.length) return null;
 
             return (
               <div key={String(key)} className="mdp-bs-group">
-                <p className="mdp-bs-label">{String(key).replace(/_/g, " ")}</p>
+                <p className="mdp-bs-label">{String(key)}</p>
                 <div className="mdp-bs-options">
                   {values.map((val) => {
                     const matchedVar = variants.find(
@@ -290,28 +292,30 @@ export default function VariantBottomSheet({
             );
           })}
 
-          {/* Quantity — Modern Pill Stepper */}
+          {/* Quantity — structured pill (not bare −1+) */}
           <div className="mdp-bs-group mdp-bs-qty-row">
             <p className="mdp-bs-label">Quantity</p>
 
-            <div className="qty-stepper" role="group" aria-label="Quantity">
+            <div className="mdp-bs-qty" role="group" aria-label="Quantity">
               <button
                 type="button"
-                className="qty-stepper__btn"
+                className="mdp-bs-qty__btn"
                 onClick={decQty}
-                disabled={qty <= 1 || isOutOfStock || isSubmitting}
+                disabled={safeQty <= 1 || isOutOfStock || isSubmitting}
                 aria-label="Decrease quantity"
               >
                 −
               </button>
-              <span className="qty-stepper__value" aria-live="polite">
-                {qty}
+
+              <span className="mdp-bs-qty__val" aria-live="polite">
+                {safeQty}
               </span>
+
               <button
                 type="button"
-                className="qty-stepper__btn qty-stepper__btn--plus"
+                className="mdp-bs-qty__btn"
                 onClick={incQty}
-                disabled={qty >= max || isOutOfStock || isSubmitting}
+                disabled={safeQty >= max || isOutOfStock || isSubmitting}
                 aria-label="Increase quantity"
               >
                 +
