@@ -71,8 +71,9 @@ import SearchPage           from "./pages/SearchPage";
 import ProductDetail        from "./pages/ProductDetail";
 import ProductDetailDesktop from "./desktop/ProductDetailDesktop";
 import MarketDetail         from "./pages/MarketDetail";
-import CategoryCatalog      from "./pages/CategoryCatalog"; // ← NEW: Jumia-style catalog
+import CategoryCatalog      from "./pages/CategoryCatalog"; // ← Jumia-style catalog
 import SellerProfile        from "./pages/SellerProfile";
+import SellerPage           from "./pages/SellerPage";      // ← NEW: Dedicated Seller Store Page
 import TermsAndConditions   from "./pages/TermsAndConditions";
 import MinimartPage         from "./pages/MinimartPage";
 import P2P                  from "./pages/P2P";
@@ -689,7 +690,10 @@ function AppInner() {
         <Route path="/catalog"       element={<CategoryCatalog    user={user} />} />
         <Route path="/category/:slug" element={<CategoryCatalog   user={user} />} />
 
+        {/* Seller routes (Kept original SellerProfile + Added SellerPage) */}
         <Route path="/seller/:id"    element={<SellerProfile     user={user} />} />
+        <Route path="/seller/store/:sellerId" element={<SellerPage />} /> 
+
         <Route path="/terms"         element={<TermsAndConditions />} />
         <Route path="/minimart"      element={<MinimartPage      user={user} />} />
         <Route path="/p2p"           element={<P2P               user={user} />} />
