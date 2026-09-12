@@ -1,0 +1,371 @@
+/* ════════════════════════════════════════════════════════════
+   VariantBottomSheet.css
+   Self-contained styles for options sheet + qty pill
+   Import ONLY from VariantBottomSheet.jsx
+════════════════════════════════════════════════════════════ */
+
+/* ── Overlay ── */
+.mdp-bs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: mdp-bs-fade-in 0.2s ease forwards;
+}
+
+.mdp-bs-overlay--closing {
+  animation: mdp-bs-fade-out 0.2s ease forwards;
+}
+
+@media (min-width: 640px) {
+  .mdp-bs-overlay {
+    align-items: center;
+    padding: 20px;
+  }
+}
+
+/* ── Sheet container ── */
+.mdp-bs-container {
+  width: 100%;
+  max-width: 500px;
+  max-height: 88vh;
+  background: var(--wh, #fff);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.12);
+  animation: mdp-bs-slide-up 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.mdp-bs-container--closing {
+  animation: mdp-bs-slide-down 0.2s ease forwards;
+}
+
+@media (min-width: 640px) {
+  .mdp-bs-container {
+    border-radius: 16px;
+  }
+}
+
+/* ── Header ── */
+.mdp-bs-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--bd, #eee);
+  position: relative;
+}
+
+.mdp-bs-img {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--bg, #f4f4f8);
+  flex-shrink: 0;
+}
+
+.mdp-bs-img--ph {
+  background: var(--bg, #f4f4f8);
+}
+
+.mdp-bs-header-info {
+  flex: 1;
+  min-width: 0;
+  padding-right: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mdp-bs-price {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--o, #ff6b00);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.mdp-bs-stock {
+  font-size: 13px;
+  color: var(--ink2, #666);
+  margin: 0;
+}
+
+.mdp-bs-stock--out {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.mdp-bs-selected {
+  font-size: 13px;
+  color: var(--ink2, #666);
+  margin: 2px 0 0;
+}
+
+.mdp-bs-selected strong {
+  color: var(--ink, #111);
+  font-weight: 700;
+}
+
+.mdp-bs-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg, #f4f4f8);
+  color: var(--ink2, #666);
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.mdp-bs-close:active {
+  opacity: 0.7;
+}
+
+/* ── Body ── */
+.mdp-bs-body {
+  padding: 14px 0;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mdp-bs-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mdp-bs-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink, #111);
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.mdp-bs-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mdp-bs-btn {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--bd2, #ddd);
+  background: var(--wh, #fff);
+  color: var(--ink, #111);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.mdp-bs-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.mdp-bs-btn.active {
+  border-color: var(--ink, #111);
+  background: var(--ink, #111);
+  color: #fff;
+  font-weight: 700;
+}
+
+.mdp-bs-btn.oos {
+  opacity: 0.4;
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+/* Size guide link inside sheet (optional) */
+.mdp-bs-size-guide {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--o, #ff6b00);
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   QUANTITY — modern pill (fixes jammed “-1+”)
+════════════════════════════════════════════════════════════ */
+.mdp-bs-qty-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.mdp-bs-qty-row .mdp-bs-label {
+  margin: 0 !important;
+  flex-shrink: 0;
+}
+
+/* The pill track */
+.mdp-bs-qty,
+.mdp-bs-qty-controls {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 140px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  border-radius: 999px !important;
+  border: 1.5px solid var(--o, #ff6b00) !important;
+  background: #fff !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  box-shadow: 0 1px 4px rgba(255, 107, 0, 0.12);
+  flex-shrink: 0;
+}
+
+/* − and + */
+.mdp-bs-qty__btn,
+.mdp-bs-qty-controls > button {
+  box-sizing: border-box !important;
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  height: 44px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: var(--o, #ff6b00) !important;
+  color: #fff !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  flex-shrink: 0 !important;
+}
+
+.mdp-bs-qty__btn:active:not(:disabled),
+.mdp-bs-qty-controls > button:active:not(:disabled) {
+  background: #e55a00 !important;
+}
+
+.mdp-bs-qty__btn:disabled,
+.mdp-bs-qty-controls > button:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+}
+
+/* Center number — never sits next to − without gap */
+.mdp-bs-qty__val,
+.mdp-bs-qty-controls > span {
+  box-sizing: border-box !important;
+  flex: 1 1 auto !important;
+  min-width: 40px !important;
+  height: 44px !important;
+  margin: 0 !important;
+  padding: 0 4px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  color: var(--ink, #111) !important;
+  background: #fff !important;
+  font-variant-numeric: tabular-nums;
+  line-height: 1 !important;
+  border-left: 1px solid rgba(255, 107, 0, 0.15);
+  border-right: 1px solid rgba(255, 107, 0, 0.15);
+}
+
+/* ── Footer CTA ── */
+.mdp-bs-footer {
+  padding-top: 12px;
+  border-top: 1px solid var(--bd, #eee);
+  flex-shrink: 0;
+}
+
+.mdp-bs-confirm {
+  width: 100%;
+  height: 52px;
+  border: none;
+  border-radius: 999px;
+  background: var(--o, #ff6b00);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(255, 107, 0, 0.28);
+  transition: background 0.15s, transform 0.1s;
+}
+
+.mdp-bs-confirm:active:not(:disabled) {
+  transform: scale(0.98);
+  background: #e55a00;
+}
+
+.mdp-bs-confirm:disabled {
+  background: var(--bd2, #ccc);
+  color: #888;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ── Animations ── */
+@keyframes mdp-bs-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mdp-bs-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes mdp-bs-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes mdp-bs-slide-down {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdp-bs-overlay,
+  .mdp-bs-container,
+  .mdp-bs-overlay--closing,
+  .mdp-bs-container--closing {
+    animation-duration: 0.01ms !important;
+  }
+}
