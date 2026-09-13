@@ -1,9 +1,10 @@
 /**
- * server.js — v5
+ * server.js — v5.1
  * ─────────────────────────────────────────────────────────────
- * v5 changes:
- * ✓ Public Seller Storefront routes mounted (/api/sellers, /api/stores)
- * ✓ All existing v4 features preserved (delivery, receipt, cron, etc.)
+ * Fixed:
+ * ✓ Removed duplicate imports for ssrRouter & sitemapRouter
+ * ✓ Public Seller Storefront routes (/api/sellers, /api/stores)
+ * ✓ All v4/v5 features, delivery, webhooks & crons preserved
  */
 
 import express           from "express";
@@ -230,7 +231,7 @@ import sellerProfileRouter       from "./routes/sellerprofile.js";
 /* ── Seller Dashboard (legacy) ── */
 import sellerDashboardRouter from "./routes/dashboard.js";
 
-/* ── Public Seller Storefront (NEW) ── */
+/* ── Public Seller Storefront ── */
 import publicSellerRouter from "./routes/publicSeller.routes.js";
 
 /* ── Admin delivery management ── */
@@ -484,10 +485,6 @@ app.use("/api/subscription",    subscriptionRouter);
 /* ── Settings + Support ── */
 app.use("/api/settings", settingsRouter);
 app.use("/api/support",  supportRouter);
-
-/* ── SSR + Sitemap ── */
-import ssrRouter     from "./routes/ssr.js";
-import sitemapRouter from "./routes/sitemap.js";
 
 /* ════════════════════════════════════════════════════════════
    HEALTH CHECK
