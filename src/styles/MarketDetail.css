@@ -232,9 +232,7 @@
 .mdp-faq-item--open .mdp-faq-arrow { transform: rotate(90deg); }
 .mdp-faq-content { padding: 0 12px 10px; font-size: 12px; color: var(--ink2, #666); }
 
-.md-seller-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px; background: var(--bg, #f4f4f8); border-radius: var(--r1, 8px); }
-.md-seller-img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
-.md-seller-name { font-size: 13px; font-weight: 700; margin: 0 0 2px; }
+/* Note: SellerCard styles are already moved into SellerCard.jsx / SellerPage.css */
 
 .mdp-trust-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .mdp-trust-item { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--bd, #e5e5e5); border-radius: var(--r1, 8px); background: var(--wh, #fff); }
@@ -358,74 +356,27 @@
 .mdp-btn-cart-primary:disabled { background: var(--bd2, #ccc); color: var(--ink3, #aaa); box-shadow: none; cursor: not-allowed; }
 .mdp-btn-cart-primary--done { background: var(--gn, #2e7d32); }
 
-/* ── 9. BOTTOM SHEET & SUBPAGES ──────────────────────────── */
-.mdp-bs-overlay, .mdp-subpage-overlay, .mdp-modal-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; justify-content: center;
+/* ── 9. MODALS, TOASTS, OVERLAYS ──────────────────────────── */
+.mdp-modal-overlay {
+  position: fixed; inset: 0; z-index: 9998;
+  background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);
+  display: flex; align-items: flex-end; justify-content: center;
 }
-@media (min-width: 640px) { .mdp-bs-overlay, .mdp-subpage-overlay, .mdp-modal-overlay { align-items: center; padding: 20px; } }
+@media (min-width: 640px) { .mdp-modal-overlay { align-items: center; padding: 20px; } }
 
-.mdp-bs-container, .mdp-modal {
-  width: 100%; max-width: 500px; max-height: 85vh;
+.mdp-modal {
   background: var(--wh, #fff); border-radius: 16px 16px 0 0;
-  padding: 16px; display: flex; flex-direction: column; overflow: hidden;
+  width: 100%; max-width: 500px; max-height: 90vh;
+  display: flex; flex-direction: column; overflow: hidden;
 }
-@media (min-width: 640px) { .mdp-bs-container, .mdp-modal { border-radius: 16px; } }
+@media (min-width: 640px) { .mdp-modal { border-radius: 16px; } }
 
-.mdp-bs-header { display: flex; gap: 12px; align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid var(--bd, #e5e5e5); position: relative; }
-.mdp-bs-img { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: var(--bg, #f4f4f8); flex-shrink: 0; }
-.mdp-bs-header-info { flex: 1; min-width: 0; }
-.mdp-bs-price { font-size: 18px; font-weight: 800; color: var(--o, #ff6b00); margin: 0; }
-.mdp-bs-close, .mdp-modal-x {
-  position: absolute; top: 0; right: 0; width: 28px; height: 28px;
-  border: none; border-radius: 50%; background: var(--bg, #f4f4f8); color: var(--ink2, #666);
-  font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer;
+.mdp-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--bd, #e5e5e5);
 }
-.mdp-bs-body { padding: 12px 0; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 12px; }
-.mdp-bs-group { display: flex; flex-direction: column; gap: 6px; }
-.mdp-bs-label { font-size: 12px; font-weight: 700; margin: 0; text-transform: capitalize; }
-.mdp-bs-options { display: flex; flex-wrap: wrap; gap: 6px; }
-.mdp-bs-btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--bd2, #ccc); background: var(--wh, #fff); color: var(--ink, #111); font-size: 12px; font-weight: 600; cursor: pointer; }
-.mdp-bs-btn.active { border-color: var(--ink, #111); background: var(--ink, #111); color: #fff; }
-.mdp-bs-btn.oos { opacity: 0.4; text-decoration: line-through; cursor: not-allowed; }
-.mdp-bs-confirm { width: 100%; height: 48px; border: none; border-radius: 999px; background: var(--o, #ff6b00); color: #fff; font-size: 15px; font-weight: 800; cursor: pointer; margin-top: 8px; }
+.mdp-modal-body { padding: 20px; overflow-y: auto; flex: 1; }
 
-/* Bottom Sheet Pill Qty Stepper */
-.mdp-bs-qty-row { display: flex; align-items: center; justify-content: space-between; flex-direction: row !important; }
-.mdp-bs-qty-row .mdp-bs-label { margin: 0 !important; }
-.mdp-bs-qty-controls {
-  display: inline-flex !important; align-items: center !important; justify-content: space-between !important;
-  height: 40px !important; width: 120px !important; border-radius: 999px !important;
-  border: 1.5px solid var(--o, #ff6b00) !important; overflow: hidden !important;
-}
-.mdp-bs-qty-controls button {
-  width: 40px !important; height: 100% !important; border: none !important;
-  background: var(--o, #ff6b00) !important; color: #fff !important; font-size: 20px !important; font-weight: 700 !important;
-  display: flex !important; align-items: center !important; justify-content: center !important;
-}
-.mdp-bs-qty-controls button:disabled { opacity: 0.4 !important; }
-.mdp-bs-qty-controls span { flex: 1; text-align: center; font-size: 15px; font-weight: 800; }
-
-/* ── 10. GALLERY OVERRIDES (Larger & Sharper) ────────────── */
-.ig-stage {
-  height: min(78vw, 440px) !important;
-  max-height: 480px;
-  background: #fff !important;
-}
-.ig-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain !important;
-  object-position: center;
-  image-rendering: auto;
-  -webkit-backface-visibility: hidden;
-}
-.ig-thumbs { gap: 8px !important; padding: 10px 12px !important; }
-.ig-thumb { width: 64px !important; height: 64px !important; border-radius: 8px !important; }
-.ig-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.ig-zoom-img { max-width: 100vw; max-height: 85vh; object-fit: contain; }
-
-/* ── 11. TOAST & FAB ─────────────────────────────────────── */
 .mdp-float-cart {
   position: fixed; bottom: 82px; right: 14px; z-index: 88;
   width: 52px; height: 52px; border: none; border-radius: 50%;
@@ -446,6 +397,25 @@
   padding: 8px 10px; background: var(--wh, #fff); border: 1px solid var(--bd, #e5e5e5);
   border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
 }
+
+/* ── 10. GALLERY OVERRIDES (Larger & Sharper) ────────────── */
+.ig-stage {
+  height: min(78vw, 440px) !important;
+  max-height: 480px;
+  background: #fff !important;
+}
+.ig-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain !important;
+  object-position: center;
+  image-rendering: auto;
+  -webkit-backface-visibility: hidden;
+}
+.ig-thumbs { gap: 8px !important; padding: 10px 12px !important; }
+.ig-thumb { width: 64px !important; height: 64px !important; border-radius: 8px !important; }
+.ig-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ig-zoom-img { max-width: 100vw; max-height: 85vh; object-fit: contain; }
 
 /* Animations */
 @keyframes mdpFadeIn { from { opacity: 0; } to { opacity: 1; } }
