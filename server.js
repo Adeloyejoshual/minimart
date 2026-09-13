@@ -1,11 +1,9 @@
 /**
- * server.js — v4
+ * server.js — v5
  * ─────────────────────────────────────────────────────────────
- * v4 changes:
- * ✓ Admin delivery routes mounted  (/api/admin/orders/*)
- * ✓ Buyer receipt routes mounted   (/api/checkout/orders/:id/confirm-received)
- * ✓ Auto-confirm cron job added    (every hour)
- * ✓ All existing v3 features preserved
+ * v5 changes:
+ * ✓ Public Seller Storefront routes mounted (/api/sellers, /api/stores)
+ * ✓ All existing v4 features preserved (delivery, receipt, cron, etc.)
  */
 
 import express           from "express";
@@ -209,15 +207,7 @@ import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 import checkoutRouter        from "./routes/checkout/index.js";
 import checkoutWebhookRouter from "./routes/checkout/webhook.js";
 
-/*
- * Buyer receipt confirmation.
- * Mounted at /api/checkout/orders so it shares the
- * checkout namespace and buyer auth context.
- *
- * Routes added:
- *   POST /api/checkout/orders/:orderId/confirm-received
- *   GET  /api/checkout/orders/:orderId/receipt-status
- */
+/* ── Buyer receipt confirmation ── */
 import buyerReceiptRouter from "./routes/buyer/receipt.js";
 
 /* ── Marketplace auth (public.users) ── */
@@ -240,19 +230,10 @@ import sellerProfileRouter       from "./routes/sellerprofile.js";
 /* ── Seller Dashboard (legacy) ── */
 import sellerDashboardRouter from "./routes/dashboard.js";
 
-/*
- * Admin delivery management — Loemart Express dispatch.
- *
- * Mounted at /api/admin/delivery (separate from the existing
- * admin orderRouter so they don't conflict).
- *
- * Routes added:
- *   GET  /api/admin/delivery/pending-dispatch
- *   GET  /api/admin/delivery/:orderId/dispatch
- *   POST /api/admin/delivery/:orderId/dispatch
- *   POST /api/admin/delivery/:orderId/delivered
- *   POST /api/admin/delivery/:orderId/failed
- */
+/* ── Public Seller Storefront (NEW) ── */
+import publicSellerRouter from "./routes/publicSeller.routes.js";
+
+/* ── Admin delivery management ── */
 import adminDeliveryRouter from "./routes/admin/delivery.js";
 
 /* ── Marketplace products ── */
@@ -424,9 +405,6 @@ app.use("/api/payment", paymentRouter);
    ORDER IS CRITICAL:
    1. buyerReceiptRouter  FIRST  — adds POST/GET on /:orderId/*
    2. checkoutRouter      SECOND — handles everything else
-
-   If checkoutRouter comes first, its catch-all may swallow
-   the receipt routes before buyerReceiptRouter is checked.
 ─────────────────────────────────────────────────────────── */
 app.use("/api/checkout/orders", buyerReceiptRouter);
 app.use("/api/checkout",        checkoutRouter);
@@ -462,10 +440,6 @@ app.use("/api/seller-dashboard", sellerDashboardRouter);
    ORDER IS CRITICAL:
    1. adminDeliveryRouter  FIRST  — /api/admin/delivery/*
    2. adminRouter          SECOND — /api/admin/* (catch-all)
-
-   adminDeliveryRouter uses authenticateAdmin middleware.
-   adminRouter uses verifyAdmin middleware (same concept,
-   different naming convention for the admin module).
 ════════════════════════════════════════════════════════════ */
 app.use("/api/admin/delivery", adminDeliveryRouter);
 app.use("/api/admin",          adminRouter);
@@ -478,6 +452,10 @@ app.use("/api/addproduct",   addproductRouter);
 app.use("/api/addproduct",   editproductRouter);
 app.use("/api/product",      productDetailRouter);
 app.use("/api/promoteplans", promotePlansRouter);
+
+/* ── Public Seller Storefront ── */
+app.use("/api/sellers",      publicSellerRouter);
+app.use("/api/stores",       publicSellerRouter);
 
 /* ── Users ── */
 app.use("/api/users",        userRouter);
@@ -506,6 +484,10 @@ app.use("/api/subscription",    subscriptionRouter);
 /* ── Settings + Support ── */
 app.use("/api/settings", settingsRouter);
 app.use("/api/support",  supportRouter);
+
+/* ── SSR + Sitemap ── */
+import ssrRouter     from "./routes/ssr.js";
+import sitemapRouter from "./routes/sitemap.js";
 
 /* ════════════════════════════════════════════════════════════
    HEALTH CHECK
@@ -815,6 +797,11 @@ async function start() {
 
   ── Seller Profile (catch-all) ─────────────────────────
     /api/seller/*
+
+  ── Public Seller Storefront ───────────────────────────
+    GET   /api/sellers/:idOrSlug
+    GET   /api/sellers/:idOrSlug/products
+    GET   /api/stores/:idOrSlug
 
   ── Checkout (public) ──────────────────────────────────
     GET   /api/checkout/address/zones          ← PUBLIC
