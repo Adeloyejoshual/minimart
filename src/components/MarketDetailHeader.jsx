@@ -31,12 +31,6 @@ const Icon = {
       <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
     </svg>
   ),
-  search: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={20} height={20}>
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
 };
 
 const headerBtnStyle = {
@@ -124,7 +118,7 @@ function MarketDetailHeader({
         {productLoaded && productName ? productName : "Product Details"}
       </h1>
 
-      {/* ── Action Buttons: Search | Wishlist | Cart ── */}
+      {/* ── Actions: Wishlist | Cart ── */}
       <div
         className="md-topbar-right"
         style={{
@@ -134,16 +128,6 @@ function MarketDetailHeader({
           flexShrink: 0,
         }}
       >
-        {/* Search */}
-        <button
-          type="button"
-          onClick={() => navigate("/catalog")}
-          aria-label="Search catalog"
-          style={headerBtnStyle}
-        >
-          {Icon.search}
-        </button>
-
         {/* Wishlist */}
         <button
           type="button"
