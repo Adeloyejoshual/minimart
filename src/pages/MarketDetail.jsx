@@ -917,6 +917,7 @@ const SelectionTrigger = memo(function SelectionTrigger({
   value,
   onClick,
   rightSlot = null,
+  multiline = false,
 }) {
   return (
     <div
@@ -928,7 +929,24 @@ const SelectionTrigger = memo(function SelectionTrigger({
     >
       <div className="mdp-sel-text">
         <span className="mdp-sel-label">{label}</span>
-        <span className="mdp-sel-value">{value}</span>
+        <span
+          className="mdp-sel-value"
+          style={
+            multiline
+              ? {
+                  whiteSpace: "normal",
+                  wordBreak: "break-word",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 5,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }
+              : undefined
+          }
+        >
+          {value}
+        </span>
       </div>
       {rightSlot}
       <span className="mdp-sel-chevron" aria-hidden="true">
@@ -1634,7 +1652,7 @@ export default function MarketDetail() {
                 </div>
               )}
 
-              {/* Options row — Size guide only in the middle (clothes/shoes) */}
+              {/* Options row */}
               {hasVariants && (
                 <SelectionTrigger
                   label="Options & Quantity"
@@ -1658,11 +1676,13 @@ export default function MarketDetail() {
                 </button>
               )}
 
+              {/* Product details row with multiline enabled */}
               {hasDescriptionData && (
                 <SelectionTrigger
                   label="Product Details"
                   value={descriptionPreview || "Description, specs & features"}
                   onClick={() => setShowDescriptionPage(true)}
+                  multiline={true}
                 />
               )}
 
