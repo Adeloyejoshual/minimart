@@ -929,22 +929,7 @@ const SelectionTrigger = memo(function SelectionTrigger({
     >
       <div className="mdp-sel-text">
         <span className="mdp-sel-label">{label}</span>
-        <span
-          className="mdp-sel-value"
-          style={
-            multiline
-              ? {
-                  whiteSpace: "normal",
-                  wordBreak: "break-word",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 5,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }
-              : undefined
-          }
-        >
+        <span className={`mdp-sel-value ${multiline ? "mdp-sel-value--multiline" : ""}`}>
           {value}
         </span>
       </div>
@@ -1087,15 +1072,31 @@ export default function MarketDetail() {
     return null;
   }, [selectedVariant, product]);
 
-  /* UPDATED TO SHOW 400 CHARACTERS */
+  /* UPDATED: SMART TRUNCATION AT LAST WORD (400 chars) */
   const descriptionPreview = useMemo(() => {
     if (!product?.description) return "";
+    
+    // Strip HTML and extra spaces
     const stripped = String(product.description)
       .replace(/<[^>]*>/g, "")
       .replace(/\s+/g, " ")
       .trim();
-    if (stripped.length <= 400) return stripped;
-    return stripped.slice(0, 400).trim() + "…";
+
+    const MAX_CHARS = 400;
+    
+    // If under max, return full string
+    if (stripped.length <= MAX_CHARS) return stripped;
+
+    // Cut to max length
+    let cutText = stripped.slice(0, MAX_CHARS);
+
+    // Find the last space to avoid cutting in the middle of a word (e.g. avoiding "Th...")
+    const lastSpace = cutText.lastIndexOf(" ");
+    if (lastSpace > 0) {
+      cutText = cutText.slice(0, lastSpace);
+    }
+
+    return cutText.trim() + "…";
   }, [product]);
 
   const variantLabel = useMemo(() => {
@@ -1676,13 +1677,13 @@ export default function MarketDetail() {
                 </button>
               )}
 
-              {/* Product details row with multiline enabled */}
+              {/* Multiline true added here for up to 5 lines of text */}
               {hasDescriptionData && (
                 <SelectionTrigger
                   label="Product Details"
                   value={descriptionPreview || "Description, specs & features"}
                   onClick={() => setShowDescriptionPage(true)}
-                  multiline={true}
+                  multiline={true} 
                 />
               )}
 
