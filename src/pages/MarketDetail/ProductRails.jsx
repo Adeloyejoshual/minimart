@@ -1,6 +1,7 @@
 /**
  * src/pages/MarketDetail/ProductRails.jsx
  * Professional Recommendations & Related Products
+ * Recommended = Masonry Grid + Discount %
  */
 
 import {
@@ -61,7 +62,13 @@ function origOf(item) {
 
 function imgOf(item) {
   if (!item) return "";
-  return getProductImage?.(item) || item.image || item.image_url || item.thumbnail || "";
+  return (
+    getProductImage?.(item) ||
+    item.image ||
+    item.image_url ||
+    item.thumbnail ||
+    ""
+  );
 }
 
 function slugOf(item) {
@@ -101,7 +108,7 @@ async function getFirstList(urls) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   1) HORIZONTAL CARD (Jumia Style)
+   1) HORIZONTAL CARD
 ════════════════════════════════════════════════════════════ */
 const HorizontalCard = memo(function HorizontalCard({ item, onOpen }) {
   if (!item) return null;
@@ -136,62 +143,57 @@ const HorizontalCard = memo(function HorizontalCard({ item, onOpen }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   2) PROFESSIONAL GRID CARD (Temu/Amazon Style)
+   2) MASONRY CARD (Recommended)
 ════════════════════════════════════════════════════════════ */
-const ProfessionalCard = memo(function ProfessionalCard({ item, onOpen }) {
+const MasonryCard = memo(function MasonryCard({ item, onOpen }) {
   if (!item) return null;
+
   const price = priceOf(item);
   const original = origOf(item);
   const d = discOf(item);
   const img = imgOf(item);
   const rating = Number(item.rating || item.average_rating || 0);
 
+  // Vary image height slightly for true masonry feel
+  const h = useMemo(() => {
+    const id = String(item.id || item.slug || "x");
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i) * (i + 1)) % 3;
+    // short / medium / tall
+    return hash === 0 ? 140 : hash === 1 ? 170 : 200;
+  }, [item.id, item.slug]);
+
   return (
-    <div className="pr-card" onClick={() => onOpen(slugOf(item))}>
-      <div className="pr-card__img-wrap">
+    <div className="pr-masonry-card" onClick={() => onOpen(slugOf(item))}>
+      <div className="pr-masonry-card__media" style={{ height: h }}>
         {img ? (
-          <img src={img} alt="" loading="lazy" className="pr-card__img" />
+          <img src={img} alt="" loading="lazy" className="pr-masonry-card__img" />
         ) : (
-          <div className="pr-card__ph">📦</div>
+          <div className="pr-masonry-card__ph">📦</div>
         )}
-        {d > 0 && <span className="pr-card__badge">-{d}% OFF</span>}
+        {d > 0 && <span className="pr-masonry-card__badge">-{d}%</span>}
       </div>
 
-      <div className="pr-card__body">
-        <p className="pr-card__name">{item.name || item.title}</p>
-        
+      <div className="pr-masonry-card__body">
+        <p className="pr-masonry-card__name">{item.name || item.title}</p>
+
         {rating > 0 && (
-          <div className="pr-card__rating">
-            <span className="pr-card__star" aria-hidden="true">★</span>
-            <span className="pr-card__num">{rating.toFixed(1)}</span>
+          <div className="pr-masonry-card__rating">
+            <span aria-hidden="true">★</span>
+            <span>{rating.toFixed(1)}</span>
             {item.reviews_count > 0 && (
-              <span className="pr-card__count">· {item.reviews_count}</span>
+              <span className="pr-masonry-card__count">({item.reviews_count})</span>
             )}
           </div>
         )}
 
-        <div className="pr-card__prices">
-          <span className="pr-card__price">{formatPrice(price)}</span>
+        <div className="pr-masonry-card__prices">
+          <span className="pr-masonry-card__price">{formatPrice(price)}</span>
           {original > price && (
-            <span className="pr-card__orig">{formatPrice(original)}</span>
+            <span className="pr-masonry-card__orig">{formatPrice(original)}</span>
           )}
         </div>
       </div>
-      
-      <button
-        type="button"
-        className="pr-card__add-btn"
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpen(slugOf(item));
-        }}
-        aria-label="View product"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={16} height={16}>
-          <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-        </svg>
-      </button>
     </div>
   );
 });
@@ -242,9 +244,9 @@ const HorizontalSwipeRail = memo(function HorizontalSwipeRail({
 });
 
 /* ════════════════════════════════════════════════════════════
-   RECOMMENDED SECTION (GRID)
+   RECOMMENDED — MASONRY GRID
 ════════════════════════════════════════════════════════════ */
-const RecommendedGridSection = memo(function RecommendedGridSection({
+const RecommendedMasonrySection = memo(function RecommendedMasonrySection({
   title = "Recommended for you",
   allItems = [],
   loading,
@@ -273,24 +275,19 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
     <section className="mdp-psec mdp-psec--recommended">
       <div className="mdp-psec__head">
         <h3 className="mdp-psec__title">{title}</h3>
-        {!loading && allItems?.length > 0 && (
-          <span className="mdp-psec__meta">
-            Showing {visibleItems.length} of {allItems.length}
-          </span>
-        )}
       </div>
 
       {loading ? (
-        <div className="pr-grid">
+        <div className="pr-masonry">
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="pr-skel" />
+            <div key={i} className="pr-masonry-skel" />
           ))}
         </div>
       ) : (
         <>
-          <div className="pr-grid">
+          <div className="pr-masonry">
             {visibleItems.map((item, idx) => (
-              <ProfessionalCard
+              <MasonryCard
                 key={item.id || item.slug || idx}
                 item={item}
                 onOpen={(s) => s && navigate(`/shop/${s}`)}
@@ -316,7 +313,7 @@ const RecommendedGridSection = memo(function RecommendedGridSection({
 });
 
 /* ════════════════════════════════════════════════════════════
-   MAIN PRODUCT RAILS COMPONENT
+   MAIN
 ════════════════════════════════════════════════════════════ */
 function ProductRails({ product }) {
   const navigate = useNavigate();
@@ -343,7 +340,7 @@ function ProductRails({ product }) {
   const [loadingSeller, setLoadingSeller] = useState(true);
   const [loadingRec, setLoadingRec] = useState(true);
 
-  /* 1) Related Products */
+  /* Related */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -370,7 +367,7 @@ function ProductRails({ product }) {
     };
   }, [productId, slug]);
 
-  /* 2) Same Seller Products */
+  /* Seller */
   useEffect(() => {
     if (!productId) return;
     let cancelled = false;
@@ -404,7 +401,7 @@ function ProductRails({ product }) {
     };
   }, [productId, sellerId, product?.brand]);
 
-  /* 3) Recommended Products */
+  /* Recommended */
   useEffect(() => {
     if (!productId && !slug) return;
     let cancelled = false;
@@ -417,12 +414,14 @@ function ProductRails({ product }) {
         `${SHOP}/${slug}/recommendations?limit=40`,
         `${API_URL}/${productId}/recommended?limit=40`,
         `${SHOP}/recommended?product_id=${productId}&limit=40`,
-        catSlug ? `${API_URL}?category=${encodeURIComponent(catSlug)}&limit=40` : null,
+        catSlug
+          ? `${API_URL}?category=${encodeURIComponent(catSlug)}&limit=40`
+          : null,
         `${API_URL}?limit=40`,
         `${SHOP}?limit=40`,
       ];
 
-      let list = excludeIds(await getFirstList(urls), [productId]);
+      const list = excludeIds(await getFirstList(urls), [productId]);
 
       if (!cancelled) {
         setRecommended(list.slice(0, 40));
@@ -439,19 +438,18 @@ function ProductRails({ product }) {
 
   return (
     <div className="mdp-rails">
-      {/* 1) Customers also viewed */}
       <HorizontalSwipeRail
         title="Customers also viewed"
         items={related}
         loading={loadingRel}
         onSeeAll={
           catSlug
-            ? () => navigate(`/catalog?category=${encodeURIComponent(catSlug)}`)
+            ? () =>
+                navigate(`/catalog?category=${encodeURIComponent(catSlug)}`)
             : undefined
         }
       />
 
-      {/* 2) More from this seller */}
       <HorizontalSwipeRail
         title="More from this seller"
         items={sellerItems}
@@ -460,13 +458,15 @@ function ProductRails({ product }) {
           sellerId
             ? () => navigate(`/seller/${sellerId}`)
             : product?.brand
-            ? () => navigate(`/catalog?brand=${encodeURIComponent(product.brand)}`)
+            ? () =>
+                navigate(
+                  `/catalog?brand=${encodeURIComponent(product.brand)}`
+                )
             : undefined
         }
       />
 
-      {/* 3) Recommended for you */}
-      <RecommendedGridSection
+      <RecommendedMasonrySection
         title="Recommended for you"
         allItems={recommended}
         loading={loadingRec}
