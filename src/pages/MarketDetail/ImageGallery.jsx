@@ -1,6 +1,7 @@
 /**
  * src/pages/MarketDetail/ImageGallery.jsx
  * Larger stage, prefers high-res URLs, sharper display
+ * Single-image: no horizontal drag
  */
 
 import React, {
@@ -51,7 +52,6 @@ function resolveImageUrl(img) {
 function upgradeCdnUrl(url) {
   if (!url || typeof url !== "string") return url;
   try {
-    // w=100–400 → request larger
     let u = url.replace(/([?&]w=)(\d{2,3})(?!\d)/gi, (_, p, w) => {
       const n = Number(w);
       return n > 0 && n < 800 ? `${p}1080` : `${p}${w}`;
@@ -64,7 +64,6 @@ function upgradeCdnUrl(url) {
       const n = Number(q);
       return n > 0 && n < 70 ? `${p}85` : `${p}${q}`;
     });
-    // Cloudinary-style transforms
     u = u.replace(/\/w_\d{2,3}(?=,|\/)/g, "/w_1080");
     u = u.replace(/\/c_thumb/g, "/c_limit");
     return u;
@@ -152,6 +151,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     [images]
   );
   const total = urls.length;
+  const canSwipe = total > 1; // ← key flag
 
   const urlKeys = useMemo(
     () => urls.map((url, i) => `${url}--${i}`),
@@ -208,7 +208,8 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
 
   useEffect(() => {
     setDragOffset(0);
-  }, [current]);
+    setIsDragging(false);
+  }, [current, total]);
 
   useEffect(() => {
     if (!zoomed) setDragOffset(0);
@@ -235,17 +236,17 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   useFocusTrap(zoomRef, zoomed);
 
   useEffect(() => {
-    if (zoomed) return;
+    if (zoomed || !canSwipe) return;
     const fn = (e) => {
       if (e.key === "ArrowLeft") setCurrent((c) => mod(c - 1, total));
       if (e.key === "ArrowRight") setCurrent((c) => mod(c + 1, total));
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [total, zoomed]);
+  }, [total, zoomed, canSwipe]);
 
   useEffect(() => {
-    if (!zoomed) return;
+    if (!zoomed || !canSwipe) return;
     const fn = (e) => {
       if (e.key === "ArrowLeft") {
         resetZoom();
@@ -259,11 +260,11 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [zoomed, total]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [zoomed, total, canSwipe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goTo = useCallback(
     (idx) => {
-      if (!total || isAnimating) return;
+      if (!total || !canSwipe || isAnimating) return;
       clearTimeout(animTimer.current);
       setIsAnimating(true);
       setCurrent(mod(idx, total));
@@ -272,18 +273,18 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
         ANIM_DURATION
       );
     },
-    [total, isAnimating]
+    [total, isAnimating, canSwipe]
   );
 
   const prev = useCallback(() => {
-    if (!total) return;
+    if (!canSwipe) return;
     goTo(current - 1);
-  }, [goTo, current, total]);
+  }, [goTo, current, canSwipe]);
 
   const next = useCallback(() => {
-    if (!total) return;
+    if (!canSwipe) return;
     goTo(current + 1);
-  }, [goTo, current, total]);
+  }, [goTo, current, canSwipe]);
 
   const resetZoom = useCallback(() => {
     setScale(1);
@@ -304,48 +305,90 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     setImgErrs((p) => ({ ...p, [url]: true }));
   }, []);
 
+  /* ── Main stage swipe — DISABLED when only 1 image ── */
   const onMainTouchStart = useCallback(
     (e) => {
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
-      swipeStart.current = { x: t.clientX, y: t.clientY, time: Date.now() };
-      setIsDragging(false);
+
+      // Long-press still opens zoom even with 1 image
       clearTimeout(longPressTimer.current);
       longPressTimer.current = setTimeout(() => {
         if (!currentHasErr) openZoom();
       }, LONG_PRESS_MS);
+
+      // No swipe tracking for single image
+      if (!canSwipe) {
+        swipeStart.current = { x: t.clientX, y: t.clientY, time: Date.now(), locked: true };
+        return;
+      }
+
+      swipeStart.current = { x: t.clientX, y: t.clientY, time: Date.now(), locked: false };
+      setIsDragging(false);
     },
-    [currentHasErr, openZoom]
+    [currentHasErr, openZoom, canSwipe]
   );
 
   const onMainTouchMove = useCallback(
     (e) => {
       if (!swipeStart.current || e.touches.length !== 1) return;
+
       const dx = e.touches[0].clientX - swipeStart.current.x;
       const dy = Math.abs(e.touches[0].clientY - swipeStart.current.y);
       const adx = Math.abs(dx);
+
+      // Cancel long-press if finger moved
       if (adx > LONG_PRESS_DRIFT || dy > LONG_PRESS_DRIFT) {
         clearTimeout(longPressTimer.current);
       }
+
+      // Single image: never apply horizontal drag offset
+      if (!canSwipe || swipeStart.current.locked) {
+        return;
+      }
+
+      // Let vertical page scroll win
       if (!isDragging && dy > adx * 1.4) return;
+
       e.preventDefault();
       setIsDragging(true);
       setDragOffset(dx);
     },
-    [isDragging]
+    [isDragging, canSwipe]
   );
 
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
+    // Only attach non-passive move when multi-image swipe is possible
+    if (!canSwipe) return;
     const handler = (e) => onMainTouchMove(e);
     el.addEventListener("touchmove", handler, { passive: false });
     return () => el.removeEventListener("touchmove", handler);
-  }, [onMainTouchMove]);
+  }, [onMainTouchMove, canSwipe]);
+
+  // Single-image: still need move listener for long-press cancel (passive)
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el || canSwipe) return;
+    const handler = (e) => onMainTouchMove(e);
+    el.addEventListener("touchmove", handler, { passive: true });
+    return () => el.removeEventListener("touchmove", handler);
+  }, [onMainTouchMove, canSwipe]);
 
   const onMainTouchEnd = useCallback(() => {
     clearTimeout(longPressTimer.current);
+
     if (!swipeStart.current) return;
+
+    // Single image: reset and exit — no slide change
+    if (!canSwipe || swipeStart.current.locked) {
+      swipeStart.current = null;
+      setIsDragging(false);
+      setDragOffset(0);
+      return;
+    }
+
     const dx = dragOffset;
     const dt = Date.now() - swipeStart.current.time;
     const velocity = Math.abs(dx) / Math.max(dt, MIN_DT);
@@ -356,7 +399,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     }
     swipeStart.current = null;
     setIsDragging(false);
-  }, [dragOffset, next, prev]);
+  }, [dragOffset, next, prev, canSwipe]);
 
   const onZoomTouchStart = useCallback((e) => {
     if (e.touches.length === 2) {
@@ -454,16 +497,23 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     );
   }
 
+  // Track transform: never add dragOffset when single image
+  const trackTransform = canSwipe
+    ? `translateX(calc(${-current * 100}% + ${dragOffset}px))`
+    : `translateX(0)`;
+
   return (
     <>
       <div
-        className="ig-root"
-        aria-roledescription="carousel"
+        className={`ig-root${!canSwipe ? " ig-root--single" : ""}`}
+        aria-roledescription={canSwipe ? "carousel" : undefined}
         aria-label={`${name} photos`}
       >
-        <span className="ig-sr-only">
-          Use left and right arrow keys to navigate images
-        </span>
+        {canSwipe && (
+          <span className="ig-sr-only">
+            Use left and right arrow keys to navigate images
+          </span>
+        )}
 
         <div
           ref={mainRef}
@@ -471,17 +521,26 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
           onTouchStart={onMainTouchStart}
           onTouchEnd={onMainTouchEnd}
           onClick={() => !isDragging && !currentHasErr && openZoom()}
-          style={{ cursor: currentHasErr ? "default" : "zoom-in" }}
+          style={{
+            cursor: currentHasErr ? "default" : "zoom-in",
+            // Single image: allow normal vertical scroll only
+            touchAction: canSwipe ? "pan-y" : "pan-y",
+          }}
           role="img"
-          aria-label={`Photo ${current + 1} of ${total}`}
+          aria-label={
+            canSwipe
+              ? `Photo ${current + 1} of ${total}`
+              : `${name} photo`
+          }
         >
           <div
             className="ig-track"
             style={{
-              transform: `translateX(calc(${-current * 100}% + ${dragOffset}px))`,
-              transition: isDragging
-                ? "none"
-                : `transform ${ANIM_DURATION}ms cubic-bezier(.25,.8,.25,1)`,
+              transform: trackTransform,
+              transition:
+                !canSwipe || isDragging
+                  ? "none"
+                  : `transform ${ANIM_DURATION}ms cubic-bezier(.25,.8,.25,1)`,
             }}
           >
             {urls.map((url, i) => (
@@ -504,7 +563,6 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
                     loading={i === 0 ? "eager" : "lazy"}
                     decoding="async"
                     sizes="(max-width: 640px) 100vw, 560px"
-                    // Hint browser for sharper decode on retina
                     style={{
                       imageRendering: "auto",
                       WebkitBackfaceVisibility: "hidden",
@@ -516,11 +574,13 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             ))}
           </div>
 
-          <span className="ig-counter" aria-live="polite" aria-atomic="true">
-            {current + 1} / {total}
-          </span>
+          {canSwipe && (
+            <span className="ig-counter" aria-live="polite" aria-atomic="true">
+              {current + 1} / {total}
+            </span>
+          )}
 
-          {total > 1 && total <= 8 && (
+          {canSwipe && total <= 8 && (
             <div className="ig-dots" aria-hidden="true">
               {urls.map((_, i) => (
                 <span
@@ -531,7 +591,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             </div>
           )}
 
-          {total > 1 && (
+          {canSwipe && (
             <>
               <button
                 type="button"
@@ -561,7 +621,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
           )}
         </div>
 
-        {total > 1 && (
+        {canSwipe && (
           <div
             ref={thumbTrack}
             className="ig-thumbs"
@@ -629,7 +689,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             />
           </div>
 
-          {total > 1 && (
+          {canSwipe && (
             <div
               className="ig-zoom-nav"
               onClick={(e) => e.stopPropagation()}
