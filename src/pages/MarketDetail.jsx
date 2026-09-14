@@ -35,6 +35,7 @@ import DescriptionPage from "./MarketDetail/DescriptionPage";
 import SizeGuidePage from "./MarketDetail/SizeGuidePage";
 import ReviewsPage from "./MarketDetail/ReviewsPage";
 import FloatingCartButton from "../components/FloatingCartButton";
+import Footer from "../components/Footer"; // <--- ADDED FOOTER
 
 import "../styles/MarketDetail.css";
 
@@ -1076,7 +1077,6 @@ export default function MarketDetail() {
   const descriptionPreview = useMemo(() => {
     if (!product?.description) return "";
     
-    // Strip HTML and extra spaces
     const stripped = String(product.description)
       .replace(/<[^>]*>/g, "")
       .replace(/\s+/g, " ")
@@ -1084,13 +1084,11 @@ export default function MarketDetail() {
 
     const MAX_CHARS = 400;
     
-    // If under max, return full string
     if (stripped.length <= MAX_CHARS) return stripped;
 
-    // Cut to max length
     let cutText = stripped.slice(0, MAX_CHARS);
 
-    // Find the last space to avoid cutting in the middle of a word (e.g. avoiding "Th...")
+    // Find the last space to avoid cutting in the middle of a word
     const lastSpace = cutText.lastIndexOf(" ");
     if (lastSpace > 0) {
       cutText = cutText.slice(0, lastSpace);
@@ -1677,7 +1675,7 @@ export default function MarketDetail() {
                 </button>
               )}
 
-              {/* Multiline true added here for up to 5 lines of text */}
+              {/* Multiline Details */}
               {hasDescriptionData && (
                 <SelectionTrigger
                   label="Product Details"
@@ -1764,9 +1762,12 @@ export default function MarketDetail() {
             </div>
           </div>
         )}
+        
+        {/* ADDED FOOTER HERE */}
+        {!loading && <Footer />}
       </div>
 
-      {/* Sticky bar */}
+      {/* Sticky Action Bar */}
       {!loading && product && (
         <div className="md-sticky-bar mdp-sticky-bar">
           <div className="mdp-sticky-left">
