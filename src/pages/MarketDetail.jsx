@@ -34,7 +34,7 @@ import DeliveryCard from "./MarketDetail/DeliveryCard";
 import DescriptionPage from "./MarketDetail/DescriptionPage";
 import SizeGuidePage from "./MarketDetail/SizeGuidePage";
 import ReviewsPage from "./MarketDetail/ReviewsPage";
-import FloatingCartButton from "../components/FloatingCartButton"; // ← NEW
+import FloatingCartButton from "../components/FloatingCartButton";
 
 import "../styles/MarketDetail.css";
 
@@ -1069,14 +1069,15 @@ export default function MarketDetail() {
     return null;
   }, [selectedVariant, product]);
 
+  /* UPDATED TO SHOW 400 CHARACTERS */
   const descriptionPreview = useMemo(() => {
     if (!product?.description) return "";
     const stripped = String(product.description)
       .replace(/<[^>]*>/g, "")
       .replace(/\s+/g, " ")
       .trim();
-    if (stripped.length <= 120) return stripped;
-    return stripped.slice(0, 120).trim() + "…";
+    if (stripped.length <= 400) return stripped;
+    return stripped.slice(0, 400).trim() + "…";
   }, [product]);
 
   const variantLabel = useMemo(() => {
