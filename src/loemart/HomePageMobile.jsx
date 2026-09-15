@@ -1,19 +1,4 @@
-/**
- * src/loemart/HomePageMobile.jsx
- *
- * Premium, High-Performance Loemart Homepage.
- * Designed with a luxury minimalist aesthetic, high-density layouts,
- * and immediate interface hydration.
- *
- * v4.0 — Zero Simulation / Fully Real-Time Production Release
- * ──────────────────────────────────────────────────────────
- * ✓ 100% Reactive Auth: Cart & endpoints sync instantly when `user` prop changes
- * ✓ Single Source of Truth: URL search parameters strictly drive the UI state
- * ✓ Zero Flickering: Deduplicated and synchronized concurrent API requests
- * ✓ Graceful Fallbacks: Real-time database error boundary states and empty states
- */
-
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -24,84 +9,254 @@ import "../styles/LoemartHome.css";
 import "../styles/LoemartMobile.css";
 
 /* Core Sub-components */
-import MobileTopBar   from "./mobile/MobileTopBar";
-import MobileHero     from "./mobile/MobileHero";
-import MobileSections from "./mobile/MobileSections";
-import MobileGrid     from "./mobile/MobileGrid";
-import MobileFooter   from "./mobile/MobileFooter";
-import {
-  SearchSheet, FilterSheet, fireCartToast,
-} from "./mobile/MobileSheets";
+import MobileTopBar from "./mobile/MobileTopBar";
+import MobileHero from "./mobile/MobileHero";
+import MobileFooter from "./mobile/MobileFooter";
+import { SearchSheet, FilterSheet, fireCartToast } from "./mobile/MobileSheets";
+
+/* NEW IMPORTS: Footer & Floating Cart */
+import Footer from "../components/Footer";
+import FloatingCartButton from "../components/FloatingCartButton";
 
 /* Operational Helpers */
 import {
-  API, WISH_KEY, SEARCH_HISTORY_KEY, DEFAULT_LIMIT,
-  normalize, addToCart, getCartCount,
-  getRecentlyViewed, getSearchHistory, addToSearchHistory,
+  API,
+  WISH_KEY,
+  SEARCH_HISTORY_KEY,
+  DEFAULT_LIMIT,
+  normalize,
+  addToCart,
+  getCartCount,
+  getRecentlyViewed,
+  getSearchHistory,
+  addToSearchHistory,
 } from "./mobile/mobileHelpers";
 
-/* ═══════════════════════════════════════════════════════════════
-   DATA-LAYER SYNC INTERFACES (DYNAMIC & SECURE)
-═══════════════════════════════════════════════════════════════ */
-const CART_URL       = `${API}/cart`;
+const CART_URL = `${API}/cart`;
 const CART_ITEMS_URL = `${API}/cart/items`;
 
-// Dynamically fetch authorization headers from storage
-const getAuthHeaders = () => {
-  const token = localStorage.getItem("marketplace_token");
-  return token
-    ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
-    : { "Content-Type": "application/json" };
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS: Pricing, Discounts, and Smart Truncation
+═══════════════════════════════════════════════════════════════ */
+function priceOf(item) {
+  if (!item) return 0;
+  const n = Number(item.price ?? item.sale_price ?? item.selling_price ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function origOf(item) {
+  if (!item) return 0;
+  const n = Number(item.original_price ?? item.compare_price ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function discOf(item) {
+  const p = priceOf(item);
+  const op = origOf(item);
+  if (!(op > p && p > 0)) return 0;
+  return Math.round(((op - p) / op) * 100);
+}
+
+function imgOf(item) {
+  if (!item) return "";
+  return item.image || item.image_url || item.thumbnail || "";
+}
+
+// Format currency
+const formatPrice = (num) =>
+  new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    minimumFractionDigits: 0,
+  }).format(num);
+
+// Smart Truncation: Cuts off at the last complete word
+function smartTruncate(text, maxChars = 45) {
+  if (!text) return "";
+  if (text.length <= maxChars) return text;
+  let cut = text.slice(0, maxChars);
+  const lastSpace = cut.lastIndexOf(" ");
+  if (lastSpace > 0) cut = cut.slice(0, lastSpace);
+  return cut.trim() + "…";
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UI COMPONENTS (Cards & Rails)
+═══════════════════════════════════════════════════════════════ */
+const AddToCartBtn = ({ item, onAdd, addingIds, addedIds }) => {
+  const isAdding = addingIds.has(item.id);
+  const isAdded = addedIds.has(item.id);
+
+  return (
+    <button
+      className={`hm-add-btn ${isAdded ? "hm-added" : ""}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onAdd(item);
+      }}
+      disabled={isAdding}
+      aria-label="Add to cart"
+    >
+      {isAdding ? "…" : isAdded ? "✓" : "+"}
+    </button>
+  );
 };
 
-export default function HomePageMobile({ user }) {
-  const navigate                        = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const isFirstMount                    = useRef(true);
+/* Horizontal Swipe Card */
+const HomeHorizontalCard = memo(function HomeHorizontalCard({
+  item,
+  onClick,
+  onAdd,
+  addingIds,
+  addedIds,
+}) {
+  const price = priceOf(item);
+  const original = origOf(item);
+  const d = discOf(item);
+  const title = smartTruncate(item.name || item.title, 40);
 
-  /* ── 1. URL State: Single Source of Truth ── */
+  return (
+    <div className="mdp-rail-hcard" onClick={() => onClick(item)}>
+      <div className="mdp-rail-hcard__media">
+        <img src={imgOf(item)} alt="" loading="lazy" />
+        {d > 0 && <span className="mdp-rail-hcard__badge">-{d}%</span>}
+      </div>
+      <div className="mdp-rail-hcard__body">
+        <p className="mdp-rail-hcard__name">{title}</p>
+        <div className="hm-card-bottom">
+          <div className="hm-prices">
+            <span className="mdp-rail-hcard__price">{formatPrice(price)}</span>
+            {original > price && (
+              <span className="mdp-rail-hcard__orig">{formatPrice(original)}</span>
+            )}
+          </div>
+          <AddToCartBtn item={item} onAdd={onAdd} addingIds={addingIds} addedIds={addedIds} />
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* Masonry Grid Card */
+const HomeMasonryCard = memo(function HomeMasonryCard({
+  item,
+  onClick,
+  onAdd,
+  addingIds,
+  addedIds,
+}) {
+  const price = priceOf(item);
+  const original = origOf(item);
+  const d = discOf(item);
+  const title = smartTruncate(item.name || item.title, 55);
+
+  // Pseudo-random height for masonry effect
+  const h = useMemo(() => {
+    const id = String(item.id || "x");
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i) * (i + 1)) % 3;
+    return hash === 0 ? 140 : hash === 1 ? 180 : 220;
+  }, [item.id]);
+
+  return (
+    <div className="pr-masonry-card" onClick={() => onClick(item)}>
+      <div className="pr-masonry-card__media" style={{ height: h }}>
+        <img src={imgOf(item)} alt="" loading="lazy" className="pr-masonry-card__img" />
+        {d > 0 && <span className="pr-masonry-card__badge">-{d}%</span>}
+      </div>
+      <div className="pr-masonry-card__body">
+        <p className="pr-masonry-card__name">{title}</p>
+        <div className="hm-card-bottom">
+          <div className="pr-masonry-card__prices">
+            <span className="pr-masonry-card__price">{formatPrice(price)}</span>
+            {original > price && (
+              <span className="pr-masonry-card__orig">{formatPrice(original)}</span>
+            )}
+          </div>
+          <AddToCartBtn item={item} onAdd={onAdd} addingIds={addingIds} addedIds={addedIds} />
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* Horizontal Section Wrapper */
+const HomeHorizontalRail = memo(function HomeHorizontalRail({
+  title,
+  items,
+  onClick,
+  onAdd,
+  addingIds,
+  addedIds,
+}) {
+  if (!items || items.length === 0) return null;
+  return (
+    <section className="mdp-psec">
+      <div className="mdp-psec__head">
+        <h3 className="mdp-psec__title">{title}</h3>
+      </div>
+      <div className="mdp-rail-hscroll">
+        {items.map((item) => (
+          <HomeHorizontalCard
+            key={item.id}
+            item={item}
+            onClick={onClick}
+            onAdd={onAdd}
+            addingIds={addingIds}
+            addedIds={addedIds}
+          />
+        ))}
+      </div>
+    </section>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN PAGE COMPONENT
+═══════════════════════════════════════════════════════════════ */
+export default function HomePageMobile({ user }) {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isFirstMount = useRef(true);
+
   const queryParam = searchParams.get("q") ?? "";
-  const catParam   = searchParams.get("category") ?? "all";
-  const sortParam  = searchParams.get("sort") ?? "newest";
-  const minParam   = searchParams.get("minPrice") ?? "";
-  const maxParam   = searchParams.get("maxPrice") ?? "";
+  const catParam = searchParams.get("category") ?? "all";
+  const sortParam = searchParams.get("sort") ?? "newest";
+  const minParam = searchParams.get("minPrice") ?? "";
+  const maxParam = searchParams.get("maxPrice") ?? "";
 
   const [searchQuery, setSearchQuery] = useState(queryParam);
-  const [searchOpen, setSearchOpen]   = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchHistory, setSearchHistory] = useState(getSearchHistory);
 
   const [activeCategory, setActiveCategory] = useState(catParam);
-  const [activeSort, setActiveSort]         = useState(sortParam);
-  const [minPrice, setMinPrice]             = useState(minParam);
-  const [maxPrice, setMaxPrice]             = useState(maxParam);
-  const [showFilters, setShowFilters]       = useState(false);
+  const [activeSort, setActiveSort] = useState(sortParam);
+  const [minPrice, setMinPrice] = useState(minParam);
+  const [maxPrice, setMaxPrice] = useState(maxParam);
+  const [showFilters, setShowFilters] = useState(false);
 
-  /* ── 2. Real Database States ── */
-  const [products, setProducts]       = useState([]);
-  const [pagination, setPagination]   = useState(null);
-  const [loading, setLoading]         = useState(true);
+  const [products, setProducts] = useState([]);
+  const [pagination, setPagination] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [fetchError, setFetchError]   = useState(null);
-  const [offset, setOffset]           = useState(0);
+  const [fetchError, setFetchError] = useState(null);
+  const [offset, setOffset] = useState(0);
 
-  /* ── 3. Real Curated Sections ── */
-  const [featured, setFeatured]       = useState([]);
-  const [flashDeals, setFlashDeals]   = useState([]);
+  const [featured, setFeatured] = useState([]);
+  const [flashDeals, setFlashDeals] = useState([]);
   const [newArrivals, setNewArrivals] = useState([]);
-  const [recentlyViewed]              = useState(getRecentlyViewed);
+  const [recentlyViewed] = useState(getRecentlyViewed);
 
-  /* ── 4. Real Cart State ── */
-  const [cartCount, setCartCount]     = useState(0);
+  const [cartCount, setCartCount] = useState(0);
   const [cartAnimating, setCartAnimating] = useState(false);
-  const [addingIds, setAddingIds]     = useState(new Set());
-  const [addedIds, setAddedIds]       = useState(new Set());
+  const [addingIds, setAddingIds] = useState(new Set());
+  const [addedIds, setAddedIds] = useState(new Set());
 
   const triggerCartAnimation = useCallback(() => {
     setCartAnimating(true);
     setTimeout(() => setCartAnimating(false), 300);
   }, []);
 
-  /* ── 5. Browser Back/Forward Dynamic Sync ── */
   useEffect(() => {
     setSearchQuery(queryParam);
     setActiveCategory(catParam);
@@ -110,7 +265,6 @@ export default function HomePageMobile({ user }) {
     setMaxPrice(maxParam);
   }, [queryParam, catParam, sortParam, minParam, maxParam]);
 
-  /* ── 6. Real Cart Synchronizer (Server vs. Guest States) ── */
   const syncCart = useCallback(async () => {
     const token = localStorage.getItem("marketplace_token");
     if (user && token) {
@@ -119,11 +273,12 @@ export default function HomePageMobile({ user }) {
           headers: { Authorization: `Bearer ${token}` },
           timeout: 5000,
         });
-        const count = res.data?.data?.total_qty ?? res.data?.data?.item_count ?? 0;
+        const count =
+          res.data?.data?.total_qty ?? res.data?.data?.item_count ?? 0;
         setCartCount(count);
         triggerCartAnimation();
       } catch (err) {
-        console.warn("[Loemart] Could not fetch real-time server cart count:", err.message);
+        // ignore
       }
     } else {
       setCartCount(getCartCount());
@@ -133,9 +288,6 @@ export default function HomePageMobile({ user }) {
 
   useEffect(() => {
     syncCart();
-  }, [user, syncCart]);
-
-  useEffect(() => {
     window.addEventListener("cart-updated", syncCart);
     window.addEventListener("storage", syncCart);
     return () => {
@@ -144,7 +296,6 @@ export default function HomePageMobile({ user }) {
     };
   }, [syncCart]);
 
-  /* ── 7. Real Wishlist Sync ── */
   const [wishlist, setWishlist] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem(WISH_KEY) || "[]");
@@ -157,57 +308,67 @@ export default function HomePageMobile({ user }) {
     localStorage.setItem(WISH_KEY, JSON.stringify(wishlist));
   }, [wishlist]);
 
-  /* ══════════════════════════════════════════════════
-     REAL-TIME API FETCH PIPELINE
-  ══════════════════════════════════════════════════ */
-  const fetchProducts = useCallback(async ({
-    query = searchQuery, category = activeCategory, sort = activeSort,
-    min = minPrice, max = maxPrice, newOffset = 0, append = false,
-  } = {}) => {
-    append ? setLoadingMore(true) : setLoading(true);
-    setFetchError(null);
+  const fetchProducts = useCallback(
+    async ({
+      query = searchQuery,
+      category = activeCategory,
+      sort = activeSort,
+      min = minPrice,
+      max = maxPrice,
+      newOffset = 0,
+      append = false,
+    } = {}) => {
+      append ? setLoadingMore(true) : setLoading(true);
+      setFetchError(null);
 
-    try {
-      const params = { limit: DEFAULT_LIMIT, offset: newOffset, sort };
-      if (normalize(query))       params.search   = normalize(query);
-      if (category !== "all")     params.category = category;
-      if (min && Number(min) > 0) params.minPrice = min;
-      if (max && Number(max) > 0) params.maxPrice = max;
+      try {
+        const params = { limit: DEFAULT_LIMIT, offset: newOffset, sort };
+        if (normalize(query)) params.search = normalize(query);
+        if (category !== "all") params.category = category;
+        if (min && Number(min) > 0) params.minPrice = min;
+        if (max && Number(max) > 0) params.maxPrice = max;
 
-      const { data } = await axios.get(`${API}/products`, { params });
-      const rows = data?.data?.products   ?? [];
-      const meta = data?.data?.pagination ?? null;
+        const { data } = await axios.get(`${API}/products`, { params });
+        const rows = data?.data?.products ?? [];
+        const meta = data?.data?.pagination ?? null;
 
-      setProducts((prev) => append ? [...prev, ...rows] : rows);
-      setPagination(meta);
-      setOffset(newOffset);
-    } catch (err) {
-      const msg = err.response?.data?.message
-        ?? (err.code === "ERR_NETWORK" ? "Network Connection Lost" : "Failed to load products");
-      setFetchError(msg);
-      if (!append) toast.error(msg);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [searchQuery, activeCategory, activeSort, minPrice, maxPrice]);
+        setProducts((prev) => (append ? [...prev, ...rows] : rows));
+        setPagination(meta);
+        setOffset(newOffset);
+      } catch (err) {
+        setFetchError(err.response?.data?.message ?? "Failed to load products");
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [searchQuery, activeCategory, activeSort, minPrice, maxPrice]
+  );
 
   const fetchSections = useCallback(async () => {
     try {
       const [feat, trend, latest] = await Promise.allSettled([
-        axios.get(`${API}/products`, { params: { featured: "true", limit: 8, sort: "trending" } }),
-        axios.get(`${API}/products`, { params: { trending: "true", limit: 8, sort: "views"    } }),
-        axios.get(`${API}/products`, { params: { limit: 8,          sort: "newest"           } }),
+        axios.get(`${API}/products`, {
+          params: { featured: "true", limit: 8, sort: "trending" },
+        }),
+        axios.get(`${API}/products`, {
+          params: { trending: "true", limit: 8, sort: "views" },
+        }),
+        axios.get(`${API}/products`, {
+          params: { limit: 8, sort: "newest" },
+        }),
       ]);
-      if (feat.status   === "fulfilled") setFeatured  (feat.value.data?.data?.products   ?? []);
-      if (trend.status  === "fulfilled") setFlashDeals(trend.value.data?.data?.products  ?? []);
-      if (latest.status === "fulfilled") setNewArrivals(latest.value.data?.data?.products ?? []);
+      if (feat.status === "fulfilled")
+        setFeatured(feat.value.data?.data?.products ?? []);
+      if (trend.status === "fulfilled")
+        setFlashDeals(trend.value.data?.data?.products ?? []);
+      if (latest.status === "fulfilled")
+        setNewArrivals(latest.value.data?.data?.products ?? []);
     } catch (err) {
-      console.warn("[Loemart] Standard curations could not fully populate:", err.message);
+      // ignore
     }
   }, []);
 
-  // Prevent duplicate double-fetch on initial page load
   useEffect(() => {
     fetchSections();
   }, [fetchSections]);
@@ -221,27 +382,30 @@ export default function HomePageMobile({ user }) {
     fetchProducts({ newOffset: 0, append: false });
   }, [activeCategory, activeSort, fetchProducts]);
 
-  /* ══════════════════════════════════════════════════
-     REAL-TIME INTERACTION HANDLERS
-  ══════════════════════════════════════════════════ */
-  const handleSearchSelect = useCallback((q) => {
-    setSearchQuery(q);
-    setSearchOpen(false);
-    addToSearchHistory(q);
-    setSearchHistory(getSearchHistory());
-    setSearchParams(q ? { q } : {});
-    fetchProducts({ query: q, newOffset: 0 });
-  }, [fetchProducts, setSearchParams]);
+  const handleSearchSelect = useCallback(
+    (q) => {
+      setSearchQuery(q);
+      setSearchOpen(false);
+      addToSearchHistory(q);
+      setSearchHistory(getSearchHistory());
+      setSearchParams(q ? { q } : {});
+      fetchProducts({ query: q, newOffset: 0 });
+    },
+    [fetchProducts, setSearchParams]
+  );
 
-  const handleCategoryChange = useCallback((id) => {
-    setActiveCategory(id);
-    setSearchParams((prev) => {
-      if (id === "all") prev.delete("category");
-      else prev.set("category", id);
-      return prev;
-    });
-    setOffset(0);
-  }, [setSearchParams]);
+  const handleCategoryChange = useCallback(
+    (id) => {
+      setActiveCategory(id);
+      setSearchParams((prev) => {
+        if (id === "all") prev.delete("category");
+        else prev.set("category", id);
+        return prev;
+      });
+      setOffset(0);
+    },
+    [setSearchParams]
+  );
 
   const handleLoadMore = useCallback(() => {
     fetchProducts({ newOffset: offset + DEFAULT_LIMIT, append: true });
@@ -249,12 +413,20 @@ export default function HomePageMobile({ user }) {
 
   const handleApplyFilters = useCallback(() => {
     setSearchParams((prev) => {
-      if (minPrice) prev.set("minPrice", minPrice); else prev.delete("minPrice");
-      if (maxPrice) prev.set("maxPrice", maxPrice); else prev.delete("maxPrice");
-      if (activeSort) prev.set("sort", activeSort); else prev.delete("sort");
+      if (minPrice) prev.set("minPrice", minPrice);
+      else prev.delete("minPrice");
+      if (maxPrice) prev.set("maxPrice", maxPrice);
+      else prev.delete("maxPrice");
+      if (activeSort) prev.set("sort", activeSort);
+      else prev.delete("sort");
       return prev;
     });
-    fetchProducts({ min: minPrice, max: maxPrice, sort: activeSort, newOffset: 0 });
+    fetchProducts({
+      min: minPrice,
+      max: maxPrice,
+      sort: activeSort,
+      newOffset: 0,
+    });
     setShowFilters(false);
   }, [fetchProducts, minPrice, maxPrice, activeSort, setSearchParams]);
 
@@ -272,84 +444,95 @@ export default function HomePageMobile({ user }) {
     setMaxPrice("");
     setSearchParams({});
     fetchProducts({
-      query: "", category: "all", sort: "newest", min: "", max: "", newOffset: 0,
+      query: "",
+      category: "all",
+      sort: "newest",
+      min: "",
+      max: "",
+      newOffset: 0,
     });
   }, [fetchProducts, setSearchParams]);
 
   const toggleWishlist = useCallback((id) => {
-    setWishlist((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    setWishlist((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   }, []);
 
-  /* ── Real Cart Engine ── */
-  const handleAddToCart = useCallback(async (product) => {
-    if (!product?.id || addingIds.has(product.id)) return;
+  const handleAddToCart = useCallback(
+    async (product) => {
+      if (!product?.id || addingIds.has(product.id)) return;
 
-    setAddingIds((prev) => new Set(prev).add(product.id));
+      setAddingIds((prev) => new Set(prev).add(product.id));
 
-    if (window.navigator?.vibrate) {
-      window.navigator.vibrate(10); // Native tactile feedback
-    }
-
-    try {
-      const token = localStorage.getItem("marketplace_token");
-      if (user && token) {
-        // Authenticated Session Push
-        const payload = { product_id: product.id, variant_id: null, qty: 1 };
-        await axios.post(CART_ITEMS_URL, payload, {
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: 10000,
-        });
-        await syncCart();
-      } else {
-        // Guest Session Storage Push
-        addToCart(product);
-        setCartCount(getCartCount());
-        triggerCartAnimation();
+      if (window.navigator?.vibrate) {
+        window.navigator.vibrate(10);
       }
 
-      // Keep tabs and headers completely aligned
-      window.dispatchEvent(new Event("cart-updated"));
+      try {
+        const token = localStorage.getItem("marketplace_token");
+        if (user && token) {
+          const payload = { product_id: product.id, variant_id: null, qty: 1 };
+          await axios.post(CART_ITEMS_URL, payload, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 10000,
+          });
+          await syncCart();
+        } else {
+          addToCart(product);
+          setCartCount(getCartCount());
+          triggerCartAnimation();
+        }
 
-      setAddedIds((prev) => new Set(prev).add(product.id));
-      setTimeout(() => {
-        setAddedIds((prev) => {
+        window.dispatchEvent(new Event("cart-updated"));
+        setAddedIds((prev) => new Set(prev).add(product.id));
+        setTimeout(() => {
+          setAddedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(product.id);
+            return next;
+          });
+        }, 2000);
+
+        fireCartToast(product, navigate);
+      } catch (err) {
+        toast.error("Could not add item to cart", { duration: 3000 });
+      } finally {
+        setAddingIds((prev) => {
           const next = new Set(prev);
           next.delete(product.id);
           return next;
         });
-      }, 2000);
-
-      fireCartToast(product, navigate);
-
-    } catch (err) {
-      const msg = err.response?.data?.message
-               ?? err.response?.data?.error
-               ?? "Could not add item to cart";
-      toast.error(msg, { duration: 3000 });
-    } finally {
-      setAddingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(product.id);
-        return next;
-      });
-    }
-  }, [addingIds, navigate, user, syncCart, triggerCartAnimation]);
+      }
+    },
+    [addingIds, navigate, user, syncCart, triggerCartAnimation]
+  );
 
   const goPostAd = useCallback(() => {
     navigate(user ? "/minimart/post-ad" : "/auth");
   }, [navigate, user]);
 
-  const hasMore    = pagination ? (offset + DEFAULT_LIMIT) < pagination.total : false;
+  const openProduct = useCallback(
+    (item) => {
+      navigate(`/shop/${item.slug || item.id}`);
+    },
+    [navigate]
+  );
+
+  const hasMore = pagination ? offset + DEFAULT_LIMIT < pagination.total : false;
   const hasFilters = !!(
-    searchQuery || activeCategory !== "all" ||
-    activeSort !== "newest" || minPrice || maxPrice
+    searchQuery ||
+    activeCategory !== "all" ||
+    activeSort !== "newest" ||
+    minPrice ||
+    maxPrice
   );
 
   return (
     <div className="lmm-page lmm-clean-pro-theme mobile-view-optimized">
       <div className="lmm-top-gradient-glow" />
 
-      {/* 1. Real Topbar Navigation */}
+      {/* Top Bar */}
       <MobileTopBar
         searchQuery={searchQuery}
         onSearchOpen={() => setSearchOpen(true)}
@@ -366,34 +549,53 @@ export default function HomePageMobile({ user }) {
         showFilters={showFilters}
       />
 
-      {/* 2. Interactive Hero Banner */}
+      {/* Hero Banner */}
       <div className="lmm-hero-section">
-        <MobileHero
-          user={user}
-          cartCount={cartCount}
-          onPostAd={goPostAd}
-        />
+        <MobileHero user={user} cartCount={cartCount} onPostAd={goPostAd} />
       </div>
 
-      {/* 3. Real Curated Database Sections */}
-      <div className="lmm-sections-wrapper">
-        <MobileSections
-          featured={featured}
-          flashDeals={flashDeals}
-          newArrivals={newArrivals}
-          recentlyViewed={recentlyViewed}
-          onAddToCart={handleAddToCart}
+      {/* Horizontal Swipe Sections (Flash Deals, Featured, etc) */}
+      <div className="hm-rails-wrapper">
+        <HomeHorizontalRail
+          title="Flash Deals"
+          items={flashDeals}
+          onClick={openProduct}
+          onAdd={handleAddToCart}
+          addingIds={addingIds}
+          addedIds={addedIds}
+        />
+        <HomeHorizontalRail
+          title="Featured Listings"
+          items={featured}
+          onClick={openProduct}
+          onAdd={handleAddToCart}
+          addingIds={addingIds}
+          addedIds={addedIds}
+        />
+        <HomeHorizontalRail
+          title="New Arrivals"
+          items={newArrivals}
+          onClick={openProduct}
+          onAdd={handleAddToCart}
+          addingIds={addingIds}
+          addedIds={addedIds}
+        />
+        <HomeHorizontalRail
+          title="Recently Viewed"
+          items={recentlyViewed}
+          onClick={openProduct}
+          onAdd={handleAddToCart}
           addingIds={addingIds}
           addedIds={addedIds}
         />
       </div>
 
-      {/* 4. Complete Dynamic Catalog Segment */}
-      <div className="lmm-catalog-grid-segment">
+      {/* Main Catalog (Masonry Grid) */}
+      <div className="hm-catalog-section">
         <div className="lmm-grid-header">
           <div className="lmm-title-block">
             <h2 className="lmm-section-main-title">All Products</h2>
-            <p className="lmm-section-main-subtitle">Real-time marketplace listings</p>
+            <p className="lmm-section-main-subtitle">Recommended for you</p>
           </div>
           {hasFilters && (
             <button className="lmm-btn-reset-filters" onClick={clearAllFilters}>
@@ -402,27 +604,58 @@ export default function HomePageMobile({ user }) {
           )}
         </div>
 
-        <MobileGrid
-          products={products}
-          pagination={pagination}
-          loading={loading}
-          loadingMore={loadingMore}
-          fetchError={fetchError}
-          hasMore={hasMore}
-          hasFilters={hasFilters}
-          wishlist={wishlist}
-          onWishlist={toggleWishlist}
-          onAddToCart={handleAddToCart}
-          addingIds={addingIds}
-          addedIds={addedIds}
-          onRetry={() => fetchProducts({ newOffset: 0 })}
-          onLoadMore={handleLoadMore}
-          onClearFilters={clearAllFilters}
-          onSearchSelect={handleSearchSelect}
-        />
+        {loading && products.length === 0 ? (
+          <div className="pr-masonry">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="pr-masonry-skel" />
+            ))}
+          </div>
+        ) : fetchError && products.length === 0 ? (
+          <div className="hm-error">
+            <p>{fetchError}</p>
+            <button onClick={() => fetchProducts({ newOffset: 0 })}>Retry</button>
+          </div>
+        ) : (
+          <>
+            <div className="pr-masonry">
+              {products.map((item) => (
+                <HomeMasonryCard
+                  key={item.id}
+                  item={item}
+                  onClick={openProduct}
+                  onAdd={handleAddToCart}
+                  addingIds={addingIds}
+                  addedIds={addedIds}
+                />
+              ))}
+            </div>
+            {hasMore && (
+              <div className="pr-load-more-wrap">
+                <button
+                  className="pr-load-more-btn"
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? "Loading..." : "Load More Products"}
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* 5. Sticky Native Application Footer Panel */}
+      {/* Draggable Floating Cart */}
+      {cartCount > 0 && (
+        <FloatingCartButton
+          count={cartCount}
+          onClick={() => navigate("/shop/cart")}
+        />
+      )}
+
+      {/* Footer */}
+      <Footer />
+
+      {/* Bottom Sticky Nav */}
       <MobileFooter
         user={user}
         cartCount={cartCount}
@@ -431,7 +664,7 @@ export default function HomePageMobile({ user }) {
         onPostAd={goPostAd}
       />
 
-      {/* Sheets Elements */}
+      {/* Sheets */}
       <SearchSheet
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
