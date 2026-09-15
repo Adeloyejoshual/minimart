@@ -3,25 +3,18 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 
-/* Stylesheets - Kept mobile layout files so top navigation and hero don't break */
+/* ONLY this stylesheet */
 import "../styles/Minimart.css";
-import "../styles/LoemartHome.css";
-import "../styles/LoemartMobile.css";
 
-/* Core Sub-components */
 import MobileTopBar from "./mobile/MobileTopBar";
 import MobileHero from "./mobile/MobileHero";
 import MobileFooter from "./mobile/MobileFooter";
 import { SearchSheet, FilterSheet, fireCartToast } from "./mobile/MobileSheets";
-
-/* Footer & Floating Cart */
 import Footer from "../components/Footer";
 import FloatingCartButton from "../components/FloatingCartButton";
 
-/* Product Image Resolver from Marketplace config */
 import { getProductImage } from "../config/marketplace";
 
-/* Operational Helpers */
 import {
   API,
   WISH_KEY,
@@ -38,74 +31,69 @@ import {
 const CART_URL = `${API}/cart`;
 const CART_ITEMS_URL = `${API}/cart/items`;
 
-/* ═══════════════════════════════════════════════════════════════
-   CRASH-PROOF IMAGE & PRICE HELPERS
-═══════════════════════════════════════════════════════════════ */
-
-/** Bulletproof Image Extraction: Handles Arrays, Objects, & Strings */
+/* ── Image: why 📦 showed before ──
+   API often sends images: ["https://..."] or [{url}] not item.image
+*/
 function imgOf(item) {
   if (!item) return "";
-  
-  // 1. Use central Marketplace Image Resolver
+
   try {
-    const resolved = getProductImage(item);
-    if (resolved && typeof resolved === "string" && resolved.length > 5) {
-      return resolved;
+    const g = getProductImage?.(item);
+    if (typeof g === "string" && g.length > 4 && !g.includes("undefined")) return g;
+  } catch { /* */ }
+
+  const pick = (v) => {
+    if (!v) return "";
+    if (typeof v === "string" && v.startsWith("http")) return v;
+    if (typeof v === "string" && v.startsWith("/")) return v;
+    if (typeof v === "object") {
+      return (
+        v.url || v.src || v.secure_url || v.path || v.large || v.original || ""
+      );
     }
-  } catch (e) {
-    /* fallback */
-  }
+    return "";
+  };
 
-  // 2. Direct Array Fallback
-  if (Array.isArray(item.images) && item.images.length > 0) {
-    const first = item.images[0];
-    if (typeof first === "string") return first;
-    if (first?.url) return first.url;
-    if (first?.src) return first.src;
+  if (Array.isArray(item.images) && item.images.length) {
+    const u = pick(item.images[0]);
+    if (u) return u;
   }
-
-  // 3. Stringified JSON Fallback
-  if (typeof item.images === "string" && item.images.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(item.images);
-      if (Array.isArray(parsed) && parsed[0]) {
-        return typeof parsed[0] === "string" ? parsed[0] : parsed[0].url;
-      }
-    } catch (e) {
-      /* fallback */
+  if (typeof item.images === "string") {
+    const s = item.images.trim();
+    if (s.startsWith("http")) return s;
+    if (s.startsWith("[")) {
+      try {
+        const arr = JSON.parse(s);
+        if (Array.isArray(arr) && arr[0]) return pick(arr[0]) || "";
+      } catch { /* */ }
     }
   }
 
-  // 4. Single Property Fallbacks
   return (
-    item.image ||
-    item.image_url ||
-    item.thumbnail ||
-    item.cover_image ||
-    item.primary_image ||
+    pick(item.image) ||
+    pick(item.image_url) ||
+    pick(item.thumbnail) ||
+    pick(item.cover_image) ||
+    pick(item.primary_image) ||
+    pick(item.photo) ||
     ""
   );
 }
 
 function priceOf(item) {
-  if (!item) return 0;
-  const n = Number(item.price ?? item.sale_price ?? item.selling_price ?? 0);
+  const n = Number(item?.price ?? item?.sale_price ?? item?.selling_price ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
-
 function origOf(item) {
-  if (!item) return 0;
-  const n = Number(item.original_price ?? item.compare_price ?? 0);
+  const n = Number(item?.original_price ?? item?.compare_price ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
-
 function discOf(item) {
   const p = priceOf(item);
   const op = origOf(item);
   if (!(op > p && p > 0)) return 0;
   return Math.round(((op - p) / op) * 100);
 }
-
 const formatPrice = (num) =>
   new Intl.NumberFormat("en-NG", {
     style: "currency",
@@ -113,22 +101,18 @@ const formatPrice = (num) =>
     minimumFractionDigits: 0,
   }).format(num);
 
-function smartTruncate(text, maxChars = 45) {
+function smartTruncate(text, max = 45) {
   if (!text) return "";
-  if (text.length <= maxChars) return text;
-  let cut = text.slice(0, maxChars);
-  const lastSpace = cut.lastIndexOf(" ");
-  if (lastSpace > 0) cut = cut.slice(0, lastSpace);
+  if (text.length <= max) return text;
+  let cut = text.slice(0, max);
+  const sp = cut.lastIndexOf(" ");
+  if (sp > 0) cut = cut.slice(0, sp);
   return cut.trim() + "…";
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   UNIFIED CARDS
-═══════════════════════════════════════════════════════════════ */
 const QuickAddBtn = ({ item, onAdd, addingIds, addedIds }) => {
   const isAdding = addingIds.has(item.id);
   const isAdded = addedIds.has(item.id);
-
   return (
     <button
       type="button"
@@ -138,45 +122,35 @@ const QuickAddBtn = ({ item, onAdd, addingIds, addedIds }) => {
         onAdd(item);
       }}
       disabled={isAdding}
-      aria-label="Add to cart"
     >
       {isAdding ? "…" : isAdded ? "✓" : "+"}
     </button>
   );
 };
 
-/* Horizontal Swipe Card (Matches MarketDetail Rails) */
 const HomeHorizontalCard = memo(function HomeHorizontalCard({
-  item,
-  onClick,
-  onAdd,
-  addingIds,
-  addedIds,
+  item, onClick, onAdd, addingIds, addedIds,
 }) {
+  const [broken, setBroken] = useState(false);
+  const src = imgOf(item);
+  const d = discOf(item);
   const price = priceOf(item);
   const original = origOf(item);
-  const d = discOf(item);
-  const title = smartTruncate(item.name || item.title, 40);
-  const imgUrl = imgOf(item);
-  const [imgError, setImgError] = useState(false);
 
   return (
     <div className="mdp-rail-hcard" onClick={() => onClick(item)} role="button" tabIndex={0}>
       <div className="mdp-rail-hcard__media">
-        {imgUrl && !imgError ? (
-          <img
-            src={imgUrl}
-            alt={item.name || "Product"}
-            loading="lazy"
-            onError={() => setImgError(true)}
-          />
+        {src && !broken ? (
+          <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} />
         ) : (
           <div className="mdp-rail-hcard__ph">📦</div>
         )}
         {d > 0 && <span className="mdp-rail-hcard__badge">-{d}%</span>}
       </div>
       <div className="mdp-rail-hcard__body">
-        <p className="mdp-rail-hcard__name">{title}</p>
+        <p className="mdp-rail-hcard__name">
+          {smartTruncate(item.name || item.title, 40)}
+        </p>
         <div className="mm-card-bottom">
           <div className="mm-prices-stack">
             <span className="mdp-rail-hcard__price">{formatPrice(price)}</span>
@@ -191,21 +165,14 @@ const HomeHorizontalCard = memo(function HomeHorizontalCard({
   );
 });
 
-/* Masonry Grid Card (Matches MarketDetail Recommended) */
 const HomeMasonryCard = memo(function HomeMasonryCard({
-  item,
-  onClick,
-  onAdd,
-  addingIds,
-  addedIds,
+  item, onClick, onAdd, addingIds, addedIds,
 }) {
+  const [broken, setBroken] = useState(false);
+  const src = imgOf(item);
+  const d = discOf(item);
   const price = priceOf(item);
   const original = origOf(item);
-  const d = discOf(item);
-  const title = smartTruncate(item.name || item.title, 55);
-  const imgUrl = imgOf(item);
-  const [imgError, setImgError] = useState(false);
-
   const h = useMemo(() => {
     const id = String(item.id || "x");
     let hash = 0;
@@ -216,13 +183,13 @@ const HomeMasonryCard = memo(function HomeMasonryCard({
   return (
     <div className="pr-masonry-card" onClick={() => onClick(item)} role="button" tabIndex={0}>
       <div className="pr-masonry-card__media" style={{ height: h }}>
-        {imgUrl && !imgError ? (
+        {src && !broken ? (
           <img
-            src={imgUrl}
-            alt={item.name || "Product"}
+            src={src}
+            alt=""
             loading="lazy"
             className="pr-masonry-card__img"
-            onError={() => setImgError(true)}
+            onError={() => setBroken(true)}
           />
         ) : (
           <div className="pr-masonry-card__ph">📦</div>
@@ -230,7 +197,9 @@ const HomeMasonryCard = memo(function HomeMasonryCard({
         {d > 0 && <span className="pr-masonry-card__badge">-{d}%</span>}
       </div>
       <div className="pr-masonry-card__body">
-        <p className="pr-masonry-card__name">{title}</p>
+        <p className="pr-masonry-card__name">
+          {smartTruncate(item.name || item.title, 55)}
+        </p>
         <div className="mm-card-bottom">
           <div className="mm-prices-stack">
             <span className="pr-masonry-card__price">{formatPrice(price)}</span>
@@ -245,16 +214,10 @@ const HomeMasonryCard = memo(function HomeMasonryCard({
   );
 });
 
-/* Horizontal Section Wrapper */
 const HomeHorizontalRail = memo(function HomeHorizontalRail({
-  title,
-  items,
-  onClick,
-  onAdd,
-  addingIds,
-  addedIds,
+  title, items, onClick, onAdd, addingIds, addedIds,
 }) {
-  if (!items || items.length === 0) return null;
+  if (!items?.length) return null;
   return (
     <section className="mdp-psec">
       <div className="mdp-psec__head">
@@ -276,9 +239,6 @@ const HomeHorizontalRail = memo(function HomeHorizontalRail({
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   MAIN PAGE COMPONENT
-═══════════════════════════════════════════════════════════════ */
 export default function HomePageMobile({ user }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -293,7 +253,6 @@ export default function HomePageMobile({ user }) {
   const [searchQuery, setSearchQuery] = useState(queryParam);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchHistory, setSearchHistory] = useState(getSearchHistory);
-
   const [activeCategory, setActiveCategory] = useState(catParam);
   const [activeSort, setActiveSort] = useState(sortParam);
   const [minPrice, setMinPrice] = useState(minParam);
@@ -317,6 +276,14 @@ export default function HomePageMobile({ user }) {
   const [addingIds, setAddingIds] = useState(new Set());
   const [addedIds, setAddedIds] = useState(new Set());
 
+  const [wishlist, setWishlist] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(WISH_KEY) || "[]"); }
+    catch { return []; }
+  });
+  useEffect(() => {
+    localStorage.setItem(WISH_KEY, JSON.stringify(wishlist));
+  }, [wishlist]);
+
   const triggerCartAnimation = useCallback(() => {
     setCartAnimating(true);
     setTimeout(() => setCartAnimating(false), 300);
@@ -338,13 +305,9 @@ export default function HomePageMobile({ user }) {
           headers: { Authorization: `Bearer ${token}` },
           timeout: 5000,
         });
-        const count =
-          res.data?.data?.total_qty ?? res.data?.data?.item_count ?? 0;
-        setCartCount(count);
+        setCartCount(res.data?.data?.total_qty ?? res.data?.data?.item_count ?? 0);
         triggerCartAnimation();
-      } catch (err) {
-        /* ignore */
-      }
+      } catch { /* */ }
     } else {
       setCartCount(getCartCount());
       triggerCartAnimation();
@@ -361,82 +324,45 @@ export default function HomePageMobile({ user }) {
     };
   }, [syncCart]);
 
-  const [wishlist, setWishlist] = useState(() => {
+  const fetchProducts = useCallback(async ({
+    query = searchQuery, category = activeCategory, sort = activeSort,
+    min = minPrice, max = maxPrice, newOffset = 0, append = false,
+  } = {}) => {
+    append ? setLoadingMore(true) : setLoading(true);
+    setFetchError(null);
     try {
-      return JSON.parse(localStorage.getItem(WISH_KEY) || "[]");
-    } catch {
-      return [];
+      const params = { limit: DEFAULT_LIMIT, offset: newOffset, sort };
+      if (normalize(query)) params.search = normalize(query);
+      if (category !== "all") params.category = category;
+      if (min && Number(min) > 0) params.minPrice = min;
+      if (max && Number(max) > 0) params.maxPrice = max;
+      const { data } = await axios.get(`${API}/products`, { params });
+      const rows = data?.data?.products ?? [];
+      setProducts((prev) => (append ? [...prev, ...rows] : rows));
+      setPagination(data?.data?.pagination ?? null);
+      setOffset(newOffset);
+    } catch (err) {
+      setFetchError(err.response?.data?.message ?? "Failed to load products");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
     }
-  });
-
-  useEffect(() => {
-    localStorage.setItem(WISH_KEY, JSON.stringify(wishlist));
-  }, [wishlist]);
-
-  const fetchProducts = useCallback(
-    async ({
-      query = searchQuery,
-      category = activeCategory,
-      sort = activeSort,
-      min = minPrice,
-      max = maxPrice,
-      newOffset = 0,
-      append = false,
-    } = {}) => {
-      append ? setLoadingMore(true) : setLoading(true);
-      setFetchError(null);
-
-      try {
-        const params = { limit: DEFAULT_LIMIT, offset: newOffset, sort };
-        if (normalize(query)) params.search = normalize(query);
-        if (category !== "all") params.category = category;
-        if (min && Number(min) > 0) params.minPrice = min;
-        if (max && Number(max) > 0) params.maxPrice = max;
-
-        const { data } = await axios.get(`${API}/products`, { params });
-        const rows = data?.data?.products ?? [];
-        const meta = data?.data?.pagination ?? null;
-
-        setProducts((prev) => (append ? [...prev, ...rows] : rows));
-        setPagination(meta);
-        setOffset(newOffset);
-      } catch (err) {
-        setFetchError(err.response?.data?.message ?? "Failed to load products");
-      } finally {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    },
-    [searchQuery, activeCategory, activeSort, minPrice, maxPrice]
-  );
+  }, [searchQuery, activeCategory, activeSort, minPrice, maxPrice]);
 
   const fetchSections = useCallback(async () => {
     try {
       const [feat, trend, latest] = await Promise.allSettled([
-        axios.get(`${API}/products`, {
-          params: { featured: "true", limit: 8, sort: "trending" },
-        }),
-        axios.get(`${API}/products`, {
-          params: { trending: "true", limit: 8, sort: "views" },
-        }),
-        axios.get(`${API}/products`, {
-          params: { limit: 8, sort: "newest" },
-        }),
+        axios.get(`${API}/products`, { params: { featured: "true", limit: 8, sort: "trending" } }),
+        axios.get(`${API}/products`, { params: { trending: "true", limit: 8, sort: "views" } }),
+        axios.get(`${API}/products`, { params: { limit: 8, sort: "newest" } }),
       ]);
-      if (feat.status === "fulfilled")
-        setFeatured(feat.value.data?.data?.products ?? []);
-      if (trend.status === "fulfilled")
-        setFlashDeals(trend.value.data?.data?.products ?? []);
-      if (latest.status === "fulfilled")
-        setNewArrivals(latest.value.data?.data?.products ?? []);
-    } catch (err) {
-      /* ignore */
-    }
+      if (feat.status === "fulfilled") setFeatured(feat.value.data?.data?.products ?? []);
+      if (trend.status === "fulfilled") setFlashDeals(trend.value.data?.data?.products ?? []);
+      if (latest.status === "fulfilled") setNewArrivals(latest.value.data?.data?.products ?? []);
+    } catch { /* */ }
   }, []);
 
-  useEffect(() => {
-    fetchSections();
-  }, [fetchSections]);
+  useEffect(() => { fetchSections(); }, [fetchSections]);
 
   useEffect(() => {
     if (isFirstMount.current) {
@@ -447,30 +373,24 @@ export default function HomePageMobile({ user }) {
     fetchProducts({ newOffset: 0, append: false });
   }, [activeCategory, activeSort, fetchProducts]);
 
-  const handleSearchSelect = useCallback(
-    (q) => {
-      setSearchQuery(q);
-      setSearchOpen(false);
-      addToSearchHistory(q);
-      setSearchHistory(getSearchHistory());
-      setSearchParams(q ? { q } : {});
-      fetchProducts({ query: q, newOffset: 0 });
-    },
-    [fetchProducts, setSearchParams]
-  );
+  const handleSearchSelect = useCallback((q) => {
+    setSearchQuery(q);
+    setSearchOpen(false);
+    addToSearchHistory(q);
+    setSearchHistory(getSearchHistory());
+    setSearchParams(q ? { q } : {});
+    fetchProducts({ query: q, newOffset: 0 });
+  }, [fetchProducts, setSearchParams]);
 
-  const handleCategoryChange = useCallback(
-    (id) => {
-      setActiveCategory(id);
-      setSearchParams((prev) => {
-        if (id === "all") prev.delete("category");
-        else prev.set("category", id);
-        return prev;
-      });
-      setOffset(0);
-    },
-    [setSearchParams]
-  );
+  const handleCategoryChange = useCallback((id) => {
+    setActiveCategory(id);
+    setSearchParams((prev) => {
+      if (id === "all") prev.delete("category");
+      else prev.set("category", id);
+      return prev;
+    });
+    setOffset(0);
+  }, [setSearchParams]);
 
   const handleLoadMore = useCallback(() => {
     fetchProducts({ newOffset: offset + DEFAULT_LIMIT, append: true });
@@ -478,28 +398,14 @@ export default function HomePageMobile({ user }) {
 
   const handleApplyFilters = useCallback(() => {
     setSearchParams((prev) => {
-      if (minPrice) prev.set("minPrice", minPrice);
-      else prev.delete("minPrice");
-      if (maxPrice) prev.set("maxPrice", maxPrice);
-      else prev.delete("maxPrice");
-      if (activeSort) prev.set("sort", activeSort);
-      else prev.delete("sort");
+      if (minPrice) prev.set("minPrice", minPrice); else prev.delete("minPrice");
+      if (maxPrice) prev.set("maxPrice", maxPrice); else prev.delete("maxPrice");
+      if (activeSort) prev.set("sort", activeSort); else prev.delete("sort");
       return prev;
     });
-    fetchProducts({
-      min: minPrice,
-      max: maxPrice,
-      sort: activeSort,
-      newOffset: 0,
-    });
+    fetchProducts({ min: minPrice, max: maxPrice, sort: activeSort, newOffset: 0 });
     setShowFilters(false);
   }, [fetchProducts, minPrice, maxPrice, activeSort, setSearchParams]);
-
-  const handleResetFilters = useCallback(() => {
-    setMinPrice("");
-    setMaxPrice("");
-    setActiveSort("newest");
-  }, []);
 
   const clearAllFilters = useCallback(() => {
     setSearchQuery("");
@@ -508,90 +414,43 @@ export default function HomePageMobile({ user }) {
     setMinPrice("");
     setMaxPrice("");
     setSearchParams({});
-    fetchProducts({
-      query: "",
-      category: "all",
-      sort: "newest",
-      min: "",
-      max: "",
-      newOffset: 0,
-    });
+    fetchProducts({ query: "", category: "all", sort: "newest", min: "", max: "", newOffset: 0 });
   }, [fetchProducts, setSearchParams]);
 
-  const handleAddToCart = useCallback(
-    async (product) => {
-      if (!product?.id || addingIds.has(product.id)) return;
-
-      setAddingIds((prev) => new Set(prev).add(product.id));
-
-      if (window.navigator?.vibrate) {
-        window.navigator.vibrate(10);
-      }
-
-      try {
-        const token = localStorage.getItem("marketplace_token");
-        if (user && token) {
-          const payload = { product_id: product.id, variant_id: null, qty: 1 };
-          await axios.post(CART_ITEMS_URL, payload, {
-            headers: { Authorization: `Bearer ${token}` },
-            timeout: 10000,
-          });
-          await syncCart();
-        } else {
-          addToCart(product);
-          setCartCount(getCartCount());
-          triggerCartAnimation();
-        }
-
-        window.dispatchEvent(new Event("cart-updated"));
-        setAddedIds((prev) => new Set(prev).add(product.id));
-        setTimeout(() => {
-          setAddedIds((prev) => {
-            const next = new Set(prev);
-            next.delete(product.id);
-            return next;
-          });
-        }, 2000);
-
-        fireCartToast(product, navigate);
-      } catch (err) {
-        toast.error("Could not add item to cart", { duration: 3000 });
-      } finally {
-        setAddingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(product.id);
-          return next;
+  const handleAddToCart = useCallback(async (product) => {
+    if (!product?.id || addingIds.has(product.id)) return;
+    setAddingIds((p) => new Set(p).add(product.id));
+    try {
+      const token = localStorage.getItem("marketplace_token");
+      if (user && token) {
+        await axios.post(CART_ITEMS_URL, { product_id: product.id, variant_id: null, qty: 1 }, {
+          headers: { Authorization: `Bearer ${token}` }, timeout: 10000,
         });
+        await syncCart();
+      } else {
+        addToCart(product);
+        setCartCount(getCartCount());
+        triggerCartAnimation();
       }
-    },
-    [addingIds, navigate, user, syncCart, triggerCartAnimation]
-  );
+      window.dispatchEvent(new Event("cart-updated"));
+      setAddedIds((p) => new Set(p).add(product.id));
+      setTimeout(() => setAddedIds((p) => { const n = new Set(p); n.delete(product.id); return n; }), 2000);
+      fireCartToast(product, navigate);
+    } catch {
+      toast.error("Could not add item to cart");
+    } finally {
+      setAddingIds((p) => { const n = new Set(p); n.delete(product.id); return n; });
+    }
+  }, [addingIds, navigate, user, syncCart, triggerCartAnimation]);
 
-  const goPostAd = useCallback(() => {
-    navigate(user ? "/minimart/post-ad" : "/auth");
-  }, [navigate, user]);
-
-  const openProduct = useCallback(
-    (item) => {
-      navigate(`/shop/${item.slug || item.id}`);
-    },
-    [navigate]
-  );
+  const goPostAd = useCallback(() => navigate(user ? "/minimart/post-ad" : "/auth"), [navigate, user]);
+  const openProduct = useCallback((item) => navigate(`/shop/${item.slug || item.id}`), [navigate]);
 
   const hasMore = pagination ? offset + DEFAULT_LIMIT < pagination.total : false;
-  const hasFilters = !!(
-    searchQuery ||
-    activeCategory !== "all" ||
-    activeSort !== "newest" ||
-    minPrice ||
-    maxPrice
-  );
+  const hasFilters = !!(searchQuery || activeCategory !== "all" || activeSort !== "newest" || minPrice || maxPrice);
 
   return (
-    <div className="lmm-page lmm-clean-pro-theme mobile-view-optimized mm-page">
-      <div className="lmm-top-gradient-glow" />
-
-      {/* Top Bar Navigation */}
+    <div className="lmm-page mm-page mobile-view-optimized">
       <MobileTopBar
         searchQuery={searchQuery}
         onSearchOpen={() => setSearchOpen(true)}
@@ -608,53 +467,22 @@ export default function HomePageMobile({ user }) {
         showFilters={showFilters}
       />
 
-      {/* Hero Banner */}
       <div className="lmm-hero-section mm-hero-wrap">
         <MobileHero user={user} cartCount={cartCount} onPostAd={goPostAd} />
       </div>
 
-      {/* Horizontal Swipe Rails */}
       <div className="mm-rails">
-        <HomeHorizontalRail
-          title="Flash Deals"
-          items={flashDeals}
-          onClick={openProduct}
-          onAdd={handleAddToCart}
-          addingIds={addingIds}
-          addedIds={addedIds}
-        />
-        <HomeHorizontalRail
-          title="Featured Listings"
-          items={featured}
-          onClick={openProduct}
-          onAdd={handleAddToCart}
-          addingIds={addingIds}
-          addedIds={addedIds}
-        />
-        <HomeHorizontalRail
-          title="New Arrivals"
-          items={newArrivals}
-          onClick={openProduct}
-          onAdd={handleAddToCart}
-          addingIds={addingIds}
-          addedIds={addedIds}
-        />
-        <HomeHorizontalRail
-          title="Recently Viewed"
-          items={recentlyViewed}
-          onClick={openProduct}
-          onAdd={handleAddToCart}
-          addingIds={addingIds}
-          addedIds={addedIds}
-        />
+        <HomeHorizontalRail title="Flash Deals" items={flashDeals} onClick={openProduct} onAdd={handleAddToCart} addingIds={addingIds} addedIds={addedIds} />
+        <HomeHorizontalRail title="Featured Listings" items={featured} onClick={openProduct} onAdd={handleAddToCart} addingIds={addingIds} addedIds={addedIds} />
+        <HomeHorizontalRail title="New Arrivals" items={newArrivals} onClick={openProduct} onAdd={handleAddToCart} addingIds={addingIds} addedIds={addedIds} />
+        <HomeHorizontalRail title="Recently Viewed" items={recentlyViewed} onClick={openProduct} onAdd={handleAddToCart} addingIds={addingIds} addedIds={addedIds} />
       </div>
 
-      {/* Main Catalog (Masonry Grid) */}
       <section className="mdp-psec mdp-psec--recommended">
         <div className="mdp-psec__head mm-catalog-head">
           <div>
             <h3 className="mdp-psec__title">All Products</h3>
-            <p className="mm-catalog-sub">Real-time marketplace listings</p>
+            <p className="mm-catalog-sub">Recommended for you</p>
           </div>
           {hasFilters && (
             <button type="button" className="mdp-psec__all" onClick={clearAllFilters}>
@@ -663,13 +491,11 @@ export default function HomePageMobile({ user }) {
           )}
         </div>
 
-        {loading && products.length === 0 ? (
+        {loading && !products.length ? (
           <div className="pr-masonry">
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="pr-masonry-skel" />
-            ))}
+            {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="pr-masonry-skel" />)}
           </div>
-        ) : fetchError && products.length === 0 ? (
+        ) : fetchError && !products.length ? (
           <div className="mm-error">
             <p>{fetchError}</p>
             <button type="button" className="pr-load-more-btn" onClick={() => fetchProducts({ newOffset: 0 })}>
@@ -692,12 +518,7 @@ export default function HomePageMobile({ user }) {
             </div>
             {hasMore && (
               <div className="pr-load-more-wrap">
-                <button
-                  type="button"
-                  className="pr-load-more-btn"
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
-                >
+                <button type="button" className="pr-load-more-btn" onClick={handleLoadMore} disabled={loadingMore}>
                   {loadingMore ? "Loading…" : "Load More Products"}
                 </button>
               </div>
@@ -706,18 +527,12 @@ export default function HomePageMobile({ user }) {
         )}
       </section>
 
-      {/* Draggable Floating Cart */}
       {cartCount > 0 && (
-        <FloatingCartButton
-          count={cartCount}
-          onClick={() => navigate("/shop/cart")}
-        />
+        <FloatingCartButton count={cartCount} onClick={() => navigate("/shop/cart")} />
       )}
 
-      {/* Footer */}
       <Footer />
 
-      {/* Bottom Nav Bar */}
       <MobileFooter
         user={user}
         cartCount={cartCount}
@@ -726,7 +541,6 @@ export default function HomePageMobile({ user }) {
         onPostAd={goPostAd}
       />
 
-      {/* Search & Filter Sheets */}
       <SearchSheet
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
@@ -750,7 +564,11 @@ export default function HomePageMobile({ user }) {
         activeSort={activeSort}
         setActiveSort={setActiveSort}
         onApply={handleApplyFilters}
-        onReset={handleResetFilters}
+        onReset={() => {
+          setMinPrice("");
+          setMaxPrice("");
+          setActiveSort("newest");
+        }}
       />
     </div>
   );
