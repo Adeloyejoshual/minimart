@@ -1,17 +1,13 @@
 /**
  * src/pages/Minimart.jsx (Homepage)
- * 10/10 Production Ready: Trust Badges, Promo Banners, Syncing Cart, Masonry Grid.
  */
-
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 
-/* ONE Unified Stylesheet */
 import "../styles/Minimart.css";
 
-/* Components */
 import MobileTopBar from "./mobile/MobileTopBar";
 import MobileHero from "./mobile/MobileHero";
 import MobileSections from "./mobile/MobileSections";
@@ -50,13 +46,18 @@ export default function Minimart({ user }) {
 
   // Data States
   const [products, setProducts] = useState([]);
-  const [flashDeals, setFlashDeals] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
 
-  // Cart Data Map (Syncs all steppers instantly)
+  // Curated Rails States
+  const [flashDeals, setFlashDeals] = useState([]);
+  const [newArrivals, setNewArrivals] = useState([]);
+  const [featured, setFeatured] = useState([]);
+  const [trending, setTrending] = useState([]);
+
+  // Cart Data
   const [cartMap, setCartMap] = useState({});
   const [cartCount, setCartCount] = useState(0);
 
@@ -120,10 +121,19 @@ export default function Minimart({ user }) {
     }
   }, [searchQuery, activeCategory, activeSort, minPrice, maxPrice, products]);
 
-  // Initial Curated Fetch
+  // Fetch ALL Curated Sections at once
   useEffect(() => {
-    axios.get(`${API}/products`, { params: { trending: "true", limit: 6 } })
-      .then(res => setFlashDeals(res.data?.data?.products || []));
+    Promise.allSettled([
+      axios.get(`${API}/products`, { params: { trending: "true", limit: 6 } }),
+      axios.get(`${API}/products`, { params: { sort: "newest", limit: 6 } }),
+      axios.get(`${API}/products`, { params: { featured: "true", limit: 6 } }),
+      axios.get(`${API}/products`, { params: { sort: "views", limit: 6 } })
+    ]).then(([flashRes, newRes, featRes, trendRes]) => {
+      if (flashRes.status === "fulfilled") setFlashDeals(flashRes.value.data?.data?.products || []);
+      if (newRes.status === "fulfilled") setNewArrivals(newRes.value.data?.data?.products || []);
+      if (featRes.status === "fulfilled") setFeatured(featRes.value.data?.data?.products || []);
+      if (trendRes.status === "fulfilled") setTrending(trendRes.value.data?.data?.products || []);
+    });
   }, []);
 
   // Main Catalog Fetch
@@ -157,7 +167,6 @@ export default function Minimart({ user }) {
 
   return (
     <div className="mm-page">
-      {/* 1. Top Navigation & Categories */}
       <MobileTopBar
         searchQuery={searchQuery}
         onSearchOpen={() => setSearchOpen(true)}
@@ -168,20 +177,23 @@ export default function Minimart({ user }) {
         hasFilters={hasFilters}
       />
 
-      {/* 2. Hero Banner */}
       <div className="mm-hero-wrap">
         <MobileHero user={user} onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} />
       </div>
 
-      {/* 3. Trust Strip, Promo Banner & Flash Deals Rail */}
-      <MobileSections flashDeals={flashDeals} />
+      {/* Renders Trust, Promo, and ALL Curated Rails */}
+      <MobileSections 
+        flashDeals={flashDeals} 
+        newArrivals={newArrivals}
+        featured={featured}
+        trending={trending}
+      />
 
-      {/* 4. Main Catalog (Masonry Grid) */}
       <section className="mdp-psec mdp-psec--recommended">
         <div className="mdp-psec__head mm-catalog-head">
           <div>
             <h3 className="mdp-psec__title">All Products</h3>
-            <p className="mm-catalog-sub">Real-time marketplace listings</p>
+            <p className="mm-catalog-sub">Explore the full catalog</p>
           </div>
           {hasFilters && (
             <button className="mdp-psec__all" onClick={clearAllFilters}>
@@ -225,14 +237,10 @@ export default function Minimart({ user }) {
         )}
       </section>
 
-      {/* 5. Floating Cart FAB */}
       {cartCount > 0 && <FloatingCartButton count={cartCount} onClick={() => navigate("/shop/cart")} />}
-      
-      {/* 6. Footers */}
       <Footer />
       <MobileFooter user={user} cartCount={cartCount} onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} />
 
-      {/* 7. Modals / Sheets */}
       <SearchSheet 
         open={searchOpen} onClose={() => setSearchOpen(false)} 
         query={searchQuery} setQuery={setSearchQuery} 
