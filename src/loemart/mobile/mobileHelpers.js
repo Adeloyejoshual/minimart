@@ -3,13 +3,6 @@
  *
  * Production Mobile Helpers, Hooks, and Constants.
  * Engineered for absolute responsiveness and zero simulated data layers.
- *
- * v4.0 — Zero Simulation Production Release
- * ──────────────────────────────────────────────────────────
- * ✓ Removed fake ratings, reviews, and sold count calculations
- * ✓ Real-Time Event-Driven Countdown Hook (targets actual dates)
- * ✓ Exception-protected guest LocalStorage synchronization
- * ✓ Modern Vector icon maps for cross-device visual parity
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -21,7 +14,10 @@ import { Flame, Sparkles, ShieldCheck } from "lucide-react";
 /* ═══════════════════════════════════════════════════════════════
    ENVIRONMENT VARIABLES & STORAGE KEYS
 ═══════════════════════════════════════════════════════════════ */
-export const API                = `${import.meta.env.VITE_API_BASE_URL}/api`;
+// Safe API URL resolution (prevents double slashes)
+const RAW = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+export const API = RAW ? (RAW.endsWith("/api") ? RAW : `${RAW}/api`) : "/api";
+
 export const CART_KEY           = "mm_cart";
 export const RECENT_KEY         = "lm-recently-viewed";
 export const SEARCH_HISTORY_KEY = "lm-search-history";
@@ -82,7 +78,7 @@ export const TRENDING_SEARCHES = [
 
 export const BOTTOM_NAV = [
   { icon: FiHome,         label: "Home",    path: "/loemart"   },
-  { icon: FiGrid,         label: "Browse",  path: "/loemart"   },
+  { icon: FiGrid,         label: "Browse",  path: "/catalog"   }, // Updated to /catalog
   { icon: FiShoppingCart, label: "Cart",    path: "/shop/cart" },
   { icon: FiHeart,        label: "Saved",   path: "/saved"     },
   { icon: FiUser,         label: "Account", path: "/profile"   },
@@ -99,14 +95,40 @@ export const fmtPrice = (n) => {
 };
 
 export const calcDiscount = (p) => {
-  const base = Number(p.price || 0);
-  const orig = Number(p.original_price ?? 0);
+  const base = Number(p.price || p.selling_price || p.sale_price || 0);
+  const orig = Number(p.original_price ?? p.compare_price ?? 0);
   return !orig || orig <= base ? 0 : Math.round(((orig - base) / orig) * 100);
 };
 
-export const primaryImg = (images = []) => {
-  if (!Array.isArray(images) || !images.length) return null;
-  return (images.find((i) => i.is_primary) ?? images[0])?.url ?? null;
+/* ── BULLETPROOF IMAGE RESOLVER ── */
+export const primaryImg = (images, product = null) => {
+  // 1. Try product-level direct properties first
+  if (product) {
+    const direct = product.thumbnail || product.image || product.image_url || product.cover_image || product.primary_image;
+    if (typeof direct === "string" && direct.length > 4) return direct;
+  }
+
+  if (!images) return null;
+
+  // 2. Handle Stringified JSON arrays (common in some APIs)
+  if (typeof images === "string") {
+    const s = images.trim();
+    if (s.startsWith("http") || s.startsWith("/")) return s;
+    if (s.startsWith("[")) {
+      try { return primaryImg(JSON.parse(s), null); } 
+      catch { return null; }
+    }
+    return null;
+  }
+
+  // 3. Handle actual Arrays
+  if (Array.isArray(images) && images.length > 0) {
+    const first = images.find((i) => i && i.is_primary) ?? images[0];
+    if (typeof first === "string") return first;
+    return first?.url || first?.src || first?.secure_url || first?.path || first?.large || null;
+  }
+
+  return null;
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -141,9 +163,9 @@ export const addToCart = (product) => {
     cart.push({
       id: `${product.id}__default`,
       productId : product.id,
-      name      : product.name,
-      price     : Number(product.price || 0),
-      image     : primaryImg(product.images),
+      name      : product.name || product.title,
+      price     : Number(product.price || product.selling_price || 0),
+      image     : primaryImg(product.images, product),
       qty       : 1,
       variant   : null,
       slug      : product.slug ?? product.id,
@@ -174,9 +196,9 @@ export const addToRecentlyViewed = (product) => {
     const list = getRecentlyViewed().filter((p) => p.id !== product.id);
     list.unshift({
       id    : product.id,
-      name  : product.name,
-      price : product.price,
-      image : primaryImg(product.images),
+      name  : product.name || product.title,
+      price : product.price || product.selling_price,
+      image : primaryImg(product.images, product),
       slug  : product.slug ?? product.id,
     });
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
