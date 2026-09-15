@@ -30,7 +30,6 @@ import {
 
 import categories from "../config/categories";
 import "../styles/Minimart.css";
-import "../styles/LoemartHome.css";
 import "../styles/LoemartPremium.css";
 
 /* ═══════════════════════════════════════════════════════════════
