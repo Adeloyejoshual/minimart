@@ -16,6 +16,7 @@ import MobileFooter from "./mobile/MobileFooter";
 import Footer from "../components/Footer";
 import FloatingCartButton from "../components/FloatingCartButton";
 import { SearchSheet, FilterSheet } from "./mobile/MobileSheets";
+import MenuDrawer from "./mobile/MenuDrawer"; // <-- Hamburger Menu imported here
 
 import { 
   API, 
@@ -42,6 +43,7 @@ export default function Minimart({ user }) {
   // UI States
   const [searchOpen, setSearchOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false); // <-- Hamburger Menu state
   const [searchHistory, setSearchHistory] = useState(getSearchHistory);
 
   // Data States
@@ -167,6 +169,7 @@ export default function Minimart({ user }) {
 
   return (
     <div className="mm-page">
+      {/* Top Bar with Menu Trigger */}
       <MobileTopBar
         searchQuery={searchQuery}
         onSearchOpen={() => setSearchOpen(true)}
@@ -174,6 +177,7 @@ export default function Minimart({ user }) {
         activeCategory={activeCategory}
         onCategoryChange={(cat) => { setActiveCategory(cat); setSearchParams(cat === "all" ? {} : { category: cat }); }}
         onFilterOpen={() => setShowFilters(true)}
+        onMenuOpen={() => setMenuOpen(true)} // <-- Passes trigger to TopBar
         hasFilters={hasFilters}
       />
 
@@ -195,11 +199,20 @@ export default function Minimart({ user }) {
             <h3 className="mdp-psec__title">All Products</h3>
             <p className="mm-catalog-sub">Explore the full catalog</p>
           </div>
-          {hasFilters && (
-            <button className="mdp-psec__all" onClick={clearAllFilters}>
-              Clear Filters
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            {hasFilters && (
+              <button className="mdp-psec__all" onClick={clearAllFilters}>
+                Clear
+              </button>
+            )}
+            {/* Sort & Filter Pill Button */}
+            <button 
+              className="mm-btn-filter-pill" 
+              onClick={() => setShowFilters(true)}
+            >
+              Sort & Filter
             </button>
-          )}
+          </div>
         </div>
 
         {loading && products.length === 0 ? (
@@ -240,6 +253,13 @@ export default function Minimart({ user }) {
       {cartCount > 0 && <FloatingCartButton count={cartCount} onClick={() => navigate("/shop/cart")} />}
       <Footer />
       <MobileFooter user={user} cartCount={cartCount} onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} />
+
+      {/* Slide-out Hamburger Menu */}
+      <MenuDrawer 
+        open={menuOpen} 
+        onClose={() => setMenuOpen(false)} 
+        user={user} 
+      />
 
       <SearchSheet 
         open={searchOpen} onClose={() => setSearchOpen(false)} 
