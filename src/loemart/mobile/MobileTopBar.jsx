@@ -4,14 +4,15 @@
  */
 import { memo, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FiSearch, FiSliders, FiX, FiHeart } from "react-icons/fi";
+import { FiSearch, FiSliders, FiX, FiMenu, FiUser } from "react-icons/fi"; // Changed icons
 import categories from "../../config/categories";
 import { haptic } from "./mobileHelpers";
 
 const MobileTopBar = memo(function MobileTopBar({
   searchQuery, onSearchOpen, onClearSearch,
   activeCategory, onCategoryChange,
-  hasFilters, wishCount, onFilterOpen, showFilters,
+  hasFilters, onFilterOpen, showFilters,
+  onMenuOpen, // <-- ADDED PROP
 }) {
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
@@ -29,14 +30,22 @@ const MobileTopBar = memo(function MobileTopBar({
       
       {/* Main Row */}
       <div className="lmm-topbar__row">
+        
+        {/* Hamburger Menu Icon */}
+        <button type="button" className="lmm-topbar__icon-btn" onClick={() => { onMenuOpen(); haptic(8); }}>
+          <FiMenu size={22} color="#111" />
+        </button>
+
+        {/* Logo */}
         <button type="button" className="lmm-topbar__logo" onClick={() => navigate("/loemart")}>
           <div className="lmm-topbar__logo-icon">🛍️</div>
         </button>
 
+        {/* Search Input */}
         <button type="button" className="lmm-topbar__search-btn" onClick={() => { onSearchOpen(); haptic(8); }}>
           <FiSearch size={16} strokeWidth={2.5} color="#888" />
           <span className="lmm-topbar__search-placeholder">
-            {searchQuery || "Search for products..."}
+            {searchQuery || "Search..."}
           </span>
           {searchQuery && (
             <div className="lmm-topbar__search-x" onClick={(e) => { e.stopPropagation(); onClearSearch(); }}>
@@ -45,16 +54,18 @@ const MobileTopBar = memo(function MobileTopBar({
           )}
         </button>
 
+        {/* Right Actions: Profile & Filters */}
         <div className="lmm-topbar__actions">
-          <button type="button" className="lmm-topbar__icon-btn" onClick={() => navigate("/saved")}>
-            <FiHeart size={20} strokeWidth={2.2} fill={wishCount > 0 ? "#e53935" : "none"} color={wishCount > 0 ? "#e53935" : "#111"} />
-            {wishCount > 0 && <span className="lmm-topbar__badge">{wishCount}</span>}
+          
+          <button type="button" className="lmm-topbar__icon-btn" onClick={() => navigate("/account/profile")}>
+            <FiUser size={20} strokeWidth={2.2} color="#111" />
           </button>
 
           <button type="button" className="lmm-topbar__icon-btn" onClick={() => { onFilterOpen(); haptic(8); }}>
             <FiSliders size={20} strokeWidth={2.2} color={showFilters ? "#ff6b00" : "#111"} />
             {hasFilters && <span className="lmm-topbar__badge lmm-topbar__badge--dot" />}
           </button>
+          
         </div>
       </div>
 
