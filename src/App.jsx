@@ -83,6 +83,7 @@ import MenuPage             from "./pages/MenuPage";
    PAGES — LOEMART
 ════════════════════════════════════════════════════════════ */
 import HomePage from "./loemart/HomePage";
+import LoemartSearchPage from "./loemart/mobile/SearchPage"; // ← NEW: Mobile Search Overlay
 
 /* ════════════════════════════════════════════════════════════
    PAGES — LEGAL
@@ -682,7 +683,10 @@ function AppInner() {
             PUBLIC
         ══════════════════════════════════════════════ */}
         <Route path="/" element={<HomeRoute key={user?.id ?? "guest"} user={user} />} />
+        
+        {/* Preserved the old search page as requested */}
         <Route path="/search"        element={<SearchPage        user={user} />} />
+        
         <Route path="/product/:slug" element={<ProductRoute     user={user} />} />
         <Route path="/shop/:slug"    element={<MarketDetail       user={user} />} />
 
@@ -702,6 +706,9 @@ function AppInner() {
         <Route path="/community-guidelines" element={<CommunityGuidelines />} />
         <Route path="/hall-of-fame"  element={<HallOfFame />} />
         <Route path="/loemart"       element={<HomePage          user={user} />} />
+
+        {/* ← NEW: Mobile Search Overlay Route */}
+        <Route path="/loemart/search" element={<LoemartSearchPage />} /> 
 
         {/* ── Homepage sub-pages ── */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
