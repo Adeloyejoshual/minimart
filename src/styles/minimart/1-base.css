@@ -1,0 +1,50 @@
+/* ── 1. TOKENS & RESETS ── */
+:root {
+  --o: #ff6b00;
+  --o2: #fff4eb;
+  --ink: #111111;
+  --ink2: #666666;
+  --ink3: #aaaaaa;
+  --bd: #e8e8ec;
+  --bd2: #d0d0d6;
+  --bg: #f4f4f8;
+  --wh: #ffffff;
+  --gn: #2e7d32;
+  --rd: #e53935;
+  --am: #f5a623;
+  --r1: 8px;
+  --r2: 12px;
+  --r3: 16px;
+  --fb: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --s1: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --s2: 0 4px 14px rgba(0, 0, 0, 0.1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; overflow-x: hidden; }
+
+/* ── PAGE SHELLS ── */
+.mm-page, .md-page, .mdp-page, .sp-page {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--fb);
+  -webkit-font-smoothing: antialiased;
+  overflow: visible !important; /* CRITICAL for sticky headers */
+  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ── GLOBAL ANIMATIONS ── */
+@keyframes mmShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
