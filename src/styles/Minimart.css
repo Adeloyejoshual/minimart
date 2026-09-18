@@ -1,13 +1,13 @@
-/* ════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════
    Minimart.css
    Master Stylesheet — Imports modular CSS architecture
-════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════════════════════ */
 
-@import "./minimart/1-base.css";
-@import "./minimart/2-header.css";
-@import "./minimart/3-hero.css";
-@import "./minimart/4-sections.css";
-@import "./minimart/5-catalog.css";
-@import "./minimart/6-search.css";
-@import "./minimart/7-floating.css";
-@import "./minimart/8-sheets.css";
+@import "./minimart/1-base.css";      /* CSS variables, global resets, page wrappers, animations      */
+@import "./minimart/2-header.css";    /* Glassmorphic top navigation, search trigger, category chips  */
+@import "./minimart/3-hero.css";      /* Gradient hero banner, welcome pill, quick action tiles       */
+@import "./minimart/4-sections.css";  /* Trust strip, promo banners, horizontal product rails         */
+@import "./minimart/5-catalog.css";   /* Masonry product grid, item cards, cart steppers, load more   */
+@import "./minimart/6-search.css";    /* Fullscreen search page, autocomplete, history, trending      */
+@import "./minimart/7-floating.css";  /* Draggable floating cart FAB, toast notifications             */
+@import "./minimart/8-sheets.css";    /* Slide-in hamburger menu, bottom filter sheet, overlays       */
