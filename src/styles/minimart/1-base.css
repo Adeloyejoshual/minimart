@@ -20,17 +20,31 @@
   --s2: 0 4px 14px rgba(0, 0, 0, 0.1);
 }
 
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; overflow-x: hidden; }
+*, *::before, *::after { 
+  box-sizing: border-box; 
+}
+
+/* ── NATURAL WINDOW SCROLLING FIX ── */
+html, body { 
+  margin: 0; 
+  padding: 0; 
+  width: 100%;
+  min-height: 100%;
+  overflow-x: clip; /* Fixes locked mobile scrolling & keeps sticky headers working */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
 /* ── PAGE SHELLS ── */
-.mm-page, .md-page, .mdp-page, .sp-page {
-  min-height: 100dvh;
+.mm-page, .lmm-page, .md-page, .mdp-page, .sp-page {
+  min-height: 100vh;
+  width: 100%;
+  position: relative;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--fb);
   -webkit-font-smoothing: antialiased;
-  overflow: visible !important; /* CRITICAL for sticky headers */
+  overflow: visible; /* Allows natural window scrolling */
   padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 }
 
