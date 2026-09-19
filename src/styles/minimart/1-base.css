@@ -20,35 +20,47 @@
   --s2: 0 4px 14px rgba(0, 0, 0, 0.1);
 }
 
-*, *::before, *::after { 
-  box-sizing: border-box; 
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
-/* ── NATURAL WINDOW SCROLLING FIX ── */
-html, body { 
-  margin: 0; 
-  padding: 0; 
-  width: 100%;
-  min-height: 100%;
-  overflow-x: clip; /* Fixes locked mobile scrolling & keeps sticky headers working */
+/* ── SCROLL MUST LIVE ON THE WINDOW ── */
+html {
+  height: 100%;
+  overflow-x: clip;   /* no sideways scroll, does NOT lock vertical */
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
-/* ── PAGE SHELLS ── */
-.mm-page, .lmm-page, .md-page, .mdp-page, .sp-page {
-  min-height: 100vh;
-  width: 100%;
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  overflow-x: clip;
+  overflow-y: auto;   /* NEVER set body overflow:hidden permanently */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: auto;
+}
+
+/* Page shells — do NOT trap scroll here */
+.mm-page,
+.lmm-page,
+.md-page,
+.mdp-page,
+.sp-page {
   position: relative;
+  min-height: 100%;
+  width: 100%;
+  max-width: 100%;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--fb);
   -webkit-font-smoothing: antialiased;
-  overflow: visible; /* Allows natural window scrolling */
+  overflow: visible !important; /* critical */
+  height: auto !important;
+  max-height: none !important;
   padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 }
 
-/* ── GLOBAL ANIMATIONS ── */
 @keyframes mmShimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -59,6 +71,5 @@ html, body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
 }
