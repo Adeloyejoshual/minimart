@@ -3,6 +3,7 @@
  *
  * Production Mobile Helpers, Hooks, and Constants.
  * Engineered for absolute responsiveness and zero simulated data layers.
+ * Haptic / vibration is intentionally disabled.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -78,7 +79,7 @@ export const TRENDING_SEARCHES = [
 
 export const BOTTOM_NAV = [
   { icon: FiHome,         label: "Home",    path: "/loemart"   },
-  { icon: FiGrid,         label: "Browse",  path: "/catalog"   }, // Updated to /catalog
+  { icon: FiGrid,         label: "Browse",  path: "/catalog"   },
   { icon: FiShoppingCart, label: "Cart",    path: "/shop/cart" },
   { icon: FiHeart,        label: "Saved",   path: "/saved"     },
   { icon: FiUser,         label: "Account", path: "/profile"   },
@@ -104,7 +105,12 @@ export const calcDiscount = (p) => {
 export const primaryImg = (images, product = null) => {
   // 1. Try product-level direct properties first
   if (product) {
-    const direct = product.thumbnail || product.image || product.image_url || product.cover_image || product.primary_image;
+    const direct =
+      product.thumbnail ||
+      product.image ||
+      product.image_url ||
+      product.cover_image ||
+      product.primary_image;
     if (typeof direct === "string" && direct.length > 4) return direct;
   }
 
@@ -115,8 +121,11 @@ export const primaryImg = (images, product = null) => {
     const s = images.trim();
     if (s.startsWith("http") || s.startsWith("/")) return s;
     if (s.startsWith("[")) {
-      try { return primaryImg(JSON.parse(s), null); } 
-      catch { return null; }
+      try {
+        return primaryImg(JSON.parse(s), null);
+      } catch {
+        return null;
+      }
     }
     return null;
   }
@@ -125,7 +134,14 @@ export const primaryImg = (images, product = null) => {
   if (Array.isArray(images) && images.length > 0) {
     const first = images.find((i) => i && i.is_primary) ?? images[0];
     if (typeof first === "string") return first;
-    return first?.url || first?.src || first?.secure_url || first?.path || first?.large || null;
+    return (
+      first?.url ||
+      first?.src ||
+      first?.secure_url ||
+      first?.path ||
+      first?.large ||
+      null
+    );
   }
 
   return null;
@@ -154,22 +170,22 @@ export const saveCart = (cart) => {
 };
 
 export const addToCart = (product) => {
-  const cart     = loadCart();
+  const cart = loadCart();
   const existing = cart.find((i) => i.productId === product.id && !i.variant);
-  
+
   if (existing) {
     existing.qty = (existing.qty ?? 1) + 1;
   } else {
     cart.push({
       id: `${product.id}__default`,
-      productId : product.id,
-      name      : product.name || product.title,
-      price     : Number(product.price || product.selling_price || 0),
-      image     : primaryImg(product.images, product),
-      qty       : 1,
-      variant   : null,
-      slug      : product.slug ?? product.id,
-      addedAt   : Date.now(),
+      productId: product.id,
+      name: product.name || product.title,
+      price: Number(product.price || product.selling_price || 0),
+      image: primaryImg(product.images, product),
+      qty: 1,
+      variant: null,
+      slug: product.slug ?? product.id,
+      addedAt: Date.now(),
     });
   }
   saveCart(cart);
@@ -195,11 +211,11 @@ export const addToRecentlyViewed = (product) => {
   try {
     const list = getRecentlyViewed().filter((p) => p.id !== product.id);
     list.unshift({
-      id    : product.id,
-      name  : product.name || product.title,
-      price : product.price || product.selling_price,
-      image : primaryImg(product.images, product),
-      slug  : product.slug ?? product.id,
+      id: product.id,
+      name: product.name || product.title,
+      price: product.price || product.selling_price,
+      image: primaryImg(product.images, product),
+      slug: product.slug ?? product.id,
     });
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
   } catch (err) {
@@ -234,13 +250,20 @@ export const addToSearchHistory = (q) => {
    REAL-TIME COUNTDOWN HOOK (Consumes target event dates)
 ═══════════════════════════════════════════════════════════════ */
 export function useCountdown(targetDate) {
-  const [timeLeft, setTimeLeft] = useState({ h: "00", m: "00", s: "00", expired: true });
+  const [timeLeft, setTimeLeft] = useState({
+    h: "00",
+    m: "00",
+    s: "00",
+    expired: true,
+  });
 
   useEffect(() => {
     if (!targetDate) return;
 
     const target = new Date(targetDate).getTime();
     if (isNaN(target)) return;
+
+    let intervalId;
 
     const calculateTime = () => {
       const now = Date.now();
@@ -250,7 +273,7 @@ export function useCountdown(targetDate) {
         setTimeLeft({ h: "00", m: "00", s: "00", expired: true });
         clearInterval(intervalId);
       } else {
-        const hours   = Math.floor(diff / 3600000);
+        const hours = Math.floor(diff / 3600000);
         const minutes = Math.floor((diff % 3600000) / 60000);
         const seconds = Math.floor((diff % 60000) / 1000);
 
@@ -264,7 +287,7 @@ export function useCountdown(targetDate) {
     };
 
     calculateTime();
-    const intervalId = setInterval(calculateTime, 1000);
+    intervalId = setInterval(calculateTime, 1000);
 
     return () => clearInterval(intervalId);
   }, [targetDate]);
@@ -301,15 +324,10 @@ export function useFadeIn() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   TACTILE HAPTIC TRIGGER
+   TACTILE HAPTIC TRIGGER — DISABLED (no vibrate)
+   Kept as a no-op so existing haptic() calls never crash.
 ═══════════════════════════════════════════════════════════════ */
-export const haptic = (pattern = 10) => {
-  if (typeof window !== "undefined" && window.navigator?.vibrate) {
-    try {
-      window.navigator.vibrate(pattern);
-    } catch {}
-  }
-};
+export const haptic = () => {};
 
 /* ═══════════════════════════════════════════════════════════════
    REAL DELIVERY ESTIMATES
@@ -317,10 +335,10 @@ export const haptic = (pattern = 10) => {
 export const getDeliveryEstimate = () => {
   const now = new Date();
   const minDelivery = new Date(now);
-  
+
   // Standard delivery: 2-3 business days
   minDelivery.setDate(minDelivery.getDate() + 2);
-  
+
   return minDelivery.toLocaleDateString("en-NG", {
     weekday: "short",
     day: "numeric",
