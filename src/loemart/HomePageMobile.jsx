@@ -1,6 +1,6 @@
 /**
  * src/pages/Minimart.jsx (Homepage)
- * 10/10 Production Ready: Menu Drawer, Fullscreen Search Routing, Masonry Grid
+ * 10/10 Production Ready: Menu Drawer, Fullscreen Search Routing, Masonry Grid, Type-Safe Cart Sync
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -28,7 +28,8 @@ import {
   API, 
   DEFAULT_LIMIT, 
   WISH_KEY,
-  getCartCount
+  getCartCount,
+  normalize
 } from "./mobile/mobileHelpers";
 
 const CART_URL = `${API}/cart`;
@@ -46,7 +47,7 @@ export default function Minimart({ user }) {
 
   // UI States
   const [showFilters, setShowFilters] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false); // Hamburger Menu State
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Data States
   const [products, setProducts] = useState([]);
@@ -70,27 +71,46 @@ export default function Minimart({ user }) {
     catch { return []; }
   });
 
-  /* ── CART SYNC ENGINE (Syncs steppers instantly) ── */
+  /* ── CART SYNC ENGINE (Normalizes IDs across API & Guest Cart) ── */
   const syncCart = useCallback(async () => {
     const token = localStorage.getItem("marketplace_token");
     let map = {};
     let total = 0;
-    
+
+    const extractId = (item) => String(item?.product_id || item?.productId || item?.id || "").trim();
+
     if (user && token) {
       try {
         const res = await axios.get(CART_URL, { headers: { Authorization: `Bearer ${token}` } });
-        const items = res.data?.data?.items || [];
-        total = res.data?.data?.total_qty || 0;
-        items.forEach(i => map[i.product_id] = { itemId: i.id, qty: i.qty });
-      } catch { /* ignore */ }
+        const items = res.data?.data?.items || res.data?.items || [];
+        total = res.data?.data?.total_qty || res.data?.total_qty || 0;
+
+        items.forEach((i) => {
+          const pid = extractId(i);
+          if (pid) {
+            map[pid] = { itemId: String(i.id), qty: Number(i.qty) || 1 };
+          }
+        });
+      } catch (err) {
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          localStorage.removeItem("marketplace_token");
+        }
+      }
     } else {
-      const guestCart = JSON.parse(localStorage.getItem("mm_cart") || "[]");
-      guestCart.forEach(i => {
-        total += i.qty;
-        map[i.productId] = { itemId: i.id, qty: i.qty };
-      });
-      total = getCartCount();
+      try {
+        const guestCart = JSON.parse(localStorage.getItem("mm_cart") || "[]");
+        guestCart.forEach((i) => {
+          const rawKey = String(i.productId || i.product_id || i.id || "");
+          const pid = rawKey.split("__")[0].trim();
+          const qty = Number(i.qty) || 1;
+          total += qty;
+          if (pid) {
+            map[pid] = { itemId: i.id || `${pid}__default`, qty };
+          }
+        });
+      } catch { /* ignore */ }
     }
+
     setCartMap(map);
     setCartCount(total);
   }, [user]);
@@ -132,7 +152,7 @@ export default function Minimart({ user }) {
 
   /* ── INITIAL MOUNT FETCHES ── */
   useEffect(() => {
-    // 1. Fetch Curated Rails
+    // 1. Fetch Curated Rails concurrently
     Promise.allSettled([
       axios.get(`${API}/products`, { params: { trending: "true", limit: 6 } }),
       axios.get(`${API}/products`, { params: { sort: "newest", limit: 6 } }),
@@ -227,14 +247,18 @@ export default function Minimart({ user }) {
           </div>
         ) : (
           <div className="pr-masonry">
-            {products.map((item) => (
-              <MasonryCard 
-                key={item.id} 
-                product={item} 
-                cartInfo={cartMap[item.id]} 
-                onCartUpdate={syncCart} 
-              />
-            ))}
+            {products.map((item) => {
+              // Ensure ID normalization matches the syncCart mapper
+              const pId = String(item?.id || item?.product_id || item?._id || "").trim();
+              return (
+                <MasonryCard 
+                  key={pId || item.slug} 
+                  product={item} 
+                  cartInfo={cartMap[pId]} 
+                  onCartUpdate={syncCart} 
+                />
+              );
+            })}
           </div>
         )}
 
