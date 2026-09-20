@@ -1,13 +1,238 @@
-/* ════════════════════════════════════════════════════════════════════════════
-   Minimart.css
-   Master Stylesheet — Imports modular CSS architecture
-════════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   Minimart.css — Global Tokens, Shells, Catalog Masonry & States
+═══════════════════════════════════════════════════════════════ */
 
-@import "./minimart/1-base.css";      /* CSS variables, global resets, page wrappers, animations      */
-@import "./minimart/2-header.css";    /* Glassmorphic top navigation, search trigger, category chips  */
-@import "./minimart/3-hero.css";      /* Gradient hero banner, welcome pill, quick action tiles       */
-@import "./minimart/4-sections.css";  /* Trust strip, promo banners, horizontal product rails         */
-@import "./minimart/5-catalog.css";   /* Masonry product grid, item cards, cart steppers, load more   */
-@import "./minimart/6-search.css";    /* Fullscreen search page, autocomplete, history, trending      */
-@import "./minimart/7-floating.css";  /* Draggable floating cart FAB, toast notifications             */
-@import "./minimart/8-sheets.css";    /* Slide-in hamburger menu, bottom filter sheet, overlays       */
+/* ── 1. TOKENS & DESIGN SYSTEM ── */
+:root {
+  --o: #ff6000;
+  --o2: #fff4eb;
+  --ink: #111111;
+  --ink2: #666666;
+  --ink3: #999999;
+  --bd: #e8e8ec;
+  --bd2: #d0d0d6;
+  --bg: #f8f9fa;
+  --wh: #ffffff;
+  --gn: #10b981;
+  --rd: #ef4444;
+  --am: #f59e0b;
+  
+  --r1: 8px;
+  --r2: 12px;
+  --r3: 16px;
+  --r-full: 9999px;
+  
+  --fb: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --s1: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --s2: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --s3: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* ── 2. SCROLL & ROOT VIEWPORT ── */
+html {
+  height: 100%;
+  overflow-x: clip;
+  overflow-y: auto;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  overflow-x: clip;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: auto;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--fb);
+}
+
+/* Page wrapper container */
+.mm-page {
+  position: relative;
+  min-height: 100%;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--fb);
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ── 3. HERO CONTAINER ── */
+.mm-hero-wrap {
+  position: relative;
+  width: 100%;
+}
+
+/* ── 4. CATALOG SECTION HEADER ── */
+.mdp-psec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.mdp-psec--recommended {
+  margin-top: 16px;
+}
+
+.mm-catalog-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.mdp-psec__title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.mm-catalog-sub {
+  font-size: 12px;
+  color: var(--ink2);
+  margin: 2px 0 0;
+  font-weight: 500;
+}
+
+.mdp-psec__all {
+  background: none;
+  border: none;
+  color: var(--rd);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--r1);
+  font-family: inherit;
+}
+
+.mm-btn-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: var(--s1);
+  font-family: inherit;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mm-btn-filter-pill:active {
+  background: var(--bg);
+  transform: scale(0.96);
+  border-color: var(--o);
+}
+
+/* ── 5. MASONRY PRODUCT GRID ── */
+.pr-masonry {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 0 12px;
+  margin-top: 4px;
+}
+
+@media (min-width: 640px) {
+  .pr-masonry {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ── 6. SKELETON LOADERS ── */
+.pr-masonry-skel {
+  width: 100%;
+  aspect-ratio: 0.72;
+  border-radius: 14px;
+  background: linear-gradient(
+    90deg,
+    #f0f0f3 25%,
+    #e4e4e9 50%,
+    #f0f0f3 75%
+  );
+  background-size: 200% 100%;
+  animation: mmShimmer 1.5s infinite ease-in-out;
+  border: 1px solid var(--bd);
+}
+
+@keyframes mmShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── 7. EMPTY / ERROR STATE ── */
+.mm-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.mm-error p {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink2);
+  margin: 0 0 12px;
+}
+
+/* ── 8. LOAD MORE BUTTON ── */
+.pr-load-more-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 20px 16px 8px;
+}
+
+.pr-load-more-btn {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 12px 28px;
+  border-radius: var(--r-full);
+  cursor: pointer;
+  box-shadow: var(--s1);
+  font-family: inherit;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pr-load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pr-load-more-btn:not(:disabled):active {
+  transform: scale(0.96);
+  background: var(--bg);
+  border-color: var(--o);
+}
+
+/* ── 9. REDUCED MOTION ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
