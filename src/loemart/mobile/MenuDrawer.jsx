@@ -10,6 +10,9 @@ import {
   FiSettings, FiHelpCircle, FiChevronRight, FiX 
 } from "react-icons/fi";
 
+// Import styles
+import "./styles/MenuDrawer.css";
+
 const MenuDrawer = memo(function MenuDrawer({ open, onClose, user }) {
   const navigate = useNavigate();
 
@@ -20,13 +23,17 @@ const MenuDrawer = memo(function MenuDrawer({ open, onClose, user }) {
     } else {
       document.body.style.overflow = "";
     }
-    return () => { document.body.style.overflow = ""; };
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [open]);
 
   // Close on Escape key
   useEffect(() => {
     if (!open) return;
-    const handleEsc = (e) => { if (e.key === "Escape") onClose(); };
+    const handleEsc = (e) => {
+      if (e.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
   }, [open, onClose]);
@@ -64,7 +71,13 @@ const MenuDrawer = memo(function MenuDrawer({ open, onClose, user }) {
         {/* Header / User Profile Area */}
         <div className="lmm-menu-header">
           {user ? (
-            <div className="lmm-menu-user" onClick={() => { onClose(); navigate("/account/profile"); }}>
+            <div 
+              className="lmm-menu-user" 
+              onClick={() => { 
+                onClose(); 
+                navigate("/account/profile"); 
+              }}
+            >
               <div className="lmm-menu-avatar">
                 {user.name?.charAt(0).toUpperCase() || "U"}
               </div>
@@ -74,8 +87,14 @@ const MenuDrawer = memo(function MenuDrawer({ open, onClose, user }) {
               </div>
             </div>
           ) : (
-            <div className="lmm-menu-user" onClick={() => { onClose(); navigate("/auth"); }}>
-              <div className="lmm-menu-avatar" style={{ background: "#eee", color: "#666" }}>
+            <div 
+              className="lmm-menu-user" 
+              onClick={() => { 
+                onClose(); 
+                navigate("/auth"); 
+              }}
+            >
+              <div className="lmm-menu-avatar" style={{ background: "#e4e4e7", color: "#71717a" }}>
                 <FiUser />
               </div>
               <div>
@@ -85,7 +104,12 @@ const MenuDrawer = memo(function MenuDrawer({ open, onClose, user }) {
             </div>
           )}
           
-          <button type="button" className="lmm-menu-close" onClick={onClose} aria-label="Close menu">
+          <button 
+            type="button" 
+            className="lmm-menu-close" 
+            onClick={onClose} 
+            aria-label="Close menu"
+          >
             <FiX size={20} />
           </button>
         </div>
