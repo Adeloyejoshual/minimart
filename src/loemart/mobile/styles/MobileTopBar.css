@@ -1,0 +1,200 @@
+/* ════════════════════════════════════════════════════════════
+   MobileTopBar.css — Sticky glassmorphic bar, search & categories
+════════════════════════════════════════════════════════════ */
+
+.lmm-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  background: var(--topbar-bg, rgba(255, 255, 255, 0.92));
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid var(--bd, #e9ecef);
+  padding: max(8px, env(safe-area-inset-top, 0px)) 12px 0;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.lmm-topbar--scrolled {
+  background: var(--wh, #ffffff);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.lmm-topbar__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* ── Logo ── */
+.lmm-topbar__logo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.lmm-topbar__logo-icon {
+  font-size: 18px;
+}
+
+.lmm-topbar__logo-text {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--o, #ff6000), #f97316);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: var(--o, #ff6000);
+}
+
+/* ── Search Bar Button ── */
+.lmm-topbar__search-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  background: var(--bg, #f4f4f5);
+  border: 1px solid var(--bd, #e9ecef);
+  border-radius: 999px;
+  padding: 0 12px;
+  color: var(--ink, #1a1a1a);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 0;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lmm-topbar__search-btn:active {
+  border-color: var(--o, #ff6000);
+  background: var(--wh, #ffffff);
+}
+
+.lmm-topbar__search-placeholder {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink2, #71717a);
+  font-weight: 500;
+}
+
+.lmm-topbar__search-x {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e4e4e7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #71717a;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease;
+}
+
+.lmm-topbar__search-x:active {
+  background: #d4d4d8;
+}
+
+/* ── Right Action Buttons ── */
+.lmm-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.lmm-topbar__icon-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--ink, #1a1a1a);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lmm-topbar__icon-btn:active {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.lmm-topbar__badge--dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  background: var(--o, #ff6000);
+  border-radius: 50%;
+  border: 1.5px solid var(--wh, #ffffff);
+}
+
+/* ── Category Chips Strip ── */
+.lmm-topbar__cats {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0 10px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lmm-topbar__cats::-webkit-scrollbar {
+  display: none;
+}
+
+.lmm-cat {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--bd, #e9ecef);
+  background: var(--wh, #ffffff);
+  color: var(--ink, #1a1a1a);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lmm-cat:active {
+  transform: scale(0.96);
+}
+
+.lmm-cat--on {
+  background: var(--o, #ff6000) !important;
+  border-color: var(--o, #ff6000) !important;
+  color: #ffffff !important;
+}
+
+.lmm-cat__icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.lmm-cat__label {
+  font-size: 12px;
+}
