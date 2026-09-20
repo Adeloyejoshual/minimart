@@ -1,0 +1,102 @@
+/* ═══════════════════════════════════════════════════════════════
+   FloatingCartButton.css — High-Performance Draggable Physics FAB
+═══════════════════════════════════════════════════════════════ */
+
+.mdp-float-cart {
+  position: fixed;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--o, #ff6000);
+  color: #ffffff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(255, 96, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.12);
+  cursor: grab;
+  z-index: 9999;
+  touch-action: none; /* Crucial: Disables default touch actions to allow immediate drag tracking */
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  
+  /* Snapping physics transition. Transitions are overridden when active dragging occurs */
+  transition: 
+    transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+    box-shadow 0.2s ease, 
+    left 0.3s cubic-bezier(0.16, 1, 0.3, 1), 
+    top 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Active Drag State */
+.mdp-float-cart--dragging {
+  cursor: grabbing;
+  transform: scale(1.1) !important;
+  box-shadow: 0 12px 32px rgba(255, 96, 0, 0.4), 0 4px 10px rgba(0, 0, 0, 0.15);
+  transition: none !important; /* Disables transitions to keep physics smooth and latency-free */
+}
+
+/* Hover & Pressed State */
+.mdp-float-cart:hover:not(.mdp-float-cart--dragging) {
+  transform: scale(1.05);
+}
+
+.mdp-float-cart:active:not(.mdp-float-cart--dragging) {
+  transform: scale(0.95);
+}
+
+/* Icon Container */
+.mdp-float-cart__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+/* Cart Quantity Badge with pop-in scale animation */
+.mdp-float-cart__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--ink, #111111);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 2px solid var(--wh, #ffffff);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  animation: mdpBadgePop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes mdpBadgePop {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* Draggable visual indicator grip */
+.mdp-float-cart__grip {
+  position: absolute;
+  bottom: 6px;
+  display: flex;
+  gap: 2.5px;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.mdp-float-cart:hover .mdp-float-cart__grip {
+  opacity: 0.85;
+}
+
+.mdp-float-cart__grip i {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+}
