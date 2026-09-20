@@ -9,6 +9,9 @@ import { FiSearch, FiSliders, FiX, FiUser, FiMenu } from "react-icons/fi";
 import categories from "../../config/categories";
 import { haptic } from "./mobileHelpers";
 
+// Import styles
+import "./styles/MobileTopBar.css";
+
 const MobileTopBar = memo(function MobileTopBar({
   searchQuery,
   onSearchOpen,
@@ -57,7 +60,7 @@ const MobileTopBar = memo(function MobileTopBar({
           }}
           aria-label="Open menu"
         >
-          <FiMenu size={22} color="#111" />
+          <FiMenu size={22} color="currentColor" />
         </button>
 
         {/* 2. Logo */}
@@ -89,6 +92,7 @@ const MobileTopBar = memo(function MobileTopBar({
                 e.stopPropagation();
                 onClearSearch?.();
               }}
+              role="button"
               aria-label="Clear search"
             >
               <FiX size={12} strokeWidth={3} />
@@ -109,7 +113,7 @@ const MobileTopBar = memo(function MobileTopBar({
             }}
             aria-label="My Profile"
           >
-            <FiUser size={20} strokeWidth={2.2} color="#111" />
+            <FiUser size={20} strokeWidth={2.2} color="currentColor" />
           </button>
 
           {/* Filter Icon */}
@@ -123,8 +127,12 @@ const MobileTopBar = memo(function MobileTopBar({
             aria-label="Filter products"
             aria-expanded={showFilters}
           >
-            <FiSliders size={20} strokeWidth={2.2} color={showFilters ? "#ff6b00" : "#111"} />
-            {hasFilters && <span className="lmm-topbar__badge lmm-topbar__badge--dot" />}
+            <FiSliders 
+              size={20} 
+              strokeWidth={2.2} 
+              color={showFilters ? "var(--o, #ff6000)" : "currentColor"} 
+            />
+            {hasFilters && <span className="lmm-topbar__badge--dot" />}
           </button>
 
         </div>
