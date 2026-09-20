@@ -1,0 +1,242 @@
+/* ════════════════════════════════════════════════════════════
+   MobileSections.css — Trust Strip, Promo, Rails & Cards
+════════════════════════════════════════════════════════════ */
+
+.lmm-curated-sections-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+/* ── 1. Trust Strip ── */
+.lmm-trust-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px 14px;
+  margin: 0 12px;
+  background: var(--wh, #ffffff);
+  border: 1px solid var(--bd, #e9ecef);
+  border-radius: 12px;
+  box-shadow: var(--s1, 0 2px 8px rgba(0, 0, 0, 0.04));
+}
+
+.lmm-trust-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.lmm-trust-icon {
+  color: var(--o, #ff6000);
+}
+
+.lmm-trust-item span {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink, #1a1a1a);
+  white-space: nowrap;
+}
+
+/* ── 2. Promo Banner ── */
+.lmm-promo-wrap {
+  padding: 0 12px;
+}
+
+.lmm-promo-banner {
+  background: linear-gradient(135deg, #18181b 0%, #27272a 100%);
+  color: #ffffff;
+  padding: 16px 18px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lmm-promo-banner:active {
+  transform: scale(0.98);
+}
+
+.lmm-promo-content h4 {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.lmm-promo-content p {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.lmm-promo-btn {
+  background: var(--o, #ff6000);
+  color: #ffffff;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: background-color 0.15s ease;
+}
+
+.lmm-promo-btn:active {
+  opacity: 0.9;
+}
+
+/* ── 3. Section Container & Headers ── */
+.mdp-psec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mdp-psec__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.mdp-psec__title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink, #1a1a1a);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+/* Countdown Tag */
+.lmm-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #ef4444;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 4. Horizontal Scrolling Track ── */
+.mdp-rail-hscroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 4px 16px 8px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mdp-rail-hscroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── 5. Rail Cards ── */
+.mdp-rail-hcard {
+  flex-shrink: 0;
+  width: 140px;
+  background: var(--wh, #ffffff);
+  border: 1px solid var(--bd, #e9ecef);
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mdp-rail-hcard:active {
+  transform: scale(0.96);
+}
+
+.mdp-rail-hcard__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  background: #f4f4f5;
+  overflow: hidden;
+}
+
+.mdp-rail-hcard__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mdp-rail-hcard__ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: #a1a1aa;
+}
+
+.mdp-rail-hcard__badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: var(--o, #ff6000);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 999px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.mdp-rail-hcard__body {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: 1;
+  gap: 6px;
+}
+
+.mdp-rail-hcard__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink, #1a1a1a);
+  margin: 0;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  height: 32px;
+}
+
+.mm-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mdp-rail-hcard__price {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--o, #ff6000);
+}
