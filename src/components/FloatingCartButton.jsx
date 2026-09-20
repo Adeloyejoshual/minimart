@@ -5,6 +5,10 @@
  */
 
 import { useRef, useState, useEffect, memo } from "react";
+import { FiShoppingBag } from "react-icons/fi";
+
+// Import styles
+import "./styles/FloatingCartButton.css";
 
 const POS_KEY = "lm-cart-btn-pos";
 const SIZE = 56;
@@ -189,7 +193,7 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
       aria-label={`View cart, ${count} items. Drag to move.`}
     >
       <span className="mdp-float-cart__icon" aria-hidden="true">
-        {icon}
+        {icon || <FiShoppingBag size={22} />}
       </span>
       <span className="mdp-float-cart__badge">
         {count > 99 ? "99+" : count}
