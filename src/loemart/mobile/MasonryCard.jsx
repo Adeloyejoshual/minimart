@@ -1,18 +1,24 @@
 /**
  * src/loemart/mobile/MasonryCard.jsx
- * Fixed: Handles products with variants, 401 token fallbacks, and ID string matching.
  */
-
 import { memo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 import {
-  Heart, ShoppingBag, Star, Zap, Plus, Minus,
-  Check, Loader2, Sliders
+  Heart,
+  ShoppingBag,
+  Star,
+  Zap,
+  Plus,
+  Minus,
+  Check,
+  Loader2,
+  Sliders,
 } from "lucide-react";
 
 import { API, primaryImg } from "./mobileHelpers";
+import "./styles/MasonryCard.css";
 
 const CART_ITEMS_URL = `${API}/cart/items`;
 const CART_KEY       = "mm_cart";
