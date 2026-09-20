@@ -1,0 +1,432 @@
+/* ════════════════════════════════════════════════════════════
+   MasonryCard.css
+   Scoped styles for homepage / search product cards
+════════════════════════════════════════════════════════════ */
+
+/* ── Card shell ── */
+.mcard {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 12px;
+  background: var(--wh, #fff);
+  border: 1px solid var(--bd, #e8e8ec);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  vertical-align: top;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+  transition: box-shadow 0.15s ease;
+}
+
+.mcard:active {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Media ── */
+.mcard__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--bg, #f4f4f8);
+  overflow: hidden;
+}
+
+.mcard__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border: 0;
+}
+
+/* ── Badges (top-left) ── */
+.mcard__badges {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.mcard__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: #fff;
+  line-height: 1.2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.mcard__badge--discount {
+  background: var(--rd, #e53935);
+}
+
+.mcard__badge--flash {
+  background: var(--o, #ff6b00);
+}
+
+.mcard__badge--feat,
+.mcard__badge--hot,
+.mcard__badge--new {
+  background: rgba(17, 24, 39, 0.85);
+}
+
+/* ── Wishlist ── */
+.mcard__wish {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  padding: 0;
+}
+
+.mcard__wish:active {
+  transform: scale(0.92);
+}
+
+.mcard__wish--active {
+  color: var(--rd, #e53935);
+}
+
+/* ── Delivery / stock chips ── */
+.mcard__delivery {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 2;
+  font-size: 9.5px;
+  font-weight: 700;
+  background: rgba(16, 185, 129, 0.95);
+  color: #fff;
+  padding: 3px 7px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.mcard__stock-alert {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 2;
+  font-size: 9.5px;
+  font-weight: 700;
+  background: rgba(239, 68, 68, 0.95);
+  color: #fff;
+  padding: 3px 7px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.mcard__oos {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: rgba(255, 255, 255, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.mcard__oos span {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink2, #666);
+  background: #fff;
+  border: 1px solid var(--bd, #e8e8ec);
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+
+.mcard__in-cart-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(17, 24, 39, 0.88);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* ── Body ── */
+.mcard__body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.mcard__title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink, #111);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.6em;
+}
+
+.mcard__price-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.mcard__price {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--o, #ff6b00);
+  line-height: 1.2;
+}
+
+.mcard__price-old {
+  font-size: 11px;
+  color: var(--ink3, #aaa);
+  text-decoration: line-through;
+  font-weight: 500;
+}
+
+.mcard__savings {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gn, #2e7d32);
+}
+
+.mcard__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.mcard__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.mcard__sold {
+  font-size: 11px;
+  color: var(--ink2, #666);
+}
+
+.mcard__location {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--ink2, #666);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mcard__verified {
+  margin: 0 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gn, #2e7d32);
+}
+
+/* ── CTA / Stepper ── */
+.mcard__cta-wrap {
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.mcard__cta {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1.5px solid var(--o, #ff6b00);
+  border-radius: 8px;
+  background: var(--wh, #fff);
+  color: var(--o, #ff6b00);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 8px 10px;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.mcard__cta:active:not(:disabled) {
+  background: var(--o2, #fff4eb);
+}
+
+.mcard__cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mcard__cta--loading {
+  opacity: 0.85;
+}
+
+.mcard__spinner {
+  animation: mcardSpin 0.7s linear infinite;
+}
+
+@keyframes mcardSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mcard__stepper-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcard__stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 36px;
+  background: var(--bg, #f4f4f8);
+  border: 1px solid var(--bd, #e8e8ec);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.mcard__stepper--busy {
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.mcard__stepper-btn {
+  width: 40px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--ink, #111);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.mcard__stepper-btn:active:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.mcard__stepper-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mcard__stepper-btn--plus {
+  color: var(--o, #ff6b00);
+}
+
+.mcard__stepper-val {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink, #111);
+  font-variant-numeric: tabular-nums;
+}
+
+.mcard__stepper-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gn, #2e7d32);
+}
+
+/* ── Parent masonry columns (if used on same page) ── */
+.pr-masonry {
+  column-count: 2;
+  column-gap: 10px;
+  padding: 0 12px 10px;
+}
+
+@media (min-width: 640px) {
+  .pr-masonry {
+    column-count: 3;
+  }
+}
+
+@media (min-width: 960px) {
+  .pr-masonry {
+    column-count: 4;
+  }
+}
+
+.pr-masonry-skel {
+  break-inside: avoid;
+  display: inline-block;
+  width: 100%;
+  height: 220px;
+  margin: 0 0 12px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #eee, #f5f5f5, #eee);
+  background-size: 200% 100%;
+  animation: mcardShimmer 1.2s infinite linear;
+}
+
+@keyframes mcardShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcard__spinner,
+  .pr-masonry-skel {
+    animation: none !important;
+  }
+}
