@@ -4,10 +4,20 @@
 import { memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
-  FiZap, FiClock, FiStar, FiShield, FiTruck, 
-  FiAward, FiCreditCard, FiTrendingUp, FiGift 
+  FiZap, 
+  FiClock, 
+  FiStar, 
+  FiShield, 
+  FiTruck, 
+  FiAward, 
+  FiCreditCard, 
+  FiTrendingUp, 
+  FiGift 
 } from "react-icons/fi";
 import { fmtPrice, calcDiscount, primaryImg, useCountdown, addToRecentlyViewed } from "./mobileHelpers";
+
+// Import styles
+import "./styles/MobileSections.css";
 
 // Smart text truncation
 function smartTruncate(text, maxChars = 40) {
@@ -27,6 +37,7 @@ const TrustStrip = memo(function TrustStrip() {
     { icon: FiAward, label: "Top Quality" },
     { icon: FiCreditCard, label: "Money Back" },
   ];
+
   return (
     <div className="lmm-trust-strip">
       {items.map((it, i) => (
@@ -42,14 +53,29 @@ const TrustStrip = memo(function TrustStrip() {
 /* ── 2. PROMO BANNER ── */
 const PromoBanner = memo(function PromoBanner() {
   const navigate = useNavigate();
+
   return (
     <div className="lmm-promo-wrap">
-      <div className="lmm-promo-banner" onClick={() => navigate("/catalog?sort=views")}>
+      <div 
+        className="lmm-promo-banner" 
+        onClick={() => navigate("/catalog?sort=views")}
+        role="button"
+        tabIndex={0}
+      >
         <div className="lmm-promo-content">
           <h4>Weekend Tech Drop</h4>
           <p>Up to 40% off premium gadgets.</p>
         </div>
-        <button className="lmm-promo-btn">Shop Now</button>
+        <button 
+          type="button" 
+          className="lmm-promo-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate("/catalog?sort=views");
+          }}
+        >
+          Shop Now
+        </button>
       </div>
     </div>
   );
@@ -69,15 +95,24 @@ const RailCard = memo(function RailCard({ item }) {
         addToRecentlyViewed(item); 
         navigate(`/shop/${item.slug ?? item.id}`); 
       }}
+      role="button"
+      tabIndex={0}
     >
       <div className="mdp-rail-hcard__media">
-        {img ? <img src={img} alt="" loading="lazy" /> : <div className="mdp-rail-hcard__ph">📦</div>}
+        {img ? (
+          <img src={img} alt={title} loading="lazy" />
+        ) : (
+          <div className="mdp-rail-hcard__ph">📦</div>
+        )}
         {d > 0 && <span className="mdp-rail-hcard__badge">-{d}%</span>}
       </div>
+      
       <div className="mdp-rail-hcard__body">
         <h4 className="mdp-rail-hcard__name">{title}</h4>
         <div className="mm-card-bottom">
-          <span className="mdp-rail-hcard__price">{fmtPrice(item.price || item.selling_price)}</span>
+          <span className="mdp-rail-hcard__price">
+            {fmtPrice(item.price || item.selling_price)}
+          </span>
         </div>
       </div>
     </div>
@@ -101,13 +136,15 @@ const FlashDealsSection = memo(function FlashDealsSection({ deals = [] }) {
           <FiZap size={18} color="#ff6b00" />
           <h3 className="mdp-psec__title">Daily Flash Sale</h3>
         </div>
-        <div className="lmm-countdown" style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "#e53935", fontWeight: "bold" }}>
+        <div className="lmm-countdown">
           <FiClock size={12} />
           <span>{h}:{m}:{s}</span>
         </div>
       </div>
       <div className="mdp-rail-hscroll">
-        {deals.map(item => <RailCard key={item.id} item={item} />)}
+        {deals.map((item) => (
+          <RailCard key={item.id} item={item} />
+        ))}
       </div>
     </section>
   );
@@ -116,6 +153,7 @@ const FlashDealsSection = memo(function FlashDealsSection({ deals = [] }) {
 // Generic Curated Rail (For New, Featured, Trending)
 const CuratedRail = memo(function CuratedRail({ title, items = [], icon: Icon }) {
   if (!items.length) return null;
+
   return (
     <section className="mdp-psec">
       <div className="mdp-psec__head">
@@ -125,15 +163,21 @@ const CuratedRail = memo(function CuratedRail({ title, items = [], icon: Icon })
         </div>
       </div>
       <div className="mdp-rail-hscroll">
-        {items.map(item => <RailCard key={item.id} item={item} />)}
+        {items.map((item) => (
+          <RailCard key={item.id} item={item} />
+        ))}
       </div>
     </section>
   );
 });
 
-
 /* ── MAIN EXPORT ── */
-export default memo(function MobileSections({ flashDeals = [], newArrivals = [], featured = [], trending = [] }) {
+export default memo(function MobileSections({ 
+  flashDeals = [], 
+  newArrivals = [], 
+  featured = [], 
+  trending = [] 
+}) {
   return (
     <div className="lmm-curated-sections-container">
       <TrustStrip />
