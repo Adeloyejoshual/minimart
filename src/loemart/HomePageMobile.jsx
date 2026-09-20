@@ -7,7 +7,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 
-/* ── ONE Unified Stylesheet ── */
+/* ── Stylesheet ── */
 import "../styles/Minimart.css";
 
 /* ── Components ── */
@@ -27,9 +27,7 @@ import MenuDrawer from "./mobile/MenuDrawer";
 import { 
   API, 
   DEFAULT_LIMIT, 
-  WISH_KEY,
-  getCartCount,
-  normalize
+  WISH_KEY 
 } from "./mobile/mobileHelpers";
 
 const CART_URL = `${API}/cart`;
@@ -39,7 +37,7 @@ export default function Minimart({ user }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const isFirstMount = useRef(true);
 
-  // URL States (Search is handled by SearchPage now, so we only track category/filters here)
+  // URL States
   const [activeCategory, setActiveCategory] = useState(searchParams.get("category") ?? "all");
   const [activeSort, setActiveSort] = useState(searchParams.get("sort") ?? "newest");
   const [minPrice, setMinPrice] = useState(searchParams.get("minPrice") ?? "");
@@ -66,12 +64,15 @@ export default function Minimart({ user }) {
   const [cartMap, setCartMap] = useState({});
   const [cartCount, setCartCount] = useState(0);
   
-  const [wishlist, setWishlist] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(WISH_KEY) || "[]"); } 
-    catch { return []; }
+  const [wishlist] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(WISH_KEY) || "[]");
+    } catch {
+      return [];
+    }
   });
 
-  /* ── CART SYNC ENGINE (Normalizes IDs across API & Guest Cart) ── */
+  /* ── CART SYNC ENGINE ── */
   const syncCart = useCallback(async () => {
     const token = localStorage.getItem("marketplace_token");
     let map = {};
@@ -108,7 +109,9 @@ export default function Minimart({ user }) {
             map[pid] = { itemId: i.id || `${pid}__default`, qty };
           }
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore fallback errors */
+      }
     }
 
     setCartMap(map);
@@ -127,10 +130,16 @@ export default function Minimart({ user }) {
 
   /* ── DATA FETCHING (Catalog) ── */
   const fetchProducts = useCallback(async ({ 
-    cat = activeCategory, sort = activeSort, 
-    min = minPrice, max = maxPrice, newOffset = 0, append = false 
+    cat = activeCategory, 
+    sort = activeSort, 
+    min = minPrice, 
+    max = maxPrice, 
+    newOffset = 0, 
+    append = false 
   } = {}) => {
-    append ? setLoadingMore(true) : setLoading(true);
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+
     try {
       const params = { limit: DEFAULT_LIMIT, offset: newOffset, sort };
       if (cat !== "all") params.category = cat;
@@ -139,20 +148,20 @@ export default function Minimart({ user }) {
 
       const { data } = await axios.get(`${API}/products`, { params });
       const rows = data?.data?.products || [];
-      setProducts(append ? [...products, ...rows] : rows);
+      
+      setProducts(prev => (append ? [...prev, ...rows] : rows));
       setPagination(data?.data?.pagination || null);
       setOffset(newOffset);
-    } catch (err) {
+    } catch {
       if (!append) toast.error("Failed to load catalog");
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [activeCategory, activeSort, minPrice, maxPrice, products]);
+  }, [activeCategory, activeSort, minPrice, maxPrice]);
 
   /* ── INITIAL MOUNT FETCHES ── */
   useEffect(() => {
-    // 1. Fetch Curated Rails concurrently
     Promise.allSettled([
       axios.get(`${API}/products`, { params: { trending: "true", limit: 6 } }),
       axios.get(`${API}/products`, { params: { sort: "newest", limit: 6 } }),
@@ -167,7 +176,6 @@ export default function Minimart({ user }) {
   }, []);
 
   useEffect(() => {
-    // 2. Fetch Main Grid Catalog
     if (isFirstMount.current) { 
       isFirstMount.current = false; 
       fetchProducts({ newOffset: 0 }); 
@@ -178,8 +186,11 @@ export default function Minimart({ user }) {
 
   /* ── HANDLERS ── */
   const clearAllFilters = () => {
-    setActiveCategory("all"); setActiveSort("newest");
-    setMinPrice(""); setMaxPrice(""); setSearchParams({});
+    setActiveCategory("all");
+    setActiveSort("newest");
+    setMinPrice("");
+    setMaxPrice("");
+    setSearchParams({});
     fetchProducts({ cat: "all", sort: "newest", min: "", max: "", newOffset: 0 });
   };
 
@@ -192,18 +203,24 @@ export default function Minimart({ user }) {
       {/* 1. Top Bar */}
       <MobileTopBar
         searchQuery=""
-        onSearchOpen={() => navigate("/loemart/search")} // Routes to dedicated search page
+        onSearchOpen={() => navigate("/loemart/search")}
         activeCategory={activeCategory}
-        onCategoryChange={(cat) => { setActiveCategory(cat); setSearchParams(cat === "all" ? {} : { category: cat }); }}
+        onCategoryChange={(cat) => { 
+          setActiveCategory(cat); 
+          setSearchParams(cat === "all" ? {} : { category: cat }); 
+        }}
         onFilterOpen={() => setShowFilters(true)}
-        onMenuOpen={() => setMenuOpen(true)} // Opens Hamburger Menu
+        onMenuOpen={() => setMenuOpen(true)}
         hasFilters={hasFilters}
         wishCount={wishlist.length}
       />
 
       {/* 2. Hero Banner */}
       <div className="mm-hero-wrap">
-        <MobileHero user={user} onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} />
+        <MobileHero 
+          user={user} 
+          onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} 
+        />
       </div>
 
       {/* 3. Trust Strip, Promo Banner, and Curated Rails */}
@@ -225,11 +242,11 @@ export default function Minimart({ user }) {
           </div>
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             {hasFilters && (
-              <button className="mdp-psec__all" onClick={clearAllFilters}>
+              <button type="button" className="mdp-psec__all" onClick={clearAllFilters}>
                 Clear
               </button>
             )}
-            <button className="mm-btn-filter-pill" onClick={() => setShowFilters(true)}>
+            <button type="button" className="mm-btn-filter-pill" onClick={() => setShowFilters(true)}>
               Sort & Filter
             </button>
           </div>
@@ -238,17 +255,25 @@ export default function Minimart({ user }) {
         {/* Catalog States */}
         {loading && products.length === 0 ? (
           <div className="pr-masonry">
-            {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="pr-masonry-skel" />)}
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="pr-masonry-skel" />
+            ))}
           </div>
         ) : products.length === 0 ? (
           <div className="mm-error">
             <p>No products found.</p>
-            <button className="pr-load-more-btn" onClick={clearAllFilters} style={{ marginTop: 10 }}>Clear Filters</button>
+            <button 
+              type="button" 
+              className="pr-load-more-btn" 
+              onClick={clearAllFilters} 
+              style={{ marginTop: 10 }}
+            >
+              Clear Filters
+            </button>
           </div>
         ) : (
           <div className="pr-masonry">
             {products.map((item) => {
-              // Ensure ID normalization matches the syncCart mapper
               const pId = String(item?.id || item?.product_id || item?._id || "").trim();
               return (
                 <MasonryCard 
@@ -266,6 +291,7 @@ export default function Minimart({ user }) {
         {!loading && hasMore && (
           <div className="pr-load-more-wrap">
             <button 
+              type="button"
               className="pr-load-more-btn" 
               onClick={() => fetchProducts({ newOffset: offset + DEFAULT_LIMIT, append: true })}
               disabled={loadingMore}
@@ -277,11 +303,17 @@ export default function Minimart({ user }) {
       </section>
 
       {/* 5. Floating Cart FAB */}
-      {cartCount > 0 && <FloatingCartButton count={cartCount} onClick={() => navigate("/shop/cart")} />}
+      {cartCount > 0 && (
+        <FloatingCartButton count={cartCount} onClick={() => navigate("/shop/cart")} />
+      )}
       
       {/* 6. Footer & Bottom Nav */}
       <Footer />
-      <MobileFooter user={user} cartCount={cartCount} onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} />
+      <MobileFooter 
+        user={user} 
+        cartCount={cartCount} 
+        onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} 
+      />
 
       {/* 7. Drawers & Sheets */}
       <MenuDrawer 
@@ -291,12 +323,23 @@ export default function Minimart({ user }) {
       />
 
       <FilterSheet
-        open={showFilters} onClose={() => setShowFilters(false)}
-        minPrice={minPrice} setMinPrice={setMinPrice}
-        maxPrice={maxPrice} setMaxPrice={setMaxPrice}
-        activeSort={activeSort} setActiveSort={setActiveSort}
-        onReset={() => { setMinPrice(""); setMaxPrice(""); setActiveSort("newest"); }}
-        onApply={() => { setShowFilters(false); fetchProducts({ newOffset: 0 }); }}
+        open={showFilters} 
+        onClose={() => setShowFilters(false)}
+        minPrice={minPrice} 
+        setMinPrice={setMinPrice}
+        maxPrice={maxPrice} 
+        setMaxPrice={setMaxPrice}
+        activeSort={activeSort} 
+        setActiveSort={setActiveSort}
+        onReset={() => { 
+          setMinPrice(""); 
+          setMaxPrice(""); 
+          setActiveSort("newest"); 
+        }}
+        onApply={() => { 
+          setShowFilters(false); 
+          fetchProducts({ newOffset: 0 }); 
+        }}
       />
     </div>
   );
