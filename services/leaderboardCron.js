@@ -2,29 +2,15 @@
 // FILE: services/leaderboardCron.js
 // ════════════════════════════════════════════════════════════
 
-import { Resend }             from "resend";                  // ✅ top-level import
+import { Resend }             from "resend";
 import { pool }               from "../config/db.js";
 import { createNotification } from "./notifications.js";
+import { MONTHLY_REWARDS, YEARLY_REWARDS } from "../config/rewards.js";
 
 const IS_PROD      = process.env.NODE_ENV === "production";
 const BRAND        = process.env.EMAIL_BRAND   || "Loemart";
 const SUPPORT      = process.env.EMAIL_SUPPORT || "support@loemart.com";
 const FROM_ADDRESS = process.env.EMAIL_FROM    || "Loemart <no-reply@loemart.com>";
-
-/* ════════════════════════════════════════════════════════════
-   REWARD CONFIG
-════════════════════════════════════════════════════════════ */
-const MONTHLY_REWARDS = {
-  1 : { amount: 15_000, label: "₦15,000", emoji: "🥇" },
-  2 : { amount: 10_000, label: "₦10,000", emoji: "🥈" },
-  3 : { amount:  5_000, label: "₦5,000",  emoji: "🥉" },
-};
-
-const YEARLY_REWARDS = {
-  1 : { amount: 50_000, label: "₦50,000", emoji: "🥇" },
-  2 : { amount: 30_000, label: "₦30,000", emoji: "🥈" },
-  3 : { amount: 20_000, label: "₦20,000", emoji: "🥉" },
-};
 
 const VERIFIED    = `('rewarded', 'verified')`;
 const RANK_LABELS = { 1: "1st", 2: "2nd", 3: "3rd" };
@@ -91,8 +77,6 @@ function formatPeriodLabel(type, key) {
 
 /* ════════════════════════════════════════════════════════════
    SEND WINNER EMAIL
-   ✅ Uses top-level Resend import — no dynamic import, no await
-      inside non-async context.
 ════════════════════════════════════════════════════════════ */
 async function sendWinnerEmail({ to, name, rank, reward, periodLabel, type }) {
   if (!to) {
@@ -193,7 +177,6 @@ async function sendWinnerEmail({ to, name, rank, reward, periodLabel, type }) {
     `— ${BRAND}`,
   ].join("\n");
 
-  /* ── Dev: log instead of send ── */
   if (!IS_PROD) {
     console.log("\n" + "═".repeat(60));
     console.log("[leaderboardCron] 📧 DEV — winner email (not sent in dev)");
@@ -204,9 +187,8 @@ async function sendWinnerEmail({ to, name, rank, reward, periodLabel, type }) {
     return;
   }
 
-  /* ── Prod: send via Resend ── */
   const client = getResend();
-  if (!client) return; // RESEND_API_KEY missing
+  if (!client) return;
 
   try {
     const result = await client.emails.send({
@@ -221,7 +203,6 @@ async function sendWinnerEmail({ to, name, rank, reward, periodLabel, type }) {
       `  id=${result?.data?.id ?? "?"}`
     );
   } catch (err) {
-    /* Non-fatal — winner is recorded even if email fails */
     console.error(`[leaderboardCron] winner email failed: ${err.message}`);
   }
 }
@@ -233,7 +214,6 @@ export async function finalizeLeaderboard(type, overridePeriodKey = null) {
   const rewardMap  = type === "monthly" ? MONTHLY_REWARDS : YEARLY_REWARDS;
   const periodType = type === "monthly" ? "monthly" : "yearly";
 
-  /* Cron → previous period; manual/admin → current or override */
   const pKey        = overridePeriodKey ?? previousPeriodKey(type);
   const { start, end } = periodDateRange(type, pKey);
   const periodLabel = formatPeriodLabel(type, pKey);
@@ -392,9 +372,6 @@ export async function finalizeLeaderboard(type, overridePeriodKey = null) {
 
 /* ════════════════════════════════════════════════════════════
    CRON SCHEDULER
-   Call once at app startup from server.js:
-     import { initLeaderboardCron } from "./services/leaderboardCron.js";
-     initLeaderboardCron();
 ════════════════════════════════════════════════════════════ */
 export function initLeaderboardCron() {
   if (!IS_PROD) {
@@ -409,7 +386,7 @@ export function initLeaderboardCron() {
     const h   = now.getUTCHours();
     const m   = now.getUTCMinutes();
     const d   = now.getUTCDate();
-    const mo  = now.getUTCMonth(); // 0 = January
+    const mo  = now.getUTCMonth();
 
     /* Monthly: 1st of every month at 00:00 UTC */
     if (d === 1 && h === 0 && m === 0) {
