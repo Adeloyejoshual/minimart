@@ -1,6 +1,6 @@
 /**
  * src/loemart/mobile/MobileHero.jsx
- * Premium Loemart Mobile Hero & Discovery Actions
+ * Loemart Mobile Hero & Discovery Navigation
  */
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -24,7 +24,7 @@ const DEFAULT_SLIDES = [
     title: "Find What You're Looking For",
     sub: "Discover products and listings from sellers on Loemart.",
     cta: "Explore Listings",
-    target: "catalog",
+    route: "/loemart/explore",
     bgClass: "hero-bg-orange",
     Icon: FiSearch,
   },
@@ -33,9 +33,9 @@ const DEFAULT_SLIDES = [
     id: "new",
     badge: "Fresh Listings",
     title: "Discover Something New",
-    sub: "Browse newly added listings and find something you love.",
+    sub: "Browse newly added listings and find your next great deal.",
     cta: "See New Listings",
-    target: "new",
+    route: "/loemart/new",
     bgClass: "hero-bg-dark",
     Icon: FiStar,
   },
@@ -46,7 +46,7 @@ const DEFAULT_SLIDES = [
     title: "See What's Trending",
     sub: "Explore popular listings getting attention on Loemart.",
     cta: "Explore Trending",
-    target: "trending",
+    route: "/loemart/trending",
     bgClass: "hero-bg-light",
     Icon: FiTrendingUp,
   },
@@ -151,37 +151,14 @@ const MobileHero = memo(function MobileHero({
     touchStartX.current = null;
   };
 
-  const scrollToCatalog = useCallback(() => {
-    const catalog = document.querySelector(
-      ".lmm-catalog-grid-segment"
-    );
+  const navigateTo = useCallback(
+    (route) => {
+      if (!route) return;
 
-    if (!catalog) {
-      return;
-    }
-
-    catalog.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, []);
-
-  const handleSlideAction = useCallback(
-    (target) => {
       haptic(10);
-
-      if (
-        target === "catalog" ||
-        target === "new" ||
-        target === "trending"
-      ) {
-        scrollToCatalog();
-        return;
-      }
-
-      scrollToCatalog();
+      navigate(route);
     },
-    [scrollToCatalog]
+    [navigate]
   );
 
   const quickTiles = [
@@ -191,6 +168,7 @@ const MobileHero = memo(function MobileHero({
       label: "New Listings",
       color: "#10b981",
       bg: "#ecfdf5",
+      route: "/loemart/new",
     },
 
     {
@@ -199,6 +177,7 @@ const MobileHero = memo(function MobileHero({
       label: "Trending",
       color: "#6366f1",
       bg: "#eef2ff",
+      route: "/loemart/trending",
     },
 
     {
@@ -207,6 +186,7 @@ const MobileHero = memo(function MobileHero({
       label: "Deals",
       color: "#ff6b00",
       bg: "#fff4eb",
+      route: "/loemart/deals",
     },
   ];
 
@@ -273,9 +253,7 @@ const MobileHero = memo(function MobileHero({
             type="button"
             className="lmm-hero-cta"
             onClick={() =>
-              handleSlideAction(
-                currentSlide.target
-              )
+              navigateTo(currentSlide.route)
             }
           >
             <span>{currentSlide.cta}</span>
@@ -335,7 +313,7 @@ const MobileHero = memo(function MobileHero({
 
       <nav
         className="lmm-quick-actions"
-        aria-label="Quick Actions"
+        aria-label="Discover Loemart"
       >
         {quickTiles.map((tile) => {
           const TileIcon = tile.Icon;
@@ -345,10 +323,8 @@ const MobileHero = memo(function MobileHero({
               key={tile.id}
               type="button"
               className="lmm-quick-tile"
-              onClick={() => {
-                haptic(6);
-                scrollToCatalog();
-              }}
+              onClick={() => navigateTo(tile.route)}
+              aria-label={tile.label}
             >
               <span
                 className="lmm-quick-tile__icon"
