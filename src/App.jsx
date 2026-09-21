@@ -5,6 +5,7 @@
  * ─────────────────────────────────────────────────────
  * ✓ Single /shop/orders/:orderId route handles payment & tracking
  * ✓ /catalog & /category/:slug routes added for Jumia-style catalog
+ * ✓ /loemart preserved for HomePage
  * ✓ MyOrders replaces OrderHistory
  * ✓ Clean ORD-XXXX URLs throughout
  * ✓ All existing features, guards & admin routes preserved
@@ -77,6 +78,12 @@ import TermsAndConditions   from "./pages/TermsAndConditions";
 import MinimartPage         from "./pages/MinimartPage";
 import P2P                  from "./pages/P2P";
 import MenuPage             from "./pages/MenuPage";
+
+/* ════════════════════════════════════════════════════════════
+   PAGES — LOEMART
+════════════════════════════════════════════════════════════ */
+import HomePage from "./loemart/HomePage";
+import LoemartSearchPage from "./loemart/mobile/SearchPage"; // ← NEW: Mobile Search Overlay
 
 /* ════════════════════════════════════════════════════════════
    PAGES — LEGAL
@@ -698,6 +705,10 @@ function AppInner() {
         <Route path="/privacy"       element={<PrivacyPolicy />} />
         <Route path="/community-guidelines" element={<CommunityGuidelines />} />
         <Route path="/hall-of-fame"  element={<HallOfFame />} />
+        <Route path="/loemart"       element={<HomePage          user={user} />} />
+
+        {/* ← NEW: Mobile Search Overlay Route */}
+        <Route path="/loemart/search" element={<LoemartSearchPage />} /> 
 
         {/* ── Homepage sub-pages ── */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
