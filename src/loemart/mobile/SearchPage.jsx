@@ -1,6 +1,6 @@
 /**
  * src/loemart/mobile/SearchPage.jsx
- * Professional Fullscreen Search Page
+ * Standalone Mobile Fullscreen Search Page
  * Features: Auto-focus, Recent History, Trending, Categories, Masonry Results
  */
 
@@ -30,8 +30,8 @@ import {
   haptic,
 } from "./mobileHelpers";
 
-/* Unified Stylesheet */
-import "../../styles/Minimart.css";
+/* Dedicated Stylesheet */
+import "./styles/SearchPage.css";
 
 const CART_URL = `${API}/cart`;
 
@@ -45,7 +45,7 @@ const SearchPage = memo(function SearchPage({ user }) {
   // UI States
   const [query, setQuery] = useState(qParam);
   const [history, setHistory] = useState(() => getSearchHistory());
-  const [searched, setSearched] = useState(!!qParam); // True if user pressed enter/search
+  const [searched, setSearched] = useState(!!qParam);
   
   // Data States
   const [results, setResults] = useState([]);
@@ -77,20 +77,28 @@ const SearchPage = memo(function SearchPage({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qParam]);
 
-  /* ── 3. Cart Sync (So Add to Cart buttons work seamlessly) ── */
+  /* ── 3. Cart Sync ── */
   const syncCart = useCallback(async () => {
     const token = localStorage.getItem("marketplace_token");
     let map = {};
     if (user && token) {
       try {
         const res = await axios.get(CART_URL, { headers: { Authorization: `Bearer ${token}` } });
-        (res.data?.data?.items || []).forEach(i => map[i.product_id] = { itemId: i.id, qty: i.qty });
-      } catch { /* ignore */ }
+        (res.data?.data?.items || []).forEach((i) => {
+          map[i.product_id] = { itemId: i.id, qty: i.qty };
+        });
+      } catch {
+        /* ignore */
+      }
     } else {
       try {
         const guestCart = JSON.parse(localStorage.getItem("mm_cart") || "[]");
-        guestCart.forEach(i => map[i.productId] = { itemId: i.id, qty: i.qty });
-      } catch { /* ignore */ }
+        guestCart.forEach((i) => {
+          map[i.productId] = { itemId: i.id, qty: i.qty };
+        });
+      } catch {
+        /* ignore */
+      }
     }
     setCartMap(map);
   }, [user]);
@@ -110,7 +118,8 @@ const SearchPage = memo(function SearchPage({ user }) {
       return;
     }
 
-    append ? setLoadingMore(true) : setLoading(true);
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     setSearched(true);
 
     try {
@@ -138,8 +147,8 @@ const SearchPage = memo(function SearchPage({ user }) {
     haptic(8);
     addToSearchHistory(term);
     setHistory(getSearchHistory());
-    setSearchParams({ q: term }); // Updates URL, which triggers the useEffect to search
-    inputRef.current?.blur(); // Dismiss keyboard
+    setSearchParams({ q: term });
+    inputRef.current?.blur();
   }, [setSearchParams]);
 
   const clearSearch = () => {
@@ -157,7 +166,7 @@ const SearchPage = memo(function SearchPage({ user }) {
 
   const goBack = () => {
     if (window.history.length > 2) navigate(-1);
-    else navigate("/loemart");
+    else navigate("/");
   };
 
   // Live autocomplete suggestions
@@ -181,7 +190,7 @@ const SearchPage = memo(function SearchPage({ user }) {
             commitSearch(query);
           }}
         >
-          <FiSearch size={16} className="sp-form-icon" color="#888" />
+          <FiSearch size={16} className="sp-form-icon" />
           <input
             ref={inputRef}
             type="search"
@@ -205,8 +214,8 @@ const SearchPage = memo(function SearchPage({ user }) {
         </button>
       </header>
 
-      {/* ── BODY ── */}
-      <main className="sp-body">
+      {/* ── BODY (Window Scrolling) ── */}
+      <div className="sp-body">
         
         {/* DISCOVER MODE (Not searched yet) */}
         {!searched && (
@@ -215,15 +224,15 @@ const SearchPage = memo(function SearchPage({ user }) {
             {query.trim() && (
               <section className="sp-section">
                 <button type="button" className="sp-row sp-row--primary" onClick={() => commitSearch(query)}>
-                  <span className="sp-row-ico sp-row-ico--o"><FiSearch size={14} color="#fff" /></span>
+                  <span className="sp-row-ico sp-row-ico--o"><FiSearch size={14} /></span>
                   <span className="sp-row-text">Search for <strong>“{query.trim()}”</strong></span>
-                  <FiArrowRight size={16} color="#ccc" />
+                  <FiArrowRight size={16} />
                 </button>
                 {suggestions.map((s) => (
                   <button key={s} type="button" className="sp-row" onClick={() => commitSearch(s)}>
-                    <span className="sp-row-ico"><FiSearch size={14} color="#666" /></span>
+                    <span className="sp-row-ico"><FiSearch size={14} /></span>
                     <span className="sp-row-text">{s}</span>
-                    <FiArrowRight size={16} color="#ccc" />
+                    <FiArrowRight size={16} />
                   </button>
                 ))}
               </section>
@@ -235,14 +244,14 @@ const SearchPage = memo(function SearchPage({ user }) {
                 {history.length > 0 && (
                   <section className="sp-section">
                     <div className="sp-head">
-                      <h2><FiClock size={14} color="#666" /> Recent Searches</h2>
+                      <h2><FiClock size={14} /> Recent Searches</h2>
                       <button type="button" onClick={clearHistory}>Clear All</button>
                     </div>
                     {history.map((s) => (
                       <button key={s} type="button" className="sp-row" onClick={() => commitSearch(s)}>
-                        <span className="sp-row-ico"><FiClock size={14} color="#666" /></span>
+                        <span className="sp-row-ico"><FiClock size={14} /></span>
                         <span className="sp-row-text">{s}</span>
-                        <FiArrowRight size={16} color="#ccc" />
+                        <FiArrowRight size={16} />
                       </button>
                     ))}
                   </section>
@@ -250,7 +259,7 @@ const SearchPage = memo(function SearchPage({ user }) {
 
                 <section className="sp-section">
                   <div className="sp-head">
-                    <h2><FiTrendingUp size={14} color="#ff6b00" /> Trending Now</h2>
+                    <h2><FiTrendingUp size={14} /> Trending Now</h2>
                   </div>
                   <div className="sp-chips">
                     {TRENDING_SEARCHES.map((s) => (
@@ -265,7 +274,12 @@ const SearchPage = memo(function SearchPage({ user }) {
                   </div>
                   <div className="sp-cats">
                     {categories.slice(0, 8).map((c) => (
-                      <button key={c.id} type="button" className="sp-cat" onClick={() => navigate(`/loemart?category=${encodeURIComponent(c.id)}`)}>
+                      <button 
+                        key={c.id} 
+                        type="button" 
+                        className="sp-cat" 
+                        onClick={() => navigate(`/?category=${encodeURIComponent(c.id)}`)}
+                      >
                         <span className="sp-cat-ico">{c.icon}</span>
                         <span className="sp-cat-name">{c.name}</span>
                       </button>
@@ -331,7 +345,7 @@ const SearchPage = memo(function SearchPage({ user }) {
             )}
           </section>
         )}
-      </main>
+      </div>
     </div>
   );
 });
