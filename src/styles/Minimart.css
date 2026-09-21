@@ -1,27 +1,62 @@
 /* ═══════════════════════════════════════════════════════════════
-   Minimart.css — Global Tokens, Shells, Catalog Masonry & States
+   Minimart.css — Master Theme Tokens & Base Reset
 ═══════════════════════════════════════════════════════════════ */
 
-/* ── 1. TOKENS & DESIGN SYSTEM ── */
+/* ── 1. GLOBAL DESIGN TOKENS (Fixes DevTools Variable Breakdown) ── */
 :root {
-  --o: #ff6000;
-  --o2: #fff4eb;
+  /* Base Design Tokens */
+  --bg: #f8f9fa;
+  --wh: #ffffff;
+  --bd: #e9ecef;
+  --bd2: #d1d5db;
   --ink: #111111;
   --ink2: #666666;
   --ink3: #999999;
-  --bd: #e8e8ec;
-  --bd2: #d0d0d6;
-  --bg: #f8f9fa;
-  --wh: #ffffff;
+  --o: #ff6000;
+  --o2: #fff4eb;
+  --o-bg: #fff4eb;
   --gn: #10b981;
+  --gn2: #ecfdf5;
   --rd: #ef4444;
   --am: #f59e0b;
-  
+
+  /* DevTools App Theme Alias Mapping (--mp-*) */
+  --mp-bg: var(--bg);
+  --mp-surface: var(--wh);
+  --mp-border: var(--bd);
+  --mp-border-2: var(--bd2);
+  --mp-text: var(--ink);
+  --mp-text-2: var(--ink2);
+  --mp-text-3: var(--ink3);
+  --mp-accent: var(--o);
+  --mp-accent-2: var(--o2);
+  --mp-accent-bg: var(--o-bg);
+  --mp-green: var(--gn);
+  --mp-green-bg: var(--gn2);
+  --mp-red: var(--rd);
+  --mp-gold: var(--am);
+  --mp-nav-h: 64px;
+  --mp-safe-t: env(safe-area-inset-top, 0px);
+  --mp-safe-b: env(safe-area-inset-bottom, 0px);
+
+  /* Mobile Sub-system Alias Mapping (--lmm-*) */
+  --lmm-bg: var(--bg);
+  --lmm-surface: var(--wh);
+  --lmm-border: var(--bd);
+  --lmm-border-2: var(--bd2);
+  --lmm-text: var(--ink);
+  --lmm-text-2: var(--ink2);
+  --lmm-text-3: var(--ink3);
+  --lmm-orange: var(--o);
+  --lmm-radius-sm: 8px;
+  --lmm-radius-md: 12px;
+  --lmm-radius-lg: 16px;
+
+  /* Shadows & Radius */
   --r1: 8px;
   --r2: 12px;
   --r3: 16px;
   --r-full: 9999px;
-  
   --fb: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --s1: 0 2px 8px rgba(0, 0, 0, 0.04);
   --s2: 0 4px 16px rgba(0, 0, 0, 0.08);
@@ -32,47 +67,46 @@
   box-sizing: border-box;
 }
 
-/* ── 2. SCROLL & ROOT VIEWPORT ── */
+/* ── 2. VIEWPORT & SCROLL RESET ── */
 html {
   height: 100%;
   overflow-x: clip;
   overflow-y: auto;
+  background-color: var(--bg);
 }
 
 body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  overflow-x: clip;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: auto;
-  background: var(--bg);
+  background-color: var(--bg);
   color: var(--ink);
   font-family: var(--fb);
+  -webkit-font-smoothing: antialiased;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: auto;
 }
 
-/* Page wrapper container */
+/* Main page container */
 .mm-page {
   position: relative;
-  min-height: 100%;
+  min-height: 100vh;
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--fb);
-  -webkit-font-smoothing: antialiased;
   padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 }
 
-/* ── 3. HERO CONTAINER ── */
+/* ── 3. HERO WRAPPER ── */
 .mm-hero-wrap {
   position: relative;
   width: 100%;
 }
 
-/* ── 4. CATALOG SECTION HEADER ── */
+/* ── 4. CATALOG SECTION HEADERS ── */
 .mdp-psec {
   display: flex;
   flex-direction: column;
@@ -142,7 +176,7 @@ body {
   border-color: var(--o);
 }
 
-/* ── 5. MASONRY PRODUCT GRID ── */
+/* ── 5. MASONRY CATALOG GRID ── */
 .pr-masonry {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -157,7 +191,7 @@ body {
   }
 }
 
-/* ── 6. SKELETON LOADERS ── */
+/* Skeleton Loaders */
 .pr-masonry-skel {
   width: 100%;
   aspect-ratio: 0.72;
@@ -178,7 +212,7 @@ body {
   100% { background-position: -200% 0; }
 }
 
-/* ── 7. EMPTY / ERROR STATE ── */
+/* Empty / Error States */
 .mm-error {
   display: flex;
   flex-direction: column;
@@ -195,7 +229,7 @@ body {
   margin: 0 0 12px;
 }
 
-/* ── 8. LOAD MORE BUTTON ── */
+/* Load More Button */
 .pr-load-more-wrap {
   display: flex;
   justify-content: center;
@@ -226,13 +260,4 @@ body {
   transform: scale(0.96);
   background: var(--bg);
   border-color: var(--o);
-}
-
-/* ── 9. REDUCED MOTION ── */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
 }
