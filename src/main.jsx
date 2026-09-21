@@ -7,16 +7,11 @@ import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persist
 
 import App from "./App";
 import { ProductCacheProvider } from "./context/ProductCacheContext";
+import { ErrorBoundary } from "./components/AppRecovery";
 import "./index.css";
 
 /* ═══════════════════════════════════════════════════════════════
    SERVICE WORKER
-
-   The worker must exist at:
-   public/sw.js
-
-   Vite will serve it as:
-   https://your-domain.com/sw.js
 ═══════════════════════════════════════════════════════════════ */
 const registerAdvertisingServiceWorker = () => {
   if (!("serviceWorker" in navigator)) {
@@ -38,7 +33,6 @@ const registerAdvertisingServiceWorker = () => {
           registration.scope
         );
 
-        // Check for a newer worker version.
         await registration.update();
       } catch (error) {
         console.error(
@@ -62,11 +56,9 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
       retry: 2,
-
-      // Keep unused query data in memory for 30 minutes.
+      // Keep unused query data in memory for 30 minutes
       gcTime: 30 * 60 * 1000,
-
-      // Consider query data fresh for 2 minutes.
+      // Consider query data fresh for 2 minutes
       staleTime: 2 * 60 * 1000,
     },
   },
@@ -74,10 +66,6 @@ const queryClient = new QueryClient({
 
 /* ═══════════════════════════════════════════════════════════════
    LOCALSTORAGE PERSISTER
-
-   Keeps cached data for 24 hours.
-   Increase the buster version whenever the persisted cache
-   structure needs to be reset.
 ═══════════════════════════════════════════════════════════════ */
 const persister = createSyncStoragePersister({
   storage: window.localStorage,
@@ -101,21 +89,22 @@ if (!rootElement) {
 ═══════════════════════════════════════════════════════════════ */
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{
-        persister,
-
-        // Keep persisted data for 24 hours.
-        maxAge: 24 * 60 * 60 * 1000,
-
-        // Change to "v2", "v3", etc. to clear old persisted data.
-        buster: "v1",
-      }}
-    >
-      <ProductCacheProvider>
-        <App />
-      </ProductCacheProvider>
-    </PersistQueryClientProvider>
+    {/* ErrorBoundary catches blank-screen crashes & chunk load failures */}
+    <ErrorBoundary>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister,
+          // Keep persisted data for 24 hours
+          maxAge: 24 * 60 * 60 * 1000,
+          // Bump to "v2", "v3" etc. to wipe old cache structure
+          buster: "v1",
+        }}
+      >
+        <ProductCacheProvider>
+          <App />
+        </ProductCacheProvider>
+      </PersistQueryClientProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );
