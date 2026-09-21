@@ -7,6 +7,7 @@ import express   from "express";
 import rateLimit from "express-rate-limit";
 import jwt       from "jsonwebtoken";
 import { pool }  from "../config/db.js";
+import { MONTHLY_REWARDS, YEARLY_REWARDS } from "../config/rewards.js";
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -14,18 +15,6 @@ const IS_PROD = process.env.NODE_ENV === "production";
 /* ════════════════════════════════════════════════════════════
    CONFIG
 ════════════════════════════════════════════════════════════ */
-const MONTHLY_REWARDS = {
-  1 : { amount: 10_000, label: "₦10,000", emoji: "🥇" },
-  2 : { amount: 5_000, label: "₦5,000", emoji: "🥈" },
-  3 : { amount:  3_000, label: "₦3,000",  emoji: "🥉" },
-};
-
-const YEARLY_REWARDS = {
-  1 : { amount: 50_000, label: "₦50,000", emoji: "🥇" },
-  2 : { amount: 30_000, label: "₦30,000", emoji: "🥈" },
-  3 : { amount: 20_000, label: "₦20,000", emoji: "🥉" },
-};
-
 const VALID_PERIODS = ["all", "year", "month", "week", "today"];
 
 const PERIOD_LABELS = {
@@ -213,9 +202,6 @@ function endOfYear() {
 
 /* ════════════════════════════════════════════════════════════
    GET /api/leaderboard
-   ✅ Fixed: properly parameterized queries
-   ✅ Fixed: includes 'pending' status so new referrals show
-   ✅ Fixed: logs exact query for debugging
 ════════════════════════════════════════════════════════════ */
 router.get("/", optionalAuth, limiter, async (req, res) => {
   const period = VALID_PERIODS.includes(req.query.period)
@@ -235,7 +221,6 @@ router.get("/", optionalAuth, limiter, async (req, res) => {
     period === "year"  ? endOfYear()  : null;
 
   try {
-    /* ── Build query with proper $1, $2 params ── */
     let topSQL, topParams;
 
     if (cutoff) {
@@ -287,15 +272,8 @@ router.get("/", optionalAuth, limiter, async (req, res) => {
       topParams = [limit];
     }
 
-    console.log(
-      `[leaderboard] GET / period=${period} cutoff=${cutoff ?? "none"} limit=${limit}`
-    );
-
     const { rows: topRows } = await pool.query(topSQL, topParams);
 
-    console.log(`[leaderboard] query returned ${topRows.length} rows`);
-
-    /* Debug: if 0 rows, show what exists */
     if (topRows.length === 0) {
       const { rows: debug } = await pool.query(
         `SELECT
@@ -307,12 +285,6 @@ router.get("/", optionalAuth, limiter, async (req, res) => {
          GROUP  BY r.status`
       );
       console.log("[leaderboard] referral status breakdown:", debug);
-
-      /* Also check if any referrals exist at all */
-      const { rows: [total] } = await pool.query(
-        `SELECT COUNT(*)::INT AS cnt FROM referrals`
-      );
-      console.log(`[leaderboard] total referrals in DB: ${total.cnt}`);
     }
 
     const leaderboard = topRows.map((row, i) =>
