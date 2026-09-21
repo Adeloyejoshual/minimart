@@ -305,15 +305,13 @@ function Podium({ top3 }) {
 /* ════════════════════════════════════════════════════════════
    SINGLE ROW — less than 3 entries (no podium possible)
 ════════════════════════════════════════════════════════════ */
-function SingleEntry({ entry, rewardMap }) {
+function SingleEntry({ entry }) {
   return (
     <div className="lb-single-entry">
-      {/* Crown */}
       <div className="lb-single-crown">
         <Ic.Crown size={36} color="var(--o)" />
       </div>
 
-      {/* Avatar */}
       <div className="lb-single-avatar-wrap">
         {entry.avatar_url ? (
           <img src={entry.avatar_url} alt="" className="lb-single-avatar-img" />
@@ -491,7 +489,6 @@ export default function Leaderboard() {
   const isLoggedIn    = Boolean(getToken());
   const isCompetition = period === "month" || period === "year";
 
-  /* ── Fetch ── */
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -505,12 +502,6 @@ export default function Leaderboard() {
         throw new Error(b.message || `${r.status}`);
       }
       const d = await r.json();
-      console.log("[Leaderboard] response:", {
-        period,
-        entries   : d.leaderboard?.length,
-        myRank    : d.my_rank,
-        inviters  : d.total_inviters,
-      });
       setData(d);
     } catch (e) {
       console.error("[Leaderboard] fetch error:", e.message);
@@ -522,7 +513,6 @@ export default function Leaderboard() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  /* ── Derived ── */
   const list       = data?.leaderboard     ?? [];
   const myRank     = data?.my_rank         ?? null;
   const rewards    = data?.rewards         ?? null;
@@ -535,7 +525,6 @@ export default function Leaderboard() {
   const myInList    = list.some((e) => e.is_current_user);
   const showMyRank  = myRank && !myInList;
 
-  /* If 1 or 2 entries, show them as individual cards, not a podium */
   const fewEntries  = list.length > 0 && list.length < 3;
 
   return (
@@ -617,7 +606,7 @@ export default function Leaderboard() {
             {isCompetition && (
               <p className="lb-empty-reward">
                 Be the first — win up to{" "}
-                {period === "month" ? "₦15,000" : "₦50,000"}!
+                {period === "month" ? "₦10,000" : "₦50,000"}!
               </p>
             )}
             <Link to="/invitation" className="lb-empty-btn">
@@ -634,10 +623,6 @@ export default function Leaderboard() {
               <SingleEntry
                 key={entry.user_id}
                 entry={entry}
-                rewardMap={
-                  period === "month" ? rewards :
-                  period === "year"  ? rewards : null
-                }
               />
             ))}
           </div>
@@ -674,7 +659,7 @@ export default function Leaderboard() {
               {isCompetition && (
                 <span>
                   Win up to{" "}
-                  {period === "month" ? "₦15,000" : "₦50,000"}!{" "}
+                  {period === "month" ? "₦10,000" : "₦50,000"}!{" "}
                 </span>
               )}
               <Link to="/invitation">Invite friends →</Link>
@@ -709,7 +694,7 @@ export default function Leaderboard() {
               {isCompetition && (
                 <span className="lb-cta-reward">
                   Win up to{" "}
-                  {period === "month" ? "₦15,000" : "₦50,000"}
+                  {period === "month" ? "₦10,000" : "₦50,000"}
                 </span>
               )}
             </div>
