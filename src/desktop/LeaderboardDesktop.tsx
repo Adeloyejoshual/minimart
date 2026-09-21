@@ -223,7 +223,7 @@ const Ic = {
       <circle cx="6" cy="12" r="3" />
       <circle cx="18" cy="19" r="3" />
       <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
     </svg>
   ),
 
@@ -522,7 +522,6 @@ const LeaderboardDesktop: FC = () => {
 
   const cdLabel = useCountdown(countdown?.iso);
 
-  /* ── Reward Map ── */
   const rewardMap = useMemo(() => {
     if (!rewards) return {};
     return Object.fromEntries(rewards.map((r) => [r.rank, r]));
@@ -641,7 +640,7 @@ const LeaderboardDesktop: FC = () => {
               {isCompetition && (
                 <p className="lbd-empty-reward">
                   Be the first — win up to{" "}
-                  {period === "month" ? "₦15,000" : "₦50,000"}!
+                  {period === "month" ? "₦10,000" : "₦50,000"}!
                 </p>
               )}
               <Link to="/invitation" className="lbd-empty-btn">
@@ -735,7 +734,7 @@ const LeaderboardDesktop: FC = () => {
                 You're not on the board yet.{" "}
                 {isCompetition && (
                   <span>
-                    Win up to {period === "month" ? "₦15,000" : "₦50,000"}!{" "}
+                    Win up to {period === "month" ? "₦10,000" : "₦50,000"}!{" "}
                   </span>
                 )}
                 <Link to="/invitation">Invite friends →</Link>
@@ -764,7 +763,7 @@ const LeaderboardDesktop: FC = () => {
                 <span className="lbd-cta-title">Invite friends to compete</span>
                 {isCompetition && (
                   <span className="lbd-cta-sub">
-                    Win up to {period === "month" ? "₦15,000" : "₦50,000"}
+                    Win up to {period === "month" ? "₦10,000" : "₦50,000"}
                   </span>
                 )}
               </div>
