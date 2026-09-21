@@ -1,256 +1,368 @@
-/* ════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    HallOfFame.css
-════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 
-*{
-  box-sizing:border-box;
+* {
+  box-sizing: border-box;
 }
 
-.hof-page{
-  min-height:100vh;
-  background:#f7f8fc;
-  padding:20px 12px 40px;
+.hof-page {
+  min-height: 100vh;
+  background: #f7f8fc;
+  padding: 24px 16px 50px;
+  color: #111827;
 }
 
-.hof-container{
-  max-width:900px;
-  margin:0 auto;
+.hof-container {
+  max-width: 900px;
+  margin: 0 auto;
 }
 
-/* Header */
-
-.hof-header{
-  text-align:center;
-  margin-bottom:20px;
-  position:relative;
+/* ── Header ── */
+.hof-header {
+  text-align: center;
+  margin-bottom: 24px;
+  position: relative;
 }
 
-.hof-back{
-  position:absolute;
-  left:0;
-  top:0;
-  border:none;
-  background:#fff;
-  width:40px;
-  height:40px;
-  border-radius:10px;
-  cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,.08);
-  font-size:20px;
+.hof-back {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: none;
+  background: #ffffff;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, background 0.15s ease;
 }
 
-.hof-header h1{
-  margin:0;
-  font-size:28px;
-  color:#111827;
+.hof-back:hover {
+  transform: translateX(-2px);
+  background: #f3f4f6;
+  color: #111827;
 }
 
-.hof-header p{
-  margin-top:6px;
-  color:#6b7280;
+.hof-header h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* Toggle */
-
-.hof-toggle{
-  display:flex;
-  gap:10px;
-  margin-bottom:18px;
+.hof-header p {
+  margin: 6px 0 0;
+  color: #6b7280;
+  font-size: 14px;
 }
 
-.hof-toggle-btn{
-  flex:1;
-  border:none;
-  border-radius:12px;
-  padding:12px;
-  background:#fff;
-  cursor:pointer;
-  font-weight:600;
-  transition:.25s;
+/* ── Toggle ── */
+.hof-toggle {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  background: #e5e7eb;
+  padding: 4px;
+  border-radius: 14px;
 }
 
-.hof-toggle-btn.active{
-  background:#e8630a;
-  color:#fff;
+.hof-toggle-btn {
+  flex: 1;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: transparent;
+  color: #4b5563;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
 }
 
-/* Rewards */
-
-.hof-rewards{
-  display:flex;
-  gap:10px;
-  margin-bottom:24px;
+.hof-toggle-btn.active {
+  background: #ffffff;
+  color: #e8630a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-.hof-reward-item{
-  flex:1;
-  background:#fff;
-  border-radius:12px;
-  padding:12px;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  gap:8px;
-  font-weight:700;
-  box-shadow:0 2px 8px rgba(0,0,0,.06);
+/* ── Reward Cards Top Summary ── */
+.hof-rewards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
 }
 
-/* Loading */
+.hof-reward-item {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #1f2937;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+}
 
+/* ── Loading, Error & Empty States ── */
 .hof-loading,
 .hof-error,
-.hof-empty{
-  text-align:center;
-  padding:40px 20px;
+.hof-empty {
+  text-align: center;
+  padding: 50px 20px;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  margin-bottom: 30px;
 }
 
-.hof-spinner{
-  width:40px;
-  height:40px;
-  border:4px solid #ddd;
-  border-top-color:#e8630a;
-  border-radius:50%;
-  animation:spin .8s linear infinite;
-  margin:auto;
+.hof-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3.5px solid #f3f4f6;
+  border-top-color: #e8630a;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 12px;
 }
 
-@keyframes spin{
-  to{
-    transform:rotate(360deg);
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-/* Period */
-
-.hof-period{
-  margin-bottom:30px;
+.hof-empty p {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 8px 0 4px;
 }
 
-.hof-period-label{
-  margin-bottom:16px;
-  color:#111827;
+.hof-empty small {
+  display: block;
+  color: #6b7280;
+  font-size: 13px;
+  margin-bottom: 16px;
 }
 
-/* Winners */
-
-.hof-period-winners{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-  gap:16px;
+.hof-empty a {
+  display: inline-block;
+  background: #e8630a;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 18px;
+  border-radius: 20px;
+  text-decoration: none;
+  transition: opacity 0.2s;
 }
 
-.hof-winner{
-  position:relative;
-  background:#fff;
-  border-radius:18px;
-  padding:20px;
-  text-align:center;
-  box-shadow:0 6px 16px rgba(0,0,0,.08);
-  transition:.25s;
+.hof-empty a:hover {
+  opacity: 0.9;
 }
 
-.hof-winner:hover{
-  transform:translateY(-4px);
+.hof-error p {
+  color: #ef4444;
+  font-weight: 600;
+  margin-bottom: 12px;
 }
 
-.hof-winner--first{
-  border:2px solid gold;
+.hof-error button {
+  background: #111827;
+  color: #ffffff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.hof-crown{
-  position:absolute;
-  top:-16px;
-  left:50%;
-  transform:translateX(-50%);
-  font-size:28px;
+/* ── Periods & Winner Cards ── */
+.hof-period {
+  margin-bottom: 36px;
 }
 
-.hof-winner-avatar{
-  width:80px;
-  height:80px;
-  border-radius:50%;
-  overflow:hidden;
-  margin:0 auto 12px;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  color:#fff;
-  font-size:28px;
-  font-weight:bold;
+.hof-period-label {
+  margin-bottom: 16px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #111827;
+  display: flex;
+  align-items: center;
 }
 
-.hof-winner-avatar img{
-  width:100%;
-  height:100%;
-  object-fit:cover;
+.hof-period-winners {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
 }
 
-.hof-winner-medal{
-  font-size:28px;
+.hof-winner {
+  position: relative;
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 24px 18px 20px;
+  text-align: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.hof-winner-name{
-  font-weight:700;
-  margin:10px 0 4px;
+.hof-winner:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
-.hof-winner-count{
-  color:#666;
-  margin:0;
+.hof-winner--first {
+  border: 1.5px solid rgba(245, 158, 11, 0.5);
+  background: linear-gradient(180deg, rgba(254, 243, 199, 0.25) 0%, #ffffff 40%);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.1);
 }
 
-.hof-winner-reward{
-  margin-top:12px;
-  font-size:18px;
-  font-weight:700;
-  color:#e8630a;
+.hof-crown {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 2px 4px rgba(217, 119, 6, 0.2));
 }
 
-.hof-winner-reward--paid{
-  color:#16a34a;
+.hof-winner-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 0 auto 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 800;
+  border: 3px solid #ffffff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
 }
 
-/* CTA */
-
-.hof-cta{
-  display:flex;
-  gap:12px;
-  margin-top:30px;
+.hof-winner-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-.hof-cta a{
-  flex:1;
-  text-decoration:none;
-  text-align:center;
-  padding:14px;
-  border-radius:12px;
-  background:#e8630a;
-  color:#fff;
-  font-weight:700;
+.hof-winner-medal {
+  margin-bottom: 6px;
 }
 
-.hof-cta a:last-child{
-  background:#111827;
+.hof-winner-name {
+  font-weight: 700;
+  font-size: 15px;
+  color: #111827;
+  margin: 8px 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Mobile */
+.hof-winner-count {
+  color: #6b7280;
+  font-size: 12.5px;
+  font-weight: 500;
+  margin: 0;
+}
 
-@media(max-width:600px){
+.hof-winner-reward {
+  margin-top: 14px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #e8630a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
 
-  .hof-header h1{
-    font-size:22px;
+.hof-winner-reward--paid {
+  color: #16a34a;
+}
+
+/* ── CTA Buttons ── */
+.hof-cta {
+  display: flex;
+  gap: 12px;
+  margin-top: 40px;
+}
+
+.hof-cta a {
+  flex: 1;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 20px;
+  border-radius: 14px;
+  background: #e8630a;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 14px;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  box-shadow: 0 4px 12px rgba(232, 99, 10, 0.2);
+}
+
+.hof-cta a:last-child {
+  background: #111827;
+  box-shadow: 0 4px 12px rgba(17, 24, 39, 0.15);
+}
+
+.hof-cta a:hover {
+  opacity: 0.95;
+  transform: translateY(-1px);
+}
+
+/* ── Responsive Mobile ── */
+@media (max-width: 640px) {
+  .hof-page {
+    padding: 16px 12px 40px;
   }
 
-  .hof-period-winners{
-    grid-template-columns:1fr;
+  .hof-header h1 {
+    font-size: 20px;
   }
 
-  .hof-rewards{
-    flex-direction:column;
+  .hof-rewards {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
-  .hof-cta{
-    flex-direction:column;
+  .hof-reward-item {
+    justify-content: space-between;
+    padding: 10px 16px;
   }
 
+  .hof-period-winners {
+    grid-template-columns: 1fr;
+  }
+
+  .hof-cta {
+    flex-direction: column;
+  }
 }
