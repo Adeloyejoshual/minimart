@@ -1,9 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import adminApi from "../../../../services/adminApi";
 
 const STATUS_META = {
@@ -43,165 +38,67 @@ const STATUS_OPTIONS = [
 ];
 
 const S = {
-  sectionTitle: {
-    fontSize: 11, fontWeight: 700, color: "#aaa", textTransform: "uppercase", 
-    letterSpacing: ".5px", marginBottom: 8,
-  },
-  label: {
-    display: "block", fontSize: ".78rem", fontWeight: 700, color: "#888", 
-    textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 4,
-  },
-  input: {
-    width: "100%", padding: "10px 12px", border: "1.5px solid #e8e6e0", 
-    borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none", 
-    boxSizing: "border-box", background: "#fff",
-  },
-  textarea: {
-    width: "100%", padding: "10px 12px", border: "1.5px solid #e8e6e0", 
-    borderRadius: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical", 
-    outline: "none", boxSizing: "border-box", background: "#fff",
-  },
-  closeBtn: {
-    border: "1.5px solid #e8e6e0", background: "#fafaf8", borderRadius: "50%", 
-    width: 32, height: 32, cursor: "pointer", fontSize: 16, color: "#555", 
-    display: "flex", alignItems: "center", justifyContent: "center",
-  },
-  variantRow: {
-    display: "flex", justifyContent: "space-between", alignItems: "center", 
-    padding: "8px 12px", background: "#f5f4f0", borderRadius: 10, marginBottom: 6, fontSize: 12,
-  },
-  list: { margin: 0, paddingLeft: 18, fontSize: 13, color: "#555", lineHeight: 1.7 },
+  sectionTitle: { fontSize: 11, fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 8 },
+  label: { display: "block", fontSize: ".78rem", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 4 },
+  input: { width: "100%", padding: "10px 12px", border: "1.5px solid #e8e6e0", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff" },
+  textarea: { width: "100%", padding: "10px 12px", border: "1.5px solid #e8e6e0", borderRadius: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box", background: "#fff" },
+  closeBtn: { border: "1.5px solid #e8e6e0", background: "#fafaf8", borderRadius: "50%", width: 32, height: 32, cursor: "pointer", fontSize: 16, color: "#555", display: "flex", alignItems: "center", justifyContent: "center" },
 };
-
-const alertBox = (bg, border, color) => ({
-  background: bg, border: `1px solid ${border}`, borderRadius: 10,
-  padding: "10px 14px", fontSize: 12, color, marginBottom: 16, lineHeight: 1.5,
-});
 
 function useDebounce(value, delay = 300) {
   const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
+  useEffect(() => { const t = setTimeout(() => setDebounced(value), delay); return () => clearTimeout(t); }, [value, delay]);
   return debounced;
 }
 
-function Section({ title, children }) {
-  return <div style={{ marginBottom: 16 }}><div style={S.sectionTitle}>{title}</div>{children}</div>;
-}
-
-function StatusPill({ status }) {
-  const meta = STATUS_META[status] ?? STATUS_META.active;
-  return (
-    <span style={{
-      padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 700, 
-      whiteSpace: "nowrap", background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`,
-    }}>
-      {meta.label}
-    </span>
-  );
-}
-
-function FlagChip({ label, color }) {
-  return (
-    <span style={{
-      padding: "2px 8px", borderRadius: 999, fontSize: 10, fontWeight: 700,
-      background: `${color}18`, color, border: `1px solid ${color}40`, whiteSpace: "nowrap",
-    }}>
-      {label}
-    </span>
-  );
-}
-
-function EmptyState({ tab }) {
-  return (
-    <div style={{ textAlign: "center", padding: 60, color: "#aaa", background: "#fafaf8", borderRadius: 14, border: "1.5px dashed #e8e6e0" }}>
-      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>No listings found</div>
-      <div style={{ fontSize: 13 }}>{tab === "pending" ? "The review queue is empty." : "Nothing matches your current filter."}</div>
-    </div>
-  );
-}
+function Section({ title, children }) { return <div style={{ marginBottom: 16 }}><div style={S.sectionTitle}>{title}</div>{children}</div>; }
+function StatusPill({ status }) { const meta = STATUS_META[status] ?? STATUS_META.active; return <span style={{ padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", background: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }}>{meta.label}</span>; }
+function FlagChip({ label, color }) { return <span style={{ padding: "2px 8px", borderRadius: 999, fontSize: 10, fontWeight: 700, background: `${color}18`, color, border: `1px solid ${color}40`, whiteSpace: "nowrap" }}>{label}</span>; }
+function EmptyState({ tab }) { return <div style={{ textAlign: "center", padding: 60, color: "#aaa", background: "#fafaf8", borderRadius: 14, border: "1.5px dashed #e8e6e0" }}><div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>No listings found</div><div style={{ fontSize: 13 }}>{tab === "pending" ? "The review queue is empty." : "Nothing matches your current filter."}</div></div>; }
 
 /* ══════════════════════════════════════════
-   MODALS
+   ADD PRODUCT MODAL (NEW)
 ══════════════════════════════════════════ */
-function RejectModal({ product, onReject, onClose }) {
-  const [reason, setReason] = useState("");
+function AddProductModal({ onAdd, onClose }) {
+  const [form, setForm] = useState({ name: "", price: "", category: "Electronics", stock: "1", description: "" });
   const [busy, setBusy] = useState(false);
-  const submit = async () => {
-    if (!reason.trim()) return;
-    setBusy(true); await onReject(product.id, reason.trim()); setBusy(false); onClose();
-  };
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
-        <div className="modal-title">Reject Listing</div>
-        <p style={{ fontSize: ".82rem", color: "#888", marginBottom: 12 }}><strong>{product.name}</strong> by {product.seller_name}</p>
-        <label style={S.label}>Reason for rejection (required)</label>
-        <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder='e.g. "Fake product"' rows={3} style={S.textarea} />
-        <div className="modal-btns" style={{ marginTop: 14 }}>
-          <button className="btn b-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn b-red" disabled={!reason.trim() || busy} onClick={submit}>{busy ? "Rejecting..." : "Reject"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-function RemoveModal({ product, onRemove, onClose }) {
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!reason.trim()) return;
-    setBusy(true); await onRemove(product.id, reason.trim()); setBusy(false); onClose();
-  };
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
-        <div className="modal-title" style={{ color: "#dc2626" }}>Remove Listing</div>
-        <p style={{ fontSize: ".82rem", color: "#888", marginBottom: 8 }}>Soft-delete <strong>{product.name}</strong>.</p>
-        <label style={S.label}>Removal reason (required)</label>
-        <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder='e.g. "Scam"' rows={3} style={S.textarea} />
-        <div className="modal-btns" style={{ marginTop: 14 }}>
-          <button className="btn b-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn b-red" disabled={!reason.trim() || busy} onClick={submit}>{busy ? "Removing..." : "Remove"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// NEW: Bulk Campaign Modal
-function BulkCampaignModal({ ids, onApply, onClose }) {
-  const [campaignTag, setCampaignTag] = useState("");
-  const [badge, setBadge] = useState("");
-  const [busy, setBusy] = useState(false);
-  
-  const submit = async () => {
+    if (!form.name.trim() || !form.price) return;
     setBusy(true);
-    await onApply(ids, campaignTag.trim() || null, badge.trim() || null);
+    await onAdd(form);
     setBusy(false);
-    onClose();
   };
+
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
-        <div className="modal-title" style={{ color: "#059669" }}>Assign Campaign / Badge</div>
-        <p style={{ fontSize: ".82rem", color: "#888", marginBottom: 12 }}>
-          Applying to <strong>{ids.length} selected product(s)</strong>. Leave blank to clear.
-        </p>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 500, width: "90%" }}>
+        <div className="modal-title" style={{ color: "#059669", marginBottom: 16 }}>Add New Listing</div>
         
-        <label style={S.label}>Campaign Name (e.g., "December Deals")</label>
-        <input value={campaignTag} onChange={(e) => setCampaignTag(e.target.value)} placeholder="Creates a new homepage section" style={{ ...S.input, marginBottom: 12 }} />
+        <label style={S.label}>Product Name</label>
+        <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. iPhone 13 Pro" style={{...S.input, marginBottom: 12}} />
         
-        <label style={S.label}>Custom Badge (e.g., "30% Off")</label>
-        <input value={badge} onChange={(e) => setBadge(e.target.value)} placeholder="Shows on the product card" style={{ ...S.input, marginBottom: 4 }} />
-        
-        <div className="modal-btns" style={{ marginTop: 18 }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Price (₦)</label>
+            <input type="number" value={form.price} onChange={e => setForm({...form, price: e.target.value})} placeholder="e.g. 350000" style={S.input} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Stock / Quantity</label>
+            <input type="number" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} style={S.input} />
+          </div>
+        </div>
+
+        <label style={S.label}>Category</label>
+        <input value={form.category} onChange={e => setForm({...form, category: e.target.value})} placeholder="e.g. Electronics, Fashion" style={{...S.input, marginBottom: 12}} />
+
+        <label style={S.label}>Description</label>
+        <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={3} style={{...S.textarea, marginBottom: 16}} />
+
+        <div className="modal-btns">
           <button className="btn b-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn b-solid" style={{ background: "#059669", color: "#fff", border: "none" }} disabled={busy} onClick={submit}>
-            {busy ? "Applying..." : "Apply to Products"}
+          <button className="btn b-solid" style={{ background: "#059669", color: "#fff", border: "none" }} disabled={busy || !form.name || !form.price} onClick={submit}>
+            {busy ? "Creating..." : "Create Product"}
           </button>
         </div>
       </div>
@@ -210,52 +107,48 @@ function BulkCampaignModal({ ids, onApply, onClose }) {
 }
 
 /* ══════════════════════════════════════════
-   DRAWER
+   DRAWER (EDIT EXPANDED)
 ══════════════════════════════════════════ */
-function ProductDrawer({
-  product, onClose, onApprove, onRejectOpen, onRemoveOpen,
-  onPause, onFlag, onStatusChange, onSaveEdit, onPermanentDelete,
-  busy, confirm,
-}) {
-  const [editing,    setEditing]    = useState(false);
-  const [editName,   setEditName]   = useState("");
-  const [editDesc,   setEditDesc]   = useState("");
-  const [editNotes,  setEditNotes]  = useState("");
-  
-  // Custom Campaign States
-  const [editCampaign, setEditCampaign] = useState("");
-  const [editBadge, setEditBadge] = useState("");
-  
+function ProductDrawer({ product, onClose, onApprove, onRejectOpen, onRemoveOpen, onPause, onFlag, onStatusChange, onSaveEdit, onPermanentDelete, busy, confirm }) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({});
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     if (!product) return;
-    setEditName(product.name ?? "");
-    setEditDesc(product.description ?? "");
-    setEditNotes(product.admin_notes ?? "");
-    setEditCampaign(product.campaign_tag ?? "");
-    setEditBadge(product.badge ?? "");
+    // Load all editable fields into form state
+    setForm({
+      name: product.name ?? "",
+      price: product.price ?? "",
+      original_price: product.original_price ?? "",
+      stock: product.stock ?? 1,
+      category: product.category ?? "",
+      description: product.description ?? "",
+      admin_notes: product.admin_notes ?? "",
+      campaign_tag: product.campaign_tag ?? "",
+      badge: product.badge ?? "",
+    });
     setEditing(false);
   }, [product?.id]);
 
   if (!product) return null;
-
-  const images   = product.images         ?? [];
-  const variants = product.variants       ?? [];
-  const features = product.key_features   ?? product.keyFeatures ?? [];
-  const specs    = product.specifications ?? [];
-  const box      = product.whats_in_box   ?? product.whatsInBox  ?? [];
+  const images = product.images ?? [];
   const isPending = product.status === "pending" || product.status === "flagged";
 
   const handleSave = async () => {
-    if (!editName.trim()) return;
+    if (!form.name.trim()) return;
     setSavingEdit(true);
+    // Send updated fields
     await onSaveEdit(product.id, {
-      name:         editName.trim(),
-      description:  editDesc.trim(),
-      admin_notes:  editNotes.trim(),
-      campaign_tag: editCampaign.trim() || null,
-      badge:        editBadge.trim() || null,
+      name: form.name.trim(),
+      price: Number(form.price),
+      original_price: form.original_price ? Number(form.original_price) : null,
+      stock: Number(form.stock),
+      category: form.category.trim(),
+      description: form.description.trim(),
+      admin_notes: form.admin_notes.trim(),
+      campaign_tag: form.campaign_tag.trim() || null,
+      badge: form.badge.trim() || null,
     });
     setSavingEdit(false);
     setEditing(false);
@@ -266,7 +159,6 @@ function ProductDrawer({
       <div style={{ flex: 1, background: "rgba(0,0,0,.45)", cursor: "pointer" }} onClick={onClose} />
       <div style={{ width: "min(560px, 100%)", background: "#fff", overflowY: "auto", display: "flex", flexDirection: "column", boxShadow: "-8px 0 32px rgba(0,0,0,.15)" }}>
         
-        {/* Header */}
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #f0eeea", display: "flex", alignItems: "flex-start", justifyContent: "space-between", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
           <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
             <div style={{ fontWeight: 800, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{product.name}</div>
@@ -274,97 +166,102 @@ function ProductDrawer({
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button className="btn b-ghost" onClick={() => setEditing((v) => !v)} style={{ fontSize: 12, padding: "4px 10px", height: 28 }}>
-              {editing ? "Cancel" : "Edit"}
+              {editing ? "Cancel Edit" : "Edit Full Info"}
             </button>
             <button onClick={onClose} style={S.closeBtn}>x</button>
           </div>
         </div>
 
-        {/* Body */}
         <div style={{ padding: 20, flex: 1 }}>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-            <StatusPill status={product.status} />
-            {product.is_featured  && <FlagChip label="Featured"  color="#d97706" />}
-            {product.is_trending  && <FlagChip label="Trending"  color="#dc2626" />}
-            {product.is_sponsored && <FlagChip label="Sponsored" color="#9333ea" />}
-            {product.is_hidden    && <FlagChip label="Hidden"    color="#6b7280" />}
-            {product.is_paused    && <FlagChip label="Paused"    color="#6b7280" />}
-            {/* Dynamic Campaign Badges */}
-            {product.campaign_tag && <FlagChip label={`Campaign: ${product.campaign_tag}`} color="#059669" />}
-            {product.badge        && <FlagChip label={`Badge: ${product.badge}`} color="#0284c7" />}
-          </div>
-
-          {/* Alert banners */}
-          {product.rejection_reason && <div style={alertBox("#fff5f5", "#fecaca", "#991b1b")}><strong>Rejection reason:</strong> {product.rejection_reason}</div>}
-          {product.removed_reason && <div style={alertBox("#fff5f5", "#fecaca", "#991b1b")}><strong>Removal reason:</strong> {product.removed_reason}</div>}
-
-          {/* Edit panel */}
+          
+          {/* Expanded Edit Panel */}
           {editing && (
             <div style={{ border: "1.5px solid #ff5722", borderRadius: 14, padding: 16, marginBottom: 16, background: "#fffbf5" }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#ff5722", marginBottom: 12 }}>Edit Mode</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#ff5722", marginBottom: 12 }}>Edit Product Details</div>
 
               <label style={S.label}>Product Title</label>
-              <input value={editName} onChange={(e) => setEditName(e.target.value)} maxLength={80} style={S.input} />
-              <div style={{ fontSize: 11, color: "#bbb", textAlign: "right", marginTop: 2, marginBottom: 12 }}>{editName.length}/80</div>
+              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={{...S.input, marginBottom: 12}} />
 
               <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
                 <div style={{ flex: 1 }}>
-                  <label style={S.label}>Campaign Name</label>
-                  <input value={editCampaign} onChange={(e) => setEditCampaign(e.target.value)} placeholder="e.g. December Sale" style={S.input} />
+                  <label style={S.label}>Price (₦)</label>
+                  <input type="number" value={form.price} onChange={e => setForm({...form, price: e.target.value})} style={S.input} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={S.label}>Badge</label>
-                  <input value={editBadge} onChange={(e) => setEditBadge(e.target.value)} placeholder="e.g. 50% Off" style={S.input} />
+                  <label style={S.label}>Old/Slashed Price</label>
+                  <input type="number" value={form.original_price} onChange={e => setForm({...form, original_price: e.target.value})} style={S.input} />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>Category</label>
+                  <input value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={S.input} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>Stock Count</label>
+                  <input type="number" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} style={S.input} />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>Campaign Tag</label>
+                  <input value={form.campaign_tag} onChange={e => setForm({...form, campaign_tag: e.target.value})} placeholder="e.g. Black Friday" style={S.input} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>Custom Badge</label>
+                  <input value={form.badge} onChange={e => setForm({...form, badge: e.target.value})} placeholder="e.g. 50% Off" style={S.input} />
                 </div>
               </div>
 
               <label style={S.label}>Description</label>
-              <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} rows={4} style={S.textarea} />
+              <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={3} style={{...S.textarea, marginBottom: 12}} />
 
-              <label style={{ ...S.label, marginTop: 12 }}>Admin Notes</label>
-              <textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2} style={S.textarea} />
+              <label style={S.label}>Admin Notes (Internal)</label>
+              <textarea value={form.admin_notes} onChange={e => setForm({...form, admin_notes: e.target.value})} rows={2} style={S.textarea} />
 
-              <button className="btn b-solid" disabled={savingEdit || !editName.trim()} onClick={handleSave} style={{ width: "100%", height: 40, marginTop: 14, fontSize: 13 }}>
-                {savingEdit ? "Saving..." : "Save Changes"}
+              <button className="btn b-solid" disabled={savingEdit || !form.name.trim()} onClick={handleSave} style={{ width: "100%", height: 40, marginTop: 14, fontSize: 13 }}>
+                {savingEdit ? "Saving..." : "Save All Changes"}
               </button>
             </div>
           )}
 
-          {/* Detail view */}
+          {/* View Mode */}
           {!editing && (
             <>
-              {images.length > 0 && (
-                <Section title={`Photos (${images.length})`}>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {images.map((img, i) => {
-                      const url = typeof img === "string" ? img : img?.image_url ?? img?.url;
-                      return url ? ( <img key={i} src={url} alt="" style={{ width: i === 0 ? "100%" : "calc(33% - 6px)", aspectRatio: i === 0 ? "16/9" : "1", objectFit: "cover", borderRadius: 10, border: "1.5px solid #f0eeea" }} /> ) : null;
-                    })}
-                  </div>
-                </Section>
-              )}
-              {/* ... omitted variant/features/specs tables for brevity, they remain identical ... */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+                <StatusPill status={product.status} />
+                {product.campaign_tag && <FlagChip label={`Campaign: ${product.campaign_tag}`} color="#059669" />}
+                {product.badge && <FlagChip label={`Badge: ${product.badge}`} color="#0284c7" />}
+              </div>
+              <div style={{ background: "#fafaf8", border: "1.5px solid #f0eeea", borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                  <span style={{ fontSize: 22, fontWeight: 900, color: "#ff5722" }}>₦{Number(product.price ?? 0).toLocaleString()}</span>
+                  {product.original_price && <span style={{ fontSize: 13, color: "#bbb", textDecoration: "line-through" }}>₦{Number(product.original_price).toLocaleString()}</span>}
+                </div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+                  Category: <strong>{product.category}</strong> · Stock: <strong>{product.stock}</strong>
+                </div>
+              </div>
             </>
           )}
 
           <Section title="Product Flags">
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {FLAG_OPTIONS.map((f) => {
-                const isOn = !!product[f.key];
-                const bKey = `flag-${product.id}-${f.key}`;
-                return (
-                  <button key={f.key} className={`btn ${isOn ? "b-solid" : "b-ghost"}`} disabled={busy === bKey} onClick={() => onFlag(product.id, f.key, !isOn)} style={{ fontSize: 12, padding: "5px 12px", height: 30, ...(isOn && { background: f.color, borderColor: f.color, color: "#fff" }) }}>
-                    {busy === bKey ? "..." : f.label}
-                  </button>
-                );
-              })}
+              {FLAG_OPTIONS.map((f) => (
+                <button key={f.key} className={`btn ${product[f.key] ? "b-solid" : "b-ghost"}`} onClick={() => onFlag(product.id, f.key, !product[f.key])} style={{ fontSize: 12, padding: "5px 12px", height: 30, ...(product[f.key] && { background: f.color, borderColor: f.color, color: "#fff" }) }}>
+                  {f.label}
+                </button>
+              ))}
             </div>
           </Section>
 
-          {/* Action buttons */}
+          {/* Actions */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 20 }}>
-            <button className="btn b-ghost" onClick={() => confirm({ title: "Delete permanently?", body: "This cannot be undone.", confirm: "Delete", danger: true, action: () => onPermanentDelete(product.id) })} style={{ width: "100%", height: 36, fontSize: 11, color: "#991b1b", borderColor: "#fca5a5", background: "#fff5f5" }}>
-              Permanent Delete (super admin only)
+            {isPending && <button className="btn b-solid" onClick={() => onApprove(product.id)} style={{ height: 44 }}>Approve Listing</button>}
+            <button className="btn b-ghost" onClick={() => confirm({ title: "Delete permanently?", body: "This cannot be undone.", confirm: "Delete", danger: true, action: () => onPermanentDelete(product.id) })} style={{ height: 36, color: "#991b1b", borderColor: "#fca5a5", background: "#fff5f5" }}>
+              Permanent Delete
             </button>
           </div>
         </div>
@@ -377,211 +274,118 @@ function ProductDrawer({
    MAIN COMPONENT
 ══════════════════════════════════════════ */
 export default function MarketProducts({ confirm }) {
-  const [tab,          setTab]          = useState("pending");
-  const [products,     setProducts]     = useState([]);
-  const [counts,       setCounts]       = useState({});
-  const [loading,      setLoading]      = useState(true);
-  const [q,            setQ]            = useState("");
-  const [busy,         setBusy]         = useState(null);
-  
-  // UI States
-  const [drawer,            setDrawer]            = useState(null);
-  const [rejectTarget,      setRejectTarget]      = useState(null);
-  const [removeTarget,      setRemoveTarget]      = useState(null);
-  const [bulkCampaignModal, setBulkCampaignModal] = useState(false);
-  
-  // Selection state for bulk actions
-  const [selectedIds, setSelectedIds] = useState([]);
-
+  const [tab, setTab] = useState("pending");
+  const [products, setProducts] = useState([]);
+  const [counts, setCounts] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
   const debouncedQ = useDebounce(q, 300);
+  const [drawer, setDrawer] = useState(null);
+  
+  // NEW: Add Modal State
+  const [addModal, setAddModal] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await adminApi.get(`/market-products${tab ? `?status=${tab}` : ""}`);
-      setProducts(Array.isArray(data) ? data : data.products ?? []);
+      setProducts(data.products ?? []);
       if (data.counts) setCounts(data.counts);
-      setSelectedIds([]); // clear selection on reload
-    } catch (err) {
-      console.error("[MarketProducts load]", err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) {} finally { setLoading(false); }
   }, [tab]);
 
   useEffect(() => { load(); }, [load]);
 
-  const updateLocal = useCallback((id, patch) => {
-    setProducts((prev) => prev.map((p) => p.id === id ? { ...p, ...patch } : p));
-    setDrawer((d) => d?.id === id ? { ...d, ...patch } : d);
-  }, []);
-
-  const removeLocal = useCallback((id) => {
-    setProducts((prev) => prev.filter((p) => p.id !== id));
-    setDrawer((d) => d?.id === id ? null : d);
-  }, []);
-
-  // Standard Actions
-  const handleApprove = async (id) => { setBusy(`ap-${id}`); try { await adminApi.post(`/market-products/${id}/approve`); await load(); setDrawer(null); } catch (err) {} finally { setBusy(null); } };
-  const handleReject = async (id, reason) => { setBusy(`rp-${id}`); try { await adminApi.post(`/market-products/${id}/reject`, { rejectionReason: reason }); await load(); setDrawer(null); } catch (err) {} finally { setBusy(null); } };
-  const handleFlag = async (id, flag, value) => { const bKey = `flag-${id}-${flag}`; setBusy(bKey); try { await adminApi.post(`/market-products/${id}/flag`, { flag, value }); updateLocal(id, { [flag]: value }); } catch (err) {} finally { setBusy(null); } };
-  const handlePause = async (id) => { setBusy(`pause-${id}`); try { const { data } = await adminApi.post(`/market-products/${id}/pause`); updateLocal(id, { is_paused: data.is_paused, status: data.status, is_active: !data.is_paused }); } catch (err) {} finally { setBusy(null); } };
-  const handleStatusChange = async (id, status) => { setBusy(`status-${id}`); try { await adminApi.patch(`/market-products/${id}`, { status }); await load(); setDrawer(null); } catch (err) {} finally { setBusy(null); } };
-  const handleSaveEdit = async (id, fields) => { try { await adminApi.patch(`/market-products/${id}`, fields); updateLocal(id, fields); } catch (err) {} };
-  const handleRemove = async (id, reason) => { setBusy(`rm-${id}`); try { await adminApi.post(`/market-products/${id}/remove`, { reason }); await load(); setDrawer(null); } catch (err) {} finally { setBusy(null); } };
-  const handlePermanentDelete = async (id) => { setBusy(`perm-${id}`); try { await adminApi.delete(`/market-products/${id}/permanent`); removeLocal(id); } catch (err) {} finally { setBusy(null); } };
-
-  // NEW: Bulk Campaign Action
-  const handleBulkCampaignApply = async (ids, campaignTag, badge) => {
-    try {
-      await adminApi.post("/market-products/bulk/campaign", { ids, campaignTag, badge });
-      // Update local state instantly so we don't have to reload if we don't want to
-      setProducts(prev => prev.map(p => ids.includes(p.id) ? { ...p, campaign_tag: campaignTag, badge: badge } : p));
-      setSelectedIds([]);
-    } catch (err) {
-      console.error("[bulk campaign]", err);
-    }
+  const updateLocal = (id, patch) => {
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+    setDrawer(d => d?.id === id ? { ...d, ...patch } : d);
   };
+
+  const handleAdd = async (formData) => {
+    try {
+      await adminApi.post("/market-products", formData);
+      setAddModal(false);
+      load(); // refresh list
+    } catch (err) { console.error(err); }
+  };
+
+  const handleApprove = async (id) => { try { await adminApi.post(`/market-products/${id}/approve`); load(); setDrawer(null); } catch (err) {} };
+  const handleFlag = async (id, flag, value) => { try { await adminApi.post(`/market-products/${id}/flag`, { flag, value }); updateLocal(id, { [flag]: value }); } catch (err) {} };
+  const handleSaveEdit = async (id, fields) => { try { await adminApi.patch(`/market-products/${id}`, fields); updateLocal(id, fields); } catch (err) {} };
+  const handlePermanentDelete = async (id) => { try { await adminApi.delete(`/market-products/${id}/permanent`); setProducts(p => p.filter(x => x.id !== id)); setDrawer(null); } catch (err) {} };
 
   const displayed = useMemo(() => {
     const lq = debouncedQ.toLowerCase();
     if (!lq) return products;
-    return products.filter((p) =>
-      (p.name         ?? "").toLowerCase().includes(lq) ||
-      (p.seller_name  ?? "").toLowerCase().includes(lq) ||
-      (p.campaign_tag ?? "").toLowerCase().includes(lq) ||
-      (p.badge        ?? "").toLowerCase().includes(lq)
-    );
+    return products.filter(p => (p.name??"").toLowerCase().includes(lq) || (p.category??"").toLowerCase().includes(lq));
   }, [products, debouncedQ]);
-
-  // Selection Checkboxes
-  const handleSelectAll = (e) => {
-    setSelectedIds(e.target.checked ? displayed.map(p => p.id) : []);
-  };
-  const handleSelectOne = (id, checked) => {
-    setSelectedIds(prev => checked ? [...prev, id] : prev.filter(x => x !== id));
-  };
 
   return (
     <div>
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Market Products</h2>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "#888" }}>Manage listings and marketing campaigns</p>
         </div>
-        <button className="btn b-ghost" onClick={load} disabled={loading} style={{ fontSize: 13 }}>
-          {loading ? "Loading..." : "Refresh"}
-        </button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn b-ghost" onClick={load} disabled={loading} style={{ fontSize: 13 }}>Refresh</button>
+          <button className="btn b-solid" style={{ background: "#059669", color: "#fff", border: "none" }} onClick={() => setAddModal(true)}>
+            + Add New Listing
+          </button>
+        </div>
       </div>
 
-      {/* Bulk Action Bar (Only shows when items are selected) */}
-      {selectedIds.length > 0 && (
-        <div style={{
-          background: "#059669", color: "#fff", padding: "10px 16px", borderRadius: 10,
-          display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16,
-          boxShadow: "0 4px 12px rgba(5, 150, 105, 0.2)"
-        }}>
-          <span style={{ fontSize: 13, fontWeight: 700 }}>{selectedIds.length} Products Selected</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn b-ghost" style={{ color: "#fff", borderColor: "rgba(255,255,255,0.4)" }} onClick={() => setSelectedIds([])}>Deselect</button>
-            <button className="btn b-solid" style={{ background: "#fff", color: "#059669", border: "none" }} onClick={() => setBulkCampaignModal(true)}>
-              Assign Campaign / Badge
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-        {TABS.map((t) => {
-          const count  = t.key ? (counts[t.key] ?? 0) : (counts.total ?? products.length);
+        {TABS.map(t => {
+          const count = t.key ? (counts[t.key] ?? 0) : (counts.total ?? products.length);
           const active = tab === t.key;
           return (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "7px 14px", borderRadius: 999, border: active ? "none" : "1.5px solid #e8e6e0", background: active ? "#ff5722" : "#fafaf8", color: active ? "#fff" : "#555", fontWeight: 700, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all .15s" }}>
-              {t.label}
-              {count > 0 && <span style={{ borderRadius: 999, fontSize: 10, fontWeight: 800, padding: "1px 6px", minWidth: 18, textAlign: "center", background: active ? "rgba(255,255,255,.25)" : t.key === "pending" ? "#ff5722" : "#e8e6e0", color: active ? "#fff" : t.key === "pending" ? "#fff" : "#555" }}>{count}</span>}
+            <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "7px 14px", borderRadius: 999, border: active ? "none" : "1.5px solid #e8e6e0", background: active ? "#ff5722" : "#fafaf8", color: active ? "#fff" : "#555", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+              {t.label} {count > 0 && `(${count})`}
             </button>
           );
         })}
       </div>
 
-      {/* Search */}
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, seller, campaign..." style={{ width: "100%", maxWidth: 420, padding: "9px 14px", border: "1.5px solid #e8e6e0", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fafaf8", marginBottom: 16 }} />
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search..." style={{ width: "100%", maxWidth: 420, padding: "9px 14px", border: "1.5px solid #e8e6e0", borderRadius: 10, fontSize: 13, marginBottom: 16 }} />
 
-      {/* Table */}
-      {loading ? (
-        <div style={{ textAlign: "center", padding: 60, color: "#aaa" }}>Loading listings...</div>
-      ) : displayed.length === 0 ? (
-        <EmptyState tab={tab} />
-      ) : (
+      {loading ? ( <div style={{ textAlign: "center", padding: 60 }}>Loading...</div> ) : displayed.length === 0 ? ( <EmptyState tab={tab} /> ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 920 }}>
             <thead>
               <tr style={{ borderBottom: "2px solid #f0eeea" }}>
-                <th style={{ padding: "10px", width: 40 }}>
-                  <input type="checkbox" checked={selectedIds.length === displayed.length && displayed.length > 0} onChange={handleSelectAll} style={{ cursor: "pointer" }} />
-                </th>
-                {["", "Product", "Seller", "Price", "Status", "Campaign", "Flags", "Actions"].map((h) => (
-                  <th key={h} style={{ padding: "10px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: ".4px", whiteSpace: "nowrap" }}>{h}</th>
+                {["Product", "Price", "Status", "Campaign", "Actions"].map(h => (
+                  <th key={h} style={{ padding: "10px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "#aaa", textTransform: "uppercase" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {displayed.map((p) => {
-                const coverUrl = p.cover_image || (p.images?.length ? (typeof p.images[0] === "string" ? p.images[0] : p.images[0]?.image_url ?? p.images[0]?.url) : null);
-                const isSelected = selectedIds.includes(p.id);
-
-                return (
-                  <tr key={p.id} style={{ borderBottom: "1px solid #f5f4f0", background: isSelected ? "#ecfdf5" : p.is_flagged ? "#fffbeb" : "transparent", transition: "background .12s" }}>
-                    <td style={{ padding: "8px 10px" }}>
-                      <input type="checkbox" checked={isSelected} onChange={(e) => handleSelectOne(p.id, e.target.checked)} style={{ cursor: "pointer" }} />
-                    </td>
-                    <td style={{ padding: "8px 10px", width: 56, cursor: "pointer" }} onClick={() => setDrawer(p)}>
-                      {coverUrl ? <img src={coverUrl} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1.5px solid #f0eeea" }} /> : <div style={{ width: 44, height: 44, borderRadius: 8, background: "#f0eeea" }} />}
-                    </td>
-                    <td style={{ padding: "8px 10px", cursor: "pointer" }} onClick={() => setDrawer(p)}>
-                      <div style={{ fontWeight: 700 }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: "#888" }}>{p.category}</div>
-                    </td>
-                    <td style={{ padding: "8px 10px", cursor: "pointer" }} onClick={() => setDrawer(p)}>
-                      <div style={{ fontWeight: 600 }}>{p.seller_name ?? "—"}</div>
-                    </td>
-                    <td style={{ padding: "8px 10px", fontWeight: 800, color: "#ff5722", whiteSpace: "nowrap" }}>
-                      {Number(p.price ?? 0).toLocaleString("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 })}
-                    </td>
-                    <td style={{ padding: "8px 10px" }}><StatusPill status={p.status} /></td>
-                    <td style={{ padding: "8px 10px" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                        {p.campaign_tag && <FlagChip label={p.campaign_tag} color="#059669" />}
-                        {p.badge && <FlagChip label={p.badge} color="#0284c7" />}
-                      </div>
-                    </td>
-                    <td style={{ padding: "8px 10px" }}>
-                      <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
-                        {p.is_featured  && <FlagChip label="Feat" color="#d97706" />}
-                        {p.is_trending  && <FlagChip label="Trend" color="#dc2626" />}
-                      </div>
-                    </td>
-                    <td style={{ padding: "8px 10px" }}>
-                      <button className="btn b-ghost" onClick={() => setDrawer(p)} style={{ fontSize: 11, padding: "4px 10px", height: 28 }}>View</button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {displayed.map(p => (
+                <tr key={p.id} style={{ borderBottom: "1px solid #f5f4f0", cursor: "pointer" }} onClick={() => setDrawer(p)}>
+                  <td style={{ padding: "8px 10px" }}>
+                    <div style={{ fontWeight: 700 }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: "#888" }}>{p.category} · Stock: {p.stock}</div>
+                  </td>
+                  <td style={{ padding: "8px 10px", fontWeight: 800, color: "#ff5722" }}>₦{Number(p.price??0).toLocaleString()}</td>
+                  <td style={{ padding: "8px 10px" }}><StatusPill status={p.status} /></td>
+                  <td style={{ padding: "8px 10px" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      {p.campaign_tag && <FlagChip label={p.campaign_tag} color="#059669" />}
+                      {p.badge && <FlagChip label={p.badge} color="#0284c7" />}
+                    </div>
+                  </td>
+                  <td style={{ padding: "8px 10px" }}>
+                    <button className="btn b-ghost" onClick={() => setDrawer(p)} style={{ fontSize: 11, padding: "4px 10px", height: 28 }}>Edit / View</button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       )}
 
-      {/* Drawers & Modals */}
-      {drawer && <ProductDrawer product={drawer} onClose={() => setDrawer(null)} onApprove={handleApprove} onRejectOpen={(p) => { setDrawer(null); setRejectTarget(p); }} onRemoveOpen={(p) => { setDrawer(null); setRemoveTarget(p); }} onPause={handlePause} onFlag={handleFlag} onStatusChange={handleStatusChange} onSaveEdit={handleSaveEdit} onPermanentDelete={handlePermanentDelete} busy={busy} confirm={confirm} />}
-      {rejectTarget && <RejectModal product={rejectTarget} onReject={handleReject} onClose={() => setRejectTarget(null)} />}
-      {removeTarget && <RemoveModal product={removeTarget} onRemove={handleRemove} onClose={() => setRemoveTarget(null)} />}
-      
-      {bulkCampaignModal && (
-        <BulkCampaignModal ids={selectedIds} onApply={handleBulkCampaignApply} onClose={() => setBulkCampaignModal(false)} />
-      )}
+      {addModal && <AddProductModal onAdd={handleAdd} onClose={() => setAddModal(false)} />}
+      {drawer && <ProductDrawer product={drawer} onClose={() => setDrawer(null)} onApprove={handleApprove} onFlag={handleFlag} onSaveEdit={handleSaveEdit} onPermanentDelete={handlePermanentDelete} confirm={confirm} />}
     </div>
   );
 }
