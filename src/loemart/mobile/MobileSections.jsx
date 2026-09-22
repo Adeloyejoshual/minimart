@@ -1,6 +1,13 @@
 /**
  * src/loemart/mobile/MobileSections.jsx
- * High-Conversion Marketing Layout (Urgency, Bento Promos, Trust)
+ * High-conversion marketing block — placed AFTER MobileHero
+ *
+ * Props (from Minimart /products/home):
+ *  - deals            → Deal of the Day (real discounts)
+ *  - trending | hot   → Hot / trending rail
+ *  - newArrivals      → Just Dropped
+ *  - campaignTitle    → Admin campaign name e.g. "December Deals"
+ *  - campaignProducts → Products tagged with that campaign
  */
 import { memo, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -16,6 +23,8 @@ import {
   FiHome,
   FiClock,
   FiChevronRight,
+  FiZap,
+  FiTag,
 } from "react-icons/fi";
 import {
   fmtPrice,
@@ -30,24 +39,45 @@ import "./styles/MobileSections.css";
 
 function smartTruncate(text, maxChars = 35) {
   if (!text) return "";
-  if (text.length <= maxChars) return text;
-  return text.slice(0, maxChars).trim() + "…";
+  const s = String(text).trim();
+  if (s.length <= maxChars) return s;
+  const cut = s.slice(0, maxChars);
+  const sp = cut.lastIndexOf(" ");
+  return `${(sp > 12 ? cut.slice(0, sp) : cut).trim()}…`;
 }
 
-/* ── 1. TRUST BAR (Sleeker, builds instant buyer confidence) ── */
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   1. TRUST STRIP
+════════════════════════════════════════════════════════════ */
 const TrustStrip = memo(function TrustStrip() {
   return (
-    <div className="lmm-trust-strip">
-      <div className="lmm-trust-item"><FiShield /> <span>Buyer Protection</span></div>
-      <div className="lmm-trust-divider" />
-      <div className="lmm-trust-item"><FiTruck /> <span>Fast Delivery</span></div>
-      <div className="lmm-trust-divider" />
-      <div className="lmm-trust-item"><FiAward /> <span>Verified Quality</span></div>
+    <div className="lmm-trust-strip" aria-label="Shopping guarantees">
+      <div className="lmm-trust-item">
+        <FiShield aria-hidden />
+        <span>Buyer Protection</span>
+      </div>
+      <div className="lmm-trust-divider" aria-hidden />
+      <div className="lmm-trust-item">
+        <FiTruck aria-hidden />
+        <span>Fast Delivery</span>
+      </div>
+      <div className="lmm-trust-divider" aria-hidden />
+      <div className="lmm-trust-item">
+        <FiAward aria-hidden />
+        <span>Verified Quality</span>
+      </div>
     </div>
   );
 });
 
-/* ── 2. QUICK CATEGORIES (High Engagement) ── */
+/* ════════════════════════════════════════════════════════════
+   2. CATEGORY GRID
+════════════════════════════════════════════════════════════ */
 const CATEGORIES = [
   { id: "phones", label: "Phones", icon: FiSmartphone, q: "phones" },
   { id: "fashion", label: "Fashion", icon: FiShoppingBag, q: "fashion" },
@@ -57,180 +87,322 @@ const CATEGORIES = [
 
 const CategoryRow = memo(function CategoryRow() {
   const navigate = useNavigate();
+
   return (
-    <div className="lmm-cat-grid">
-      {CATEGORIES.map((c) => (
-        <button
-          key={c.id}
-          type="button"
-          className="lmm-cat-card"
-          onClick={() => navigate(`/catalog?category=${encodeURIComponent(c.q)}`)}
-        >
-          <div className="lmm-cat-card__icon"><c.icon size={22} strokeWidth={1.5} /></div>
-          <span className="lmm-cat-card__label">{c.label}</span>
-        </button>
-      ))}
+    <div className="lmm-cat-grid" aria-label="Shop by category">
+      {CATEGORIES.map((c) => {
+        const Icon = c.icon;
+        return (
+          <button
+            key={c.id}
+            type="button"
+            className="lmm-cat-card"
+            onClick={() =>
+              navigate(`/catalog?category=${encodeURIComponent(c.q)}`)
+            }
+          >
+            <div className="lmm-cat-card__icon">
+              <Icon size={22} strokeWidth={1.5} aria-hidden />
+            </div>
+            <span className="lmm-cat-card__label">{c.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 });
 
-/* ── 3. BENTO PROMO GRID (Replaces boring banner, drives clicks to specific deals) ── */
+/* ════════════════════════════════════════════════════════════
+   3. BENTO PROMO GRID
+════════════════════════════════════════════════════════════ */
 const PromoBento = memo(function PromoBento() {
   const navigate = useNavigate();
+
   return (
-    <div className="lmm-bento">
-      <div 
-        className="lmm-bento-main" 
-        onClick={() => navigate("/catalog?sort=price_desc")}
+    <div className="lmm-bento" aria-label="Featured promotions">
+      <button
+        type="button"
+        className="lmm-bento-main"
+        onClick={() => navigate("/catalog?deal=true&sort=deal")}
       >
         <span className="lmm-bento-badge">Must Have</span>
-        <h4>Tech<br/>Clearance</h4>
+        <h4>
+          Tech
+          <br />
+          Clearance
+        </h4>
         <p>Up to 50% Off</p>
-      </div>
+      </button>
+
       <div className="lmm-bento-side">
-        <div 
+        <button
+          type="button"
           className="lmm-bento-sub lmm-bento-sub--1"
           onClick={() => navigate("/catalog?sort=newest")}
         >
           <h5>New Drops</h5>
           <p>Explore</p>
-        </div>
-        <div 
+        </button>
+        <button
+          type="button"
           className="lmm-bento-sub lmm-bento-sub--2"
-          onClick={() => navigate("/catalog?sort=views")}
+          onClick={() => navigate("/catalog?sort=bestselling")}
         >
-          <h5>Top Rated</h5>
+          <h5>Bestsellers</h5>
           <p>Shop now</p>
+        </button>
+      </div>
+    </div>
+  );
+});
+
+/* ════════════════════════════════════════════════════════════
+   4. RAIL CARD
+════════════════════════════════════════════════════════════ */
+const RailCard = memo(function RailCard({ item, isDeal = false }) {
+  const navigate = useNavigate();
+
+  const img = primaryImg(item?.images, item);
+  const price = num(item?.price ?? item?.selling_price);
+  const oldPrice = num(
+    item?.original_price ??
+      item?.originalPrice ??
+      item?.compare_at_price ??
+      item?.compare_price ??
+      item?.old_price
+  );
+  const discount = calcDiscount(item);
+  const title = smartTruncate(item?.name || item?.title, 35);
+  const badge = item?.badge ? String(item.badge).trim() : "";
+
+  const go = () => {
+    addToRecentlyViewed(item);
+    navigate(`/shop/${item?.slug ?? item?.id}`);
+  };
+
+  return (
+    <div
+      className={`mdp-rail-hcard${isDeal ? " mdp-rail-hcard--deal" : ""}`}
+      onClick={go}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          go();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <div className="mdp-rail-hcard__media">
+        {img ? (
+          <img src={img} alt={title} loading="lazy" />
+        ) : (
+          <div className="mdp-rail-hcard__ph" aria-hidden>
+            📦
+          </div>
+        )}
+
+        {discount > 0 && (
+          <span className="mdp-rail-hcard__badge">-{discount}%</span>
+        )}
+
+        {badge && !discount && (
+          <span className="mdp-rail-hcard__badge mdp-rail-hcard__badge--soft">
+            {badge}
+          </span>
+        )}
+      </div>
+
+      <div className="mdp-rail-hcard__body">
+        <h4 className="mdp-rail-hcard__name">{title}</h4>
+        <div className="mm-card-bottom">
+          <span className="mdp-rail-hcard__price">{fmtPrice(price)}</span>
+          {oldPrice > price && price > 0 && (
+            <span className="mdp-rail-hcard__old">{fmtPrice(oldPrice)}</span>
+          )}
         </div>
       </div>
     </div>
   );
 });
 
-/* ── 4. DEAL OF THE DAY (Psychological Urgency) ── */
+/* ════════════════════════════════════════════════════════════
+   5. DEAL OF THE DAY (urgency)
+════════════════════════════════════════════════════════════ */
 const DealOfTheDay = memo(function DealOfTheDay({ items = [] }) {
   const navigate = useNavigate();
-  // Timer resets every midnight locally to create daily urgency
+
   const midnight = useMemo(() => {
     const d = new Date();
     d.setHours(23, 59, 59, 999);
     return d.toISOString();
   }, []);
-  
+
   const { h, m, s } = useCountdown(midnight);
 
-  if (!items || items.length === 0) return null;
+  if (!items.length) return null;
 
   return (
-    <section className="mdp-psec mdp-psec--deals">
+    <section className="mdp-psec mdp-psec--deals" aria-label="Deal of the Day">
       <div className="mdp-psec__head mdp-psec__head--deals">
         <div className="mdp-psec__head-left">
-          <h3 className="mdp-psec__title text-white">Deal of the Day</h3>
-          <div className="lmm-timer">
-            <FiClock size={12} /> {h}:{m}:{s}
+          <FiZap size={16} color="#dc2626" aria-hidden />
+          <h3 className="mdp-psec__title mdp-psec__title--deal">
+            Deal of the Day
+          </h3>
+          <div className="lmm-timer" aria-live="polite">
+            <FiClock size={12} aria-hidden />
+            <span>
+              {h}:{m}:{s}
+            </span>
           </div>
         </div>
+        <button
+          type="button"
+          className="mdp-psec__all"
+          onClick={() => navigate("/catalog?deal=true&sort=deal")}
+        >
+          See all <FiChevronRight size={14} aria-hidden />
+        </button>
       </div>
+
       <div className="mdp-rail-hscroll mdp-rail-hscroll--deals">
         {items.map((item) => (
-          <RailCard key={item.id || item._id} item={item} isDeal />
+          <RailCard
+            key={item.id || item._id || item.slug}
+            item={item}
+            isDeal
+          />
         ))}
       </div>
     </section>
   );
 });
 
-/* ── 5. RAIL CARD (Optimized for clicks) ── */
-const RailCard = memo(function RailCard({ item, isDeal }) {
-  const navigate = useNavigate();
-  const img = primaryImg(item.images, item);
-  const price = item.price || item.selling_price;
-  const oldPrice = item.original_price || item.originalPrice || item.compare_price;
-  const discount = calcDiscount(item);
-  const title = smartTruncate(item.name || item.title, 35);
-
-  return (
-    <div
-      className={`mdp-rail-hcard ${isDeal ? "mdp-rail-hcard--deal" : ""}`}
-      onClick={() => {
-        addToRecentlyViewed(item);
-        navigate(`/shop/${item.slug ?? item.id}`);
-      }}
-    >
-      <div className="mdp-rail-hcard__media">
-        {img ? <img src={img} alt={title} loading="lazy" /> : <div className="mdp-rail-hcard__ph">📦</div>}
-        {discount > 0 && <span className="mdp-rail-hcard__badge">-{discount}%</span>}
-      </div>
-      <div className="mdp-rail-hcard__body">
-        <h4 className="mdp-rail-hcard__name">{title}</h4>
-        <div className="mm-card-bottom">
-          <span className="mdp-rail-hcard__price">{fmtPrice(price)}</span>
-          {oldPrice > price && <span className="mdp-rail-hcard__old">{fmtPrice(oldPrice)}</span>}
-        </div>
-      </div>
-    </div>
-  );
-});
-
-/* ── 6. STANDARD CURATED RAIL ── */
-const CuratedRail = memo(function CuratedRail({ title, items = [], icon: Icon, onSeeAll }) {
+/* ════════════════════════════════════════════════════════════
+   6. CURATED RAIL
+════════════════════════════════════════════════════════════ */
+const CuratedRail = memo(function CuratedRail({
+  title,
+  items = [],
+  icon: Icon,
+  onSeeAll,
+  tone = "default",
+}) {
   if (!items.length) return null;
+
   return (
-    <section className="mdp-psec">
+    <section
+      className={`mdp-psec${tone === "campaign" ? " mdp-psec--campaign" : ""}`}
+    >
       <div className="mdp-psec__head">
         <div className="mdp-psec__head-left">
-          {Icon && <Icon size={18} color="#ff6b00" />}
+          {Icon ? <Icon size={18} color="#ff6b00" aria-hidden /> : null}
           <h3 className="mdp-psec__title">{title}</h3>
         </div>
-        {onSeeAll && (
+        {onSeeAll ? (
           <button type="button" className="mdp-psec__all" onClick={onSeeAll}>
-            See all <FiChevronRight />
+            See all <FiChevronRight size={14} aria-hidden />
           </button>
-        )}
+        ) : null}
       </div>
+
       <div className="mdp-rail-hscroll">
         {items.map((item) => (
-          <RailCard key={item.id || item._id} item={item} />
+          <RailCard key={item.id || item._id || item.slug} item={item} />
         ))}
       </div>
     </section>
   );
 });
 
-/* ── 7. RECENTLY VIEWED ── */
+/* ════════════════════════════════════════════════════════════
+   7. RECENTLY VIEWED (local only)
+════════════════════════════════════════════════════════════ */
 const RecentlyViewedRail = memo(function RecentlyViewedRail() {
   const items = useMemo(() => {
-    try { return (getRecentlyViewed() || []).slice(0, 6); } catch { return []; }
+    try {
+      return (getRecentlyViewed() || []).slice(0, 8);
+    } catch {
+      return [];
+    }
   }, []);
+
   if (!items.length) return null;
-  return <CuratedRail title="Based on your views" items={items} icon={FiGift} />;
+
+  return (
+    <CuratedRail title="Based on your views" items={items} icon={FiGift} />
+  );
 });
 
-/* ── MAIN EXPORT ── */
-export default memo(function MobileSections({ newArrivals = [], trending = [] }) {
+/* ════════════════════════════════════════════════════════════
+   MAIN
+════════════════════════════════════════════════════════════ */
+function MobileSections({
+  deals = [],
+  trending = [],
+  hot = [],
+  newArrivals = [],
+  campaignTitle = null,
+  campaignProducts = [],
+}) {
   const navigate = useNavigate();
 
-  // We use the first 4 trending items for the "Deal of the Day" to fake a flash sale 
-  // without needing extra API calls, instantly increasing conversion!
-  const dealItems = useMemo(() => trending.slice(0, 4), [trending]);
-  const hotItems = useMemo(() => trending.slice(4, 10), [trending]);
+  /** Prefer real discounted deals from API; fallback to first hot items */
+  const dealItems = useMemo(() => {
+    if (Array.isArray(deals) && deals.length) return deals.slice(0, 8);
+    const pool = (hot?.length ? hot : trending) || [];
+    return pool.slice(0, 4);
+  }, [deals, hot, trending]);
+
+  const hotItems = useMemo(() => {
+    const pool = (hot?.length ? hot : trending) || [];
+    // If we borrowed from pool for deals fallback, skip overlap when same source
+    if (Array.isArray(deals) && deals.length) return pool.slice(0, 10);
+    return pool.slice(4, 12);
+  }, [deals, hot, trending]);
+
+  const campaignItems = useMemo(
+    () => (Array.isArray(campaignProducts) ? campaignProducts.slice(0, 10) : []),
+    [campaignProducts]
+  );
+
+  const campaignName =
+    (campaignTitle && String(campaignTitle).trim()) ||
+    campaignItems[0]?.campaign_tag ||
+    null;
 
   return (
     <div className="lmm-marketing-container">
       <TrustStrip />
       <CategoryRow />
       <PromoBento />
-      
-      {/* High-conversion urgency section */}
+
+      {/* Real or fallback urgency rail */}
       <DealOfTheDay items={dealItems} />
 
-      {/* Main shopping rails */}
+      {/* Admin-defined campaign e.g. "December Deals" */}
+      {campaignName && campaignItems.length > 0 && (
+        <CuratedRail
+          title={campaignName}
+          items={campaignItems}
+          icon={FiTag}
+          tone="campaign"
+          onSeeAll={() =>
+            navigate(
+              `/catalog?campaign=${encodeURIComponent(campaignName)}`
+            )
+          }
+        />
+      )}
+
       <CuratedRail
         title="Trending Now"
         items={hotItems}
         icon={FiTrendingUp}
-        onSeeAll={() => navigate("/catalog?sort=views")}
+        onSeeAll={() => navigate("/catalog?sort=bestselling")}
       />
+
       <CuratedRail
         title="Just Dropped"
         items={newArrivals}
@@ -241,4 +413,6 @@ export default memo(function MobileSections({ newArrivals = [], trending = [] })
       <RecentlyViewedRail />
     </div>
   );
-});
+}
+
+export default memo(MobileSections);
