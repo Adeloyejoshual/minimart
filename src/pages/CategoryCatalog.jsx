@@ -1,1001 +1,321 @@
 /**
  * src/pages/CategoryCatalog.jsx
- *
- * Routes:
- * /catalog
- * /loemart/explore
- * /loemart/new
- * /loemart/trending
- * /loemart/deals
- *
- * Query:
- * ?category=slug
- * ?brand=Name
- * ?q=search
- * ?sort=newest
+ * Professional E-Commerce Catalog Page
+ * - Supports Infinite Scroll
+ * - Variant grouping ("From ₦X" / "+ Colors")
+ * - Dynamic Quick Filters & Sort Bottom Sheet
+ * - Fully synced with the new Backend API
  */
 
-import {
-  useState,
-  useEffect,
-  useMemo,
-  useCallback,
-} from "react";
-
-import {
-  useSearchParams,
-  useNavigate,
-  useLocation,
-} from "react-router-dom";
-
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
-
 import {
-  formatPrice,
-  getProductImage,
-  calcDiscount,
-} from "../config/marketplace";
+  FiChevronLeft,
+  FiSearch,
+  FiFilter,
+  FiChevronDown,
+  FiCheck,
+  FiHeart,
+} from "react-icons/fi";
 
+import { API, primaryImg, getRecentlyViewed } from "./mobile/mobileHelpers";
 import "../styles/CategoryCatalog.css";
 
-
-/* ─────────────────────────────────────────────────────────────
-   API
-───────────────────────────────────────────────────────────── */
-
-const RAW_BASE =
-  import.meta.env.VITE_API_BASE_URL || "";
-
-const API_ROOT = RAW_BASE
-  ? RAW_BASE.endsWith("/api")
-    ? RAW_BASE
-    : `${RAW_BASE}/api`
-  : "/api";
-
-const PRODUCTS_URL =
-  `${API_ROOT}/products`;
-
-
-/* ─────────────────────────────────────────────────────────────
-   Icons
-───────────────────────────────────────────────────────────── */
-
-const Icon = {
-  search: (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      width={18}
-      height={18}
-    >
-      <circle cx="11" cy="11" r="8" />
-      <line
-        x1="21"
-        y1="21"
-        x2="16.65"
-        y2="16.65"
-      />
-    </svg>
-  ),
-
-  heart: (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      width={18}
-      height={18}
-    >
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  ),
-
-  heartFilled: (
-    <svg
-      viewBox="0 0 24 24"
-      fill="#ff5722"
-      stroke="#ff5722"
-      strokeWidth={2}
-      width={18}
-      height={18}
-    >
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  ),
-
-  star: (
-    <svg
-      viewBox="0 0 24 24"
-      fill="#f59e0b"
-      width={12}
-      height={12}
-    >
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  ),
-
-  chevronDown: (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      width={14}
-      height={14}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  ),
-
-  sort: (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      width={16}
-      height={16}
-    >
-      <line x1="4" y1="6" x2="16" y2="6" />
-      <line x1="4" y1="12" x2="12" y2="12" />
-      <line x1="4" y1="18" x2="8" y2="18" />
-    </svg>
-  ),
-
-  filter: (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      width={16}
-      height={16}
-    >
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  ),
-
-  back: (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      width={20}
-      height={20}
-    >
-      <line
-        x1="19"
-        y1="12"
-        x2="5"
-        y2="12"
-      />
-      <polyline points="12 19 5 12 12 5" />
-    </svg>
-  ),
+/* ── HELPERS ── */
+const parseNum = (val) => {
+  if (val == null || val === "") return 0;
+  const n = Number(String(val).replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : 0;
 };
+const fmtPrice = (val) => (val > 0 ? `₦${Number(val).toLocaleString("en-NG")}` : "₦0");
 
+const SVGStar = () => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="#f59e0b" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+  </svg>
+);
 
-/* ─────────────────────────────────────────────────────────────
-   Helpers
-───────────────────────────────────────────────────────────── */
-
-function titleCase(str) {
-  return String(str || "")
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (c) =>
-      c.toUpperCase()
-    );
-}
-
-function pickRating(product) {
-  const rating = Number(
-    product?.rating ??
-    product?.average_rating ??
-    0
-  );
-
-  return rating > 0 ? rating : null;
-}
-
-
-/* ─────────────────────────────────────────────────────────────
-   Discovery configuration
-───────────────────────────────────────────────────────────── */
-
-const DISCOVERY_MODES = {
-  explore: {
-    title: "Explore Listings",
-    description:
-      "Discover products and listings from sellers on Loemart.",
-    sort: "newest",
-  },
-
-  new: {
-    title: "New Listings",
-    description:
-      "Browse the latest products and listings recently added to Loemart.",
-    sort: "newest",
-  },
-
-  trending: {
-    title: "Trending",
-    description:
-      "Explore listings getting attention from shoppers on Loemart.",
-    sort: "trending",
-  },
-
-  deals: {
-    title: "Deals",
-    description:
-      "Discover listings currently available at reduced prices.",
-    sort: "deals",
-  },
+/* ── DISCOVERY ROUTE MAP ── */
+const ROUTE_MAP = {
+  "/loemart/new": { title: "New Arrivals", baseSort: "newest" },
+  "/loemart/trending": { title: "Trending Now", baseSort: "trending" },
+  "/loemart/deals": { title: "Top Deals", baseSort: "deal", baseDeal: "true" },
+  "/catalog": { title: "All Products", baseSort: "bestselling" },
+  "/loemart/explore": { title: "Explore", baseSort: "relevance" },
 };
-
-
-/* ─────────────────────────────────────────────────────────────
-   Component
-───────────────────────────────────────────────────────────── */
 
 export default function CategoryCatalog() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [searchParams] =
-    useSearchParams();
+  // URL Params
+  const catParam = searchParams.get("category") || "";
+  const campaignParam = searchParams.get("campaign") || "";
+  const qParam = searchParams.get("q") || "";
+  const sortParam = searchParams.get("sort") || "";
+  const dealParam = searchParams.get("deal") || "";
 
-  const categorySlug =
-    searchParams.get("category") || "";
+  // Route Config
+  const routeConfig = ROUTE_MAP[location.pathname] || ROUTE_MAP["/catalog"];
+  const activeSort = sortParam || routeConfig.baseSort;
+  const isDealOnly = dealParam === "true" || routeConfig.baseDeal === "true";
 
-  const brandParam =
-    searchParams.get("brand") || "";
+  // State
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  
+  // UI State
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [wishlist, setWishlist] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("mm_wishlist") || "[]")); } 
+    catch { return new Set(); }
+  });
 
-  const searchQuery =
-    searchParams.get("q") || "";
+  /* ── DYNAMIC PAGE TITLE ── */
+  const pageTitle = useMemo(() => {
+    if (campaignParam) return campaignParam;
+    if (qParam) return `Search: "${qParam}"`;
+    if (catParam) return catParam.charAt(0).toUpperCase() + catParam.slice(1);
+    return routeConfig.title;
+  }, [campaignParam, qParam, catParam, routeConfig.title]);
 
-  const sortParam =
-    searchParams.get("sort") || "";
+  /* ── FETCH DATA ── */
+  const fetchProducts = useCallback(async (newOffset = 0, append = false) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
 
+    try {
+      const params = {
+        limit: 20,
+        offset: newOffset,
+        sort: activeSort,
+      };
+      if (catParam) params.category = catParam;
+      if (campaignParam) params.campaign = campaignParam;
+      if (qParam) params.search = qParam;
+      if (isDealOnly) params.deal = "true";
 
-  /* Determine discovery page */
+      const { data } = await axios.get(`${API}/products`, { params });
+      const rows = data?.data?.products || [];
+      const totalCount = data?.data?.pagination?.total || 0;
 
-  const discoveryMode = useMemo(() => {
-    const path = location.pathname;
-
-    if (path === "/loemart/new") {
-      return "new";
+      setProducts(prev => (append ? [...prev, ...rows] : rows));
+      setTotal(totalCount);
+      setOffset(newOffset);
+    } catch (err) {
+      console.error("Fetch error", err);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
     }
-
-    if (path === "/loemart/trending") {
-      return "trending";
-    }
-
-    if (path === "/loemart/deals") {
-      return "deals";
-    }
-
-    if (path === "/loemart/explore") {
-      return "explore";
-    }
-
-    return null;
-  }, [location.pathname]);
-
-
-  const discovery =
-    discoveryMode
-      ? DISCOVERY_MODES[discoveryMode]
-      : null;
-
-
-  const effectiveSort =
-    sortParam ||
-    discovery?.sort ||
-    "newest";
-
-
-  /* Products */
-
-  const [products, setProducts] =
-    useState([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [error, setError] =
-    useState(null);
-
-  const [showMoreSeo, setShowMoreSeo] =
-    useState(false);
-
-
-  /* Wishlist */
-
-  const [wishlist, setWishlist] =
-    useState(() => {
-      try {
-        return new Set(
-          JSON.parse(
-            localStorage.getItem(
-              "mm_wishlist"
-            ) || "[]"
-          )
-        );
-      } catch {
-        return new Set();
-      }
-    });
-
-
-  /* Page title */
-
-  const displayTitle = useMemo(() => {
-    if (discovery) {
-      return discovery.title;
-    }
-
-    if (brandParam) {
-      return titleCase(brandParam);
-    }
-
-    if (categorySlug) {
-      return titleCase(categorySlug);
-    }
-
-    if (searchQuery) {
-      return `“${searchQuery}”`;
-    }
-
-    return "All Products";
-  }, [
-    discovery,
-    brandParam,
-    categorySlug,
-    searchQuery,
-  ]);
-
-
-  /* Description */
-
-  const pageDescription = useMemo(() => {
-    if (discovery) {
-      return discovery.description;
-    }
-
-    if (brandParam || categorySlug) {
-      return `Explore ${displayTitle} on Loemart Nigeria.`;
-    }
-
-    if (searchQuery) {
-      return `Search results for ${displayTitle}.`;
-    }
-
-    return "Explore products and listings on Loemart.";
-  }, [
-    discovery,
-    displayTitle,
-    brandParam,
-    categorySlug,
-    searchQuery,
-  ]);
-
-
-  /* ───────────────────────────────────────────────────────────
-     Fetch products
-  ─────────────────────────────────────────────────────────── */
+  }, [activeSort, catParam, campaignParam, qParam, isDealOnly]);
 
   useEffect(() => {
-    let cancelled = false;
+    fetchProducts(0, false);
+  }, [fetchProducts]);
 
-    setLoading(true);
-    setError(null);
-
-    const params = {
-      page: 1,
-      limit: 48,
-      sort: effectiveSort || undefined,
-    };
-
-
-    if (categorySlug) {
-      params.category = categorySlug;
-      params.category_slug = categorySlug;
-      params.slug = categorySlug;
-    }
-
-
-    if (brandParam) {
-      params.brand = brandParam;
-      params.brand_name = brandParam;
-    }
-
-
-    if (searchQuery) {
-      params.q = searchQuery;
-      params.search = searchQuery;
-    }
-
-
-    axios
-      .get(PRODUCTS_URL, {
-        params,
-        timeout: 15000,
-      })
-      .then(({ data }) => {
-        if (cancelled) return;
-
-        const list =
-          data?.data?.products ??
-          data?.data?.items ??
-          data?.data ??
-          data?.products ??
-          data?.items ??
-          (Array.isArray(data)
-            ? data
-            : []);
-
-        setProducts(
-          Array.isArray(list)
-            ? list
-            : []
-        );
-      })
-      .catch((err) => {
-        console.error(
-          "[CategoryCatalog] Fetch error:",
-          err
-        );
-
-        if (!cancelled) {
-          setProducts([]);
-
-          setError(
-            err?.response?.status === 404
-              ? "not_found"
-              : "error"
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    categorySlug,
-    brandParam,
-    searchQuery,
-    effectiveSort,
-  ]);
-
-
-  /* ───────────────────────────────────────────────────────────
-     Deals fallback
-  ─────────────────────────────────────────────────────────── */
-
-  const visibleProducts = useMemo(() => {
-    if (discoveryMode !== "deals") {
-      return products;
-    }
-
-    return products.filter((product) => {
-      const price = Number(
-        product.price ??
-        product.sale_price ??
-        product.selling_price ??
-        0
-      );
-
-      const originalPrice = Number(
-        product.original_price ||
-        product.compare_price ||
-        product.list_price ||
-        0
-      );
-
-      return (
-        originalPrice > 0 &&
-        price > 0 &&
-        originalPrice > price
-      );
+  /* ── WISHLIST TOGGLE ── */
+  const toggleWish = useCallback((id, e) => {
+    e.stopPropagation();
+    setWishlist(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      localStorage.setItem("mm_wishlist", JSON.stringify([...next]));
+      return next;
     });
-  }, [
-    products,
-    discoveryMode,
-  ]);
+  }, []);
 
+  const hasMore = offset + 20 < total;
 
-  /* ───────────────────────────────────────────────────────────
-     Wishlist
-  ─────────────────────────────────────────────────────────── */
-
-  const toggleWishlist = useCallback(
-    (id, event) => {
-      event.stopPropagation();
-
-      setWishlist((previous) => {
-        const next = new Set(previous);
-
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-
-        try {
-          localStorage.setItem(
-            "mm_wishlist",
-            JSON.stringify([
-              ...next,
-            ])
-          );
-        } catch {
-          /* Ignore storage errors */
-        }
-
-        return next;
-      });
-    },
-    []
-  );
-
-
-  /* ───────────────────────────────────────────────────────────
-     Product navigation
-  ─────────────────────────────────────────────────────────── */
-
-  const goProduct = useCallback(
-    (product) => {
-      navigate(
-        `/shop/${
-          product.slug ||
-          product.id
-        }`
-      );
-    },
-    [navigate]
-  );
-
-
+  /* ── RENDER ── */
   return (
-    <div className="jumia-cat-page">
-
-      {/* Header */}
-
-      <header className="jumia-cat-header">
-
-        <button
-          type="button"
-          className="jumia-cat-back"
-          onClick={() =>
-            navigate(-1)
-          }
-          aria-label="Back"
-        >
-          {Icon.back}
+    <div className="cat-page">
+      
+      {/* 1. Header (Sticky) */}
+      <header className="cat-header">
+        <button className="cat-btn-icon" onClick={() => navigate(-1)}>
+          <FiChevronLeft size={24} color="#1a1a1a" />
         </button>
-
-
-        <div
-          className="jumia-search-bar"
-          onClick={() =>
-            navigate("/search")
-          }
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter"
-            ) {
-              navigate("/search");
-            }
-          }}
-        >
-          {Icon.search}
-
-          <span>
-            Search products, brands...
-          </span>
+        <div className="cat-search-bar" onClick={() => navigate("/loemart/search")}>
+          <FiSearch size={16} color="#888" />
+          <span>{qParam || "Search products, brands..."}</span>
         </div>
-
       </header>
 
-
-      {/* Breadcrumb */}
-
-      <nav
-        className="jumia-breadcrumbs"
-        aria-label="Breadcrumb"
-      >
-        <button
-          type="button"
-          onClick={() =>
-            navigate("/loemart")
-          }
+      {/* 2. Quick Filters Scroll (Categories & Sorts) */}
+      <div className="cat-quick-filters">
+        <button 
+          className={`cat-q-pill ${!isDealOnly && !campaignParam && !catParam ? "active" : ""}`}
+          onClick={() => navigate("/catalog")}
         >
-          Home
+          All
         </button>
-
-        <span className="sep">
-          &gt;
-        </span>
-
-        <span className="current">
-          {displayTitle}
-        </span>
-      </nav>
-
-
-      {/* Filter pills */}
-
-      <div className="jumia-filter-pills">
-
-        <button
-          type="button"
-          className="pill"
+        <button 
+          className={`cat-q-pill ${isDealOnly ? "active" : ""}`}
+          onClick={() => navigate("/catalog?deal=true&sort=deal")}
         >
-          Brand {Icon.chevronDown}
+          🔥 Deals
         </button>
-
-        <button
-          type="button"
-          className="pill"
+        <button 
+          className={`cat-q-pill ${catParam === "phones" ? "active" : ""}`}
+          onClick={() => navigate("/catalog?category=phones")}
         >
-          Price {Icon.chevronDown}
+          Phones
         </button>
-
-        <button
-          type="button"
-          className="pill"
+        <button 
+          className={`cat-q-pill ${catParam === "fashion" ? "active" : ""}`}
+          onClick={() => navigate("/catalog?category=fashion")}
         >
-          Rating {Icon.chevronDown}
+          Fashion
         </button>
-
       </div>
 
-
-      {/* Discovery heading */}
-
-      <div className="jumia-seo-block">
-
-        <h1 className="jumia-seo-title">
-          {displayTitle.toUpperCase()}
-        </h1>
-
-        <p
-          className={`jumia-seo-text ${
-            showMoreSeo
-              ? "jumia-seo-text--open"
-              : ""
-          }`}
-        >
-          {pageDescription}
-        </p>
-
-        <button
-          type="button"
-          className="jumia-seo-more"
-          onClick={() =>
-            setShowMoreSeo(
-              (value) => !value
-            )
-          }
-        >
-          {showMoreSeo
-            ? "See less ▲"
-            : "See more ▼"}
-        </button>
-
+      {/* 3. Title & Count */}
+      <div className="cat-title-row">
+        <h1 className="cat-title">{pageTitle}</h1>
+        <span className="cat-count">{total} items</span>
       </div>
 
-
-      {/* Products */}
-
-      <main className="jumia-grid-wrap">
-
-        {loading ? (
-
-          <div className="jumia-grid-skel">
-            {[
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-            ].map((item) => (
-              <div
-                key={item}
-                className="jumia-skel-card"
-              />
-            ))}
+      {/* 4. Product Grid */}
+      <main className="cat-main">
+        {loading && products.length === 0 ? (
+          <div className="cat-grid">
+            {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="cat-skel-card" />)}
           </div>
-
-        ) : error &&
-          visibleProducts.length === 0 ? (
-
-          <div className="jumia-empty">
-
-            <p>
-              Could not load listings.
-            </p>
-
-            <button
-              type="button"
-              onClick={() =>
-                navigate(
-                  "/loemart"
-                )
-              }
-            >
-              Browse All Items
+        ) : products.length === 0 ? (
+          <div className="cat-empty">
+            <div className="cat-empty-icon">📦</div>
+            <h3>No products found</h3>
+            <p>Try adjusting your search or filters.</p>
+            <button className="cat-btn-primary" onClick={() => navigate("/catalog")}>
+              View All Products
             </button>
-
           </div>
-
-        ) : visibleProducts.length === 0 ? (
-
-          <div className="jumia-empty">
-
-            <p>
-              {discoveryMode === "deals"
-                ? "No discounted listings are available right now."
-                : `No listings found for ${displayTitle}.`}
-            </p>
-
-            <button
-              type="button"
-              onClick={() =>
-                navigate(
-                  "/loemart/explore"
-                )
-              }
-            >
-              Explore Listings
-            </button>
-
-          </div>
-
         ) : (
-
-          <div className="jumia-product-grid">
-
-            {visibleProducts.map(
-              (product) => {
-
-                const displayPrice =
-                  Number(
-                    product.price ??
-                    product.sale_price ??
-                    product.selling_price ??
-                    0
-                  );
-
-                const originalPrice =
-                  Number(
-                    product.original_price ||
-                    product.compare_price ||
-                    product.list_price ||
-                    0
-                  );
-
-                const discount =
-                  calcDiscount(
-                    displayPrice,
-                    originalPrice
-                  );
-
-                const isSaved =
-                  wishlist.has(
-                    product.id
-                  );
-
-                const rating =
-                  pickRating(
-                    product
-                  );
-
-                const reviewsCount =
-                  product.reviews_count ??
-                  product.rating_count ??
-                  0;
-
-                const image =
-                  getProductImage(
-                    product
-                  );
-
-
-                return (
-                  <div
-                    key={product.id}
-                    className="jumia-product-card"
-                    onClick={() =>
-                      goProduct(
-                        product
-                      )
-                    }
-                    role="link"
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key ===
-                        "Enter"
-                      ) {
-                        goProduct(
-                          product
-                        );
-                      }
-                    }}
-                  >
-
-                    <div className="jumia-card__img-wrap">
-
-                      {discount > 0 && (
-                        <span className="jumia-card__discount">
-                          -{discount}%
-                        </span>
-                      )}
-
-                      {image ? (
-                        <img
-                          src={image}
-                          alt={
-                            product.name
-                          }
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="jumia-card__img-ph">
-                          📦
-                        </div>
-                      )}
-
-                      <button
-                        type="button"
-                        className="jumia-card__wish"
-                        onClick={(event) =>
-                          toggleWishlist(
-                            product.id,
-                            event
-                          )
-                        }
-                        aria-label="Wishlist"
-                      >
-                        {isSaved
-                          ? Icon.heartFilled
-                          : Icon.heart}
-                      </button>
-
-                    </div>
-
-
-                    <div className="jumia-card__body">
-
-                      {product.is_official && (
-                        <span className="jumia-card__badge-official">
-                          Official Store
-                        </span>
-                      )}
-
-                      <h3 className="jumia-card__title">
-                        {product.name}
-                      </h3>
-
-
-                      <div className="jumia-card__price-row">
-
-                        <span className="jumia-card__price">
-                          {formatPrice(
-                            displayPrice
-                          )}
-                        </span>
-
-                        {originalPrice >
-                          displayPrice && (
-                          <span className="jumia-card__orig">
-                            {formatPrice(
-                              originalPrice
-                            )}
-                          </span>
-                        )}
-
-                      </div>
-
-
-                      {rating != null && (
-                        <div className="jumia-card__rating">
-                          {Icon.star}
-
-                          <span className="num">
-                            {rating.toFixed(
-                              1
-                            )}
-                          </span>
-
-                          {reviewsCount >
-                            0 && (
-                            <span className="count">
-                              (
-                              {
-                                reviewsCount
-                              }
-                              )
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-
-                      {discount > 0 && (
-                        <span className="jumia-card__express">
-                          🏷️ DEAL
-                        </span>
-                      )}
-
-
-                      <button
-                        type="button"
-                        className="jumia-card__add-btn"
-                        onClick={(event) => {
-                          event.stopPropagation();
-
-                          goProduct(
-                            product
-                          );
-                        }}
-                      >
-                        View
-                      </button>
-
-                    </div>
-
+          <div className="cat-grid">
+            {products.map((p) => {
+              const price = parseNum(p.price || p.selling_price);
+              const oldPrice = parseNum(p.original_price || p.compare_price);
+              const discount = oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0;
+              const img = primaryImg(p.images, p);
+              const hasVariants = Boolean((Array.isArray(p.variants) && p.variants.length > 0) || p.has_variants);
+              const isWished = wishlist.has(p.id || p._id);
+              
+              return (
+                <div 
+                  key={p.id || p._id} 
+                  className="cat-card"
+                  onClick={() => navigate(`/shop/${p.slug || p.id}`)}
+                >
+                  <div className="cat-card__img-box">
+                    {discount > 0 && <span className="cat-card__badge">-{discount}%</span>}
+                    {p.badge && !discount && <span className="cat-card__badge cat-card__badge--soft">{p.badge}</span>}
+                    
+                    {img ? <img src={img} alt={p.name} loading="lazy" /> : <div className="cat-card__img-ph">📦</div>}
+                    
+                    <button className="cat-card__wish" onClick={(e) => toggleWish(p.id, e)}>
+                      <FiHeart size={14} fill={isWished ? "#ff6000" : "none"} color={isWished ? "#ff6000" : "#666"} />
+                    </button>
                   </div>
-                );
-              }
-            )}
+                  
+                  <div className="cat-card__body">
+                    <h3 className="cat-card__title">{p.name || p.title}</h3>
+                    
+                    <div className="cat-card__price-row">
+                      <span className="cat-card__price">
+                        {hasVariants && <span className="cat-card__from">From </span>}
+                        {fmtPrice(price)}
+                      </span>
+                      {oldPrice > price && <span className="cat-card__old">{fmtPrice(oldPrice)}</span>}
+                    </div>
 
+                    <div className="cat-card__meta">
+                      {p.rating > 0 && (
+                        <span className="cat-card__rating">
+                          <SVGStar /> {Number(p.rating).toFixed(1)}
+                        </span>
+                      )}
+                      {p.sold_count > 0 && <span className="cat-card__sold">{p.sold_count} sold</span>}
+                    </div>
+
+                    {/* Variant Indicator */}
+                    {hasVariants && (
+                      <div className="cat-card__variants">
+                        <div className="cat-var-dots">
+                          <span className="cat-var-dot c1"></span>
+                          <span className="cat-var-dot c2"></span>
+                          <span className="cat-var-dot c3"></span>
+                        </div>
+                        <span className="cat-var-text">+ Options</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
+        {/* Load More Button */}
+        {!loading && hasMore && (
+          <div className="cat-load-more">
+            <button 
+              className="cat-btn-outline" 
+              onClick={() => fetchProducts(offset + 20, true)}
+              disabled={loadingMore}
+            >
+              {loadingMore ? "Loading..." : "Load More Products"}
+            </button>
+          </div>
+        )}
       </main>
 
-
-      {/* Floating controls */}
-
-      <div className="jumia-floating-pill">
-
-        <button
-          type="button"
-          className="jumia-fp-btn"
-        >
-          {Icon.sort}
-          Sort by
+      {/* 5. Floating Filter/Sort Pill */}
+      <div className="cat-floating-action">
+        <button className="cat-fab-btn" onClick={() => setShowFilterSheet(true)}>
+          <FiFilter size={16} /> Sort & Filter
         </button>
-
-        <span className="jumia-fp-divider" />
-
-        <button
-          type="button"
-          className="jumia-fp-btn"
-        >
-          {Icon.filter}
-          Filter
-        </button>
-
       </div>
 
+      {/* 6. Sort Bottom Sheet */}
+      {showFilterSheet && (
+        <div className="cat-sheet-overlay" onClick={() => setShowFilterSheet(false)}>
+          <div className="cat-sheet" onClick={e => e.stopPropagation()}>
+            <div className="cat-sheet-head">
+              <h3>Sort By</h3>
+              <button onClick={() => setShowFilterSheet(false)}>✕</button>
+            </div>
+            <div className="cat-sheet-body">
+              {[
+                { val: "bestselling", label: "Top Sales" },
+                { val: "newest", label: "Newest Arrivals" },
+                { val: "deal", label: "Biggest Discounts" },
+                { val: "price_asc", label: "Price: Low to High" },
+                { val: "price_desc", label: "Price: High to Low" }
+              ].map(s => (
+                <button 
+                  key={s.val} 
+                  className={`cat-sheet-row ${activeSort === s.val ? "active" : ""}`}
+                  onClick={() => {
+                    searchParams.set("sort", s.val);
+                    setSearchParams(searchParams);
+                    setShowFilterSheet(false);
+                  }}
+                >
+                  {s.label}
+                  {activeSort === s.val && <FiCheck color="#ff6000" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
