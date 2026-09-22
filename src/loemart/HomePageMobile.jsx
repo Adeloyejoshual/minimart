@@ -57,18 +57,20 @@ export default function Minimart({ user }) {
   const [showFilters, setShowFilters] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Data States
+  // Main Catalog States
   const [products, setProducts] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
 
-  // Curated Rails States
-  const [flashDeals, setFlashDeals] = useState([]);
-  const [newArrivals, setNewArrivals] = useState([]);
-  const [featured, setFeatured] = useState([]);
+  // Marketing Rails States (Powered by the /home bundle endpoint)
+  const [deals, setDeals] = useState([]);
+  const [hot, setHot] = useState([]);
   const [trending, setTrending] = useState([]);
+  const [newArrivals, setNewArrivals] = useState([]);
+  const [campaignTitle, setCampaignTitle] = useState(null);
+  const [campaignProducts, setCampaignProducts] = useState([]);
 
   // Cart & Wishlist Data
   const [cartMap, setCartMap] = useState({});
@@ -138,7 +140,26 @@ export default function Minimart({ user }) {
     };
   }, [syncCart]);
 
-  /* ── DATA FETCHING (Catalog) ── */
+  /* ── DATA FETCHING (Marketing Rails - 1 Fast Call) ── */
+  useEffect(() => {
+    axios.get(`${API}/products/home`, { params: { limit: 10 } })
+      .then(({ data }) => {
+        const d = data?.data || {};
+        // The backend /home route already filters out out-of-stock items, 
+        // but we can apply it here as a double-safety check
+        setDeals((d.deals || []).filter(isInStock));
+        setHot((d.hot || []).filter(isInStock));
+        setTrending((d.trending || d.hot || []).filter(isInStock));
+        setNewArrivals((d.newArrivals || []).filter(isInStock));
+        setCampaignTitle(d.campaignTitle || null);
+        setCampaignProducts((d.campaignProducts || []).filter(isInStock));
+      })
+      .catch((err) => {
+        console.error("Failed to load home rails", err);
+      });
+  }, []);
+
+  /* ── DATA FETCHING (Main Infinite Catalog) ── */
   const fetchProducts = useCallback(async ({ 
     cat = activeCategory, 
     sort = activeSort, 
@@ -172,29 +193,6 @@ export default function Minimart({ user }) {
       setLoadingMore(false);
     }
   }, [activeCategory, activeSort, minPrice, maxPrice]);
-
-  /* ── INITIAL MOUNT FETCHES ── */
-  useEffect(() => {
-    Promise.allSettled([
-      axios.get(`${API}/products`, { params: { trending: "true", limit: 10 } }),
-      axios.get(`${API}/products`, { params: { sort: "newest", limit: 10 } }),
-      axios.get(`${API}/products`, { params: { featured: "true", limit: 10 } }),
-      axios.get(`${API}/products`, { params: { sort: "views", limit: 10 } })
-    ]).then(([flashRes, newRes, featRes, trendRes]) => {
-      if (flashRes.status === "fulfilled") {
-        setFlashDeals((flashRes.value.data?.data?.products || []).filter(isInStock).slice(0, 6));
-      }
-      if (newRes.status === "fulfilled") {
-        setNewArrivals((newRes.value.data?.data?.products || []).filter(isInStock).slice(0, 6));
-      }
-      if (featRes.status === "fulfilled") {
-        setFeatured((featRes.value.data?.data?.products || []).filter(isInStock).slice(0, 6));
-      }
-      if (trendRes.status === "fulfilled") {
-        setTrending((trendRes.value.data?.data?.products || []).filter(isInStock).slice(0, 6));
-      }
-    });
-  }, []);
 
   useEffect(() => {
     if (isFirstMount.current) { 
@@ -236,20 +234,19 @@ export default function Minimart({ user }) {
         wishCount={wishlist.length}
       />
 
-      {/* 2. Hero Banner */}
+      {/* 2. Hero Banner (Page visual start) */}
       <div className="mm-hero-wrap">
-        <MobileHero 
-          user={user} 
-          onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} 
-        />
+        <MobileHero user={user} />
       </div>
 
-      {/* 3. Trust Strip, Promo Banner, and Curated Rails */}
+      {/* 3. Marketing Sections (Bento, Deals, Campaigns, Trending) */}
       <MobileSections 
-        flashDeals={flashDeals} 
-        newArrivals={newArrivals}
-        featured={featured}
+        deals={deals}
+        hot={hot}
         trending={trending}
+        newArrivals={newArrivals}
+        campaignTitle={campaignTitle}
+        campaignProducts={campaignProducts}
       />
 
       {/* 4. Main Catalog (Masonry Grid) */}
