@@ -1,270 +1,425 @@
 /* ════════════════════════════════════════════════════════════
-   CategoryCatalog.css — Jumia-Style Category UI
+   CategoryCatalog.css
+   Professional 2-Column E-Commerce Grid
+   Orange Brand · Tight Gaps · Variant Indicators
 ════════════════════════════════════════════════════════════ */
 
-.jumia-cat-page {
-  background-color: #f5f5f7;
+:root {
+  --o: #ff6000;
+  --bg: #f8f9fa;
+  --wh: #ffffff;
+  --ink: #1a1a1a;
+  --ink2: #52525b;
+  --bd: #e9ecef;
+}
+
+.cat-page {
+  background: var(--bg);
   min-height: 100vh;
-  padding-bottom: 90px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: 80px;
 }
 
-/* Header Search */
-.jumia-cat-header {
-  background: #ffffff;
-  padding: 10px 14px;
-  border-bottom: 1px solid #e5e7eb;
-}
-.jumia-search-bar {
+/* ── 1. Header ── */
+.cat-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--wh);
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: #f3f4f6;
-  padding: 10px 14px;
-  border-radius: 20px;
-  color: #6b7280;
-  font-size: 14px;
-  text-transform: capitalize;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bd);
 }
 
-/* Breadcrumbs */
-.jumia-breadcrumbs {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: #ffffff;
-  font-size: 12px;
-  color: #4b5563;
-  overflow-x: auto;
-  white-space: nowrap;
-}
-.jumia-breadcrumbs span { cursor: pointer; }
-.jumia-breadcrumbs .sep { color: #9ca3af; }
-.jumia-breadcrumbs .current { font-weight: 700; color: #111827; }
-
-/* Filter Pills */
-.jumia-filter-pills {
-  display: flex;
-  gap: 8px;
-  padding: 10px 14px;
-  background: #ffffff;
-  overflow-x: auto;
-  border-bottom: 1px solid #f3f4f6;
-}
-.jumia-filter-pills::-webkit-scrollbar { display: none; }
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 14px;
-  border-radius: 16px;
-  border: 1px solid #d1d5db;
-  background: #ffffff;
-  font-size: 12px;
-  font-weight: 600;
-  color: #374151;
-  white-space: nowrap;
-}
-.pill--express {
-  border-color: #ff5722;
-  color: #ff5722;
-  background: #fff5f2;
-}
-
-/* SEO Description */
-.jumia-seo-block {
-  padding: 12px 14px;
-  background: #ffffff;
-  margin-top: 6px;
-}
-.jumia-seo-title {
-  font-size: 13px;
-  font-weight: 800;
-  color: #111827;
-  margin: 0 0 4px;
-}
-.jumia-seo-text {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.jumia-seo-text--open {
-  -webkit-line-clamp: unset;
-}
-.jumia-seo-more {
+.cat-btn-icon {
   background: none;
   border: none;
-  color: #2563eb;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 0 0;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cat-search-bar {
+  flex: 1;
+  background: #f1f5f9;
+  border-radius: 999px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
 }
 
-/* 2-Column Product Grid */
-.jumia-grid-wrap { padding: 8px; }
-.jumia-product-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+/* ── 2. Quick Filters (Horizontal) ── */
+.cat-quick-filters {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  overflow-x: auto;
+  padding: 10px 12px;
+  background: var(--wh);
+  scrollbar-width: none;
+}
+.cat-quick-filters::-webkit-scrollbar { display: none; }
+
+.cat-q-pill {
+  flex-shrink: 0;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cat-q-pill.active {
+  background: #fff4eb;
+  border-color: #ffd4b8;
+  color: var(--o);
 }
 
-.jumia-product-card {
-  background: #ffffff;
-  border-radius: 8px;
+/* ── 3. Title Row ── */
+.cat-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 14px 8px;
+}
+
+.cat-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.cat-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+/* ── 4. Main Grid ── */
+.cat-main {
+  padding: 0 10px 20px;
+}
+
+.cat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px; /* TIGHT GAP FOR PROFESSIONAL LOOK */
+}
+
+/* ── 5. Product Card ── */
+.cat-card {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease;
+}
+.cat-card:active {
+  transform: scale(0.97);
 }
 
-.jumia-card__img-wrap {
+.cat-card__img-box {
   position: relative;
+  width: 100%;
   aspect-ratio: 1;
-  background: #f9fafb;
+  background: #f1f5f9;
 }
-.jumia-card__img-wrap img {
+
+.cat-card__img-box img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
+  display: block;
 }
-.jumia-card__discount {
+
+.cat-card__img-ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.cat-card__badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: var(--o);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 6px;
+  border-radius: 6px;
+  z-index: 2;
+}
+
+.cat-card__badge--soft {
+  background: #0284c7;
+}
+
+.cat-card__wish {
   position: absolute;
   top: 6px;
   right: 6px;
-  background: #feefea;
-  color: #ff5722;
-  font-size: 11px;
-  font-weight: 800;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-.jumia-card__wish {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  background: rgba(255,255,255,0.9);
-  border: none;
-  border-radius: 50%;
   width: 28px;
   height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  z-index: 2;
+  cursor: pointer;
 }
 
-.jumia-card__body {
-  padding: 10px;
+.cat-card__body {
+  padding: 8px 10px 12px;
   display: flex;
   flex-direction: column;
   flex: 1;
+  gap: 4px;
 }
-.jumia-card__badge-official {
-  background: #1d4ed8;
-  color: #ffffff;
-  font-size: 9px;
-  font-weight: 800;
-  padding: 2px 6px;
-  border-radius: 3px;
-  width: fit-content;
-  margin-bottom: 4px;
-}
-.jumia-card__title {
+
+.cat-card__title {
+  margin: 0;
   font-size: 12px;
-  font-weight: 500;
-  color: #1f2937;
+  font-weight: 600;
+  color: var(--ink);
   line-height: 1.3;
-  margin: 0 0 6px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  height: 31px;
+  min-height: 31px;
 }
 
-.jumia-card__price-row {
+.cat-card__price-row {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-bottom: 4px;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
 }
-.jumia-card__price {
+
+.cat-card__price {
   font-size: 14px;
-  font-weight: 900;
-  color: #111827;
+  font-weight: 800;
+  color: var(--o);
 }
-.jumia-card__orig {
-  font-size: 11px;
-  color: #9ca3af;
+
+.cat-card__from {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink2);
+}
+
+.cat-card__old {
+  font-size: 10px;
+  font-weight: 500;
+  color: #94a3b8;
   text-decoration: line-through;
 }
 
-.jumia-card__rating {
+.cat-card__meta {
   display: flex;
   align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  color: #4b5563;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin-top: 2px;
 }
-.jumia-card__rating .count { color: #9ca3af; }
 
-.jumia-card__express {
+.cat-card__rating {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   font-size: 10px;
-  font-weight: 800;
-  color: #ff5722;
-  margin-bottom: 8px;
+  font-weight: 700;
+  color: #b45309;
 }
 
-.jumia-card__add-btn {
-  margin-top: auto;
-  width: 100%;
-  padding: 8px;
-  background: #f97316;
-  color: #ffffff;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-  text-align: center;
+.cat-card__sold {
+  font-size: 10px;
+  color: #64748b;
 }
 
-/* Floating Bottom Sort / Filter Pill */
-.jumia-floating-pill {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #111827;
-  color: #ffffff;
+/* Variant Indicator (+ Colors) */
+.cat-card__variants {
   display: flex;
   align-items: center;
-  padding: 8px 18px;
-  border-radius: 24px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-  z-index: 99;
+  gap: 6px;
+  margin-top: 6px;
+  background: #f8fafc;
+  padding: 4px 6px;
+  border-radius: 6px;
+  width: fit-content;
 }
-.jumia-fp-btn {
-  background: none;
+
+.cat-var-dots {
+  display: flex;
+}
+.cat-var-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid #fff;
+  margin-left: -3px;
+}
+.cat-var-dot:first-child { margin-left: 0; }
+.cat-var-dot.c1 { background: #1a1a1a; }
+.cat-var-dot.c2 { background: #cbd5e1; }
+.cat-var-dot.c3 { background: #ef4444; }
+
+.cat-var-text {
+  font-size: 9px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+/* ── 6. Load More & Empty ── */
+.cat-load-more {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.cat-btn-outline {
+  border: 1px solid var(--o);
+  background: transparent;
+  color: var(--o);
+  padding: 10px 24px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cat-btn-outline:disabled { opacity: 0.5; }
+
+.cat-empty {
+  text-align: center;
+  padding: 60px 20px;
+}
+.cat-empty-icon { font-size: 40px; margin-bottom: 12px; }
+.cat-empty h3 { margin: 0 0 6px; font-size: 16px; font-weight: 800; }
+.cat-empty p { margin: 0 0 20px; font-size: 13px; color: #64748b; }
+
+.cat-btn-primary {
+  background: var(--o);
+  color: #fff;
   border: none;
-  color: #ffffff;
+  padding: 10px 24px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ── 7. Skeletons ── */
+.cat-skel-card {
+  width: 100%;
+  aspect-ratio: 1/1.5;
+  background: linear-gradient(90deg, #f1f5f9, #e2e8f0, #f1f5f9);
+  background-size: 200% 100%;
+  border-radius: 12px;
+  animation: skelLoad 1.5s infinite linear;
+}
+@keyframes skelLoad {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── 8. Floating FAB (Sort & Filter) ── */
+.cat-floating-action {
+  position: fixed;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.cat-fab-btn {
+  pointer-events: auto;
+  background: #1a1a1a;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 24px;
   font-size: 13px;
   font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
   cursor: pointer;
 }
-.jumia-fp-divider {
-  width: 1px;
-  height: 16px;
-  background: rgba(255,255,255,0.2);
-  margin: 0 14px;
+
+/* ── 9. Bottom Sheet ── */
+.cat-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
+
+.cat-sheet {
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 20px;
+  animation: slideUp 0.25s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.cat-sheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.cat-sheet-head h3 { margin: 0; font-size: 16px; font-weight: 800; }
+.cat-sheet-head button { background: none; border: none; font-size: 18px; color: #888; }
+
+.cat-sheet-body { display: flex; flex-direction: column; gap: 4px; }
+
+.cat-sheet-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 12px;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.cat-sheet-row.active { background: #fff4eb; color: var(--o); }
