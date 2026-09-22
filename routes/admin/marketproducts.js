@@ -1,515 +1,344 @@
+/**
+ * routes/market/getproducts.js
+ *
+ * E-Commerce Product API (Public Storefront)
+ * Engineered for high-conversion marketing, fast mobile loads, strict inventory safety,
+ * and dynamic Admin Campaigns (e.g. "December Special").
+ */
+
 import express from "express";
-import { pool } from "../../server.js";
-import { verifyAdmin, requireSuperAdmin } from "./middleware.js";
+import { createHash } from "node:crypto";
+import {
+  pool,
+  FULL_PRODUCT_SELECT,
+  SORT_MAP,
+  PUBLIC_CONDITIONS,
+  paginate,
+  paginationMeta,
+  isPublicProduct,
+  ok,
+  fail,
+} from "./helpers.js";
 
 const router = express.Router();
-router.use(verifyAdmin);
 
-const VALID_STATUSES = new Set([
-  "pending","active","rejected","flagged","paused","sold","deleted",
-]);
-const ALLOWED_FLAGS = [
-  "is_featured","is_trending","is_sponsored","is_hidden",
-];
-const PATCH_FIELDS = [
-  "name","description","category","condition",
-  "price","original_price","negotiable","phone",
-  "status","is_active","is_flagged","is_featured",
-  "is_trending","is_sponsored","is_hidden","is_paused",
-  "rejection_reason","admin_notes",
-];
-
-const log = (adminId, action, targetId, details, meta = null) =>
-  pool.query(
-    `INSERT INTO admin_logs
-       (admin_id, action, target_type, target_id, details, metadata)
-     VALUES ($1, $2, 'market_product', $3, $4, $5)`,
-    [adminId, action, targetId, details, meta ? JSON.stringify(meta) : null]
-  ).catch(() => {});
-
-/* ════════════════════════════════════════════════════════════
-   GET /  — list with optional status filter + counts
-   ─────────────────────────────────────────────────────────
-   FIX: JOIN market.users (not public.users)
-        market.users has "name" column (not "full_name")
-════════════════════════════════════════════════════════════ */
-router.get("/", async (req, res) => {
+/* ══════════════════════════════════════════════════════════════
+   GET /api/products/home
+   BUNDLE ENDPOINT: Fetches all marketing rails in a single call.
+   Drastically reduces mobile TTI (Time to Interactive).
+══════════════════════════════════════════════════════════════ */
+router.get("/home", async (req, res) => {
   try {
-    const { status } = req.query;
-    const params     = [];
-    let   where      = "WHERE 1=1";
+    const limit = Math.min(parseInt(req.query.limit || "8", 10), 16);
 
-    if (status) {
-      params.push(status);
-      where += ` AND p.status = $${params.length}`;
-    }
+    // Base query: public, approved, not deleted, in-stock items
+    const baseQuery = `
+      ${FULL_PRODUCT_SELECT}
+      WHERE ${PUBLIC_CONDITIONS.join(" AND ")}
+        AND p.stock > 0
+    `;
 
-    const { rows } = await pool.query(
-      `SELECT
-         p.id, p.name, p.price, p.original_price,
-         p.category, p.condition, p.status,
-         p.is_active, p.is_flagged, p.is_featured,
-         p.is_trending, p.is_sponsored, p.is_hidden, p.is_paused,
-         p.fraud_score, p.rejection_reason, p.admin_notes,
-         p.removed_reason, p.phone,
-         p.created_at, p.updated_at, p.reviewed_by, p.reviewed_at,
-         u.name         AS seller_name,
-         u.email        AS seller_email,
-         u.phone_number AS seller_phone
-       FROM market.products p
-       LEFT JOIN market.users u ON u.id = p.user_id
-       ${where}
-       ORDER BY p.created_at DESC
-       LIMIT 500`,
-      params
-    );
-
-    /* Cover images */
-    let coverMap = {};
-    if (rows.length) {
-      const placeholders = rows.map((_, i) => `$${i + 1}`).join(",");
-      const { rows: covers } = await pool.query(
-        `SELECT DISTINCT ON (product_id) product_id, image_url
-         FROM market.product_images
-         WHERE product_id IN (${placeholders})
-           AND is_primary = true
-         ORDER BY product_id, sort_order ASC`,
-        rows.map((r) => r.id)
-      );
-      coverMap = covers.reduce((m, r) => {
-        m[r.product_id] = r.image_url;
-        return m;
-      }, {});
-    }
-
-    const { rows: counts } = await pool.query(`
-      SELECT
-        COUNT(*)                                      ::INT AS total,
-        COUNT(*) FILTER (WHERE status = 'pending')   ::INT AS pending,
-        COUNT(*) FILTER (WHERE status = 'active')    ::INT AS active,
-        COUNT(*) FILTER (WHERE status = 'rejected')  ::INT AS rejected,
-        COUNT(*) FILTER (WHERE status = 'flagged')   ::INT AS flagged,
-        COUNT(*) FILTER (WHERE status = 'paused')    ::INT AS paused,
-        COUNT(*) FILTER (WHERE status = 'sold')      ::INT AS sold,
-        COUNT(*) FILTER (WHERE status = 'deleted')   ::INT AS deleted
-      FROM market.products
-    `);
-
-    return res.json({
-      products: rows.map((p) => ({
-        ...p,
-        cover_image: coverMap[p.id] ?? null,
-      })),
-      counts: counts[0] ?? {},
-    });
-
-  } catch (err) {
-    console.error("[market GET /]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   GET /:id  — single product with full details
-   ─────────────────────────────────────────────────────────
-   FIX: JOIN market.users (not public.users)
-        market.users has "name" column (not "full_name")
-════════════════════════════════════════════════════════════ */
-router.get("/:id", async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT
-         p.*,
-         u.name         AS seller_name,
-         u.email        AS seller_email,
-         u.phone_number AS seller_phone
-       FROM market.products p
-       LEFT JOIN market.users u ON u.id = p.user_id
-       WHERE p.id = $1`,
-      [req.params.id]
-    );
-
-    if (!rows.length)
-      return res.status(404).json({ error: "Market product not found" });
-
-    const p = rows[0];
-
-    const [images, variants, features, specs, boxItems] = await Promise.all([
+    // Fire all 4 marketing rail queries simultaneously for ultimate speed
+    const [dealsRes, hotRes, newestRes, campaignRes] = await Promise.all([
+      /* 1. Deal of the Day: Highest actual discount % + high sales */
       pool.query(
-        `SELECT image_url, storage_key, is_primary, sort_order
-         FROM market.product_images
-         WHERE product_id = $1
-         ORDER BY sort_order ASC`,
-        [p.id]
+        `${baseQuery}
+         AND p.original_price > p.price
+         ORDER BY 
+           ((p.original_price - p.price)::numeric / NULLIF(p.original_price, 0)) DESC,
+           p.sold_count DESC
+         LIMIT $1`,
+        [limit]
       ),
+      /* 2. Hot Sales: Pure volume (bestselling) */
       pool.query(
-        `SELECT id, sku, name, price, stock, attributes
-         FROM market.product_variants
-         WHERE product_id = $1
-         ORDER BY created_at ASC`,
-        [p.id]
+        `${baseQuery}
+         ORDER BY p.sold_count DESC, p.created_at DESC
+         LIMIT $1`,
+        [limit]
       ),
+      /* 3. Just Dropped: Fresh inventory */
       pool.query(
-        `SELECT feature
-         FROM market.product_features
-         WHERE product_id = $1
-         ORDER BY position ASC`,
-        [p.id]
+        `${baseQuery}
+         ORDER BY p.created_at DESC
+         LIMIT $1`,
+        [limit]
       ),
+      /* 4. Active Custom Admin Campaign (e.g. "December Sale") */
       pool.query(
-        `SELECT spec_key, spec_value
-         FROM market.product_specifications
-         WHERE product_id = $1
-         ORDER BY position ASC`,
-        [p.id]
-      ),
-      pool.query(
-        `SELECT item
-         FROM market.product_box_items
-         WHERE product_id = $1
-         ORDER BY position ASC`,
-        [p.id]
+        `${baseQuery}
+         AND p.campaign_tag IS NOT NULL
+         ORDER BY p.updated_at DESC, p.sold_count DESC
+         LIMIT $1`,
+        [limit]
       ),
     ]);
 
-    return res.json({
-      success : true,
-      product : {
-        ...p,
-        images         : images.rows,
-        variants       : variants.rows,
-        key_features   : features.rows.map((r) => r.feature),
-        specifications : specs.rows.map((r) => ({
-          key  : r.spec_key,
-          value: r.spec_value,
-        })),
-        whats_in_box   : boxItems.rows.map((r) => r.item),
+    // Extract the dynamic campaign title if the admin has set one
+    const activeCampaignTitle = campaignRes.rows[0]?.campaign_tag || null;
+
+    ok(res, {
+      data: {
+        deals: dealsRes.rows,
+        hot: hotRes.rows,
+        newArrivals: newestRes.rows,
+        campaignTitle: activeCampaignTitle,  // Sent dynamically to frontend
+        campaignProducts: campaignRes.rows,
       },
     });
-
   } catch (err) {
-    console.error("[market GET /:id]", err.message);
-    return res.status(500).json({ error: err.message });
+    console.error("[Products] GET /home error:", err.message);
+    fail(res, 500, "Failed to load storefront data");
   }
 });
 
-/* ════════════════════════════════════════════════════════════
-   POST /:id/approve
-════════════════════════════════════════════════════════════ */
-router.post("/:id/approve", async (req, res) => {
+/* ══════════════════════════════════════════════════════════════
+   GET /api/products
+   Public product listing with advanced filters (Catalog & Search)
+══════════════════════════════════════════════════════════════ */
+router.get("/", async (req, res) => {
   try {
-    await pool.query(
-      `UPDATE market.products
-       SET status      = 'active',
-           is_active   = true,
-           is_flagged  = false,
-           reviewed_by = $2,
-           reviewed_at = NOW(),
-           updated_at  = NOW()
-       WHERE id = $1`,
-      [req.params.id, req.admin.id]
-    );
-    await log(
-      req.admin.id, "approve_market_product",
-      req.params.id, `Approved market product ${req.params.id}`
-    );
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+    const {
+      category,
+      search,
+      brand,
+      tags,
+      campaign,       // Custom admin campaign search (e.g. "December Deals")
+      badge,          // Custom admin badge search
+      featured,
+      trending,
+      sponsored,
+      deal,           // True if looking for discounted items
+      minDiscount,    // e.g. "10" for >= 10% off
+      hasDelivery,
+      inStock,        // Defaults to true for public views
+      minPrice,
+      maxPrice,
+      sort = "newest",
+    } = req.query;
 
-/* ════════════════════════════════════════════════════════════
-   POST /:id/reject
-════════════════════════════════════════════════════════════ */
-router.post("/:id/reject", async (req, res) => {
-  const { rejectionReason } = req.body;
-  try {
-    await pool.query(
-      `UPDATE market.products
-       SET status           = 'rejected',
-           is_active        = false,
-           rejection_reason = $2,
-           reviewed_by      = $3,
-           reviewed_at      = NOW(),
-           updated_at       = NOW()
-       WHERE id = $1`,
-      [req.params.id, rejectionReason?.trim() || null, req.admin.id]
-    );
-    await log(
-      req.admin.id, "reject_market_product",
-      req.params.id,
-      `Rejected market product ${req.params.id}: ${rejectionReason}`
-    );
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+    const { limit, offset } = paginate(req.query);
 
-/* ════════════════════════════════════════════════════════════
-   PATCH /:id  — edit fields + status change
-════════════════════════════════════════════════════════════ */
-router.patch("/:id", async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name FROM market.products WHERE id = $1`,
-      [req.params.id]
-    );
-    if (!rows.length)
-      return res.status(404).json({ error: "Market product not found" });
-
-    const sets   = [];
+    const conditions = [...PUBLIC_CONDITIONS];
     const params = [];
-    let   idx    = 1;
+    let p = 1;
 
-    for (const key of PATCH_FIELDS) {
-      if (req.body[key] === undefined) continue;
-      const val = req.body[key];
-
-      if (key === "status") {
-        if (!VALID_STATUSES.has(val))
-          return res.status(400).json({
-            error: `Invalid status. Allowed: ${[...VALID_STATUSES].join(", ")}`,
-          });
-        if (val === "active")   sets.push("is_active = true",  "is_paused = false", "is_flagged = false", "rejection_reason = NULL");
-        if (val === "rejected") sets.push("is_active = false");
-        if (val === "paused")   sets.push("is_active = false",  "is_paused = true");
-        if (val === "sold")     sets.push("is_active = false");
-      }
-
-      params.push(val);
-      sets.push(`${key} = $${idx++}`);
-    }
-
-    if (!sets.length)
-      return res.status(400).json({ error: "No valid fields to update" });
-
-    sets.push(
-      "updated_at = NOW()",
-      `reviewed_by = $${idx++}`,
-      "reviewed_at = NOW()"
-    );
-    params.push(req.admin.id, req.params.id);
-
-    await pool.query(
-      `UPDATE market.products SET ${sets.join(", ")} WHERE id = $${idx}`,
-      params
-    );
-
-    const changedFields = Object.keys(req.body)
-      .filter((k) => PATCH_FIELDS.includes(k))
-      .map((k) => `${k}: ${JSON.stringify(req.body[k])}`)
-      .join(", ");
-
-    await log(
-      req.admin.id, "edit_market_product",
-      req.params.id,
-      `Edited market product "${rows[0].name}" — ${changedFields}`,
-      req.body
-    );
-
-    return res.json({ success: true, message: "Market product updated" });
-
-  } catch (err) {
-    console.error("[market PATCH /:id]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   POST /:id/flag  — toggle feature/trending/sponsored/hidden
-════════════════════════════════════════════════════════════ */
-router.post("/:id/flag", async (req, res) => {
-  const { flag, value } = req.body;
-
-  if (!ALLOWED_FLAGS.includes(flag))
-    return res.status(400).json({
-      error: `Invalid flag. Allowed: ${ALLOWED_FLAGS.join(", ")}`,
-    });
-
-  try {
-    const { rowCount } = await pool.query(
-      `UPDATE market.products
-       SET ${flag} = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [!!value, req.params.id]
-    );
-    if (!rowCount)
-      return res.status(404).json({ error: "Market product not found" });
-
-    await log(
-      req.admin.id,
-      value ? `set_${flag}` : `unset_${flag}`,
-      req.params.id,
-      `${flag} set to ${value}`
-    );
-
-    return res.json({ success: true, [flag]: !!value });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   POST /:id/pause  — toggle pause / resume
-════════════════════════════════════════════════════════════ */
-router.post("/:id/pause", async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name, is_paused FROM market.products WHERE id = $1`,
-      [req.params.id]
-    );
-    if (!rows.length)
-      return res.status(404).json({ error: "Market product not found" });
-
-    const nowPaused  = !rows[0].is_paused;
-    const nextStatus = nowPaused ? "paused" : "active";
-
-    await pool.query(
-      `UPDATE market.products
-       SET is_paused  = $1,
-           is_active  = $2,
-           status     = $3,
-           updated_at = NOW()
-       WHERE id = $4`,
-      [nowPaused, !nowPaused, nextStatus, req.params.id]
-    );
-
-    await log(
-      req.admin.id,
-      nowPaused ? "pause_market_product" : "unpause_market_product",
-      req.params.id,
-      `${nowPaused ? "Paused" : "Unpaused"} "${rows[0].name}"`
-    );
-
-    return res.json({
-      success  : true,
-      is_paused: nowPaused,
-      status   : nextStatus,
-      message  : nowPaused ? "Listing paused" : "Listing resumed",
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   POST /:id/remove  — soft delete with reason
-════════════════════════════════════════════════════════════ */
-router.post("/:id/remove", async (req, res) => {
-  const { reason } = req.body;
-  if (!reason?.trim())
-    return res.status(400).json({ error: "A removal reason is required" });
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name FROM market.products WHERE id = $1`,
-      [req.params.id]
-    );
-    if (!rows.length)
-      return res.status(404).json({ error: "Market product not found" });
-
-    await pool.query(
-      `UPDATE market.products
-       SET status         = 'deleted',
-           is_active      = false,
-           is_paused      = false,
-           removed_reason = $1,
-           reviewed_by    = $2,
-           reviewed_at    = NOW(),
-           updated_at     = NOW()
-       WHERE id = $3`,
-      [reason.trim(), req.admin.id, req.params.id]
-    );
-
-    await log(
-      req.admin.id, "remove_market_product",
-      req.params.id,
-      `Removed market "${rows[0].name}" — reason: ${reason.trim()}`
-    );
-
-    return res.json({ success: true, message: "Market product removed" });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   DELETE /:id/permanent  — hard delete (super_admin only)
-════════════════════════════════════════════════════════════ */
-router.delete("/:id/permanent", requireSuperAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name FROM market.products WHERE id = $1`,
-      [req.params.id]
-    );
-    if (!rows.length)
-      return res.status(404).json({ error: "Market product not found" });
-
-    /* Delete R2 images (storage_key) if present */
-    const { rows: imgs } = await pool.query(
-      `SELECT storage_key FROM market.product_images WHERE product_id = $1`,
-      [req.params.id]
-    ).catch(() => ({ rows: [] }));
-
-    if (imgs.length) {
-      const { deleteFromR2 } = await import(
-        "../../middleware/upload.js"
-      ).catch(() => ({ deleteFromR2: null }));
-
-      if (deleteFromR2) {
-        await Promise.allSettled(
-          imgs
-            .filter((i) => i.storage_key)
-            .map((i) => deleteFromR2(i.storage_key))
-        );
-      }
-    }
-
-    /* Transactional hard delete of all child rows + product */
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      for (const tbl of [
-        "market.product_images",
-        "market.product_variants",
-        "market.product_features",
-        "market.product_specifications",
-        "market.product_box_items",
-      ]) {
-        await client.query(
-          `DELETE FROM ${tbl} WHERE product_id = $1`,
-          [req.params.id]
-        );
-      }
-
-      await client.query(
-        `DELETE FROM market.products WHERE id = $1`,
-        [req.params.id]
+    /* ── 1. Search (Full-Text) ── */
+    if (search) {
+      const cleaned = search.trim();
+      conditions.push(
+        `(p.search_vector @@ plainto_tsquery('english', $${p})
+          OR p.name ILIKE $${p + 1}
+          OR p.brand ILIKE $${p + 1})`
       );
-
-      await client.query("COMMIT");
-    } catch (e) {
-      await client.query("ROLLBACK");
-      throw e;
-    } finally {
-      client.release();
+      params.push(cleaned, `%${cleaned}%`);
+      p += 2;
     }
 
-    await log(
-      req.admin.id, "permanent_delete_market",
-      req.params.id,
-      `Permanently deleted market "${rows[0].name}"`
-    );
+    /* ── 2. Taxonomy & Campaigns ── */
+    if (category) {
+      conditions.push(`p.category = $${p++}`);
+      params.push(category);
+    }
+    if (brand) {
+      conditions.push(`p.brand ILIKE $${p++}`);
+      params.push(`%${brand.trim()}%`);
+    }
+    if (tags) {
+      conditions.push(`p.tags && $${p++}::text[]`);
+      params.push(tags.split(","));
+    }
+    if (campaign) {
+      conditions.push(`p.campaign_tag ILIKE $${p++}`);
+      params.push(`%${campaign.trim()}%`);
+    }
+    if (badge) {
+      conditions.push(`p.badge ILIKE $${p++}`);
+      params.push(`%${badge.trim()}%`);
+    }
 
-    return res.json({ success: true, message: "Market product permanently deleted" });
+    /* ── 3. Price & Deals ── */
+    if (minPrice) {
+      conditions.push(`p.price >= $${p++}`);
+      params.push(parseInt(minPrice, 10));
+    }
+    if (maxPrice) {
+      conditions.push(`p.price <= $${p++}`);
+      params.push(parseInt(maxPrice, 10));
+    }
+    
+    // Deal constraints
+    if (deal === "true") {
+      conditions.push(`p.original_price IS NOT NULL AND p.original_price > p.price`);
+    }
+    if (minDiscount) {
+      const md = parseInt(minDiscount, 10);
+      if (md > 0) {
+        conditions.push(`
+          p.original_price > 0 
+          AND ROUND(((p.original_price - p.price)::numeric / p.original_price) * 100) >= $${p++}
+        `);
+        params.push(md);
+      }
+    }
 
+    /* ── 4. Flags & Logistics ── */
+    if (featured === "true") conditions.push("p.is_featured = true");
+    if (trending === "true") conditions.push("p.is_trending = true");
+    if (sponsored === "true") conditions.push("p.is_sponsored = true");
+    if (hasDelivery === "true") conditions.push("p.has_delivery = true");
+
+    /* ── 5. Inventory Safety ── */
+    // Default to hiding out-of-stock items unless explicitly requested to see them
+    if (inStock !== "false") {
+      conditions.push("p.stock > 0");
+    }
+
+    const where = `WHERE ${conditions.join(" AND ")}`;
+
+    /* ── 6. Advanced Sorting Engine ── */
+    let order;
+    switch (sort) {
+      case "relevance":
+        order = search 
+          ? `ts_rank(p.search_vector, plainto_tsquery('english', $1)) DESC, p.sold_count DESC` 
+          : `p.created_at DESC`;
+        break;
+      case "bestselling":
+        order = `p.sold_count DESC, p.created_at DESC`;
+        break;
+      case "popular":
+        order = `p.sold_count DESC, p.rating DESC NULLS LAST, p.created_at DESC`;
+        break;
+      case "trending":
+        // Sales velocity formula: Sales / Days alive
+        order = `(p.sold_count::numeric / GREATEST(EXTRACT(EPOCH FROM (now() - p.created_at)) / 86400, 1)) DESC, p.created_at DESC`;
+        break;
+      case "deal":
+        // Largest % discount first
+        order = `
+          CASE WHEN p.original_price > p.price 
+            THEN ((p.original_price - p.price)::numeric / p.original_price) 
+            ELSE 0 
+          END DESC, 
+          p.sold_count DESC`;
+        break;
+      case "views":
+        order = `p.view_count DESC, p.created_at DESC`;
+        break;
+      default:
+        order = SORT_MAP[sort] || SORT_MAP.newest;
+    }
+
+    /* ── 7. Execute Queries ── */
+    const [{ rows }, countRes] = await Promise.all([
+      pool.query(
+        `${FULL_PRODUCT_SELECT}
+         ${where}
+         ORDER BY ${order}
+         LIMIT $${p++} OFFSET $${p++}`,
+        [...params, limit, offset]
+      ),
+      pool.query(`SELECT COUNT(*) FROM market.products p ${where}`, params),
+    ]);
+
+    ok(res, {
+      data: {
+        products: rows,
+        pagination: paginationMeta(parseInt(countRes.rows[0].count, 10), limit, offset),
+      },
+    });
   } catch (err) {
-    console.error("[market permanent delete]", err.message);
-    return res.status(500).json({ error: err.message });
+    console.error("[Products] GET / error:", err.message);
+    fail(res, 500, "Failed to fetch products");
   }
 });
+
+/* ══════════════════════════════════════════════════════════════
+   GET /api/products/:idOrSlug
+   Product Detail Endpoint with Silent View Tracking
+══════════════════════════════════════════════════════════════ */
+router.get("/:idOrSlug", async (req, res) => {
+  try {
+    const { idOrSlug } = req.params;
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const whereClause = isUUID ? "p.id = $1" : "p.slug = $1";
+
+    const { rows } = await pool.query(
+      `${FULL_PRODUCT_SELECT}
+       WHERE ${whereClause}
+         AND p.deleted_at IS NULL`,
+      [idOrSlug]
+    );
+
+    if (!rows.length) return fail(res, 404, "Product not found");
+
+    const product = rows[0];
+
+    // Visibility Check
+    const isAdmin = req.user?.role === "admin";
+    const isOwner = req.user?.id === product.user_id;
+    const canSee  = isAdmin || isOwner || isPublicProduct(product);
+
+    if (!canSee) return fail(res, 404, "Product not found or unavailable");
+
+    // Fire and forget view tracking (does not block the response)
+    if (isPublicProduct(product)) {
+      trackView(product.id, req).catch((err) => {
+        console.error(`[View Tracking Failed] Product ${product.id}:`, err.message);
+      });
+    }
+
+    ok(res, { data: product });
+  } catch (err) {
+    console.error("[Products] GET /:idOrSlug error:", err.message);
+    fail(res, 500, "Failed to fetch product details");
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   Analytics: 24h Unique IP View Tracking
+══════════════════════════════════════════════════════════════ */
+async function trackView(productId, req) {
+  const ipRaw =
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    "unknown";
+
+  const ipHash = createHash("sha256")
+    .update(ipRaw + productId)
+    .digest("hex")
+    .slice(0, 16); // 16 char string is plenty for 24h deduplication
+
+  const result = await pool.query(
+    `INSERT INTO market.product_views
+       (product_id, viewer_id, ip_hash, source)
+     SELECT $1, $2, $3, $4
+     WHERE NOT EXISTS (
+       SELECT 1
+       FROM market.product_views
+       WHERE product_id = $1
+         AND ip_hash    = $3
+         AND created_at > (now() - interval '24 hours')
+     )`,
+    [
+      productId,
+      req.user?.id ?? null,
+      ipHash,
+      req.query.source || "direct",
+    ]
+  );
+
+  // Only increment the denormalized view_count if a new unique view was inserted
+  if (result.rowCount > 0) {
+    await pool.query(
+      `UPDATE market.products
+       SET view_count = view_count + 1
+       WHERE id = $1`,
+      [productId]
+    );
+  }
+}
 
 export default router;
