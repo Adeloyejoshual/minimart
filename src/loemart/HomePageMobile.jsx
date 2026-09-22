@@ -15,7 +15,6 @@ import MobileTopBar from "./mobile/MobileTopBar";
 import MobileHero from "./mobile/MobileHero";
 import MobileSections from "./mobile/MobileSections";
 import MasonryCard from "./mobile/MasonryCard";
-import MobileFooter from "./mobile/MobileFooter";
 import Footer from "../components/Footer";
 import FloatingCartButton from "../components/FloatingCartButton";
 
@@ -307,13 +306,8 @@ export default function Minimart({ user }) {
         <FloatingCartButton count={cartCount} onClick={() => navigate("/shop/cart")} />
       )}
       
-      {/* 6. Footer & Bottom Nav */}
+      {/* 6. Main Footer */}
       <Footer />
-      <MobileFooter 
-        user={user} 
-        cartCount={cartCount} 
-        onPostAd={() => navigate(user ? "/minimart/post-ad" : "/auth")} 
-      />
 
       {/* 7. Drawers & Sheets */}
       <MenuDrawer 
