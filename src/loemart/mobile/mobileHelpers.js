@@ -24,7 +24,7 @@ export const RECENT_KEY         = "lm-recently-viewed";
 export const SEARCH_HISTORY_KEY = "lm-search-history";
 export const WISH_KEY           = "loemart-wishlist";
 
-export const DEFAULT_LIMIT  = 12;
+export const DEFAULT_LIMIT  = 40;
 export const SLIDE_INTERVAL = 6000;
 
 /* ═══════════════════════════════════════════════════════════════
