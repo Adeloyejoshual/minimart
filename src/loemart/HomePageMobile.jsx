@@ -31,6 +31,17 @@ import {
 
 const CART_URL = `${API}/cart`;
 
+/* ── HELPER: FILTER OUT SOLD OUT / OUT OF STOCK PRODUCTS ── */
+const isInStock = (item) => {
+  if (!item) return false;
+  if (item.is_sold_out || item.sold_out) return false;
+  if (item.status === "out_of_stock" || item.status === "sold_out") return false;
+  if (item.in_stock === false) return false;
+  if (item.stock !== undefined && item.stock !== null && Number(item.stock) <= 0) return false;
+  if (item.quantity !== undefined && item.quantity !== null && Number(item.quantity) <= 0) return false;
+  return true;
+};
+
 export default function Minimart({ user }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -146,7 +157,10 @@ export default function Minimart({ user }) {
       if (max && Number(max) > 0) params.maxPrice = max;
 
       const { data } = await axios.get(`${API}/products`, { params });
-      const rows = data?.data?.products || [];
+      const rawRows = data?.data?.products || [];
+      
+      // Filter out sold-out / out of stock items automatically
+      const rows = rawRows.filter(isInStock);
       
       setProducts(prev => (append ? [...prev, ...rows] : rows));
       setPagination(data?.data?.pagination || null);
@@ -162,15 +176,23 @@ export default function Minimart({ user }) {
   /* ── INITIAL MOUNT FETCHES ── */
   useEffect(() => {
     Promise.allSettled([
-      axios.get(`${API}/products`, { params: { trending: "true", limit: 6 } }),
-      axios.get(`${API}/products`, { params: { sort: "newest", limit: 6 } }),
-      axios.get(`${API}/products`, { params: { featured: "true", limit: 6 } }),
-      axios.get(`${API}/products`, { params: { sort: "views", limit: 6 } })
+      axios.get(`${API}/products`, { params: { trending: "true", limit: 10 } }),
+      axios.get(`${API}/products`, { params: { sort: "newest", limit: 10 } }),
+      axios.get(`${API}/products`, { params: { featured: "true", limit: 10 } }),
+      axios.get(`${API}/products`, { params: { sort: "views", limit: 10 } })
     ]).then(([flashRes, newRes, featRes, trendRes]) => {
-      if (flashRes.status === "fulfilled") setFlashDeals(flashRes.value.data?.data?.products || []);
-      if (newRes.status === "fulfilled") setNewArrivals(newRes.value.data?.data?.products || []);
-      if (featRes.status === "fulfilled") setFeatured(featRes.value.data?.data?.products || []);
-      if (trendRes.status === "fulfilled") setTrending(trendRes.value.data?.data?.products || []);
+      if (flashRes.status === "fulfilled") {
+        setFlashDeals((flashRes.value.data?.data?.products || []).filter(isInStock).slice(0, 6));
+      }
+      if (newRes.status === "fulfilled") {
+        setNewArrivals((newRes.value.data?.data?.products || []).filter(isInStock).slice(0, 6));
+      }
+      if (featRes.status === "fulfilled") {
+        setFeatured((featRes.value.data?.data?.products || []).filter(isInStock).slice(0, 6));
+      }
+      if (trendRes.status === "fulfilled") {
+        setTrending((trendRes.value.data?.data?.products || []).filter(isInStock).slice(0, 6));
+      }
     });
   }, []);
 
@@ -260,7 +282,7 @@ export default function Minimart({ user }) {
           </div>
         ) : products.length === 0 ? (
           <div className="mm-error">
-            <p>No products found.</p>
+            <p>No products available right now.</p>
             <button 
               type="button" 
               className="pr-load-more-btn" 
