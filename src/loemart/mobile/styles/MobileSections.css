@@ -1,7 +1,6 @@
 /* ════════════════════════════════════════════════════════════
    MobileSections.css
-   Brand: Orange (#ff6000)
-   Trust · Categories · Bento · Deal of the Day · Rails · Campaign
+   Orange brand · Tight gaps · Trust · Cats · Bento · Deals · Rails
 ════════════════════════════════════════════════════════════ */
 
 :root {
@@ -14,49 +13,49 @@
   --ink2: #52525b;
   --ink3: #a1a1aa;
   --wh: #ffffff;
-  --bg: #fafafa;
   --bd: #e9ecef;
   --s1: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --s2: 0 4px 16px rgba(255, 96, 0, 0.12);
+  --s2: 0 4px 14px rgba(255, 96, 0, 0.14);
 }
 
+/* ── Container: close gap under hero ── */
 .lmm-marketing-container,
 .lmm-curated-sections-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;                 /* was 16 — kills dead space */
+  width: 100%;
+  padding: 0 0 8px;
   position: relative;
   z-index: 1;
-  width: 100%;
-  padding-top: 4px;
-  padding-bottom: 8px;
 }
 
 /* ════════════════════════════════════════════════════════════
-   1. TRUST STRIP
+   1. TRUST
 ════════════════════════════════════════════════════════════ */
 .lmm-trust-strip {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 10px 12px;
+  flex-wrap: nowrap;
+  gap: 8px;
   margin: 0 12px;
+  padding: 8px 10px;
   background: var(--wh);
   border: 1px solid var(--o-border);
-  border-radius: 12px;
+  border-radius: 10px;
   box-shadow: var(--s1);
 }
 
 .lmm-trust-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 10px;
+  gap: 4px;
+  font-size: 9.5px;
   font-weight: 700;
   color: var(--ink);
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.25px;
   white-space: nowrap;
 }
 
@@ -64,22 +63,24 @@
 .lmm-trust-icon {
   color: var(--o);
   flex-shrink: 0;
+  width: 13px;
+  height: 13px;
 }
 
 .lmm-trust-divider {
   width: 1px;
-  height: 14px;
+  height: 12px;
   background: var(--o-border);
   flex-shrink: 0;
 }
 
 /* ════════════════════════════════════════════════════════════
-   2. CATEGORY GRID
+   2. CATEGORIES — compact 4-up
 ════════════════════════════════════════════════════════════ */
 .lmm-cat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
   padding: 0 12px;
 }
 
@@ -87,26 +88,25 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   border: none;
   background: transparent;
   padding: 0;
   cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
   font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .lmm-cat-card__icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
   background: var(--o-soft);
   color: var(--o);
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--o-border);
-  box-shadow: 0 2px 6px rgba(255, 96, 0, 0.08);
   transition: transform 0.12s ease, background 0.12s ease;
 }
 
@@ -116,27 +116,29 @@
 }
 
 .lmm-cat-card__label {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   color: var(--ink2);
+  text-align: center;
+  line-height: 1.15;
 }
 
 /* ════════════════════════════════════════════════════════════
-   3. BENTO PROMO (orange brand)
+   3. BENTO
 ════════════════════════════════════════════════════════════ */
 .lmm-bento {
   display: grid;
   grid-template-columns: 3fr 2fr;
-  gap: 10px;
+  gap: 8px;
   padding: 0 12px;
 }
 
 .lmm-bento-main {
   position: relative;
-  min-height: 148px;
+  min-height: 132px;
   border: none;
-  border-radius: 16px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 14px;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
@@ -153,32 +155,32 @@
 .lmm-bento-main::after {
   content: "";
   position: absolute;
-  right: -20px;
-  top: -20px;
-  width: 100px;
-  height: 100px;
+  right: -18px;
+  top: -18px;
+  width: 88px;
+  height: 88px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.16);
   pointer-events: none;
 }
 
 .lmm-bento-badge {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  background: rgba(0, 0, 0, 0.25);
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.22);
   color: #fff;
   font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 999px;
 }
 
 .lmm-bento-main h4 {
-  margin: 0 0 4px;
-  font-size: 20px;
+  margin: 0 0 3px;
+  font-size: 18px;
   font-weight: 900;
   line-height: 1.05;
   letter-spacing: -0.02em;
@@ -188,7 +190,7 @@
 
 .lmm-bento-main p {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   opacity: 0.95;
   position: relative;
@@ -198,21 +200,20 @@
 .lmm-bento-side {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .lmm-bento-sub {
   flex: 1;
   border: 1px solid var(--o-border);
-  border-radius: 16px;
-  padding: 12px;
+  border-radius: 14px;
+  padding: 10px 12px;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  transition: transform 0.12s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -233,7 +234,7 @@
 
 .lmm-bento-sub h5 {
   margin: 0 0 2px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 800;
 }
 
@@ -245,34 +246,34 @@
 }
 
 /* ════════════════════════════════════════════════════════════
-   4. SECTION HEADS
+   4. SECTION HEADS + DEAL
 ════════════════════════════════════════════════════════════ */
 .mdp-psec {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .mdp-psec__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  gap: 10px;
+  padding: 0 14px;
+  gap: 8px;
 }
 
 .mdp-psec__head-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
 .mdp-psec__title {
-  font-size: 16px;
+  margin: 0;
+  font-size: 15px;
   font-weight: 800;
   color: var(--ink);
-  margin: 0;
   letter-spacing: -0.02em;
 }
 
@@ -293,56 +294,37 @@
   cursor: pointer;
   padding: 0;
   white-space: nowrap;
-  -webkit-tap-highlight-color: transparent;
 }
 
-.mdp-psec__all:active {
-  opacity: 0.75;
-}
-
-/* ════════════════════════════════════════════════════════════
-   5. DEAL OF THE DAY (urgency + orange)
-════════════════════════════════════════════════════════════ */
 .mdp-psec--deals {
-  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 70%);
+  background: linear-gradient(180deg, #fff7ed 0%, #fff 72%);
   border-top: 1px solid var(--o-border);
   border-bottom: 1px solid var(--o-border);
-  padding: 14px 0 12px;
+  padding: 12px 0 10px;
 }
 
 .mdp-psec__head--deals {
-  padding: 0 16px 4px;
+  padding: 0 14px 2px;
 }
 
 .lmm-timer,
 .lmm-countdown {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   background: var(--o);
   color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 5px 10px;
-  font-size: 12px;
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 11px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.3px;
   box-shadow: 0 2px 8px rgba(255, 96, 0, 0.35);
 }
 
-.lmm-timer svg,
-.lmm-countdown svg {
-  flex-shrink: 0;
-}
-
-/* ════════════════════════════════════════════════════════════
-   6. ADMIN CAMPAIGN RAIL
-════════════════════════════════════════════════════════════ */
 .mdp-psec--campaign {
-  background: linear-gradient(180deg, #fff4eb 0%, #ffffff 55%);
-  padding: 10px 0 4px;
-  border-radius: 0;
+  background: linear-gradient(180deg, #fff4eb 0%, #fff 60%);
+  padding: 8px 0 2px;
 }
 
 .mdp-psec--campaign .mdp-psec__title {
@@ -350,13 +332,13 @@
 }
 
 /* ════════════════════════════════════════════════════════════
-   7. HORIZONTAL RAIL
+   5. RAILS + CARDS
 ════════════════════════════════════════════════════════════ */
 .mdp-rail-hscroll {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   overflow-x: auto;
-  padding: 4px 16px 10px;
+  padding: 2px 14px 8px;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -365,35 +347,28 @@
   display: none;
 }
 
-.mdp-rail-hscroll--deals {
-  padding-bottom: 12px;
-}
-
-/* ════════════════════════════════════════════════════════════
-   8. RAIL CARDS
-════════════════════════════════════════════════════════════ */
 .mdp-rail-hcard {
   flex-shrink: 0;
-  width: 138px;
+  width: 132px;
   background: var(--wh);
   border: 1px solid var(--bd);
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
   -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease;
 }
 
 .mdp-rail-hcard:active {
-  transform: scale(0.96);
+  transform: scale(0.97);
 }
 
 .mdp-rail-hcard--deal {
   border-color: var(--o-border);
-  box-shadow: 0 2px 10px rgba(255, 96, 0, 0.1);
   background: #fffdfb;
+  box-shadow: 0 2px 8px rgba(255, 96, 0, 0.08);
 }
 
 .mdp-rail-hcard__media {
@@ -417,61 +392,59 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 22px;
   color: var(--ink3);
   background: var(--o-soft);
 }
 
 .mdp-rail-hcard__badge {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  top: 5px;
+  left: 5px;
   background: var(--o);
   color: #fff;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 800;
-  padding: 3px 7px;
+  padding: 2px 6px;
   border-radius: 999px;
-  box-shadow: 0 2px 6px rgba(255, 96, 0, 0.35);
+  box-shadow: 0 2px 5px rgba(255, 96, 0, 0.35);
   z-index: 1;
 }
 
 .mdp-rail-hcard__badge--soft {
   background: #0f172a;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .mdp-rail-hcard__body {
-  padding: 8px 10px 10px;
+  padding: 7px 8px 9px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  gap: 4px;
   flex: 1;
-  gap: 6px;
 }
 
 .mdp-rail-hcard__name {
-  font-size: 12px;
+  margin: 0;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--ink);
-  margin: 0;
-  line-height: 1.35;
+  line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 32px;
+  min-height: 30px;
 }
 
 .mm-card-bottom {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 1px;
 }
 
 .mdp-rail-hcard__price {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 800;
   color: var(--o);
   line-height: 1.2;
@@ -484,9 +457,7 @@
   font-weight: 500;
 }
 
-/* ════════════════════════════════════════════════════════════
-   9. LEGACY PROMO BANNER (if still used)
-════════════════════════════════════════════════════════════ */
+/* Legacy promo (if still mounted) */
 .lmm-promo-wrap {
   padding: 0 12px;
 }
@@ -494,32 +465,26 @@
 .lmm-promo-banner {
   background: linear-gradient(135deg, #ff6000 0%, #ff8a3d 100%);
   color: #fff;
-  padding: 16px 18px;
-  border-radius: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   cursor: pointer;
   box-shadow: var(--s2);
-  transition: transform 0.15s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.lmm-promo-banner:active {
-  transform: scale(0.98);
 }
 
 .lmm-promo-content h4 {
   margin: 0 0 2px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
 }
 
 .lmm-promo-content p {
   margin: 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.9);
+  font-size: 11.5px;
+  opacity: 0.92;
 }
 
 .lmm-promo-btn {
@@ -527,55 +492,45 @@
   color: var(--o);
   border: none;
   border-radius: 999px;
-  padding: 8px 14px;
+  padding: 7px 12px;
   font-size: 12px;
   font-weight: 800;
+  font-family: inherit;
   cursor: pointer;
   flex-shrink: 0;
-  font-family: inherit;
-}
-
-.lmm-promo-btn:active {
-  opacity: 0.9;
 }
 
 /* ════════════════════════════════════════════════════════════
-   10. RESPONSIVE
+   RESPONSIVE
 ════════════════════════════════════════════════════════════ */
-@media (min-width: 480px) {
+@media (min-width: 400px) {
   .mdp-rail-hcard {
-    width: 150px;
-  }
-
-  .lmm-bento-main h4 {
-    font-size: 22px;
+    width: 140px;
   }
 }
 
 @media (min-width: 768px) {
   .lmm-marketing-container,
   .lmm-curated-sections-container {
-    gap: 20px;
     max-width: 960px;
     margin: 0 auto;
+    gap: 14px;
   }
 
   .lmm-cat-card__icon {
-    width: 56px;
-    height: 56px;
+    width: 52px;
+    height: 52px;
   }
 
   .mdp-rail-hcard {
-    width: 160px;
+    width: 156px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .lmm-cat-card__icon,
   .mdp-rail-hcard,
-  .lmm-bento-main,
-  .lmm-bento-sub,
-  .lmm-promo-banner {
+  .lmm-bento-sub {
     transition: none !important;
   }
 }
