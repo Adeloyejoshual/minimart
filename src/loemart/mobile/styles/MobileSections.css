@@ -1,7 +1,26 @@
 /* ════════════════════════════════════════════════════════════
-   MobileSections.css — Trust Strip, Promo, Rails & Cards
+   MobileSections.css
+   Brand: Orange (#ff6000)
+   Trust · Categories · Bento · Deal of the Day · Rails · Campaign
 ════════════════════════════════════════════════════════════ */
 
+:root {
+  --o: #ff6000;
+  --o-dark: #e05500;
+  --o-soft: #fff4eb;
+  --o-mid: #ffedd5;
+  --o-border: #ffd4b8;
+  --ink: #1a1a1a;
+  --ink2: #52525b;
+  --ink3: #a1a1aa;
+  --wh: #ffffff;
+  --bg: #fafafa;
+  --bd: #e9ecef;
+  --s1: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --s2: 0 4px 16px rgba(255, 96, 0, 0.12);
+}
+
+.lmm-marketing-container,
 .lmm-curated-sections-container {
   display: flex;
   flex-direction: column;
@@ -9,97 +28,225 @@
   position: relative;
   z-index: 1;
   width: 100%;
+  padding-top: 4px;
+  padding-bottom: 8px;
 }
 
-/* ── 1. Trust Strip ── */
+/* ════════════════════════════════════════════════════════════
+   1. TRUST STRIP
+════════════════════════════════════════════════════════════ */
 .lmm-trust-strip {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 12px;
   margin: 0 12px;
-  background: var(--wh, #ffffff);
-  border: 1px solid var(--bd, #e9ecef);
+  background: var(--wh);
+  border: 1px solid var(--o-border);
   border-radius: 12px;
-  box-shadow: var(--s1, 0 2px 8px rgba(0, 0, 0, 0.04));
+  box-shadow: var(--s1);
 }
 
 .lmm-trust-item {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  text-align: center;
-}
-
-.lmm-trust-icon {
-  color: var(--o, #ff6000);
-}
-
-.lmm-trust-item span {
+  gap: 5px;
   font-size: 10px;
   font-weight: 700;
-  color: var(--ink, #1a1a1a);
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
   white-space: nowrap;
 }
 
-/* ── 2. Promo Banner ── */
-.lmm-promo-wrap {
+.lmm-trust-item svg,
+.lmm-trust-icon {
+  color: var(--o);
+  flex-shrink: 0;
+}
+
+.lmm-trust-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--o-border);
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   2. CATEGORY GRID
+════════════════════════════════════════════════════════════ */
+.lmm-cat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
   padding: 0 12px;
 }
 
-.lmm-promo-banner {
-  background: linear-gradient(135deg, #18181b 0%, #27272a 100%);
-  color: #ffffff;
-  padding: 16px 18px;
+.lmm-cat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+}
+
+.lmm-cat-card__icon {
+  width: 52px;
+  height: 52px;
   border-radius: 16px;
+  background: var(--o-soft);
+  color: var(--o);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: center;
+  border: 1px solid var(--o-border);
+  box-shadow: 0 2px 6px rgba(255, 96, 0, 0.08);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.lmm-cat-card:active .lmm-cat-card__icon {
+  transform: scale(0.94);
+  background: var(--o-mid);
+}
+
+.lmm-cat-card__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink2);
+}
+
+/* ════════════════════════════════════════════════════════════
+   3. BENTO PROMO (orange brand)
+════════════════════════════════════════════════════════════ */
+.lmm-bento {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.lmm-bento-main {
+  position: relative;
+  min-height: 148px;
+  border: none;
+  border-radius: 16px;
+  padding: 16px;
+  text-align: left;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  transition: transform 0.15s ease;
+  font-family: inherit;
+  color: #fff;
+  background: linear-gradient(145deg, #ff6000 0%, #ff8a3d 55%, #ffb347 100%);
+  box-shadow: var(--s2);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
   -webkit-tap-highlight-color: transparent;
 }
 
-.lmm-promo-banner:active {
+.lmm-bento-main::after {
+  content: "";
+  position: absolute;
+  right: -20px;
+  top: -20px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+}
+
+.lmm-bento-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+.lmm-bento-main h4 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  position: relative;
+  z-index: 1;
+}
+
+.lmm-bento-main p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.95;
+  position: relative;
+  z-index: 1;
+}
+
+.lmm-bento-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lmm-bento-sub {
+  flex: 1;
+  border: 1px solid var(--o-border);
+  border-radius: 16px;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  transition: transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lmm-bento-sub:active {
   transform: scale(0.98);
 }
 
-.lmm-promo-content h4 {
+.lmm-bento-sub--1 {
+  background: linear-gradient(160deg, #fff7ed 0%, #ffedd5 100%);
+  color: #9a3412;
+}
+
+.lmm-bento-sub--2 {
+  background: linear-gradient(160deg, #fff4eb 0%, #ffe0c2 100%);
+  color: #c2410c;
+  border-color: #ffc9a3;
+}
+
+.lmm-bento-sub h5 {
   margin: 0 0 2px;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 800;
-  letter-spacing: -0.01em;
 }
 
-.lmm-promo-content p {
+.lmm-bento-sub p {
   margin: 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.85;
 }
 
-.lmm-promo-btn {
-  background: var(--o, #ff6000);
-  color: #ffffff;
-  border: none;
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  flex-shrink: 0;
-  font-family: inherit;
-  transition: background-color 0.15s ease;
-}
-
-.lmm-promo-btn:active {
-  opacity: 0.9;
-}
-
-/* ── 3. Section Container & Headers ── */
+/* ════════════════════════════════════════════════════════════
+   4. SECTION HEADS
+════════════════════════════════════════════════════════════ */
 .mdp-psec {
   display: flex;
   flex-direction: column;
@@ -111,37 +258,105 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
+  gap: 10px;
+}
+
+.mdp-psec__head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .mdp-psec__title {
   font-size: 16px;
   font-weight: 800;
-  color: var(--ink, #1a1a1a);
+  color: var(--ink);
   margin: 0;
   letter-spacing: -0.02em;
 }
 
-/* Countdown Tag */
+.mdp-psec__title--deal {
+  color: var(--o) !important;
+}
+
+.mdp-psec__all {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: none;
+  background: transparent;
+  color: var(--o);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mdp-psec__all:active {
+  opacity: 0.75;
+}
+
+/* ════════════════════════════════════════════════════════════
+   5. DEAL OF THE DAY (urgency + orange)
+════════════════════════════════════════════════════════════ */
+.mdp-psec--deals {
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 70%);
+  border-top: 1px solid var(--o-border);
+  border-bottom: 1px solid var(--o-border);
+  padding: 14px 0 12px;
+}
+
+.mdp-psec__head--deals {
+  padding: 0 16px 4px;
+}
+
+.lmm-timer,
 .lmm-countdown {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 999px;
-  padding: 4px 10px;
+  background: var(--o);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 5px 10px;
   font-size: 12px;
   font-weight: 800;
-  color: #ef4444;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+  box-shadow: 0 2px 8px rgba(255, 96, 0, 0.35);
 }
 
-/* ── 4. Horizontal Scrolling Track ── */
+.lmm-timer svg,
+.lmm-countdown svg {
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   6. ADMIN CAMPAIGN RAIL
+════════════════════════════════════════════════════════════ */
+.mdp-psec--campaign {
+  background: linear-gradient(180deg, #fff4eb 0%, #ffffff 55%);
+  padding: 10px 0 4px;
+  border-radius: 0;
+}
+
+.mdp-psec--campaign .mdp-psec__title {
+  color: var(--o-dark);
+}
+
+/* ════════════════════════════════════════════════════════════
+   7. HORIZONTAL RAIL
+════════════════════════════════════════════════════════════ */
 .mdp-rail-hscroll {
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  padding: 4px 16px 8px;
+  padding: 4px 16px 10px;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -150,12 +365,18 @@
   display: none;
 }
 
-/* ── 5. Rail Cards ── */
+.mdp-rail-hscroll--deals {
+  padding-bottom: 12px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   8. RAIL CARDS
+════════════════════════════════════════════════════════════ */
 .mdp-rail-hcard {
   flex-shrink: 0;
-  width: 140px;
-  background: var(--wh, #ffffff);
-  border: 1px solid var(--bd, #e9ecef);
+  width: 138px;
+  background: var(--wh);
+  border: 1px solid var(--bd);
   border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
@@ -167,6 +388,12 @@
 
 .mdp-rail-hcard:active {
   transform: scale(0.96);
+}
+
+.mdp-rail-hcard--deal {
+  border-color: var(--o-border);
+  box-shadow: 0 2px 10px rgba(255, 96, 0, 0.1);
+  background: #fffdfb;
 }
 
 .mdp-rail-hcard__media {
@@ -191,20 +418,27 @@
   align-items: center;
   justify-content: center;
   font-size: 24px;
-  color: #a1a1aa;
+  color: var(--ink3);
+  background: var(--o-soft);
 }
 
 .mdp-rail-hcard__badge {
   position: absolute;
   top: 6px;
   left: 6px;
-  background: var(--o, #ff6000);
-  color: #ffffff;
+  background: var(--o);
+  color: #fff;
   font-size: 10px;
   font-weight: 800;
-  padding: 2px 6px;
+  padding: 3px 7px;
   border-radius: 999px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 6px rgba(255, 96, 0, 0.35);
+  z-index: 1;
+}
+
+.mdp-rail-hcard__badge--soft {
+  background: #0f172a;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .mdp-rail-hcard__body {
@@ -219,24 +453,129 @@
 .mdp-rail-hcard__name {
   font-size: 12px;
   font-weight: 600;
-  color: var(--ink, #1a1a1a);
+  color: var(--ink);
   margin: 0;
   line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  height: 32px;
+  min-height: 32px;
 }
 
 .mm-card-bottom {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .mdp-rail-hcard__price {
   font-size: 13px;
   font-weight: 800;
-  color: var(--o, #ff6000);
+  color: var(--o);
+  line-height: 1.2;
+}
+
+.mdp-rail-hcard__old {
+  font-size: 10px;
+  color: var(--ink3);
+  text-decoration: line-through;
+  font-weight: 500;
+}
+
+/* ════════════════════════════════════════════════════════════
+   9. LEGACY PROMO BANNER (if still used)
+════════════════════════════════════════════════════════════ */
+.lmm-promo-wrap {
+  padding: 0 12px;
+}
+
+.lmm-promo-banner {
+  background: linear-gradient(135deg, #ff6000 0%, #ff8a3d 100%);
+  color: #fff;
+  padding: 16px 18px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  box-shadow: var(--s2);
+  transition: transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lmm-promo-banner:active {
+  transform: scale(0.98);
+}
+
+.lmm-promo-content h4 {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.lmm-promo-content p {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.lmm-promo-btn {
+  background: #fff;
+  color: var(--o);
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.lmm-promo-btn:active {
+  opacity: 0.9;
+}
+
+/* ════════════════════════════════════════════════════════════
+   10. RESPONSIVE
+════════════════════════════════════════════════════════════ */
+@media (min-width: 480px) {
+  .mdp-rail-hcard {
+    width: 150px;
+  }
+
+  .lmm-bento-main h4 {
+    font-size: 22px;
+  }
+}
+
+@media (min-width: 768px) {
+  .lmm-marketing-container,
+  .lmm-curated-sections-container {
+    gap: 20px;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .lmm-cat-card__icon {
+    width: 56px;
+    height: 56px;
+  }
+
+  .mdp-rail-hcard {
+    width: 160px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lmm-cat-card__icon,
+  .mdp-rail-hcard,
+  .lmm-bento-main,
+  .lmm-bento-sub,
+  .lmm-promo-banner {
+    transition: none !important;
+  }
 }
