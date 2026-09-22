@@ -1,15 +1,14 @@
 /**
  * src/loemart/mobile/MasonryCard.jsx
+ * Product card — SVG ratings, rotating promo badges, type-safe cart, no fake data
  */
-import { memo, useState, useEffect, useCallback, useRef } from "react";
+import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 import {
   Heart,
   ShoppingBag,
-  Star,
-  Zap,
   Plus,
   Minus,
   Check,
@@ -21,8 +20,11 @@ import { API, primaryImg } from "./mobileHelpers";
 import "./styles/MasonryCard.css";
 
 const CART_ITEMS_URL = `${API}/cart/items`;
-const CART_KEY       = "mm_cart";
+const CART_KEY = "mm_cart";
 
+/* ════════════════════════════════════════════════════════════
+   UTILS
+════════════════════════════════════════════════════════════ */
 const isLoggedIn = () => {
   const t = localStorage.getItem("marketplace_token");
   return !!(t && t !== "null" && t !== "undefined");
@@ -36,8 +38,11 @@ const authHeaders = () => {
 };
 
 function readGuestCart() {
-  try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 
 function writeGuestCart(cart) {
@@ -45,12 +50,115 @@ function writeGuestCart(cart) {
   window.dispatchEvent(new Event("cart-updated"));
 }
 
+const parseNum = (val) => {
+  if (val === null || val === undefined || val === "") return 0;
+  const n = Number(String(val).replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
+
+const formatPrice = (val) =>
+  val > 0 ? `₦${Number(val).toLocaleString("en-NG")}` : "₦0";
+
+/* ════════════════════════════════════════════════════════════
+   TRANSPARENT SVG STARS  →  ★★★★☆ 4.2
+════════════════════════════════════════════════════════════ */
+const StarIcon = memo(function StarIcon({ filled = false, half = false }) {
+  const uid = useRef(`hs-${Math.random().toString(36).slice(2, 9)}`).current;
+
+  return (
+    <svg
+      className="mcard__star"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      {half && (
+        <defs>
+          <clipPath id={uid}>
+            <rect x="0" y="0" width="12" height="24" />
+          </clipPath>
+        </defs>
+      )}
+
+      {/* Empty / outline */}
+      <path
+        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        fill="none"
+        opacity={filled || half ? 0 : 0.28}
+      />
+
+      {/* Full fill */}
+      {filled && (
+        <path
+          d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+          fill="currentColor"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+      )}
+
+      {/* Half fill */}
+      {half && (
+        <path
+          d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+          fill="currentColor"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+          clipPath={`url(#${uid})`}
+        />
+      )}
+    </svg>
+  );
+});
+
+const StarRating = memo(function StarRating({ rating }) {
+  const r = Number(rating);
+  if (!Number.isFinite(r) || r <= 0) return null;
+
+  const clamped = Math.min(Math.max(r, 0), 5);
+  const full = Math.floor(clamped);
+  const frac = clamped - full;
+  const hasHalf = frac >= 0.25 && frac < 0.75;
+  const extraFull = frac >= 0.75 ? 1 : 0;
+  const filledCount = full + extraFull;
+  const emptyCount = Math.max(0, 5 - filledCount - (hasHalf ? 1 : 0));
+
+  return (
+    <span
+      className="mcard__rating-stars"
+      title={`${clamped.toFixed(1)} out of 5`}
+    >
+      <span className="mcard__stars-row">
+        {Array.from({ length: filledCount }, (_, i) => (
+          <StarIcon key={`f${i}`} filled />
+        ))}
+        {hasHalf && <StarIcon key="h" half />}
+        {Array.from({ length: emptyCount }, (_, i) => (
+          <StarIcon key={`e${i}`} />
+        ))}
+      </span>
+      <span className="mcard__rating-num">{clamped.toFixed(1)}</span>
+    </span>
+  );
+});
+
+/* ════════════════════════════════════════════════════════════
+   COMPONENT
+════════════════════════════════════════════════════════════ */
 function MasonryCard({
   product,
-  isWished,
+  isWished = false,
   onWishlist,
-  cartInfo,        // { itemId, qty }
-  onCartUpdate,    // Callback to sync parent state
+  cartInfo,
+  onCartUpdate,
 }) {
   const navigate = useNavigate();
 
@@ -62,165 +170,275 @@ function MasonryCard({
     name,
     price,
     selling_price,
+    sale_price,
     originalPrice,
     original_price,
     old_price,
+    compare_at_price,
+    compare_price,
+    regular_price,
+    slashed_price,
+    market_price,
     discount,
     rating,
+    review_count,
+    reviews_count,
     sold,
     sold_count,
     location,
     isFlashDeal,
+    is_flash,
     is_featured,
     is_trending,
+    is_popular,
+    is_new,
     badge,
     stock,
+    quantity,
     slug,
     has_delivery,
+    free_delivery,
     seller_verified,
     variants,
     has_variants,
+    created_at,
+    createdAt,
   } = product || {};
 
-  /* ── Derived display values ── */
-  const realId          = String(id || product_id || _id || "");
-  const displayTitle   = title || name || "Untitled Product";
-  const displayImage   = primaryImg(product?.images, product) || "/placeholder.png";
-  const realPrice      = price || selling_price || 0;
-  const displayOldPrice = originalPrice || original_price || old_price;
-  const displaySold     = sold ?? sold_count ?? 0;
-  const maxStock        = stock ?? 99;
-  const inStock         = maxStock > 0;
-  const lowStock        = inStock && maxStock < 10;
+  /* ── Core derived values ── */
+  const realId = String(id || product_id || _id || "");
+  const displayTitle = title || name || "Untitled Product";
+  const displayImage =
+    primaryImg(product?.images, product) || "/placeholder.png";
 
-  // Check if product has sizes/colors/variants
-  const hasVariants = Boolean(
-    (Array.isArray(variants) && variants.length > 0) ||
-    has_variants ||
-    product?.options?.length > 0
+  const realPrice = parseNum(selling_price || price || sale_price);
+  const displayOldPrice = parseNum(
+    originalPrice ??
+      original_price ??
+      old_price ??
+      compare_at_price ??
+      compare_price ??
+      regular_price ??
+      slashed_price ??
+      market_price
   );
 
-  const discountPct =
-    discount ||
-    (displayOldPrice && realPrice
-      ? Math.round(((displayOldPrice - realPrice) / displayOldPrice) * 100)
-      : null);
+  const displaySold = Number(sold ?? sold_count ?? 0) || 0;
+  const maxStock = Number(stock ?? quantity ?? 99);
+  const inStock = maxStock > 0;
+  const lowStock = inStock && maxStock <= 5;
 
-  /* ── Local cart state ── */
-  const [localQty, setLocalQty]       = useState(cartInfo?.qty ?? 0);
+  const hasVariants = Boolean(
+    (Array.isArray(variants) && variants.length > 0) ||
+      has_variants ||
+      (Array.isArray(product?.options) && product.options.length > 0)
+  );
+
+  const discountPct = useMemo(() => {
+    if (discount && Number(discount) > 0) return Math.round(Number(discount));
+    if (displayOldPrice > realPrice && realPrice > 0) {
+      return Math.round(
+        ((displayOldPrice - realPrice) / displayOldPrice) * 100
+      );
+    }
+    return 0;
+  }, [discount, displayOldPrice, realPrice]);
+
+  const hasRealDiscount = displayOldPrice > realPrice && realPrice > 0;
+  const savingsAmt = hasRealDiscount ? displayOldPrice - realPrice : 0;
+
+  /* Genuine rating only — require a value and ideally some reviews */
+  const reviewCount = Number(review_count ?? reviews_count ?? 0);
+  const hasGenuineRating =
+    Number(rating) > 0 && (reviewCount > 0 || Number(rating) >= 1);
+
+  /* ── Promo messages (real data only) ── */
+  const promoMessages = useMemo(() => {
+    const list = [];
+
+    if (is_trending) {
+      list.push({ id: "trend", text: "🔥 Trending", tone: "trend" });
+    }
+    if (hasRealDiscount) {
+      list.push({
+        id: "save",
+        text: `You save ${formatPrice(savingsAmt)}`,
+        tone: "save",
+      });
+    }
+    if (lowStock) {
+      list.push({
+        id: "stock",
+        text: `⚡ ${maxStock} left`,
+        tone: "stock",
+      });
+    }
+    if (isFlashDeal || is_flash) {
+      list.push({ id: "deal", text: "🏷️ Deal", tone: "deal" });
+    }
+    if (
+      is_new ||
+      (badge && String(badge).toLowerCase() === "new") ||
+      (created_at || createdAt
+        ? Date.now() - new Date(created_at || createdAt).getTime() <
+          1000 * 60 * 60 * 24 * 14
+        : false)
+    ) {
+      list.push({ id: "new", text: "✨ New", tone: "new" });
+    }
+    if (is_popular || displaySold >= 50) {
+      list.push({ id: "pop", text: "👀 Popular", tone: "pop" });
+    }
+
+    return list;
+  }, [
+    is_trending,
+    hasRealDiscount,
+    savingsAmt,
+    lowStock,
+    maxStock,
+    isFlashDeal,
+    is_flash,
+    is_new,
+    badge,
+    created_at,
+    createdAt,
+    is_popular,
+    displaySold,
+  ]);
+
+  /* ── Rotate promos ── */
+  const [promoIdx, setPromoIdx] = useState(0);
+
+  useEffect(() => {
+    if (promoMessages.length <= 1) return undefined;
+    const t = setInterval(() => {
+      setPromoIdx((i) => (i + 1) % promoMessages.length);
+    }, 3200);
+    return () => clearInterval(t);
+  }, [promoMessages.length]);
+
+  /* Reset index if list shrinks */
+  useEffect(() => {
+    setPromoIdx(0);
+  }, [realId]);
+
+  /* ── Cart local state ── */
+  const [localQty, setLocalQty] = useState(cartInfo?.qty ?? 0);
   const [localItemId, setLocalItemId] = useState(cartInfo?.itemId ?? null);
-  const [busy, setBusy]               = useState(false);
-  const debounceRef                   = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const debounceRef = useRef(null);
 
-  /* Sync with parent when cart changes */
   useEffect(() => {
     setLocalQty(cartInfo?.qty ?? 0);
     setLocalItemId(cartInfo?.itemId ?? null);
   }, [cartInfo?.qty, cartInfo?.itemId]);
 
-  const formatPrice = (val) =>
-    val ? `₦${Number(val).toLocaleString()}` : "₦0";
-
-  /* ═══════════════════════════════════════════
-     NAVIGATION
-  ═══════════════════════════════════════════ */
+  /* ── Navigation ── */
   const handleOpen = useCallback(() => {
-    if (realId || slug) {
-      navigate(`/shop/${slug || realId}`);
-    }
+    if (realId || slug) navigate(`/shop/${slug || realId}`);
   }, [navigate, slug, realId]);
 
-  const handleWish = useCallback((e) => {
-    e.stopPropagation();
-    onWishlist?.();
-  }, [onWishlist]);
+  const handleWish = useCallback(
+    (e) => {
+      e.stopPropagation();
+      onWishlist?.();
+    },
+    [onWishlist]
+  );
 
-  /* ═══════════════════════════════════════════
-     ADD TO CART
-  ═══════════════════════════════════════════ */
-  const handleAdd = useCallback(async (e) => {
-    e.stopPropagation();
-    if (busy || !inStock) return;
+  /* ── Add to cart ── */
+  const handleAdd = useCallback(
+    async (e) => {
+      e.stopPropagation();
+      if (busy || !inStock) return;
 
-    // IF HAS VARIANTS: Direct user to Product Detail page to choose Size/Color
-    if (hasVariants) {
-      toast("Please select an option", { icon: "⚙️", duration: 2500 });
-      navigate(`/shop/${slug || realId}`);
-      return;
-    }
-
-    setBusy(true);
-    setLocalQty(1); // Optimistic UI
-
-    const addGuestItem = () => {
-      const cart    = readGuestCart();
-      const itemKey = `${realId}__default`;
-      const idx     = cart.findIndex((c) => String(c.productId || c.product_id) === realId);
-
-      if (idx >= 0) {
-        cart[idx].qty = (Number(cart[idx].qty) || 1) + 1;
-        setLocalQty(cart[idx].qty);
-      } else {
-        cart.push({
-          id            : itemKey,
-          productId     : realId,
-          product_id    : realId,
-          name          : displayTitle,
-          image         : displayImage,
-          price         : Number(realPrice),
-          originalPrice : displayOldPrice ? Number(displayOldPrice) : null,
-          variant       : null,
-          slug          : slug || realId,
-          qty           : 1,
-          stock         : maxStock,
-          addedAt       : Date.now(),
-        });
-        setLocalItemId(itemKey);
+      if (hasVariants) {
+        toast("Please select an option", { icon: "⚙️", duration: 2500 });
+        navigate(`/shop/${slug || realId}`);
+        return;
       }
-      writeGuestCart(cart);
-      onCartUpdate?.();
-    };
 
-    try {
-      if (isLoggedIn()) {
-        try {
-          await axios.post(
-            CART_ITEMS_URL,
-            { product_id: realId, variant_id: null, qty: 1 },
-            { headers: authHeaders(), timeout: 10000 }
-          );
-          onCartUpdate?.();
-        } catch (apiErr) {
-          const status = apiErr?.response?.status;
-          if (status === 401 || status === 403) {
-            localStorage.removeItem("marketplace_token");
-            addGuestItem();
-          } else {
-            throw apiErr;
-          }
+      setBusy(true);
+      setLocalQty(1);
+
+      const addGuestItem = () => {
+        const cart = readGuestCart();
+        const itemKey = `${realId}__default`;
+        const idx = cart.findIndex(
+          (c) => String(c.productId || c.product_id) === realId
+        );
+
+        if (idx >= 0) {
+          cart[idx].qty = (Number(cart[idx].qty) || 1) + 1;
+          setLocalQty(cart[idx].qty);
+        } else {
+          cart.push({
+            id: itemKey,
+            productId: realId,
+            product_id: realId,
+            name: displayTitle,
+            image: displayImage,
+            price: realPrice,
+            originalPrice: hasRealDiscount ? displayOldPrice : null,
+            variant: null,
+            slug: slug || realId,
+            qty: 1,
+            stock: maxStock,
+            addedAt: Date.now(),
+          });
+          setLocalItemId(itemKey);
         }
-      } else {
-        addGuestItem();
+        writeGuestCart(cart);
+        onCartUpdate?.();
+      };
+
+      try {
+        if (isLoggedIn()) {
+          try {
+            await axios.post(
+              CART_ITEMS_URL,
+              { product_id: realId, variant_id: null, qty: 1 },
+              { headers: authHeaders(), timeout: 10000 }
+            );
+            onCartUpdate?.();
+          } catch (apiErr) {
+            const status = apiErr?.response?.status;
+            if (status === 401 || status === 403) {
+              localStorage.removeItem("marketplace_token");
+              addGuestItem();
+            } else throw apiErr;
+          }
+        } else {
+          addGuestItem();
+        }
+        toast.success("Added to cart", { duration: 2000, icon: "🛒" });
+      } catch (err) {
+        const msg = err.response?.data?.message ?? "Failed to add to cart";
+        toast.error(msg, { duration: 3000 });
+        setLocalQty(0);
+      } finally {
+        setBusy(false);
       }
+    },
+    [
+      busy,
+      inStock,
+      hasVariants,
+      navigate,
+      slug,
+      realId,
+      displayTitle,
+      displayImage,
+      realPrice,
+      hasRealDiscount,
+      displayOldPrice,
+      maxStock,
+      onCartUpdate,
+    ]
+  );
 
-      toast.success("Added to cart", { duration: 2000, icon: "🛒" });
-    } catch (err) {
-      console.error("Add to cart failed:", err);
-      const msg = err.response?.data?.message ?? "Failed to add to cart";
-      toast.error(msg, { duration: 3000 });
-      setLocalQty(0); // Rollback
-    } finally {
-      setBusy(false);
-    }
-  }, [
-    busy, inStock, hasVariants, navigate, slug, realId,
-    displayTitle, displayImage, realPrice, displayOldPrice,
-    maxStock, onCartUpdate,
-  ]);
-
-  /* ═══════════════════════════════════════════
-     INCREASE QUANTITY
-  ═══════════════════════════════════════════ */
+  /* ── Qty + ── */
   const handleIncrease = useCallback(() => {
     if (busy) return;
     if (localQty >= maxStock) {
@@ -229,7 +447,7 @@ function MasonryCard({
     }
 
     const newQty = localQty + 1;
-    setLocalQty(newQty); // Optimistic
+    setLocalQty(newQty);
 
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
@@ -244,25 +462,27 @@ function MasonryCard({
           onCartUpdate?.();
         } else {
           const cart = readGuestCart();
-          const idx  = cart.findIndex((c) => String(c.id) === String(localItemId) || String(c.productId) === realId);
+          const idx = cart.findIndex(
+            (c) =>
+              String(c.id) === String(localItemId) ||
+              String(c.productId) === realId
+          );
           if (idx >= 0) {
             cart[idx].qty = newQty;
             writeGuestCart(cart);
             onCartUpdate?.();
           }
         }
-      } catch (err) {
+      } catch {
         toast.error("Failed to update quantity");
-        setLocalQty(localQty); // Rollback
+        setLocalQty(localQty);
       } finally {
         setBusy(false);
       }
-    }, 300);
+    }, 280);
   }, [busy, localQty, maxStock, localItemId, realId, onCartUpdate]);
 
-  /* ═══════════════════════════════════════════
-     DECREASE / REMOVE QUANTITY
-  ═══════════════════════════════════════════ */
+  /* ── Qty − ── */
   const handleDecrease = useCallback(async () => {
     if (busy) return;
 
@@ -280,12 +500,16 @@ function MasonryCard({
           });
           onCartUpdate?.();
         } else {
-          const cart = readGuestCart().filter((c) => String(c.id) !== String(prevItemId) && String(c.productId) !== realId);
+          const cart = readGuestCart().filter(
+            (c) =>
+              String(c.id) !== String(prevItemId) &&
+              String(c.productId) !== realId
+          );
           writeGuestCart(cart);
           onCartUpdate?.();
         }
         toast.success("Removed from cart", { duration: 2000, icon: "🗑️" });
-      } catch (err) {
+      } catch {
         toast.error("Failed to remove");
         setLocalQty(1);
         setLocalItemId(prevItemId);
@@ -296,7 +520,7 @@ function MasonryCard({
     }
 
     const newQty = localQty - 1;
-    setLocalQty(newQty); // Optimistic
+    setLocalQty(newQty);
 
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
@@ -311,65 +535,57 @@ function MasonryCard({
           onCartUpdate?.();
         } else {
           const cart = readGuestCart();
-          const idx  = cart.findIndex((c) => String(c.id) === String(localItemId) || String(c.productId) === realId);
+          const idx = cart.findIndex(
+            (c) =>
+              String(c.id) === String(localItemId) ||
+              String(c.productId) === realId
+          );
           if (idx >= 0) {
             cart[idx].qty = newQty;
             writeGuestCart(cart);
             onCartUpdate?.();
           }
         }
-      } catch (err) {
+      } catch {
         toast.error("Failed to update");
-        setLocalQty(localQty); // Rollback
+        setLocalQty(localQty);
       } finally {
         setBusy(false);
       }
-    }, 300);
+    }, 280);
   }, [busy, localQty, localItemId, realId, onCartUpdate]);
 
-  /* ═══════════════════════════════════════════
-     RENDER
-  ═══════════════════════════════════════════ */
+  const activePromo = promoMessages[promoIdx] || null;
+
   return (
     <article className="mcard" onClick={handleOpen}>
-      {/* Media */}
+      {/* ── Media ── */}
       <div className="mcard__media">
         <img
           src={displayImage}
           alt={displayTitle}
           className="mcard__img"
           loading="lazy"
-          onError={(e) => (e.currentTarget.src = "/placeholder.png")}
+          onError={(e) => {
+            e.currentTarget.src = "/placeholder.png";
+          }}
         />
 
-        {/* Top Badges */}
+        {/* Top-left structural badges only */}
         <div className="mcard__badges">
           {discountPct > 0 && (
             <span className="mcard__badge mcard__badge--discount">
               -{discountPct}%
             </span>
           )}
-          {isFlashDeal && (
-            <span className="mcard__badge mcard__badge--flash">
-              <Zap size={10} strokeWidth={2.5} fill="currentColor" />
-              Flash
-            </span>
-          )}
-          {is_featured && !isFlashDeal && (
+          {is_featured && !isFlashDeal && !is_flash && (
             <span className="mcard__badge mcard__badge--feat">⭐</span>
-          )}
-          {is_trending && !isFlashDeal && (
-            <span className="mcard__badge mcard__badge--hot">🔥</span>
-          )}
-          {badge && !isFlashDeal && !discountPct && (
-            <span className="mcard__badge mcard__badge--new">{badge}</span>
           )}
         </div>
 
-        {/* Wishlist button */}
         <button
           type="button"
-          className={`mcard__wish ${isWished ? "mcard__wish--active" : ""}`}
+          className={`mcard__wish${isWished ? " mcard__wish--active" : ""}`}
           onClick={handleWish}
           aria-label={isWished ? "Remove from wishlist" : "Add to wishlist"}
         >
@@ -380,20 +596,16 @@ function MasonryCard({
           />
         </button>
 
-        {/* Delivery badge */}
-        {has_delivery && <div className="mcard__delivery">Free delivery</div>}
+        {(has_delivery || free_delivery) && (
+          <div className="mcard__delivery">Free delivery</div>
+        )}
 
-        {/* Low stock alert */}
-        {lowStock && <div className="mcard__stock-alert">Only {maxStock} left</div>}
-
-        {/* Out of stock overlay */}
         {!inStock && (
           <div className="mcard__oos">
             <span>Out of Stock</span>
           </div>
         )}
 
-        {/* In-cart badge indicator */}
         {localQty > 0 && (
           <div className="mcard__in-cart-badge">
             <Check size={9} strokeWidth={3} />
@@ -402,34 +614,38 @@ function MasonryCard({
         )}
       </div>
 
-      {/* Body */}
+      {/* ── Body ── */}
       <div className="mcard__body">
         <h3 className="mcard__title">{displayTitle}</h3>
 
         <div className="mcard__price-row">
           <span className="mcard__price">{formatPrice(realPrice)}</span>
-          {displayOldPrice > realPrice && (
+          {hasRealDiscount && (
             <span className="mcard__price-old">
               {formatPrice(displayOldPrice)}
             </span>
           )}
         </div>
 
-        {/* Savings badge */}
-        {discountPct > 0 && displayOldPrice && (
-          <p className="mcard__savings">
-            You save {formatPrice(displayOldPrice - realPrice)}
-          </p>
-        )}
-
-        {/* Meta info */}
-        <div className="mcard__meta">
-          {rating > 0 && (
-            <span className="mcard__rating">
-              <Star size={11} fill="currentColor" strokeWidth={0} />
-              {Number(rating).toFixed(1)}
+        {/* Fixed-height rotating promo strip — prevents layout jump */}
+        <div
+          className={`mcard__promo-rotator${
+            promoMessages.length === 0 ? " mcard__promo-rotator--empty" : ""
+          }`}
+        >
+          {activePromo && (
+            <span
+              key={activePromo.id + String(promoIdx)}
+              className={`mcard__promo-text mcard__promo-text--${activePromo.tone}`}
+            >
+              {activePromo.text}
             </span>
           )}
+        </div>
+
+        {/* Rating + sold */}
+        <div className="mcard__meta">
+          {hasGenuineRating && <StarRating rating={rating} />}
           {displaySold > 0 && (
             <span className="mcard__sold">
               {displaySold >= 1000
@@ -439,7 +655,9 @@ function MasonryCard({
           )}
         </div>
 
-        {location && <p className="mcard__location">📍 {location}</p>}
+        {location && (
+          <p className="mcard__location">📍 {location}</p>
+        )}
 
         {seller_verified && (
           <p className="mcard__verified">
@@ -447,12 +665,15 @@ function MasonryCard({
           </p>
         )}
 
-        {/* CTA — Add to Cart OR Select Options OR Stepper */}
-        <div className="mcard__cta-wrap" onClick={(e) => e.stopPropagation()}>
+        {/* CTA */}
+        <div
+          className="mcard__cta-wrap"
+          onClick={(e) => e.stopPropagation()}
+        >
           {localQty === 0 ? (
             <button
               type="button"
-              className={`mcard__cta ${busy ? "mcard__cta--loading" : ""}`}
+              className={`mcard__cta${busy ? " mcard__cta--loading" : ""}`}
               onClick={handleAdd}
               disabled={busy || !inStock}
               aria-label={`Add ${displayTitle} to cart`}
@@ -478,13 +699,19 @@ function MasonryCard({
             </button>
           ) : (
             <div className="mcard__stepper-wrap">
-              <div className={`mcard__stepper ${busy ? "mcard__stepper--busy" : ""}`}>
+              <div
+                className={`mcard__stepper${
+                  busy ? " mcard__stepper--busy" : ""
+                }`}
+              >
                 <button
                   type="button"
                   className="mcard__stepper-btn"
                   onClick={handleDecrease}
                   disabled={busy}
-                  aria-label={localQty === 1 ? "Remove from cart" : "Decrease quantity"}
+                  aria-label={
+                    localQty === 1 ? "Remove from cart" : "Decrease quantity"
+                  }
                 >
                   <Minus size={12} strokeWidth={2.5} />
                 </button>
@@ -503,10 +730,6 @@ function MasonryCard({
                   <Plus size={12} strokeWidth={2.5} />
                 </button>
               </div>
-
-              <span className="mcard__stepper-label">
-                <Check size={10} strokeWidth={3} /> In your cart
-              </span>
             </div>
           )}
         </div>
