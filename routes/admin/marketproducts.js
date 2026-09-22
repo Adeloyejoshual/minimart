@@ -2,8 +2,9 @@
  * src/routes/admin/marketproducts.js
  *
  * Admin Market Product Control Plane
- * Fixes Render deployment crash (Removed invalid helpers.js import)
- * Added Bulk Campaign / Badge support
+ * - Fixes Render deployment crash (No external helper imports)
+ * - Bulk Campaign / Badge support
+ * - Add/Edit full capabilities for Admins
  */
 
 import express from "express";
@@ -14,7 +15,7 @@ const router = express.Router();
 router.use(verifyAdmin);
 
 /* ════════════════════════════════════════════════════════════
-   CONSTANTS & INLINE HELPERS (No external imports needed)
+   CONSTANTS & INLINE HELPERS
 ════════════════════════════════════════════════════════════ */
 const VALID_STATUSES = new Set([
   "pending", "active", "rejected", "flagged", "paused", "sold", "deleted",
@@ -24,6 +25,7 @@ const ALLOWED_FLAGS = new Set([
   "is_featured", "is_trending", "is_sponsored", "is_hidden",
 ]);
 
+// Allowed fields for PATCH updates
 const PATCH_FIELDS = new Set([
   "name", "description", "category", "condition", "brand",
   "price", "original_price", "negotiable", "phone", "stock",
@@ -47,6 +49,7 @@ function ok(res, payload = {}, status = 200) {
   return res.status(status).json({ success: true, ...payload });
 }
 
+// Audit Logger
 function logAdmin(adminId, action, targetId, details, meta = null) {
   return pool.query(
     `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details, metadata)
@@ -87,6 +90,45 @@ async function fetchProductName(id) {
 }
 
 /* ════════════════════════════════════════════════════════════
+   POST / (Create New Product as Admin)
+════════════════════════════════════════════════════════════ */
+router.post("/", async (req, res) => {
+  try {
+    const { name, price, original_price, category, description, stock } = req.body;
+    
+    if (!name || price === undefined || !category) {
+      return bad(res, 400, "Name, price, and category are required");
+    }
+
+    // Default to the Admin's own ID as the seller
+    const sellerId = req.admin.id; 
+
+    const { rows } = await pool.query(
+      `INSERT INTO market.products 
+       (user_id, name, price, original_price, category, description, stock, status, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', true)
+       RETURNING id, name`,
+      [
+        sellerId, 
+        name.trim(), 
+        Number(price), 
+        original_price ? Number(original_price) : null,
+        category.trim(), 
+        description ? description.trim() : null, 
+        parseInt(stock || 1, 10)
+      ]
+    );
+
+    await logAdmin(req.admin.id, "create_market_product", rows[0].id, `Admin created product "${name}"`);
+    
+    return ok(res, { message: "Product created successfully", product_id: rows[0].id });
+  } catch (err) {
+    console.error("[admin market create]", err.message);
+    return bad(res, 500, err.message);
+  }
+});
+
+/* ════════════════════════════════════════════════════════════
    GET /  (List + filters + status counts)
 ════════════════════════════════════════════════════════════ */
 router.get("/", async (req, res) => {
@@ -113,7 +155,7 @@ router.get("/", async (req, res) => {
       params.push(category);
     }
     if (search && String(search).trim()) {
-      conditions.push(`(p.name ILIKE $${p} OR p.brand ILIKE $${p} OR u.email ILIKE $${p} OR u.name ILIKE $${p})`);
+      conditions.push(`(p.name ILIKE $${p} OR p.brand ILIKE $${p} OR p.campaign_tag ILIKE $${p} OR p.badge ILIKE $${p} OR u.email ILIKE $${p} OR u.name ILIKE $${p})`);
       params.push(`%${String(search).trim()}%`);
       p += 1;
     }
@@ -299,8 +341,12 @@ router.patch("/:id", async (req, res) => {
         statusSideEffects(val, sets);
       }
       if (key === "price" || key === "original_price") {
-        val = Number(val);
-        if (!Number.isFinite(val) || val < 0) return bad(res, 400, `${key} must be >= 0`);
+        if (val === null) {
+          // Allow null for original_price
+        } else {
+          val = Number(val);
+          if (!Number.isFinite(val) || val < 0) return bad(res, 400, `${key} must be >= 0`);
+        }
       }
       if (key === "stock") {
         val = parseInt(val, 10);
