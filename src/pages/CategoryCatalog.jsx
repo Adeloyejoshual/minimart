@@ -1,16 +1,6 @@
+
 /**
  * src/pages/CategoryCatalog.jsx
- *
- * Routes:
- *   /catalog
- *   /loemart/explore | /new | /trending | /deals
- *
- * Query:
- *   ?category=phones
- *   ?campaign=December%20Deals
- *   ?q=iphone
- *   ?sort=bestselling|newest|deal|price_asc|price_desc|trending
- *   ?deal=true
  */
 import {
   useState,
@@ -67,11 +57,10 @@ const titleCase = (s) =>
 
 const isInStock = (item) => {
   if (!item) return false;
-  if (item.is_sold_out || item.sold_out) return false;
+  if (item.is_sold_out === true || item.sold_out === true) return false;
   if (item.status === "out_of_stock" || item.status === "sold_out") return false;
   if (item.in_stock === false) return false;
-  if (item.stock != null && Number(item.stock) <= 0) return false;
-  if (item.quantity != null && Number(item.quantity) <= 0) return false;
+  if (item.stock !== undefined && item.stock !== null && Number(item.stock) <= 0) return false;
   return true;
 };
 
@@ -175,7 +164,6 @@ export default function CategoryCatalog() {
           limit: PAGE_SIZE,
           offset: newOffset,
           sort: activeSort,
-          inStock: "true",
         };
         if (catParam) params.category = catParam;
         if (campaignParam) params.campaign = campaignParam;
@@ -183,16 +171,43 @@ export default function CategoryCatalog() {
         if (brandParam) params.brand = brandParam;
         if (isDealOnly) params.deal = "true";
 
-        const { data } = await axios.get(`${API}/products`, {
+        let { data } = await axios.get(`${API}/products`, {
           params,
           timeout: 15000,
         });
 
-        const rows = (data?.data?.products || []).filter(isInStock);
-        const totalCount =
+        let rows = (data?.data?.products || data?.products || []).filter(isInStock);
+        let totalCount =
           data?.data?.pagination?.total ??
           data?.data?.pagination?.count ??
+          data?.pagination?.total ??
           rows.length;
+
+        /* FALLBACK: If category lookup returned 0 items, retry using search */
+        if (rows.length === 0 && catParam && !qParam && !append) {
+          const fallbackParams = { ...params };
+          delete fallbackParams.category;
+          fallbackParams.search = catParam;
+
+          try {
+            const { data: fbData } = await axios.get(`${API}/products`, {
+              params: fallbackParams,
+              timeout: 15000,
+            });
+
+            const fbRows = (fbData?.data?.products || fbData?.products || []).filter(isInStock);
+            if (fbRows.length > 0) {
+              rows = fbRows;
+              totalCount =
+                fbData?.data?.pagination?.total ??
+                fbData?.data?.pagination?.count ??
+                fbData?.pagination?.total ??
+                fbRows.length;
+            }
+          } catch {
+            /* ignore fallback failure */
+          }
+        }
 
         setProducts((prev) => (append ? [...prev, ...rows] : rows));
         setTotal(Number(totalCount) || 0);
@@ -273,7 +288,7 @@ export default function CategoryCatalog() {
       return !catParam && !isDealOnly && !campaignParam && !qParam;
     }
     if (item.id === "deals") return isDealOnly;
-    return catParam === item.id;
+    return catParam.toLowerCase() === item.id.toLowerCase();
   };
 
   return (
