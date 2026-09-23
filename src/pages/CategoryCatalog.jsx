@@ -6,7 +6,7 @@
  *   /loemart/explore | /new | /trending | /deals
  *
  * Query:
- *   ?category=102055d1-180a-4b8f-a39b-3b20a4838e90 OR ?category=phones
+ *   ?category=<UUID|slug|alias>
  *   ?campaign=December%20Deals
  *   ?q=iphone
  *   ?sort=bestselling|newest|deal|price_asc|price_desc|trending
@@ -105,7 +105,7 @@ const SORT_OPTIONS = [
   { val: "price_desc", label: "Price: High to Low" },
 ];
 
-/* Exact category IDs from src/config/categories.js */
+/* Official UUIDs from src/config/categories.js */
 const QUICK_CATS = [
   { id: "all", label: "All", path: "/catalog" },
   { id: "deals", label: "🔥 Deals", path: "/catalog?deal=true&sort=deal" },
@@ -217,7 +217,6 @@ export default function CategoryCatalog() {
           sort: activeSort,
         };
 
-        // Use resolved UUID if available, or raw catParam
         const targetCategory = matchedCategory ? matchedCategory.id : catParam;
 
         if (targetCategory) params.category = targetCategory;
@@ -241,7 +240,9 @@ export default function CategoryCatalog() {
         if (rows.length === 0 && catParam && !qParam && !append) {
           const fallbackParams = { ...params };
           delete fallbackParams.category;
-          fallbackParams.search = matchedCategory ? matchedCategory.slug.replace(/-/g, " ") : catParam;
+          fallbackParams.search = matchedCategory
+            ? matchedCategory.slug.replace(/-/g, " ")
+            : catParam;
 
           try {
             const { data: fbData } = await axios.get(`${API}/products`, {
@@ -354,7 +355,10 @@ export default function CategoryCatalog() {
         <button
           type="button"
           className="cat-btn-icon"
-          onClick={() => navigate(-1)}
+          onClick={() => {
+            if (window.history.length > 2) navigate(-1);
+            else navigate("/");
+          }}
           aria-label="Back"
         >
           <FiChevronLeft size={24} color="#1a1a1a" />
