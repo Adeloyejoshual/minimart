@@ -1,5 +1,16 @@
 /**
  * src/pages/CategoryCatalog.jsx
+ *
+ * Routes:
+ *   /catalog
+ *   /loemart/explore | /new | /trending | /deals
+ *
+ * Query:
+ *   ?category=102055d1-180a-4b8f-a39b-3b20a4838e90 OR ?category=phones
+ *   ?campaign=December%20Deals
+ *   ?q=iphone
+ *   ?sort=bestselling|newest|deal|price_asc|price_desc|trending
+ *   ?deal=true
  */
 import {
   useState,
@@ -23,17 +34,19 @@ import {
   FiX,
 } from "react-icons/fi";
 
-/* ── EXACT IMPORT FROM src/loemart/mobile/mobileHelpers.js ── */
+/* ── HELPERS & CATEGORIES ── */
 import {
   API,
   primaryImg,
   getRecentlyViewed,
+  DEFAULT_LIMIT,
 } from "../loemart/mobile/mobileHelpers";
-
-const WISH_KEY = "loemart-wishlist";
-const DEFAULT_LIMIT = 20;
+import CATEGORIES from "../config/categories";
 
 import "../styles/CategoryCatalog.css";
+
+const WISH_KEY = "loemart-wishlist";
+const PAGE_SIZE = DEFAULT_LIMIT || 20;
 
 /* ════════════════════════════════════════════════════════════
    UTILS
@@ -59,7 +72,7 @@ const isInStock = (item) => {
   if (item.is_sold_out === true || item.sold_out === true) return false;
   if (item.status === "out_of_stock" || item.status === "sold_out") return false;
   if (item.in_stock === false) return false;
-  if (item.stock !== undefined && item.stock !== null && Number(item.stock) <= 0) return false;
+  if (item.stock != null && item.stock !== "" && Number(item.stock) <= 0) return false;
   return true;
 };
 
@@ -72,10 +85,8 @@ const StarIcon = () => (
   </svg>
 );
 
-const PAGE_SIZE = DEFAULT_LIMIT || 20;
-
 /* ════════════════════════════════════════════════════════════
-   ROUTE DEFAULTS
+   ROUTE & CATEGORY MAPPING
 ════════════════════════════════════════════════════════════ */
 const ROUTE_MAP = {
   "/loemart/new": { title: "New Arrivals", sort: "newest" },
@@ -94,13 +105,38 @@ const SORT_OPTIONS = [
   { val: "price_desc", label: "Price: High to Low" },
 ];
 
+/* Exact category IDs from src/config/categories.js */
 const QUICK_CATS = [
   { id: "all", label: "All", path: "/catalog" },
   { id: "deals", label: "🔥 Deals", path: "/catalog?deal=true&sort=deal" },
-  { id: "phones", label: "Phones", path: "/catalog?category=phones" },
-  { id: "fashion", label: "Fashion", path: "/catalog?category=fashion" },
-  { id: "watches", label: "Watches", path: "/catalog?category=watches" },
-  { id: "home", label: "Home", path: "/catalog?category=home" },
+  {
+    id: "phones",
+    catId: "102055d1-180a-4b8f-a39b-3b20a4838e90",
+    slug: "phones-tablets",
+    label: "Phones",
+    path: "/catalog?category=102055d1-180a-4b8f-a39b-3b20a4838e90",
+  },
+  {
+    id: "fashion",
+    catId: "8ba64fb7-33a6-415e-a895-38d778a49075",
+    slug: "fashion",
+    label: "Fashion",
+    path: "/catalog?category=8ba64fb7-33a6-415e-a895-38d778a49075",
+  },
+  {
+    id: "watches",
+    catId: "e5a9f2c1-8b4d-4e7a-a3c6-5b9d1e2f8a4c",
+    slug: "watches-jewelry",
+    label: "Watches",
+    path: "/catalog?category=e5a9f2c1-8b4d-4e7a-a3c6-5b9d1e2f8a4c",
+  },
+  {
+    id: "home",
+    catId: "4bb82894-f6aa-478a-a3c6-5b9d1e2f8a4c",
+    slug: "home-furniture-appliances",
+    label: "Home",
+    path: "/catalog?category=4bb82894-f6aa-478a-a3c6-5b9d1e2f8a4c",
+  },
 ];
 
 /* ════════════════════════════════════════════════════════════
@@ -141,15 +177,31 @@ export default function CategoryCatalog() {
     }
   });
 
+  /* Match category param (UUID, slug, or alias like "phones") to database category object */
+  const matchedCategory = useMemo(() => {
+    if (!catParam) return null;
+    const lower = catParam.toLowerCase().trim();
+    return CATEGORIES.find(
+      (c) =>
+        c.id === catParam ||
+        c.slug === lower ||
+        c.name.toLowerCase() === lower ||
+        (lower === "phones" && c.slug === "phones-tablets") ||
+        (lower === "watches" && c.slug === "watches-jewelry") ||
+        (lower === "home" && c.slug === "home-furniture-appliances")
+    );
+  }, [catParam]);
+
   const pageTitle = useMemo(() => {
     if (campaignParam) return campaignParam;
     if (qParam) return `“${qParam}”`;
     if (brandParam) return titleCase(brandParam);
+    if (matchedCategory) return matchedCategory.name;
     if (catParam) return titleCase(catParam);
     return routeConfig.title;
-  }, [campaignParam, qParam, brandParam, catParam, routeConfig.title]);
+  }, [campaignParam, qParam, brandParam, matchedCategory, catParam, routeConfig.title]);
 
-  /* ── Fetch ── */
+  /* ── Fetch Products ── */
   const fetchProducts = useCallback(
     async (newOffset = 0, append = false) => {
       if (append) setLoadingMore(true);
@@ -164,7 +216,11 @@ export default function CategoryCatalog() {
           offset: newOffset,
           sort: activeSort,
         };
-        if (catParam) params.category = catParam;
+
+        // Use resolved UUID if available, or raw catParam
+        const targetCategory = matchedCategory ? matchedCategory.id : catParam;
+
+        if (targetCategory) params.category = targetCategory;
         if (campaignParam) params.campaign = campaignParam;
         if (qParam) params.search = qParam;
         if (brandParam) params.brand = brandParam;
@@ -178,15 +234,14 @@ export default function CategoryCatalog() {
         let rows = (data?.data?.products || data?.products || []).filter(isInStock);
         let totalCount =
           data?.data?.pagination?.total ??
-          data?.data?.pagination?.count ??
           data?.pagination?.total ??
           rows.length;
 
-        /* FALLBACK: If category lookup returned 0 items, retry using search */
+        /* FALLBACK: If category lookup returned 0 items, search by term */
         if (rows.length === 0 && catParam && !qParam && !append) {
           const fallbackParams = { ...params };
           delete fallbackParams.category;
-          fallbackParams.search = catParam;
+          fallbackParams.search = matchedCategory ? matchedCategory.slug.replace(/-/g, " ") : catParam;
 
           try {
             const { data: fbData } = await axios.get(`${API}/products`, {
@@ -199,7 +254,6 @@ export default function CategoryCatalog() {
               rows = fbRows;
               totalCount =
                 fbData?.data?.pagination?.total ??
-                fbData?.data?.pagination?.count ??
                 fbData?.pagination?.total ??
                 fbRows.length;
             }
@@ -222,7 +276,7 @@ export default function CategoryCatalog() {
         setLoadingMore(false);
       }
     },
-    [activeSort, catParam, campaignParam, qParam, brandParam, isDealOnly]
+    [activeSort, catParam, matchedCategory, campaignParam, qParam, brandParam, isDealOnly]
   );
 
   useEffect(() => {
@@ -287,6 +341,9 @@ export default function CategoryCatalog() {
       return !catParam && !isDealOnly && !campaignParam && !qParam;
     }
     if (item.id === "deals") return isDealOnly;
+    if (matchedCategory) {
+      return matchedCategory.id === item.catId || matchedCategory.slug === item.slug;
+    }
     return catParam.toLowerCase() === item.id.toLowerCase();
   };
 
