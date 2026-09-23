@@ -1,315 +1,581 @@
 /**
  * src/pages/CategoryCatalog.jsx
- * Professional E-Commerce Catalog Page
- * - Supports Infinite Scroll
- * - Variant grouping ("From ₦X" / "+ Colors")
- * - Dynamic Quick Filters & Sort Bottom Sheet
- * - Fully synced with the new Backend API
+ *
+ * Routes:
+ *   /catalog
+ *   /loemart/explore | /new | /trending | /deals
+ *
+ * Query:
+ *   ?category=phones
+ *   ?campaign=December%20Deals
+ *   ?q=iphone
+ *   ?sort=bestselling|newest|deal|price_asc|price_desc|trending
+ *   ?deal=true
  */
-
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
+import {
+  useSearchParams,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import axios from "axios";
 import {
   FiChevronLeft,
   FiSearch,
   FiFilter,
-  FiChevronDown,
   FiCheck,
   FiHeart,
+  FiX,
 } from "react-icons/fi";
 
-import { API, primaryImg, getRecentlyViewed } from "./mobile/mobileHelpers";
+/* ── Helpers: try loemart path, then pages/mobile ── */
+import * as HelpersA from "../loemart/mobile/mobileHelpers";
+import * as HelpersB from "./mobile/mobileHelpers";
+
+const H = HelpersA.API ? HelpersA : HelpersB;
+const {
+  API,
+  primaryImg,
+  getRecentlyViewed,
+  WISH_KEY = "loemart-wishlist",
+  DEFAULT_LIMIT = 20,
+} = H;
+
 import "../styles/CategoryCatalog.css";
 
-/* ── HELPERS ── */
+/* ════════════════════════════════════════════════════════════
+   UTILS
+════════════════════════════════════════════════════════════ */
 const parseNum = (val) => {
   if (val == null || val === "") return 0;
   const n = Number(String(val).replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) ? n : 0;
 };
-const fmtPrice = (val) => (val > 0 ? `₦${Number(val).toLocaleString("en-NG")}` : "₦0");
 
-const SVGStar = () => (
-  <svg width="10" height="10" viewBox="0 0 24 24" fill="#f59e0b" xmlns="http://www.w3.org/2000/svg">
+const fmtPrice = (val) =>
+  val > 0 ? `₦${Number(val).toLocaleString("en-NG")}` : "₦0";
+
+const titleCase = (s) =>
+  String(s || "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+const isInStock = (item) => {
+  if (!item) return false;
+  if (item.is_sold_out || item.sold_out) return false;
+  if (item.status === "out_of_stock" || item.status === "sold_out") return false;
+  if (item.in_stock === false) return false;
+  if (item.stock != null && Number(item.stock) <= 0) return false;
+  if (item.quantity != null && Number(item.quantity) <= 0) return false;
+  return true;
+};
+
+const productId = (p) =>
+  String(p?.id || p?.product_id || p?._id || "").trim();
+
+const StarIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="#f59e0b" aria-hidden>
     <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
   </svg>
 );
 
-/* ── DISCOVERY ROUTE MAP ── */
+const PAGE_SIZE = DEFAULT_LIMIT || 20;
+
+/* ════════════════════════════════════════════════════════════
+   ROUTE → DEFAULTS
+════════════════════════════════════════════════════════════ */
 const ROUTE_MAP = {
-  "/loemart/new": { title: "New Arrivals", baseSort: "newest" },
-  "/loemart/trending": { title: "Trending Now", baseSort: "trending" },
-  "/loemart/deals": { title: "Top Deals", baseSort: "deal", baseDeal: "true" },
-  "/catalog": { title: "All Products", baseSort: "bestselling" },
-  "/loemart/explore": { title: "Explore", baseSort: "relevance" },
+  "/loemart/new": { title: "New Arrivals", sort: "newest" },
+  "/loemart/trending": { title: "Trending Now", sort: "trending" },
+  "/loemart/deals": { title: "Top Deals", sort: "deal", deal: true },
+  "/loemart/explore": { title: "Explore", sort: "newest" },
+  "/catalog": { title: "All Products", sort: "bestselling" },
 };
 
+const SORT_OPTIONS = [
+  { val: "bestselling", label: "Top Sales" },
+  { val: "newest", label: "Newest Arrivals" },
+  { val: "trending", label: "Trending" },
+  { val: "deal", label: "Biggest Discounts" },
+  { val: "price_asc", label: "Price: Low to High" },
+  { val: "price_desc", label: "Price: High to Low" },
+];
+
+const QUICK_CATS = [
+  { id: "all", label: "All", path: "/catalog" },
+  { id: "deals", label: "🔥 Deals", path: "/catalog?deal=true&sort=deal" },
+  { id: "phones", label: "Phones", path: "/catalog?category=phones" },
+  { id: "fashion", label: "Fashion", path: "/catalog?category=fashion" },
+  { id: "watches", label: "Watches", path: "/catalog?category=watches" },
+  { id: "home", label: "Home", path: "/catalog?category=home" },
+];
+
+/* ════════════════════════════════════════════════════════════
+   COMPONENT
+════════════════════════════════════════════════════════════ */
 export default function CategoryCatalog() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const sheetRef = useRef(null);
 
-  // URL Params
   const catParam = searchParams.get("category") || "";
   const campaignParam = searchParams.get("campaign") || "";
-  const qParam = searchParams.get("q") || "";
+  const qParam = searchParams.get("q") || searchParams.get("search") || "";
   const sortParam = searchParams.get("sort") || "";
   const dealParam = searchParams.get("deal") || "";
+  const brandParam = searchParams.get("brand") || "";
 
-  // Route Config
   const routeConfig = ROUTE_MAP[location.pathname] || ROUTE_MAP["/catalog"];
-  const activeSort = sortParam || routeConfig.baseSort;
-  const isDealOnly = dealParam === "true" || routeConfig.baseDeal === "true";
+  const activeSort = sortParam || routeConfig.sort || "newest";
+  const isDealOnly =
+    dealParam === "true" || routeConfig.deal === true;
 
-  // State
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
-  
-  // UI State
-  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [error, setError] = useState(null);
+  const [showSort, setShowSort] = useState(false);
+
   const [wishlist, setWishlist] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("mm_wishlist") || "[]")); } 
-    catch { return new Set(); }
+    try {
+      const raw = localStorage.getItem(WISH_KEY) || localStorage.getItem("mm_wishlist") || "[]";
+      const arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr.map(String) : []);
+    } catch {
+      return new Set();
+    }
   });
 
-  /* ── DYNAMIC PAGE TITLE ── */
   const pageTitle = useMemo(() => {
     if (campaignParam) return campaignParam;
-    if (qParam) return `Search: "${qParam}"`;
-    if (catParam) return catParam.charAt(0).toUpperCase() + catParam.slice(1);
+    if (qParam) return `“${qParam}”`;
+    if (brandParam) return titleCase(brandParam);
+    if (catParam) return titleCase(catParam);
     return routeConfig.title;
-  }, [campaignParam, qParam, catParam, routeConfig.title]);
+  }, [campaignParam, qParam, brandParam, catParam, routeConfig.title]);
 
-  /* ── FETCH DATA ── */
-  const fetchProducts = useCallback(async (newOffset = 0, append = false) => {
-    if (append) setLoadingMore(true);
-    else setLoading(true);
+  /* ── Fetch ── */
+  const fetchProducts = useCallback(
+    async (newOffset = 0, append = false) => {
+      if (append) setLoadingMore(true);
+      else {
+        setLoading(true);
+        setError(null);
+      }
 
-    try {
-      const params = {
-        limit: 20,
-        offset: newOffset,
-        sort: activeSort,
-      };
-      if (catParam) params.category = catParam;
-      if (campaignParam) params.campaign = campaignParam;
-      if (qParam) params.search = qParam;
-      if (isDealOnly) params.deal = "true";
+      try {
+        const params = {
+          limit: PAGE_SIZE,
+          offset: newOffset,
+          sort: activeSort,
+          inStock: "true",
+        };
+        if (catParam) params.category = catParam;
+        if (campaignParam) params.campaign = campaignParam;
+        if (qParam) params.search = qParam;
+        if (brandParam) params.brand = brandParam;
+        if (isDealOnly) params.deal = "true";
 
-      const { data } = await axios.get(`${API}/products`, { params });
-      const rows = data?.data?.products || [];
-      const totalCount = data?.data?.pagination?.total || 0;
+        const { data } = await axios.get(`${API}/products`, {
+          params,
+          timeout: 15000,
+        });
 
-      setProducts(prev => (append ? [...prev, ...rows] : rows));
-      setTotal(totalCount);
-      setOffset(newOffset);
-    } catch (err) {
-      console.error("Fetch error", err);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [activeSort, catParam, campaignParam, qParam, isDealOnly]);
+        const rows = (data?.data?.products || []).filter(isInStock);
+        const totalCount =
+          data?.data?.pagination?.total ??
+          data?.data?.pagination?.count ??
+          rows.length;
+
+        setProducts((prev) => (append ? [...prev, ...rows] : rows));
+        setTotal(Number(totalCount) || 0);
+        setOffset(newOffset);
+      } catch (err) {
+        console.error("[CategoryCatalog]", err?.message || err);
+        if (!append) {
+          setProducts([]);
+          setError("load_failed");
+        }
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [activeSort, catParam, campaignParam, qParam, brandParam, isDealOnly]
+  );
 
   useEffect(() => {
+    window.scrollTo(0, 0);
     fetchProducts(0, false);
   }, [fetchProducts]);
 
-  /* ── WISHLIST TOGGLE ── */
+  /* Sheet body lock */
+  useEffect(() => {
+    if (!showSort) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [showSort]);
+
+  const hasMore = offset + PAGE_SIZE < total;
+
   const toggleWish = useCallback((id, e) => {
     e.stopPropagation();
-    setWishlist(prev => {
+    const sid = String(id);
+    setWishlist((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      localStorage.setItem("mm_wishlist", JSON.stringify([...next]));
+      if (next.has(sid)) next.delete(sid);
+      else next.add(sid);
+      try {
+        localStorage.setItem(WISH_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
       return next;
     });
   }, []);
 
-  const hasMore = offset + 20 < total;
+  const setSort = (val) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("sort", val);
+    setSearchParams(next, { replace: true });
+    setShowSort(false);
+  };
 
-  /* ── RENDER ── */
+  const goProduct = (p) => {
+    navigate(`/shop/${p.slug || productId(p)}`);
+  };
+
+  /* Related from local history (same category when possible) */
+  const related = useMemo(() => {
+    try {
+      const recent = getRecentlyViewed?.() || [];
+      const ids = new Set(products.map(productId));
+      return recent
+        .filter((r) => r?.id && !ids.has(String(r.id)))
+        .slice(0, 8);
+    } catch {
+      return [];
+    }
+  }, [products]);
+
+  const isQuickActive = (item) => {
+    if (item.id === "all") {
+      return !catParam && !isDealOnly && !campaignParam && !qParam;
+    }
+    if (item.id === "deals") return isDealOnly;
+    return catParam === item.id;
+  };
+
   return (
     <div className="cat-page">
-      
-      {/* 1. Header (Sticky) */}
+      {/* Header */}
       <header className="cat-header">
-        <button className="cat-btn-icon" onClick={() => navigate(-1)}>
+        <button
+          type="button"
+          className="cat-btn-icon"
+          onClick={() => navigate(-1)}
+          aria-label="Back"
+        >
           <FiChevronLeft size={24} color="#1a1a1a" />
         </button>
-        <div className="cat-search-bar" onClick={() => navigate("/loemart/search")}>
-          <FiSearch size={16} color="#888" />
+
+        <button
+          type="button"
+          className="cat-search-bar"
+          onClick={() => navigate("/loemart/search")}
+        >
+          <FiSearch size={16} color="#888" aria-hidden />
           <span>{qParam || "Search products, brands..."}</span>
-        </div>
+        </button>
       </header>
 
-      {/* 2. Quick Filters Scroll (Categories & Sorts) */}
-      <div className="cat-quick-filters">
-        <button 
-          className={`cat-q-pill ${!isDealOnly && !campaignParam && !catParam ? "active" : ""}`}
-          onClick={() => navigate("/catalog")}
-        >
-          All
-        </button>
-        <button 
-          className={`cat-q-pill ${isDealOnly ? "active" : ""}`}
-          onClick={() => navigate("/catalog?deal=true&sort=deal")}
-        >
-          🔥 Deals
-        </button>
-        <button 
-          className={`cat-q-pill ${catParam === "phones" ? "active" : ""}`}
-          onClick={() => navigate("/catalog?category=phones")}
-        >
-          Phones
-        </button>
-        <button 
-          className={`cat-q-pill ${catParam === "fashion" ? "active" : ""}`}
-          onClick={() => navigate("/catalog?category=fashion")}
-        >
-          Fashion
-        </button>
+      {/* Quick filters */}
+      <div className="cat-quick-filters" role="tablist" aria-label="Quick filters">
+        {QUICK_CATS.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            role="tab"
+            aria-selected={isQuickActive(c)}
+            className={`cat-q-pill${isQuickActive(c) ? " active" : ""}`}
+            onClick={() => navigate(c.path)}
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
 
-      {/* 3. Title & Count */}
+      {/* Title */}
       <div className="cat-title-row">
         <h1 className="cat-title">{pageTitle}</h1>
-        <span className="cat-count">{total} items</span>
+        <span className="cat-count">
+          {loading && products.length === 0 ? "…" : `${total} items`}
+        </span>
       </div>
 
-      {/* 4. Product Grid */}
+      {/* Grid */}
       <main className="cat-main">
         {loading && products.length === 0 ? (
-          <div className="cat-grid">
-            {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="cat-skel-card" />)}
+          <div className="cat-grid" aria-hidden>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="cat-skel-card" />
+            ))}
+          </div>
+        ) : error && products.length === 0 ? (
+          <div className="cat-empty">
+            <div className="cat-empty-icon">⚠️</div>
+            <h3>Couldn’t load products</h3>
+            <p>Check your connection and try again.</p>
+            <button
+              type="button"
+              className="cat-btn-primary"
+              onClick={() => fetchProducts(0, false)}
+            >
+              Retry
+            </button>
           </div>
         ) : products.length === 0 ? (
           <div className="cat-empty">
             <div className="cat-empty-icon">📦</div>
             <h3>No products found</h3>
-            <p>Try adjusting your search or filters.</p>
-            <button className="cat-btn-primary" onClick={() => navigate("/catalog")}>
-              View All Products
+            <p>
+              {isDealOnly
+                ? "No discounted listings right now."
+                : "Try another category or clear filters."}
+            </p>
+            <button
+              type="button"
+              className="cat-btn-primary"
+              onClick={() => navigate("/catalog")}
+            >
+              View all products
             </button>
           </div>
         ) : (
-          <div className="cat-grid">
-            {products.map((p) => {
-              const price = parseNum(p.price || p.selling_price);
-              const oldPrice = parseNum(p.original_price || p.compare_price);
-              const discount = oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0;
-              const img = primaryImg(p.images, p);
-              const hasVariants = Boolean((Array.isArray(p.variants) && p.variants.length > 0) || p.has_variants);
-              const isWished = wishlist.has(p.id || p._id);
-              
-              return (
-                <div 
-                  key={p.id || p._id} 
-                  className="cat-card"
-                  onClick={() => navigate(`/shop/${p.slug || p.id}`)}
-                >
-                  <div className="cat-card__img-box">
-                    {discount > 0 && <span className="cat-card__badge">-{discount}%</span>}
-                    {p.badge && !discount && <span className="cat-card__badge cat-card__badge--soft">{p.badge}</span>}
-                    
-                    {img ? <img src={img} alt={p.name} loading="lazy" /> : <div className="cat-card__img-ph">📦</div>}
-                    
-                    <button className="cat-card__wish" onClick={(e) => toggleWish(p.id, e)}>
-                      <FiHeart size={14} fill={isWished ? "#ff6000" : "none"} color={isWished ? "#ff6000" : "#666"} />
-                    </button>
-                  </div>
-                  
-                  <div className="cat-card__body">
-                    <h3 className="cat-card__title">{p.name || p.title}</h3>
-                    
-                    <div className="cat-card__price-row">
-                      <span className="cat-card__price">
-                        {hasVariants && <span className="cat-card__from">From </span>}
-                        {fmtPrice(price)}
-                      </span>
-                      {oldPrice > price && <span className="cat-card__old">{fmtPrice(oldPrice)}</span>}
-                    </div>
+          <>
+            <div className="cat-grid">
+              {products.map((p) => {
+                const id = productId(p);
+                const price = parseNum(p.price ?? p.selling_price ?? p.sale_price);
+                const oldPrice = parseNum(
+                  p.original_price ??
+                    p.originalPrice ??
+                    p.compare_at_price ??
+                    p.compare_price ??
+                    p.old_price
+                );
+                const discount =
+                  oldPrice > price && price > 0
+                    ? Math.round(((oldPrice - price) / oldPrice) * 100)
+                    : 0;
+                const img = primaryImg?.(p.images, p) || p.cover_image || p.image;
+                const hasVariants = Boolean(
+                  (Array.isArray(p.variants) && p.variants.length > 0) ||
+                    p.has_variants ||
+                    (Array.isArray(p.options) && p.options.length > 0)
+                );
+                const isWished = wishlist.has(id);
+                const rating = Number(p.rating || 0);
+                const sold = Number(p.sold_count ?? p.sold ?? 0);
 
-                    <div className="cat-card__meta">
-                      {p.rating > 0 && (
-                        <span className="cat-card__rating">
-                          <SVGStar /> {Number(p.rating).toFixed(1)}
-                        </span>
+                return (
+                  <article
+                    key={id || p.slug}
+                    className="cat-card"
+                    onClick={() => goProduct(p)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") goProduct(p);
+                    }}
+                    role="link"
+                    tabIndex={0}
+                  >
+                    <div className="cat-card__img-box">
+                      {discount > 0 && (
+                        <span className="cat-card__badge">-{discount}%</span>
                       )}
-                      {p.sold_count > 0 && <span className="cat-card__sold">{p.sold_count} sold</span>}
+                      {p.badge && !discount ? (
+                        <span className="cat-card__badge cat-card__badge--soft">
+                          {p.badge}
+                        </span>
+                      ) : null}
+
+                      {img ? (
+                        <img src={img} alt={p.name || p.title || ""} loading="lazy" />
+                      ) : (
+                        <div className="cat-card__img-ph">📦</div>
+                      )}
+
+                      <button
+                        type="button"
+                        className="cat-card__wish"
+                        onClick={(e) => toggleWish(id, e)}
+                        aria-label={isWished ? "Remove from saved" : "Save"}
+                      >
+                        <FiHeart
+                          size={14}
+                          fill={isWished ? "#ff6000" : "none"}
+                          color={isWished ? "#ff6000" : "#666"}
+                        />
+                      </button>
                     </div>
 
-                    {/* Variant Indicator */}
-                    {hasVariants && (
-                      <div className="cat-card__variants">
-                        <div className="cat-var-dots">
-                          <span className="cat-var-dot c1"></span>
-                          <span className="cat-var-dot c2"></span>
-                          <span className="cat-var-dot c3"></span>
-                        </div>
-                        <span className="cat-var-text">+ Options</span>
+                    <div className="cat-card__body">
+                      <h3 className="cat-card__title">{p.name || p.title}</h3>
+
+                      <div className="cat-card__price-row">
+                        <span className="cat-card__price">
+                          {hasVariants && (
+                            <span className="cat-card__from">From </span>
+                          )}
+                          {fmtPrice(price)}
+                        </span>
+                        {oldPrice > price && (
+                          <span className="cat-card__old">{fmtPrice(oldPrice)}</span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+
+                      <div className="cat-card__meta">
+                        {rating > 0 && (
+                          <span className="cat-card__rating">
+                            <StarIcon /> {rating.toFixed(1)}
+                          </span>
+                        )}
+                        {sold > 0 && (
+                          <span className="cat-card__sold">
+                            {sold >= 1000
+                              ? `${(sold / 1000).toFixed(1)}k sold`
+                              : `${sold} sold`}
+                          </span>
+                        )}
+                      </div>
+
+                      {hasVariants && (
+                        <div className="cat-card__variants">
+                          <div className="cat-var-dots" aria-hidden>
+                            <span className="cat-var-dot c1" />
+                            <span className="cat-var-dot c2" />
+                            <span className="cat-var-dot c3" />
+                          </div>
+                          <span className="cat-var-text">+ Options</span>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            {!loading && hasMore && (
+              <div className="cat-load-more">
+                <button
+                  type="button"
+                  className="cat-btn-outline"
+                  onClick={() => fetchProducts(offset + PAGE_SIZE, true)}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? "Loading…" : "Load more products"}
+                </button>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Load More Button */}
-        {!loading && hasMore && (
-          <div className="cat-load-more">
-            <button 
-              className="cat-btn-outline" 
-              onClick={() => fetchProducts(offset + 20, true)}
-              disabled={loadingMore}
-            >
-              {loadingMore ? "Loading..." : "Load More Products"}
-            </button>
-          </div>
+        {/* Related from history */}
+        {related.length > 0 && (
+          <section className="cat-related" aria-label="Recently viewed">
+            <h2 className="cat-related__title">Recently viewed</h2>
+            <div className="cat-related__scroll">
+              {related.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="cat-related__card"
+                  onClick={() => navigate(`/shop/${r.slug || r.id}`)}
+                >
+                  <div className="cat-related__img">
+                    {r.image ? (
+                      <img src={r.image} alt="" loading="lazy" />
+                    ) : (
+                      <span>📦</span>
+                    )}
+                  </div>
+                  <span className="cat-related__name">
+                    {r.name || "Product"}
+                  </span>
+                  <span className="cat-related__price">
+                    {fmtPrice(parseNum(r.price))}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
         )}
       </main>
 
-      {/* 5. Floating Filter/Sort Pill */}
+      {/* FAB */}
       <div className="cat-floating-action">
-        <button className="cat-fab-btn" onClick={() => setShowFilterSheet(true)}>
-          <FiFilter size={16} /> Sort & Filter
+        <button
+          type="button"
+          className="cat-fab-btn"
+          onClick={() => setShowSort(true)}
+        >
+          <FiFilter size={16} aria-hidden />
+          Sort &amp; Filter
         </button>
       </div>
 
-      {/* 6. Sort Bottom Sheet */}
-      {showFilterSheet && (
-        <div className="cat-sheet-overlay" onClick={() => setShowFilterSheet(false)}>
-          <div className="cat-sheet" onClick={e => e.stopPropagation()}>
+      {/* Sort sheet */}
+      {showSort && (
+        <div
+          className="cat-sheet-overlay"
+          onClick={() => setShowSort(false)}
+          role="presentation"
+        >
+          <div
+            className="cat-sheet"
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Sort products"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="cat-sheet-head">
-              <h3>Sort By</h3>
-              <button onClick={() => setShowFilterSheet(false)}>✕</button>
+              <h3>Sort by</h3>
+              <button
+                type="button"
+                className="cat-sheet-close"
+                onClick={() => setShowSort(false)}
+                aria-label="Close"
+              >
+                <FiX size={20} />
+              </button>
             </div>
             <div className="cat-sheet-body">
-              {[
-                { val: "bestselling", label: "Top Sales" },
-                { val: "newest", label: "Newest Arrivals" },
-                { val: "deal", label: "Biggest Discounts" },
-                { val: "price_asc", label: "Price: Low to High" },
-                { val: "price_desc", label: "Price: High to Low" }
-              ].map(s => (
-                <button 
-                  key={s.val} 
-                  className={`cat-sheet-row ${activeSort === s.val ? "active" : ""}`}
-                  onClick={() => {
-                    searchParams.set("sort", s.val);
-                    setSearchParams(searchParams);
-                    setShowFilterSheet(false);
-                  }}
+              {SORT_OPTIONS.map((s) => (
+                <button
+                  key={s.val}
+                  type="button"
+                  className={`cat-sheet-row${
+                    activeSort === s.val ? " active" : ""
+                  }`}
+                  onClick={() => setSort(s.val)}
                 >
                   {s.label}
-                  {activeSort === s.val && <FiCheck color="#ff6000" />}
+                  {activeSort === s.val ? <FiCheck color="#ff6000" /> : null}
                 </button>
               ))}
             </div>
