@@ -39,9 +39,10 @@ import {
   API,
   primaryImg,
   getRecentlyViewed,
-  WISH_KEY = "loemart-wishlist",
-  DEFAULT_LIMIT = 20,
 } from "../loemart/mobile/mobileHelpers";
+
+const WISH_KEY = "loemart-wishlist";
+const DEFAULT_LIMIT = 20;
 
 import "../styles/CategoryCatalog.css";
 
