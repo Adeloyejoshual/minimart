@@ -34,18 +34,14 @@ import {
   FiX,
 } from "react-icons/fi";
 
-/* ── Helpers: try loemart path, then pages/mobile ── */
-import * as HelpersA from "../loemart/mobile/mobileHelpers";
-import * as HelpersB from "./mobile/mobileHelpers";
-
-const H = HelpersA.API ? HelpersA : HelpersB;
-const {
+/* ── EXACT IMPORT FROM src/loemart/mobile/mobileHelpers.js ── */
+import {
   API,
   primaryImg,
   getRecentlyViewed,
   WISH_KEY = "loemart-wishlist",
   DEFAULT_LIMIT = 20,
-} = H;
+} from "../loemart/mobile/mobileHelpers";
 
 import "../styles/CategoryCatalog.css";
 
@@ -83,14 +79,14 @@ const productId = (p) =>
 
 const StarIcon = () => (
   <svg width="10" height="10" viewBox="0 0 24 24" fill="#f59e0b" aria-hidden>
-    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.278.91 8.26 12 2z" />
   </svg>
 );
 
 const PAGE_SIZE = DEFAULT_LIMIT || 20;
 
 /* ════════════════════════════════════════════════════════════
-   ROUTE → DEFAULTS
+   ROUTE DEFAULTS
 ════════════════════════════════════════════════════════════ */
 const ROUTE_MAP = {
   "/loemart/new": { title: "New Arrivals", sort: "newest" },
@@ -136,8 +132,7 @@ export default function CategoryCatalog() {
 
   const routeConfig = ROUTE_MAP[location.pathname] || ROUTE_MAP["/catalog"];
   const activeSort = sortParam || routeConfig.sort || "newest";
-  const isDealOnly =
-    dealParam === "true" || routeConfig.deal === true;
+  const isDealOnly = dealParam === "true" || routeConfig.deal === true;
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -259,7 +254,7 @@ export default function CategoryCatalog() {
     navigate(`/shop/${p.slug || productId(p)}`);
   };
 
-  /* Related from local history (same category when possible) */
+  /* Related from local history */
   const related = useMemo(() => {
     try {
       const recent = getRecentlyViewed?.() || [];
