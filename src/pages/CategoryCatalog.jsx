@@ -105,7 +105,7 @@ const SORT_OPTIONS = [
   { val: "price_desc", label: "Price: High to Low" },
 ];
 
-/* Official UUIDs from src/config/categories.js */
+/* Verified E-Commerce Category IDs from src/config/categories.js */
 const QUICK_CATS = [
   { id: "all", label: "All", path: "/catalog" },
   { id: "deals", label: "🔥 Deals", path: "/catalog?deal=true&sort=deal" },
@@ -124,18 +124,32 @@ const QUICK_CATS = [
     path: "/catalog?category=8ba64fb7-33a6-415e-a895-38d778a49075",
   },
   {
-    id: "watches",
-    catId: "e5a9f2c1-8b4d-4e7a-a3c6-5b9d1e2f8a4c",
-    slug: "watches-jewelry",
-    label: "Watches",
-    path: "/catalog?category=e5a9f2c1-8b4d-4e7a-a3c6-5b9d1e2f8a4c",
+    id: "electronics",
+    catId: "bba9b3e7-4118-42c4-9ea9-4aa2afd445dc",
+    slug: "electronics",
+    label: "Electronics",
+    path: "/catalog?category=bba9b3e7-4118-42c4-9ea9-4aa2afd445dc",
   },
   {
-    id: "home",
-    catId: "4bb82894-f6aa-478a-a3c6-5b9d1e2f8a4c",
-    slug: "home-furniture-appliances",
-    label: "Home",
-    path: "/catalog?category=4bb82894-f6aa-478a-a3c6-5b9d1e2f8a4c",
+    id: "computers",
+    catId: "fc1acba9-a5ca-4a82-8305-81586ecb75e1",
+    slug: "computers-laptops",
+    label: "Computers",
+    path: "/catalog?category=fc1acba9-a5ca-4a82-8305-81586ecb75e1",
+  },
+  {
+    id: "beauty",
+    catId: "4aba6a69-2b1c-4b19-9ca0-3b2630ef6fdb",
+    slug: "beauty-personal-care",
+    label: "Beauty",
+    path: "/catalog?category=4aba6a69-2b1c-4b19-9ca0-3b2630ef6fdb",
+  },
+  {
+    id: "gaming",
+    catId: "b236303d-3ccf-4169-8321-81243d796481",
+    slug: "gaming",
+    label: "Gaming",
+    path: "/catalog?category=b236303d-3ccf-4169-8321-81243d796481",
   },
 ];
 
@@ -177,7 +191,7 @@ export default function CategoryCatalog() {
     }
   });
 
-  /* Match category param (UUID, slug, or alias like "phones") to database category object */
+  /* Resolve category object from UUID, Slug, or Alias */
   const matchedCategory = useMemo(() => {
     if (!catParam) return null;
     const lower = catParam.toLowerCase().trim();
@@ -187,8 +201,8 @@ export default function CategoryCatalog() {
         c.slug === lower ||
         c.name.toLowerCase() === lower ||
         (lower === "phones" && c.slug === "phones-tablets") ||
-        (lower === "watches" && c.slug === "watches-jewelry") ||
-        (lower === "home" && c.slug === "home-furniture-appliances")
+        (lower === "computers" && c.slug === "computers-laptops") ||
+        (lower === "beauty" && c.slug === "beauty-personal-care")
     );
   }, [catParam]);
 
@@ -197,7 +211,7 @@ export default function CategoryCatalog() {
     if (qParam) return `“${qParam}”`;
     if (brandParam) return titleCase(brandParam);
     if (matchedCategory) return matchedCategory.name;
-    if (catParam) return titleCase(catParam);
+    if (catParam && !catParam.includes("-")) return titleCase(catParam);
     return routeConfig.title;
   }, [campaignParam, qParam, brandParam, matchedCategory, catParam, routeConfig.title]);
 
@@ -241,7 +255,7 @@ export default function CategoryCatalog() {
           const fallbackParams = { ...params };
           delete fallbackParams.category;
           fallbackParams.search = matchedCategory
-            ? matchedCategory.slug.replace(/-/g, " ")
+            ? matchedCategory.name
             : catParam;
 
           try {
