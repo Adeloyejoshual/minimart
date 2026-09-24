@@ -13,9 +13,8 @@ import {
   FiMenu,
 } from "react-icons/fi";
 
-import categories from "../../config/categories";
+import { TOP_CATEGORIES } from "../../config/topCategories";
 import { haptic } from "./mobileHelpers";
-
 import "./styles/MobileTopBar.css";
 
 const MobileTopBar = memo(function MobileTopBar({
@@ -50,18 +49,6 @@ const MobileTopBar = memo(function MobileTopBar({
       window.removeEventListener("scroll", handleScroll);
     };
   }, []);
-
-  /* ---------------------------------------------
-     Category tabs
-  --------------------------------------------- */
-  const categoryTabs = [
-    {
-      id: "all",
-      name: "Explore All",
-      icon: "🔥",
-    },
-    ...categories,
-  ];
 
   /* ---------------------------------------------
      Search
@@ -102,7 +89,7 @@ const MobileTopBar = memo(function MobileTopBar({
   };
 
   /* ---------------------------------------------
-     Category
+     Category Change
   --------------------------------------------- */
   const handleCategoryChange = (categoryId) => {
     haptic(8);
@@ -245,16 +232,20 @@ const MobileTopBar = memo(function MobileTopBar({
       </div>
 
       {/* =================================================
-          CATEGORY NAVIGATION
+          CATEGORY NAVIGATION (CURATED STRIP WITH ICONS)
       ================================================= */}
       <nav
         className="lmm-topbar__cats"
         aria-label="Product categories"
       >
         <div className="lmm-topbar__cats-inner">
-          {categoryTabs.map((category) => {
+          {TOP_CATEGORIES.map((category) => {
             const isActive =
-              activeCategory === category.id;
+              activeCategory === category.id ||
+              activeCategory === category.slug ||
+              (activeCategory && activeCategory.toLowerCase() === category.name.toLowerCase());
+
+            const Icon = category.Icon;
 
             return (
               <button
@@ -268,12 +259,14 @@ const MobileTopBar = memo(function MobileTopBar({
                 }
                 aria-pressed={isActive}
               >
-                <span
-                  className="lmm-cat__icon"
-                  aria-hidden="true"
-                >
-                  {category.icon}
-                </span>
+                {Icon && (
+                  <span
+                    className="lmm-cat__icon"
+                    aria-hidden="true"
+                  >
+                    <Icon size={16} strokeWidth={2} />
+                  </span>
+                )}
 
                 <span className="lmm-cat__label">
                   {category.name}
