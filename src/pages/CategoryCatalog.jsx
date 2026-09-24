@@ -215,6 +215,15 @@ export default function CategoryCatalog() {
     return routeConfig.title;
   }, [campaignParam, qParam, brandParam, matchedCategory, catParam, routeConfig.title]);
 
+  /* ── Back Button Handler (Falls back to /loemart) ── */
+  const handleBack = useCallback(() => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate("/loemart");
+    }
+  }, [navigate]);
+
   /* ── Fetch Products ── */
   const fetchProducts = useCallback(
     async (newOffset = 0, append = false) => {
@@ -369,10 +378,7 @@ export default function CategoryCatalog() {
         <button
           type="button"
           className="cat-btn-icon"
-          onClick={() => {
-            if (window.history.length > 2) navigate(-1);
-            else navigate("/");
-          }}
+          onClick={handleBack}
           aria-label="Back"
         >
           <FiChevronLeft size={24} color="#1a1a1a" />
