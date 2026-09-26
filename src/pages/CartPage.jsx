@@ -2,7 +2,7 @@
  * src/pages/CartPage.jsx
  * Route: /shop/cart
  *
- * WITH LIVE DEBUG PANEL & RECENTLY VIEWED PRODUCTS
+ * WITH LIVE DEBUG PANEL & OFFICIAL RECENTLY VIEWED SYNC
  */
 
 import {
@@ -17,6 +17,7 @@ import {
   getProductImage,
 } from "../config/marketplace";
 import useWishlist from "../hooks/useWishlist";
+import { getRecentlyViewed } from "../loemart/mobile/mobileHelpers";
 
 import "../styles/CartPage.css";
 
@@ -134,23 +135,16 @@ const Icon = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED SECTION
+   RECENTLY VIEWED SECTION (SYNCED VIA mobileHelpers)
 ═══════════════════════════════════════════════════════════════ */
 function RecentlyViewed({ onProductClick }) {
   const [recent, setRecent] = useState([]);
 
   useEffect(() => {
     try {
-      const raw =
-        localStorage.getItem("lm-recent") ||
-        localStorage.getItem("mm_recently_viewed") ||
-        localStorage.getItem("mm_recent") ||
-        "[]";
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setRecent(
-          parsed.filter((item) => item && (item.id || item.productId || item._id)).slice(0, 10)
-        );
+      const list = getRecentlyViewed?.() || [];
+      if (Array.isArray(list)) {
+        setRecent(list.filter((item) => item && (item.id || item.productId || item._id)).slice(0, 10));
       }
     } catch {
       setRecent([]);
@@ -625,7 +619,7 @@ export default function CartPage({ user }) {
 
   /* ── DEBUG STATE ── */
   const [debug,          setDebug]          = useState({});
-  const [showDebug,      setShowDebug]      = useState(true); // Show by default
+  const [showDebug,      setShowDebug]      = useState(true);
 
   const loggedIn = isLoggedIn();
 
@@ -640,7 +634,6 @@ export default function CartPage({ user }) {
     const tokenPreview  = token ? `${token.slice(0, 20)}…` : null;
     const requestTime   = new Date().toISOString();
 
-    /* Initial debug snapshot */
     const debugData = {
       base         : BASE,
       url          : CART_URL,
@@ -658,13 +651,6 @@ export default function CartPage({ user }) {
     };
     setDebug(debugData);
 
-    console.log("═══════════════════════════════════════════");
-    console.log("🛒 [CartPage] LOAD CART");
-    console.log("URL:", CART_URL);
-    console.log("Token:", token ? "✓ Present" : "❌ Missing");
-    console.log("Logged in:", loggedIn);
-    console.log("═══════════════════════════════════════════");
-
     try {
       if (loggedIn) {
         if (!BASE) {
@@ -675,8 +661,6 @@ export default function CartPage({ user }) {
           headers : authHeaders(),
           timeout : 15_000,
         });
-
-        console.log("✅ [CartPage] Response:", res.status, res.data);
 
         setDebug((prev) => ({
           ...prev,
@@ -710,8 +694,6 @@ export default function CartPage({ user }) {
 
       } else {
         const guestItems = readGuestCart();
-        console.log("👤 [CartPage] Guest cart:", guestItems);
-
         setItems(guestItems);
         setDebug((prev) => ({
           ...prev,
@@ -773,18 +755,16 @@ export default function CartPage({ user }) {
   const handleQtyChange = useCallback(async (itemId, newQty) => {
     if (loggedIn) {
       try {
-        const res = await axios.patch(
+        await axios.patch(
           `${CART_ITEMS_URL}/${itemId}`,
           { qty: newQty },
           { headers: authHeaders() }
         );
-        console.log("✓ Qty updated:", res.data);
         setItems((prev) =>
           prev.map((i) => i.id === itemId ? { ...i, qty: newQty } : i)
         );
         window.dispatchEvent(new Event("cart-updated"));
       } catch (err) {
-        console.error("❌ Qty update failed:", err);
         toast.error(err.response?.data?.message ?? "Failed to update quantity");
       }
     } else {
@@ -812,7 +792,6 @@ export default function CartPage({ user }) {
         });
         window.dispatchEvent(new Event("cart-updated"));
       } catch (err) {
-        console.error("❌ Remove failed:", err);
         setItems((prev) => [...prev, removed]);
         toast.error("Failed to remove item");
         return;
@@ -844,8 +823,7 @@ export default function CartPage({ user }) {
                 ).then(() => {
                   window.dispatchEvent(new Event("cart-updated"));
                   loadCart();
-                }).catch((e) => {
-                  console.error("❌ Restore failed:", e);
+                }).catch(() => {
                   toast.error("Could not restore item");
                 });
               } else {
