@@ -2,7 +2,7 @@
  * src/pages/CartPage.jsx
  * Route: /shop/cart
  *
- * WITH LIVE DEBUG PANEL & CUSTOMER REVIEWS
+ * WITH LIVE DEBUG PANEL & RECENTLY VIEWED PRODUCTS
  */
 
 import {
@@ -134,130 +134,106 @@ const Icon = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   CUSTOMER REVIEWS SECTION
+   RECENTLY VIEWED SECTION
 ═══════════════════════════════════════════════════════════════ */
-function CartReviews() {
-  const REVIEWS = [
-    {
-      id: 1,
-      author: "Chidi O.",
-      location: "Lagos",
-      rating: 5,
-      date: "2 days ago",
-      comment: "Fast delivery to Ikeja! Product was well packaged and 100% original. Will definitely buy again.",
-    },
-    {
-      id: 2,
-      author: "Amina B.",
-      location: "Abuja",
-      rating: 5,
-      date: "3 days ago",
-      comment: "Order arrived earlier than expected. Very smooth checkout process and responsive customer support.",
-    },
-    {
-      id: 3,
-      author: "Emeka K.",
-      location: "Port Harcourt",
-      rating: 5,
-      date: "1 week ago",
-      comment: "Best prices on smartphones in Nigeria right now. Exactly what was described on the site.",
-    },
-    {
-      id: 4,
-      author: "Blessing T.",
-      location: "Ibadan",
-      rating: 5,
-      date: "2 weeks ago",
-      comment: "Great experience shopping here. Customer service helped me track my package easily.",
-    },
-  ];
+function RecentlyViewed({ onProductClick }) {
+  const [recent, setRecent] = useState([]);
+
+  useEffect(() => {
+    try {
+      const raw =
+        localStorage.getItem("lm-recent") ||
+        localStorage.getItem("mm_recently_viewed") ||
+        localStorage.getItem("mm_recent") ||
+        "[]";
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setRecent(
+          parsed.filter((item) => item && (item.id || item.productId || item._id)).slice(0, 10)
+        );
+      }
+    } catch {
+      setRecent([]);
+    }
+  }, []);
+
+  if (!recent.length) return null;
 
   return (
-    <section className="cp-reviews-section" style={{
-      marginTop: 24,
-      padding: "20px 16px",
-      background: "#fff",
-      borderRadius: 16,
-      border: "1px solid #f1f5f9",
-      boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
-    }}>
+    <section className="cp-recently-viewed" style={{ marginTop: 24, padding: "0 4px" }}>
+      <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", marginBottom: 12 }}>
+        Recently Viewed
+      </h3>
       <div style={{
         display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 16,
-        paddingBottom: 12,
-        borderBottom: "1px solid #f1f5f9",
-      }}>
-        <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", margin: 0 }}>
-            What Buyers Say
-          </h3>
-          <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
-            Real feedback from verified shoppers
-          </p>
-        </div>
-        <div style={{
-          background: "#fff7ed",
-          border: "1px solid #ffedd5",
-          padding: "6px 10px",
-          borderRadius: 20,
-          textAlign: "right",
-        }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#ea580c" }}>⭐ 4.9 / 5.0</span>
-          <span style={{ fontSize: 10, color: "#9a3412", display: "block" }}>12.4k+ reviews</span>
-        </div>
-      </div>
-
-      <div style={{
-        display: "flex",
-        flexDirection: "column",
         gap: 12,
+        overflowX: "auto",
+        paddingBottom: 8,
+        scrollSnapType: "x mandatory",
+        WebkitOverflowScrolling: "touch",
       }}>
-        {REVIEWS.map((rev) => (
-          <div key={rev.id} style={{
-            padding: 12,
-            background: "#f8fafc",
-            borderRadius: 12,
-            border: "1px solid #f1f5f9",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ color: "#f59e0b", fontSize: 12, letterSpacing: 2 }}>
-                {"★".repeat(rev.rating)}
-              </div>
-              <span style={{ fontSize: 10, color: "#94a3b8" }}>{rev.date}</span>
-            </div>
+        {recent.map((item, idx) => {
+          const id = item.id || item.productId || item._id;
+          const price = Number(item.price ?? item.selling_price ?? 0);
+          const img = item.image || item.cover_image || (Array.isArray(item.images) ? item.images[0] : null);
+          const slug = item.slug || id;
 
-            <p style={{ fontSize: 12, color: "#334155", margin: "0 0 8px", lineHeight: 1.4 }}>
-              "{rev.comment}"
-            </p>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          return (
+            <div
+              key={id || idx}
+              onClick={() => onProductClick(slug)}
+              style={{
+                minWidth: 120,
+                maxWidth: 130,
+                background: "#fff",
+                borderRadius: 12,
+                padding: 8,
+                border: "1px solid #e2e8f0",
+                flexShrink: 0,
+                scrollSnapAlign: "start",
+                cursor: "pointer",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+              }}
+            >
               <div style={{
-                width: 24,
-                height: 24,
-                borderRadius: "50%",
-                background: "#ff5722",
-                color: "#fff",
+                width: "100%",
+                height: 100,
+                borderRadius: 8,
+                background: "#f8fafc",
+                overflow: "hidden",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 11,
-                fontWeight: 700,
+                marginBottom: 6,
               }}>
-                {rev.author[0]}
+                {img ? (
+                  <img
+                    src={img}
+                    alt={item.name || item.title || "Product"}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    loading="lazy"
+                  />
+                ) : (
+                  <span style={{ fontSize: 24 }}>📦</span>
+                )}
               </div>
-              <div>
-                <span style={{ fontSize: 11, fontWeight: 600, color: "#0f172a", display: "block", lineHeight: 1.2 }}>
-                  {rev.author}
-                </span>
-                <span style={{ fontSize: 10, color: "#10b981", fontWeight: 500 }}>
-                  ✓ {rev.location} • Verified Buyer
-                </span>
+              <h4 style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#1e293b",
+                margin: "0 0 4px",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}>
+                {item.name || item.title || "Product"}
+              </h4>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#ff5722" }}>
+                {formatPrice(price)}
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -448,7 +424,7 @@ function CartSkeleton() {
 /* ═══════════════════════════════════════════════════════════════
    EMPTY STATE
 ═══════════════════════════════════════════════════════════════ */
-function EmptyCart({ onShop }) {
+function EmptyCart({ onShop, onProductClick }) {
   return (
     <div className="cp-empty">
       <div className="cp-empty__illustration" aria-hidden="true">
@@ -463,8 +439,8 @@ function EmptyCart({ onShop }) {
         Start Shopping {Icon.arrow}
       </button>
 
-      {/* Reviews at bottom of empty cart */}
-      <CartReviews />
+      {/* Recently Viewed at bottom of empty cart */}
+      <RecentlyViewed onProductClick={onProductClick} />
     </div>
   );
 }
@@ -1013,7 +989,10 @@ export default function CartPage({ user }) {
 
       {/* Empty (no error) */}
       {!loading && !errorMsg && items.length === 0 && (
-        <EmptyCart onShop={() => navigate("/loemart")} />
+        <EmptyCart
+          onShop={() => navigate("/loemart")}
+          onProductClick={(slug) => navigate(`/shop/${slug}`)}
+        />
       )}
 
       {/* Items */}
@@ -1118,8 +1097,8 @@ export default function CartPage({ user }) {
             </div>
           </div>
 
-          {/* ★ REVIEWS SECTION ★ */}
-          <CartReviews />
+          {/* ★ RECENTLY VIEWED PRODUCTS ★ */}
+          <RecentlyViewed onProductClick={(slug) => navigate(`/shop/${slug}`)} />
 
           <div style={{ height: 110 }} aria-hidden="true" />
         </>
