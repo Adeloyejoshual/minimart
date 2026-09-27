@@ -498,7 +498,7 @@
 }
 
 /* ════════════════════════════════════════════════════════════
-   RECENTLY VIEWED SECTION
+   RECENTLY VIEWED SECTION (SCROLLABLE)
 ════════════════════════════════════════════════════════════ */
 .cp-recently-viewed {
   margin       : 16px 12px 0;
@@ -506,9 +506,10 @@
   background   : var(--cp-card);
   border       : 1px solid var(--cp-border);
   border-radius: 14px;
+  overflow     : hidden; /* Prevents overflow outside parent card */
 }
 
-.cp-recently-viewed h3 {
+.cp-recently-viewed__title {
   font-size     : 14px;
   font-weight   : 800;
   color         : var(--cp-text);
@@ -520,26 +521,43 @@
   display                : flex;
   gap                    : 12px;
   overflow-x             : auto;
-  padding-bottom         : 4px;
+  overflow-y             : hidden;
+  padding-bottom         : 6px;
   scroll-snap-type       : x mandatory;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width        : none; /* Firefox */
+  scrollbar-width        : thin; /* Firefox */
+  scrollbar-color        : rgba(0,0,0,0.15) transparent;
+  width                  : 100%;
 }
 
 .cp-recently-viewed__scroll::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Edge */
+  height: 4px;
+}
+
+.cp-recently-viewed__scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cp-recently-viewed__scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
 }
 
 .cp-recently-viewed__card {
-  min-width        : 120px;
-  max-width        : 120px;
+  min-width        : 125px;
+  max-width        : 125px;
+  width            : 125px;
   background       : #ffffff;
   border           : 1px solid var(--cp-border);
   border-radius    : 12px;
   padding          : 8px;
-  flex-shrink      : 0;
+  flex-shrink      : 0; /* Keeps items from squishing, enables scrolling */
   scroll-snap-align: start;
   cursor           : pointer;
+  text-align       : left;
+  outline          : none;
+  display          : flex;
+  flex-direction   : column;
   transition       : transform .15s ease, box-shadow .15s ease;
 }
 
@@ -584,6 +602,7 @@
   font-weight   : 800;
   color         : var(--cp-orange);
   letter-spacing: -0.2px;
+  margin-top    : auto;
 }
 
 /* ════════════════════════════════════════════════════════════
