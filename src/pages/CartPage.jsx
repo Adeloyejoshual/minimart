@@ -1,8 +1,6 @@
 /**
  * src/pages/CartPage.jsx
  * Route: /shop/cart
- *
- * WITH LIVE DEBUG PANEL & GUARANTEED SCROLLABLE RECENTLY VIEWED
  */
 
 import {
@@ -135,7 +133,7 @@ const Icon = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED SECTION (SCROLLABLE FIX)
+   RECENTLY VIEWED SECTION
 ═══════════════════════════════════════════════════════════════ */
 function RecentlyViewed({ onProductClick }) {
   const [recent, setRecent] = useState([]);
@@ -186,7 +184,7 @@ function RecentlyViewed({ onProductClick }) {
                     loading="lazy"
                   />
                 ) : (
-                  <span style={{ fontSize: 24 }}>📦</span>
+                  <span style={{ fontSize: 20 }}>📦</span>
                 )}
               </div>
               <span className="cp-recently-viewed__name">
@@ -200,162 +198,6 @@ function RecentlyViewed({ onProductClick }) {
         })}
       </div>
     </section>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   ★ LIVE DEBUG PANEL ★
-═══════════════════════════════════════════════════════════════ */
-function DebugPanel({ debug, onClose, onRetry }) {
-  const [expanded, setExpanded] = useState(true);
-
-  return (
-    <div style={{
-      position     : "fixed",
-      bottom       : 80,
-      left         : 8,
-      right        : 8,
-      zIndex       : 9999,
-      background   : "#0f172a",
-      color        : "#f1f5f9",
-      borderRadius : 12,
-      padding      : 12,
-      fontSize     : 11,
-      fontFamily   : "monospace",
-      lineHeight   : 1.5,
-      maxHeight    : expanded ? "70vh" : 40,
-      overflow     : "auto",
-      boxShadow    : "0 10px 40px rgba(0,0,0,0.5)",
-      border       : "2px solid #ff5722",
-    }}>
-      <div style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: expanded ? 8 : 0,
-        cursor: "pointer",
-      }}
-      onClick={() => setExpanded(!expanded)}>
-        <strong style={{ color: "#ff5722" }}>🔍 CART DEBUG PANEL</strong>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); onRetry(); }}
-            style={{
-              background: "#10b981", color: "#fff", border: "none",
-              padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer"
-            }}
-          >
-            🔄 Retry
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onClose(); }}
-            style={{
-              background: "#ef4444", color: "#fff", border: "none",
-              padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer"
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      {expanded && (
-        <>
-          <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
-            <div style={{ color: "#fbbf24", marginBottom: 4 }}>📡 CONFIG</div>
-            <div>BASE: <span style={{ color: "#10b981" }}>{debug.base || "❌ MISSING"}</span></div>
-            <div>URL:  <span style={{ color: "#10b981" }}>{debug.url}</span></div>
-            <div>Token: <span style={{ color: debug.hasToken ? "#10b981" : "#ef4444" }}>
-              {debug.hasToken ? `✓ Present (${debug.tokenPreview})` : "❌ Missing"}
-            </span></div>
-            <div>Logged in: <span style={{ color: debug.loggedIn ? "#10b981" : "#fbbf24" }}>
-              {debug.loggedIn ? "✓ Yes" : "⚠ No (guest mode)"}
-            </span></div>
-          </div>
-
-          {debug.request && (
-            <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
-              <div style={{ color: "#fbbf24", marginBottom: 4 }}>📤 LAST REQUEST</div>
-              <div>Method: {debug.request.method}</div>
-              <div>Headers: {JSON.stringify(debug.request.headers, null, 2)}</div>
-              <div>Time: {debug.request.time}</div>
-            </div>
-          )}
-
-          {debug.response && (
-            <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
-              <div style={{ color: "#fbbf24", marginBottom: 4 }}>
-                📥 LAST RESPONSE
-                <span style={{
-                  marginLeft: 8,
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  background: debug.response.status >= 200 && debug.response.status < 300
-                    ? "#10b981" : "#ef4444",
-                  color: "#fff",
-                  fontSize: 9,
-                }}>
-                  {debug.response.status || "NO RESPONSE"}
-                </span>
-              </div>
-              <pre style={{
-                margin: "6px 0 0",
-                background: "#0f172a",
-                padding: 8,
-                borderRadius: 4,
-                overflow: "auto",
-                maxHeight: 200,
-                fontSize: 10,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-all",
-              }}>
-                {typeof debug.response.body === "string"
-                  ? debug.response.body
-                  : JSON.stringify(debug.response.body, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {debug.error && (
-            <div style={{ marginBottom: 10, padding: 8, background: "#7f1d1d", borderRadius: 6 }}>
-              <div style={{ color: "#fca5a5", marginBottom: 4 }}>❌ ERROR</div>
-              <div>Message: {debug.error.message}</div>
-              <div>Code: {debug.error.code || "N/A"}</div>
-              <div>Status: {debug.error.status || "N/A"}</div>
-              {debug.error.stack && (
-                <pre style={{
-                  margin: "6px 0 0",
-                  background: "#0f172a",
-                  padding: 8,
-                  borderRadius: 4,
-                  overflow: "auto",
-                  maxHeight: 100,
-                  fontSize: 10,
-                }}>
-                  {debug.error.stack.split("\n").slice(0, 5).join("\n")}
-                </pre>
-              )}
-            </div>
-          )}
-
-          {debug.items && (
-            <div style={{ padding: 8, background: "#1e293b", borderRadius: 6 }}>
-              <div style={{ color: "#fbbf24", marginBottom: 4 }}>
-                🛒 CART ITEMS ({debug.items.length})
-              </div>
-              <pre style={{
-                margin: 0,
-                fontSize: 10,
-                overflow: "auto",
-                maxHeight: 150,
-              }}>
-                {JSON.stringify(debug.items, null, 2)}
-              </pre>
-            </div>
-          )}
-        </>
-      )}
-    </div>
   );
 }
 
@@ -385,19 +227,21 @@ function CartSkeleton() {
 function EmptyCart({ onShop, onProductClick }) {
   return (
     <div className="cp-empty">
-      <div className="cp-empty__illustration" aria-hidden="true">
-        <div className="cp-empty__circle">{Icon.cart}</div>
+      <div className="cp-empty__box">
+        <div className="cp-empty__illustration" aria-hidden="true">
+          <div className="cp-empty__circle">{Icon.cart}</div>
+        </div>
+        <h2 className="cp-empty__title">Your cart is empty</h2>
+        <p className="cp-empty__text">
+          Looks like you haven't added anything yet.<br />
+          Discover thousands of products at great prices.
+        </p>
+        <button className="cp-empty__btn" onClick={onShop}>
+          Start Shopping {Icon.arrow}
+        </button>
       </div>
-      <h2 className="cp-empty__title">Your cart is empty</h2>
-      <p className="cp-empty__text">
-        Looks like you haven't added anything yet.<br />
-        Discover thousands of products at great prices.
-      </p>
-      <button className="cp-empty__btn" onClick={onShop}>
-        Start Shopping {Icon.arrow}
-      </button>
 
-      {/* Recently Viewed at bottom of empty cart */}
+      {/* Recently Viewed */}
       <RecentlyViewed onProductClick={onProductClick} />
     </div>
   );
@@ -406,24 +250,17 @@ function EmptyCart({ onShop, onProductClick }) {
 /* ═══════════════════════════════════════════════════════════════
    ERROR STATE
 ═══════════════════════════════════════════════════════════════ */
-function ErrorState({ message, onRetry, onShowDebug }) {
+function ErrorState({ message, onRetry }) {
   return (
     <div className="cp-empty">
-      <div className="cp-empty__illustration" aria-hidden="true">
-        <div className="cp-empty__circle" style={{ color: "#ef4444" }}>⚠️</div>
-      </div>
-      <h2 className="cp-empty__title">Failed to load your cart</h2>
-      <p className="cp-empty__text">{message}</p>
-      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+      <div className="cp-empty__box">
+        <div className="cp-empty__illustration" aria-hidden="true">
+          <div className="cp-empty__circle" style={{ color: "#ef4444" }}>⚠️</div>
+        </div>
+        <h2 className="cp-empty__title">Failed to load your cart</h2>
+        <p className="cp-empty__text">{message}</p>
         <button className="cp-empty__btn" onClick={onRetry}>
           Try again
-        </button>
-        <button
-          className="cp-empty__btn"
-          onClick={onShowDebug}
-          style={{ background: "#0f172a" }}
-        >
-          🔍 Show Debug
         </button>
       </div>
     </div>
@@ -576,63 +413,30 @@ export default function CartPage({ user }) {
   const navigate = useNavigate();
   const { toggle: toggleWishlist } = useWishlist();
 
-  const [items,      setItems]      = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [checking,   setChecking]   = useState(false);
-  const [errorMsg,   setErrorMsg]   = useState(null);
-
-  /* ── DEBUG STATE ── */
-  const [debug,          setDebug]          = useState({});
-  const [showDebug,      setShowDebug]      = useState(true);
+  const [items,    setItems]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [checking, setChecking] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   const loggedIn = isLoggedIn();
 
   /* ════════════════════════════════════════════════════════
-     LOAD CART — with full debug tracing
+     LOAD CART
   ════════════════════════════════════════════════════════ */
   const loadCart = useCallback(async () => {
     setLoading(true);
     setErrorMsg(null);
 
-    const token         = localStorage.getItem("marketplace_token");
-    const tokenPreview  = token ? `${token.slice(0, 20)}…` : null;
-    const requestTime   = new Date().toISOString();
-
-    const debugData = {
-      base         : BASE,
-      url          : CART_URL,
-      hasToken     : !!token,
-      tokenPreview,
-      loggedIn,
-      request: {
-        method  : "GET",
-        headers : loggedIn ? { Authorization: `Bearer ${tokenPreview}` } : {},
-        time    : requestTime,
-      },
-      response : null,
-      error    : null,
-      items    : null,
-    };
-    setDebug(debugData);
-
     try {
       if (loggedIn) {
         if (!BASE) {
-          throw new Error("VITE_API_BASE_URL is not set! Check your .env file.");
+          throw new Error("VITE_API_BASE_URL is not set!");
         }
 
         const res = await axios.get(CART_URL, {
           headers : authHeaders(),
           timeout : 15_000,
         });
-
-        setDebug((prev) => ({
-          ...prev,
-          response: {
-            status : res.status,
-            body   : res.data,
-          },
-        }));
 
         const serverItems = res.data?.data?.items ?? [];
 
@@ -654,36 +458,12 @@ export default function CartPage({ user }) {
         }));
 
         setItems(normalized);
-        setDebug((prev) => ({ ...prev, items: normalized }));
-
       } else {
         const guestItems = readGuestCart();
         setItems(guestItems);
-        setDebug((prev) => ({
-          ...prev,
-          response: { status: "guest", body: "localStorage" },
-          items   : guestItems,
-        }));
       }
-
     } catch (err) {
       console.error("❌ [CartPage] Load failed:", err);
-
-      const errorInfo = {
-        message : err.message,
-        code    : err.code,
-        status  : err.response?.status,
-        stack   : err.stack,
-      };
-
-      setDebug((prev) => ({
-        ...prev,
-        response: err.response ? {
-          status : err.response.status,
-          body   : err.response.data,
-        } : null,
-        error: errorInfo,
-      }));
 
       const friendlyMsg =
         err.response?.data?.message ??
@@ -695,9 +475,6 @@ export default function CartPage({ user }) {
           : err.message);
 
       setErrorMsg(friendlyMsg);
-      toast.error(friendlyMsg);
-
-      setShowDebug(true);
 
       if (!loggedIn) {
         setItems(readGuestCart());
@@ -872,16 +649,6 @@ export default function CartPage({ user }) {
   ════════════════════════════════════════════════════════ */
   return (
     <div className="cp-page">
-
-      {/* ★ DEBUG PANEL ★ */}
-      {showDebug && (
-        <DebugPanel
-          debug={debug}
-          onClose={() => setShowDebug(false)}
-          onRetry={loadCart}
-        />
-      )}
-
       {/* Header */}
       <header className="cp-header">
         <button
@@ -898,23 +665,6 @@ export default function CartPage({ user }) {
             <span className="cp-header__count">({itemCount})</span>
           )}
         </h1>
-        {!showDebug && (
-          <button
-            onClick={() => setShowDebug(true)}
-            style={{
-              marginLeft: "auto",
-              background: "#0f172a",
-              color: "#fff",
-              border: "none",
-              padding: "6px 12px",
-              borderRadius: 6,
-              fontSize: 11,
-              cursor: "pointer",
-            }}
-          >
-            🔍 Debug
-          </button>
-        )}
       </header>
 
       {/* Loading */}
@@ -925,7 +675,6 @@ export default function CartPage({ user }) {
         <ErrorState
           message={errorMsg}
           onRetry={loadCart}
-          onShowDebug={() => setShowDebug(true)}
         />
       )}
 
@@ -1039,14 +788,14 @@ export default function CartPage({ user }) {
             </div>
           </div>
 
-          {/* ★ RECENTLY VIEWED PRODUCTS ★ */}
+          {/* Recently Viewed */}
           <RecentlyViewed onProductClick={(slug) => navigate(`/shop/${slug}`)} />
 
           <div style={{ height: 110 }} aria-hidden="true" />
         </>
       )}
 
-      {/* Sticky checkout bar */}
+      {/* Sticky Checkout Bar */}
       {!loading && items.length > 0 && (
         <div className="cp-sticky-bar" role="region" aria-label="Checkout">
           <div className="cp-sticky-bar__left">
