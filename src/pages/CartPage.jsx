@@ -2,7 +2,7 @@
  * src/pages/CartPage.jsx
  * Route: /shop/cart
  *
- * WITH LIVE DEBUG PANEL & SMOOTH SCROLLABLE RECENTLY VIEWED
+ * WITH LIVE DEBUG PANEL & GUARANTEED SCROLLABLE RECENTLY VIEWED
  */
 
 import {
@@ -135,7 +135,7 @@ const Icon = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED SECTION (HORIZONTAL TOUCH SCROLL)
+   RECENTLY VIEWED SECTION (SCROLLABLE FIX)
 ═══════════════════════════════════════════════════════════════ */
 function RecentlyViewed({ onProductClick }) {
   const [recent, setRecent] = useState([]);
