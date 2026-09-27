@@ -498,15 +498,19 @@
 }
 
 /* ════════════════════════════════════════════════════════════
-   RECENTLY VIEWED SECTION (SCROLLABLE)
+   RECENTLY VIEWED SECTION (100% WORKING FLEX SCROLL)
 ════════════════════════════════════════════════════════════ */
 .cp-recently-viewed {
-  margin       : 16px 12px 0;
-  padding      : 16px;
-  background   : var(--cp-card);
-  border       : 1px solid var(--cp-border);
-  border-radius: 14px;
-  overflow     : hidden; /* Prevents overflow outside parent card */
+  margin        : 24px 0 0;
+  padding       : 16px 12px;
+  background    : var(--cp-card);
+  border-top    : 1px solid var(--cp-border);
+  border-bottom : 1px solid var(--cp-border);
+  width         : 100%;
+  max-width     : 100%;
+  min-width     : 0; /* CRITICAL: Allows flex child to shrink & trigger overflow */
+  align-self    : stretch;
+  box-sizing    : border-box;
 }
 
 .cp-recently-viewed__title {
@@ -514,20 +518,22 @@
   font-weight   : 800;
   color         : var(--cp-text);
   margin        : 0 0 12px;
+  text-align    : left;
   letter-spacing: -0.2px;
 }
 
 .cp-recently-viewed__scroll {
-  display                : flex;
-  gap                    : 12px;
-  overflow-x             : auto;
-  overflow-y             : hidden;
-  padding-bottom         : 6px;
+  display                : flex !important;
+  gap                    : 12px !important;
+  overflow-x             : auto !important;
+  overflow-y             : hidden !important;
+  width                  : 100% !important;
+  min-width              : 0 !important; /* CRITICAL: Enables horizontal scroll container */
+  padding-bottom         : 8px !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action           : pan-x !important;
   scroll-snap-type       : x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width        : thin; /* Firefox */
-  scrollbar-color        : rgba(0,0,0,0.15) transparent;
-  width                  : 100%;
+  scrollbar-width        : thin;
 }
 
 .cp-recently-viewed__scroll::-webkit-scrollbar {
@@ -544,21 +550,22 @@
 }
 
 .cp-recently-viewed__card {
-  min-width        : 125px;
-  max-width        : 125px;
-  width            : 125px;
+  flex             : 0 0 130px !important; /* Prevents cards from shrinking */
+  width            : 130px !important;
+  min-width        : 130px !important;
+  max-width        : 130px !important;
   background       : #ffffff;
   border           : 1px solid var(--cp-border);
   border-radius    : 12px;
   padding          : 8px;
-  flex-shrink      : 0; /* Keeps items from squishing, enables scrolling */
   scroll-snap-align: start;
   cursor           : pointer;
   text-align       : left;
   outline          : none;
   display          : flex;
   flex-direction   : column;
-  transition       : transform .15s ease, box-shadow .15s ease;
+  box-sizing       : border-box;
+  transition       : transform .15s ease;
 }
 
 .cp-recently-viewed__card:active {
@@ -706,8 +713,9 @@
   flex-direction: column;
   align-items   : center;
   gap           : 16px;
-  padding       : 60px 24px 40px;
+  padding       : 60px 0 40px;
   text-align    : center;
+  width         : 100%;
 }
 
 .cp-empty__illustration {
