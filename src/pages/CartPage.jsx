@@ -2,7 +2,7 @@
  * src/pages/CartPage.jsx
  * Route: /shop/cart
  *
- * WITH LIVE DEBUG PANEL & OFFICIAL RECENTLY VIEWED SYNC
+ * WITH LIVE DEBUG PANEL & SMOOTH SCROLLABLE RECENTLY VIEWED
  */
 
 import {
@@ -135,7 +135,7 @@ const Icon = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED SECTION (SYNCED VIA mobileHelpers)
+   RECENTLY VIEWED SECTION (HORIZONTAL TOUCH SCROLL)
 ═══════════════════════════════════════════════════════════════ */
 function RecentlyViewed({ onProductClick }) {
   const [recent, setRecent] = useState([]);
@@ -144,7 +144,11 @@ function RecentlyViewed({ onProductClick }) {
     try {
       const list = getRecentlyViewed?.() || [];
       if (Array.isArray(list)) {
-        setRecent(list.filter((item) => item && (item.id || item.productId || item._id)).slice(0, 10));
+        setRecent(
+          list
+            .filter((item) => item && (item.id || item.productId || item._id))
+            .slice(0, 10)
+        );
       }
     } catch {
       setRecent([]);
@@ -154,78 +158,44 @@ function RecentlyViewed({ onProductClick }) {
   if (!recent.length) return null;
 
   return (
-    <section className="cp-recently-viewed" style={{ marginTop: 24, padding: "0 4px" }}>
-      <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", marginBottom: 12 }}>
-        Recently Viewed
-      </h3>
-      <div style={{
-        display: "flex",
-        gap: 12,
-        overflowX: "auto",
-        paddingBottom: 8,
-        scrollSnapType: "x mandatory",
-        WebkitOverflowScrolling: "touch",
-      }}>
+    <section className="cp-recently-viewed" aria-label="Recently viewed products">
+      <h3 className="cp-recently-viewed__title">Recently Viewed</h3>
+      <div className="cp-recently-viewed__scroll">
         {recent.map((item, idx) => {
           const id = item.id || item.productId || item._id;
           const price = Number(item.price ?? item.selling_price ?? 0);
-          const img = item.image || item.cover_image || (Array.isArray(item.images) ? item.images[0] : null);
+          const img =
+            item.image ||
+            item.cover_image ||
+            (Array.isArray(item.images) ? item.images[0] : null);
           const slug = item.slug || id;
 
           return (
-            <div
+            <button
               key={id || idx}
+              type="button"
+              className="cp-recently-viewed__card"
               onClick={() => onProductClick(slug)}
-              style={{
-                minWidth: 120,
-                maxWidth: 130,
-                background: "#fff",
-                borderRadius: 12,
-                padding: 8,
-                border: "1px solid #e2e8f0",
-                flexShrink: 0,
-                scrollSnapAlign: "start",
-                cursor: "pointer",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-              }}
             >
-              <div style={{
-                width: "100%",
-                height: 100,
-                borderRadius: 8,
-                background: "#f8fafc",
-                overflow: "hidden",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                marginBottom: 6,
-              }}>
+              <div className="cp-recently-viewed__img-wrap">
                 {img ? (
                   <img
                     src={img}
                     alt={item.name || item.title || "Product"}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    className="cp-recently-viewed__img"
                     loading="lazy"
                   />
                 ) : (
                   <span style={{ fontSize: 24 }}>📦</span>
                 )}
               </div>
-              <h4 style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: "#1e293b",
-                margin: "0 0 4px",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}>
+              <span className="cp-recently-viewed__name">
                 {item.name || item.title || "Product"}
-              </h4>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#ff5722" }}>
+              </span>
+              <span className="cp-recently-viewed__price">
                 {formatPrice(price)}
-              </div>
-            </div>
+              </span>
+            </button>
           );
         })}
       </div>
@@ -258,7 +228,6 @@ function DebugPanel({ debug, onClose, onRetry }) {
       boxShadow    : "0 10px 40px rgba(0,0,0,0.5)",
       border       : "2px solid #ff5722",
     }}>
-      {/* Header */}
       <div style={{
         display: "flex",
         justifyContent: "space-between",
@@ -292,7 +261,6 @@ function DebugPanel({ debug, onClose, onRetry }) {
 
       {expanded && (
         <>
-          {/* Config */}
           <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
             <div style={{ color: "#fbbf24", marginBottom: 4 }}>📡 CONFIG</div>
             <div>BASE: <span style={{ color: "#10b981" }}>{debug.base || "❌ MISSING"}</span></div>
@@ -305,7 +273,6 @@ function DebugPanel({ debug, onClose, onRetry }) {
             </span></div>
           </div>
 
-          {/* Request */}
           {debug.request && (
             <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
               <div style={{ color: "#fbbf24", marginBottom: 4 }}>📤 LAST REQUEST</div>
@@ -315,7 +282,6 @@ function DebugPanel({ debug, onClose, onRetry }) {
             </div>
           )}
 
-          {/* Response */}
           {debug.response && (
             <div style={{ marginBottom: 10, padding: 8, background: "#1e293b", borderRadius: 6 }}>
               <div style={{ color: "#fbbf24", marginBottom: 4 }}>
@@ -350,7 +316,6 @@ function DebugPanel({ debug, onClose, onRetry }) {
             </div>
           )}
 
-          {/* Error */}
           {debug.error && (
             <div style={{ marginBottom: 10, padding: 8, background: "#7f1d1d", borderRadius: 6 }}>
               <div style={{ color: "#fca5a5", marginBottom: 4 }}>❌ ERROR</div>
@@ -373,7 +338,6 @@ function DebugPanel({ debug, onClose, onRetry }) {
             </div>
           )}
 
-          {/* Cart Data */}
           {debug.items && (
             <div style={{ padding: 8, background: "#1e293b", borderRadius: 6 }}>
               <div style={{ color: "#fbbf24", marginBottom: 4 }}>
