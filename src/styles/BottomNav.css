@@ -1,12 +1,12 @@
 /*
   FILE: src/styles/BottomNav.css
-  BottomNav — Minimart
+  BottomNav — Loemart
 */
 
 :root {
   --bn-bg: #ffffff;
   --bn-border: #eae6e0;
-  --bn-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+  --bn-shadow: 0 -4px 18px rgba(0, 0, 0, 0.06);
 
   --bn-text: #a8a39d;
   --bn-text-active: #ff5c00;
@@ -33,7 +33,7 @@
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
 
   background: var(--bn-bg);
-  border-top: 1.5px solid var(--bn-border);
+  border-top: 1px solid var(--bn-border);
   box-shadow: var(--bn-shadow);
 }
 
@@ -47,10 +47,10 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 2px;
 
-  padding: 10px 4px 11px;
-  min-height: 60px;
+  padding: 7px 4px 8px;
+  min-height: 52px;
 
   background: transparent;
   border: none;
@@ -67,12 +67,16 @@
   position: absolute;
   top: 0;
   left: 50%;
-  width: 28px;
-  height: 2.5px;
+
+  width: 26px;
+  height: 2px;
+
   border-radius: 0 0 4px 4px;
   background: var(--bn-indicator);
+
   transform: translateX(-50%) scaleX(0);
   transform-origin: center;
+
   transition: transform 0.22s cubic-bezier(.34,1.56,.64,1);
 }
 
@@ -83,12 +87,15 @@
 /* ── ICON ─────────────────────────────────── */
 .bn-icon {
   position: relative;
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+
+  font-size: 19px;
   line-height: 1;
   color: var(--bn-text);
+
   transition:
     color 0.16s ease,
     transform 0.16s ease,
@@ -96,8 +103,8 @@
 }
 
 .bn-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 19px;
+  height: 19px;
   display: block;
 }
 
@@ -118,10 +125,10 @@
   white-space: nowrap;
 
   font-family: "Plus Jakarta Sans", system-ui, sans-serif;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  line-height: 1.1;
+  line-height: 1;
 
   color: var(--bn-text);
   transition: color 0.16s ease;
@@ -134,12 +141,12 @@
 /* ── BADGE ────────────────────────────────── */
 .bn-badge {
   position: absolute;
-  top: -6px;
-  right: -8px;
+  top: -5px;
+  right: -7px;
 
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
 
   display: inline-flex;
   align-items: center;
@@ -150,12 +157,12 @@
   background: var(--bn-badge);
   color: var(--bn-badge-text);
 
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
   line-height: 1;
   text-align: center;
 
-  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.28);
+  box-shadow: 0 2px 7px rgba(239, 68, 68, 0.28);
   pointer-events: none;
 }
 
@@ -164,15 +171,15 @@
   background: rgba(255, 92, 0, 0.06);
 }
 
-/* ── OPTIONAL SPECIAL CTA SUPPORT ─────────── */
+/* ── SPECIAL SELL CTA ────────────────────── */
 .bn-item.bn-sell {
   flex: 1.15;
 }
 
 .bn-sell-ic {
-  width: 38px;
-  height: 38px;
-  margin-bottom: 1px;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 0;
 
   display: flex;
   align-items: center;
@@ -181,10 +188,11 @@
   border-radius: 50%;
   background: #ff5c00;
   color: #fff;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
 
-  box-shadow: 0 4px 14px rgba(255, 92, 0, 0.4);
+  box-shadow: 0 3px 11px rgba(255, 92, 0, 0.35);
+
   transition:
     transform 0.15s cubic-bezier(.34,1.56,.64,1),
     box-shadow 0.15s ease;
@@ -208,7 +216,8 @@
   }
 
   .bn-item {
-    padding: 9px 2px 10px;
+    padding: 6px 2px 7px;
+    min-height: 48px;
   }
 
   .bn-label {
@@ -223,6 +232,12 @@
     width: 18px;
     height: 18px;
   }
+
+  .bn-sell-ic {
+    width: 32px;
+    height: 32px;
+    font-size: 17px;
+  }
 }
 
 /* ── DESKTOP / TABLET ─────────────────────── */
@@ -231,7 +246,9 @@
     max-width: 520px;
     left: 50%;
     right: auto;
+
     transform: translateX(-50%);
+
     border: 1px solid var(--bn-border);
     border-radius: 18px 18px 0 0;
   }
@@ -242,7 +259,7 @@
   :root {
     --bn-bg: #121212;
     --bn-border: rgba(255, 255, 255, 0.08);
-    --bn-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35);
+    --bn-shadow: 0 -6px 22px rgba(0, 0, 0, 0.35);
 
     --bn-text: #9f9a94;
     --bn-text-active: #ff8a42;
