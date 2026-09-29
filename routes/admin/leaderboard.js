@@ -8,12 +8,14 @@
 // ✅ NO email_verified filter on the inviter.
 // ✅ Selects all name columns: first_name, last_name, name,
 //    username, email — matching your exact users table.
+// ✅ Syncs rewards directly from config/rewards.js.
 // ════════════════════════════════════════════════════════════
 
 import express  from "express";
 import { pool } from "../../config/db.js";
 import { verifyAdmin, requireSuperAdmin } from "./middleware.js";
 import { finalizeLeaderboard } from "../../services/leaderboardCron.js";
+import { MONTHLY_REWARDS, YEARLY_REWARDS } from "../../config/rewards.js";
 
 const router = express.Router();
 
@@ -22,18 +24,6 @@ const router = express.Router();
 ════════════════════════════════════════════════════════════ */
 const VERIFIED = `('rewarded', 'verified')`;
 const BANNED   = `('banned', 'suspended', 'flagged')`;
-
-const MONTHLY_REWARDS = {
-  1 : { amount: 15_000, label: "₦15,000", prize: "1st Place" },
-  2 : { amount: 10_000, label: "₦10,000", prize: "2nd Place" },
-  3 : { amount:  5_000, label: "₦5,000",  prize: "3rd Place" },
-};
-
-const YEARLY_REWARDS = {
-  1 : { amount: 50_000, label: "₦50,000", prize: "1st Place" },
-  2 : { amount: 30_000, label: "₦30,000", prize: "2nd Place" },
-  3 : { amount: 20_000, label: "₦20,000", prize: "3rd Place" },
-};
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -110,13 +100,14 @@ function buildAdminLeaderboardSQL(hasCutoff, limit = 10) {
 ════════════════════════════════════════════════════════════ */
 router.get("/current", verifyAdmin, async (req, res) => {
   try {
-    const now        = new Date();
-    const monthStart = new Date(
-      Date.UTC(now.getFullYear(), now.getMonth(), 1)
-    ).toISOString();
-    const yearStart  = new Date(
-      Date.UTC(now.getFullYear(), 0, 1)
-    ).toISOString();
+    const now = new Date();
+    
+    // Use UTC to prevent timezone boundaries from shifting months/years
+    const currentYear  = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth();
+
+    const monthStart = new Date(Date.UTC(currentYear, currentMonth, 1)).toISOString();
+    const yearStart  = new Date(Date.UTC(currentYear, 0, 1)).toISOString();
 
     console.log(
       `[admin/leaderboard/current] ` +
@@ -139,9 +130,7 @@ router.get("/current", verifyAdmin, async (req, res) => {
 
     /* Log for debugging when empty */
     if (allRows.rows.length === 0) {
-      console.warn(
-        "[admin/leaderboard/current] ⚠ all-time returned 0 rows"
-      );
+      console.warn("[admin/leaderboard/current] ⚠ all-time returned 0 rows");
 
       /* Extra raw debug query */
       const { rows: raw } = await pool.query(
@@ -179,16 +168,14 @@ router.get("/current", verifyAdmin, async (req, res) => {
 
       /* Monthly — includes prize map */
       month: {
-        period     : `${now.getFullYear()}-${
-          String(now.getMonth() + 1).padStart(2, "0")
-        }`,
+        period     : `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}`,
         leaderboard: monthRows.rows.map((r, i) => fmt(r, i + 1)),
         rewards    : MONTHLY_REWARDS,
       },
 
       /* Yearly — includes prize map */
       year: {
-        period     : String(now.getFullYear()),
+        period     : String(currentYear),
         leaderboard: yearRows.rows.map((r, i) => fmt(r, i + 1)),
         rewards    : YEARLY_REWARDS,
       },
