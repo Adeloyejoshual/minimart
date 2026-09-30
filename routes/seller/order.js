@@ -275,8 +275,10 @@ async function createDeliveryForShippedOrder(client, order) {
        og.user_id AS customer_user_id,
        og.address_id,
        seller.name AS seller_name,
-       seller.phone AS seller_phone,
+       seller.phone_number AS seller_phone,
        seller.email AS seller_email,
+       seller.city AS seller_city,
+       seller.country AS seller_country,
        a.recipient_name,
        a.phone AS recipient_phone,
        a.address_line,
@@ -284,7 +286,7 @@ async function createDeliveryForShippedOrder(client, order) {
        a.landmark,
        a.city,
        a.state,
-       a.additional_directions
+       a.call_before_delivery
      FROM public.orders o
      LEFT JOIN public.order_groups og
        ON og.id = o.order_group_id
@@ -351,18 +353,18 @@ async function createDeliveryForShippedOrder(client, order) {
 
        $6,
        $7,
-       NULL,
-       NULL,
-       NULL,
-
        $8,
        $9,
        $10,
+
        $11,
        $12,
        $13,
        $14,
        $15,
+       $16,
+       $17,
+       $18,
 
        'pending',
        NULL,
@@ -379,6 +381,9 @@ async function createDeliveryForShippedOrder(client, order) {
 
       snapshot.seller_name || 'Loemart Seller',
       snapshot.seller_phone || null,
+      snapshot.seller_city ? `Seller location: ${snapshot.seller_city}${snapshot.seller_country ? `, ${snapshot.seller_country}` : ''}` : null,
+      snapshot.seller_city || null,
+      snapshot.seller_country || null,
 
       snapshot.recipient_name || 'Customer',
       snapshot.recipient_phone || null,
@@ -387,7 +392,7 @@ async function createDeliveryForShippedOrder(client, order) {
       snapshot.state || null,
       snapshot.landmark || null,
       snapshot.bus_stop || null,
-      snapshot.additional_directions || null
+      null
     ]
   );
 
