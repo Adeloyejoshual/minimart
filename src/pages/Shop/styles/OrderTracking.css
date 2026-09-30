@@ -1038,3 +1038,35 @@
     margin-right: 0;
   }
 }
+.otp-items__seller-main{
+  min-width:0;
+  flex:1;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:.75rem;
+}
+.otp-delivery-track-link{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:.42rem .7rem;
+  border-radius:7px;
+  background:var(--otp-soft);
+  color:var(--otp-orange);
+  font-size:.72rem;
+  font-weight:800;
+  text-decoration:none;
+  white-space:nowrap;
+}
+.otp-delivery-track-link:hover{
+  background:var(--otp-orange);
+  color:#fff;
+}
+@media(max-width:480px){
+  .otp-items__seller-main{
+    align-items:flex-start;
+    flex-direction:column;
+    gap:.35rem;
+  }
+}
