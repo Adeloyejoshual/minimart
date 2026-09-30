@@ -252,6 +252,180 @@ async function dispatchStatusNotifications({
   await Promise.allSettled(jobs);
 }
 
+async function createDeliveryForShippedOrder(client, order) {
+  const { rows: [existing] } = await client.query(
+    `SELECT id, delivery_tracking_id
+     FROM delivery.deliveries
+     WHERE order_id = $1
+     LIMIT 1
+     FOR UPDATE`,
+    [order.id]
+  );
+
+  if (existing) {
+    return existing;
+  }
+
+  const { rows: [snapshot] } = await client.query(
+    `SELECT
+       o.id,
+       o.order_group_id,
+       o.tracking_id,
+       o.seller_id,
+       og.user_id AS customer_user_id,
+       og.address_id,
+       seller.name AS seller_name,
+       seller.phone AS seller_phone,
+       seller.email AS seller_email,
+       a.recipient_name,
+       a.phone AS recipient_phone,
+       a.address_line,
+       a.bus_stop,
+       a.landmark,
+       a.city,
+       a.state,
+       a.additional_directions
+     FROM public.orders o
+     LEFT JOIN public.order_groups og
+       ON og.id = o.order_group_id
+     LEFT JOIN market.users seller
+       ON seller.id = o.seller_id
+     LEFT JOIN public.user_addresses a
+       ON a.id = og.address_id
+     WHERE o.id = $1
+     LIMIT 1`,
+    [order.id]
+  );
+
+  if (!snapshot) {
+    throw new Error('Unable to load delivery snapshot for shipped order.');
+  }
+
+  const deliveryTrackingId =
+    `LM-DL-${String(snapshot.tracking_id || snapshot.id).replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`;
+
+  const { rows: [dispatch] } = await client.query(
+    `SELECT id
+     FROM public.order_dispatches
+     WHERE order_id = $1
+     LIMIT 1`,
+    [snapshot.id]
+  );
+
+  const { rows: [delivery] } = await client.query(
+    `INSERT INTO delivery.deliveries (
+       delivery_tracking_id,
+       source_type,
+       customer_user_id,
+       order_id,
+       order_group_id,
+       order_dispatch_id,
+
+       pickup_name_snapshot,
+       pickup_phone_snapshot,
+       pickup_address_snapshot,
+       pickup_city_snapshot,
+       pickup_state_snapshot,
+
+       recipient_name_snapshot,
+       recipient_phone_snapshot,
+       address_line_snapshot,
+       city_snapshot,
+       state_snapshot,
+       landmark_snapshot,
+       bus_stop_snapshot,
+       additional_directions_snapshot,
+
+       status,
+       estimated_delivery_at,
+       created_at,
+       updated_at
+     )
+     VALUES (
+       $1,
+       'LOEMART_ORDER',
+       $2,
+       $3,
+       $4,
+       $5,
+
+       $6,
+       $7,
+       NULL,
+       NULL,
+       NULL,
+
+       $8,
+       $9,
+       $10,
+       $11,
+       $12,
+       $13,
+       $14,
+       $15,
+
+       'pending',
+       NULL,
+       NOW(),
+       NOW()
+     )
+     RETURNING id, delivery_tracking_id, status, created_at`,
+    [
+      deliveryTrackingId,
+      snapshot.customer_user_id,
+      snapshot.id,
+      snapshot.order_group_id,
+      dispatch?.id ?? null,
+
+      snapshot.seller_name || 'Loemart Seller',
+      snapshot.seller_phone || null,
+
+      snapshot.recipient_name || 'Customer',
+      snapshot.recipient_phone || null,
+      snapshot.address_line || null,
+      snapshot.city || null,
+      snapshot.state || null,
+      snapshot.landmark || null,
+      snapshot.bus_stop || null,
+      snapshot.additional_directions || null
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO delivery.events (
+       delivery_id,
+       actor_type,
+       actor_id,
+       event_type,
+       old_status,
+       new_status,
+       metadata,
+       created_at
+     )
+     VALUES (
+       $1,
+       'SYSTEM',
+       NULL,
+       'DELIVERY_CREATED',
+       NULL,
+       'pending',
+       $2::jsonb,
+       NOW()
+     )`,
+    [
+      delivery.id,
+      JSON.stringify({
+        source: 'marketplace_order_shipped',
+        order_id: snapshot.id,
+        order_group_id: snapshot.order_group_id,
+        order_tracking_id: snapshot.tracking_id
+      })
+    ]
+  );
+
+  return delivery;
+}
+
 /* ══════════════════════════════════════════════════════════════
    AUTH — all routes require authenticated seller
 ══════════════════════════════════════════════════════════════ */
@@ -747,6 +921,17 @@ router.patch("/:orderId/status", async (req, res) => {
       console.warn("[seller/orders] history insert failed:", err.message)
     );
 
+    let delivery = null;
+
+    if (newStatus === "shipped") {
+      delivery = await createDeliveryForShippedOrder(client, {
+        id: order.id,
+        tracking_id: updated.tracking_id,
+        order_group_id: order.order_group_id,
+        seller_id: sellerId
+      });
+    }
+
     /* ── Update seller earnings based on new status ── */
     if (newStatus === "cancelled") {
       /* Void seller earnings on cancellation */
@@ -821,6 +1006,12 @@ router.patch("/:orderId/status", async (req, res) => {
         updatedAt      : updated.updated_at,
         allowedNext    : allowedTransitionsForRole(newStatus, "seller"),
         groupStatus    : newGroupStatus,
+        delivery: delivery
+          ? {
+              trackingId: delivery.delivery_tracking_id,
+              status: delivery.status
+            }
+          : null,
       },
     });
 
