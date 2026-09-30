@@ -36,6 +36,19 @@ const REFRESH_INTERVAL_MS = 30_000;
 
 const IS_DEV = import.meta.env.DEV;
 
+const DELIVERY_TRACKING_BASE_URL =
+  String(import.meta.env.VITE_DELIVERY_TRACKING_BASE_URL || "").replace(/\/$/, "");
+
+function getDeliveryTrackingUrl(trackingId) {
+  if (!trackingId) return null;
+
+  const path = `/track/${encodeURIComponent(trackingId)}`;
+
+  return DELIVERY_TRACKING_BASE_URL
+    ? `${DELIVERY_TRACKING_BASE_URL}${path}`
+    : path;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    STATUS STEPS
 ═══════════════════════════════════════════════════════════════ */
@@ -271,7 +284,19 @@ function OrderItemsList({ orders }) {
               <div className="otp-items__seller-dot">
                 {subOrder.seller_name[0]?.toUpperCase() ?? "S"}
               </div>
-              <span>{subOrder.seller_name}</span>
+              <div className="otp-items__seller-main">
+                <span>{subOrder.seller_name}</span>
+                {subOrder.delivery_tracking_id && (
+                  <a
+                    className="otp-delivery-track-link"
+                    href={getDeliveryTrackingUrl(subOrder.delivery_tracking_id)}
+                    target={DELIVERY_TRACKING_BASE_URL ? "_blank" : undefined}
+                    rel={DELIVERY_TRACKING_BASE_URL ? "noreferrer" : undefined}
+                  >
+                    Track delivery
+                  </a>
+                )}
+              </div>
             </div>
           )}
           {(subOrder.items ?? []).map((item) => (
