@@ -274,6 +274,96 @@ function StatusTimeline({ currentStatus, isCOD, timestamps = {} }) {
 /* ═══════════════════════════════════════════════════════════════
    ORDER ITEMS LIST
 ═══════════════════════════════════════════════════════════════ */
+function deliveryStatusLabel(status) {
+  const labels = {
+    pending: "Awaiting pickup",
+    assigned: "Rider assigned",
+    accepted: "Rider accepted",
+    going_to_pickup: "Rider going to seller",
+    arrived_at_pickup: "Rider at seller",
+    picked_up: "Package picked up",
+    going_to_customer: "On the way to you",
+    arrived_at_customer: "Rider has arrived",
+    delivered: "Delivered",
+    failed: "Delivery issue",
+    cancelled: "Delivery cancelled",
+  };
+  return labels[status] ?? "Delivery processing";
+}
+
+function DeliveryTrackingCard({ orders }) {
+  const deliveries = (orders ?? []).filter((item) => item.delivery_tracking_id);
+  if (!deliveries.length) return null;
+
+  return (
+    <div className="otp-live-deliveries">
+      <div className="otp-live-deliveries__heading">
+        <div>
+          <p className="otp-live-deliveries__eyebrow">Loemart Delivery</p>
+          <h2 className="otp-live-deliveries__title">Track your delivery</h2>
+        </div>
+        <span className="otp-section-header__badge">
+          <span className="otp-live-dot" /> Live
+        </span>
+      </div>
+
+      <div className="otp-live-deliveries__list">
+        {deliveries.map((subOrder) => {
+          const status = subOrder.delivery_status;
+          const url = getDeliveryTrackingUrl(subOrder.delivery_tracking_id);
+
+          return (
+            <div className="otp-live-delivery" key={subOrder.id}>
+              <div className="otp-live-delivery__icon">
+                <Icon.Truck size={19} />
+              </div>
+
+              <div className="otp-live-delivery__body">
+                <div className="otp-live-delivery__top">
+                  <strong>{subOrder.seller_name || "Seller"}</strong>
+                  <span className={`otp-live-delivery__status otp-live-delivery__status--${status || "pending"}`}>
+                    {deliveryStatusLabel(status)}
+                  </span>
+                </div>
+
+                <p className="otp-live-delivery__tracking">
+                  Tracking ID: <strong>{subOrder.delivery_tracking_id}</strong>
+                </p>
+
+                {subOrder.estimated_delivery_at && status !== "delivered" && (
+                  <p className="otp-live-delivery__eta">
+                    Estimated delivery: {formatDate(subOrder.estimated_delivery_at)}
+                  </p>
+                )}
+
+                {status === "delivered" && subOrder.delivery_delivered_at && (
+                  <p className="otp-live-delivery__eta">
+                    Delivered: {formatDate(subOrder.delivery_delivered_at)}
+                  </p>
+                )}
+
+                <a
+                  className="otp-live-delivery__button"
+                  href={url}
+                  target={DELIVERY_TRACKING_BASE_URL ? "_blank" : undefined}
+                  rel={DELIVERY_TRACKING_BASE_URL ? "noreferrer" : undefined}
+                >
+                  <Icon.Truck size={15} />
+                  Open live tracking
+                </a>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="otp-live-deliveries__note">
+        Delivery status and rider location update automatically when available.
+      </p>
+    </div>
+  );
+}
+
 function OrderItemsList({ orders }) {
   return (
     <div className="otp-items">
@@ -635,6 +725,9 @@ export default function OrderTracking() {
             </button>
           </div>
         )}
+
+        {/* ══ LIVE DELIVERY TRACKING ══ */}
+        <DeliveryTrackingCard orders={order.orders ?? []} />
 
         {/* ══ STATUS TIMELINE ══ */}
         <div className="otp-section-header">
