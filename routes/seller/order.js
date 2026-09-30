@@ -308,6 +308,12 @@ async function createDeliveryForShippedOrder(client, order) {
     throw new Error('Unable to load delivery snapshot for shipped order.');
   }
 
+  if (!snapshot.vendor_store_address?.trim()) {
+    throw new Error(
+      'Seller pickup address is missing. Update your store address before marking this order as shipped.'
+    );
+  }
+
   const deliveryTrackingId =
     `LM-DL-${String(snapshot.tracking_id || snapshot.id).replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`;
 
