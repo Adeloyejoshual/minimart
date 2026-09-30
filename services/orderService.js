@@ -669,9 +669,16 @@ export async function getOrderGroup(identifier, userId) {
   if (!group) return null;
 
   const { rows: orders } = await pool.query(
-    `SELECT o.*, u.name AS seller_name
+    `SELECT
+       o.*,
+       u.name AS seller_name,
+       d.delivery_tracking_id,
+       d.status AS delivery_status,
+       d.estimated_delivery_at,
+       d.delivered_at AS delivery_delivered_at
      FROM public.orders o
      LEFT JOIN market.users u ON u.id = o.seller_id
+     LEFT JOIN delivery.deliveries d ON d.order_id = o.id
      WHERE o.order_group_id = $1
      ORDER BY o.created_at ASC`,
     [group.id]
