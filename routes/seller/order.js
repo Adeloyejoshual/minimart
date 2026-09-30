@@ -279,6 +279,9 @@ async function createDeliveryForShippedOrder(client, order) {
        seller.email AS seller_email,
        seller.city AS seller_city,
        seller.country AS seller_country,
+       vendor.store_name AS vendor_store_name,
+       vendor.phone AS vendor_phone,
+       vendor.store_address AS vendor_store_address,
        a.recipient_name,
        a.phone AS recipient_phone,
        a.address_line,
@@ -292,6 +295,8 @@ async function createDeliveryForShippedOrder(client, order) {
        ON og.id = o.order_group_id
      LEFT JOIN market.users seller
        ON seller.id = o.seller_id
+     LEFT JOIN market.vendors vendor
+       ON vendor.user_id = o.seller_id
      LEFT JOIN public.user_addresses a
        ON a.id = og.address_id
      WHERE o.id = $1
