@@ -337,6 +337,7 @@ async function createDeliveryForShippedOrder(client, order) {
        landmark_snapshot,
        bus_stop_snapshot,
        additional_directions_snapshot,
+       call_before_delivery,
 
        status,
        estimated_delivery_at,
@@ -365,6 +366,7 @@ async function createDeliveryForShippedOrder(client, order) {
        $16,
        $17,
        $18,
+       $19,
 
        'pending',
        NULL,
@@ -382,8 +384,7 @@ async function createDeliveryForShippedOrder(client, order) {
       snapshot.seller_name || 'Loemart Seller',
       snapshot.seller_phone || null,
       snapshot.seller_city ? `Seller location: ${snapshot.seller_city}${snapshot.seller_country ? `, ${snapshot.seller_country}` : ''}` : null,
-      snapshot.seller_city || null,
-      snapshot.seller_country || null,
+      null,
 
       snapshot.recipient_name || 'Customer',
       snapshot.recipient_phone || null,
@@ -392,7 +393,8 @@ async function createDeliveryForShippedOrder(client, order) {
       snapshot.state || null,
       snapshot.landmark || null,
       snapshot.bus_stop || null,
-      null
+      null,
+      snapshot.call_before_delivery ?? false
     ]
   );
 
