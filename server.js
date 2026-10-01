@@ -110,6 +110,7 @@ _cacheEviction.unref();
 const HARD_ALLOWED = [
   "https://www.loemart.com",
   "https://loemart.com",
+  "https://loemart-delivery.onrender.com",
   "http://localhost:5173",
   "http://localhost:3000",
   "http://localhost:4173",
