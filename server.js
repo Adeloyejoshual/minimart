@@ -292,6 +292,7 @@ import { purgeDeletedAccounts }     from "./crons/purgeDeletedAccounts.js";
 /* ── Email services ── */
 import { sendWeeklyNewsletter } from "./services/weeklyNewsletter.js";
 import { processInactiveUsers } from "./services/inactiveUsers.js";
+import { ensureDeliveryIntegrationSchema, startDeliveryIntegrationJob } from "./services/deliveryIntegration.js";
 
 /* ════════════════════════════════════════════════════════════
    WEBHOOKS — MUST be before body parsers
@@ -703,7 +704,18 @@ async function start() {
     }
   }
 
-  /* 3 — Background jobs */
+  /* 3 — Marketplace → Loemart Delivery integration */
+  try {
+    await ensureDeliveryIntegrationSchema();
+    startDeliveryIntegrationJob();
+  } catch (err) {
+    console.error("[Delivery Integration] Startup initialization failed:", err.message);
+    if (IS_PROD) {
+      process.exit(1);
+    }
+  }
+
+  /* 4 — Background jobs */
   startListingExpiryJob();
   startCleanupJob();
   initLeaderboardCron();
