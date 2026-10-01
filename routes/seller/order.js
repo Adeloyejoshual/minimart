@@ -1,7 +1,8 @@
 /**
- * routes/seller/order.js  v6 — Loemart Express
+ * routes/seller/order.js  v7 — Loemart Express
  *
- * Mounted at: /api/seller/orders  (in server.js)
+ * Mounted at:
+ *   /api/seller/orders
  *
  * Routes:
  *   GET   /api/seller/orders/stats
@@ -10,15 +11,18 @@
  *   PATCH /api/seller/orders/:orderId/status
  *   POST  /api/seller/orders/:orderId/ready
  *
- * Status flow (seller-controlled):
+ * Seller status flow:
  *   pending → confirmed → processing → shipped
- *   any of the above → cancelled
+ *   pending → cancelled
+ *   confirmed → cancelled
+ *   processing → cancelled
  *
- * After "shipped": Loemart Express takes over; seller can't change status.
+ * After "shipped":
+ *   Loemart Express / admin / system controls the remaining delivery statuses.
  */
 
-import express                from "express";
-import { pool }               from "../../config/db.js";
+import express from "express";
+import { pool } from "../../config/db.js";
 import { authenticateSeller } from "../../middleware/sellerAuth.js";
 import { sendShipmentNotifications } from "../../services/orderShipNotification.js";
 import { syncShippedOrderToDelivery } from "../../services/deliveryIntegration.js";
@@ -28,6 +32,7 @@ const router = express.Router();
 /* ══════════════════════════════════════════════════════════════
    STARTUP GUARD
 ══════════════════════════════════════════════════════════════ */
+
 if (!process.env.JWT_SECRET) {
   throw new Error(
     "[seller/orders] FATAL: JWT_SECRET environment variable is not set. " +
@@ -35,42 +40,49 @@ if (!process.env.JWT_SECRET) {
   );
 }
 
-const IS_PROD = process.env.NODE_ENV === "production";
+/*
+ * Set ORDER_STATUS_DEBUG=true in Render while debugging.
+ *
+ * This allows the API to return the exact database stage/error
+ * temporarily. Set it back to false/remove it after debugging.
+ */
+const ORDER_STATUS_DEBUG =
+  String(process.env.ORDER_STATUS_DEBUG || "").toLowerCase() === "true";
 
 /* ══════════════════════════════════════════════════════════════
-   CONSTANTS & LOCAL HELPERS
+   STATUS CONSTANTS
 ══════════════════════════════════════════════════════════════ */
+
 const STATUS_LABELS = {
-  pending:          "Pending",
-  confirmed:        "Confirmed",
-  processing:       "Processing",
-  shipped:          "Shipped",
+  pending: "Pending",
+  confirmed: "Confirmed",
+  processing: "Processing",
+  shipped: "Shipped",
   out_for_delivery: "Out for Delivery",
-  delivered:        "Delivered",
-  received:         "Received",
-  cancelled:        "Cancelled",
-  failed_delivery:  "Failed Delivery",
+  delivered: "Delivered",
+  received: "Received",
+  cancelled: "Cancelled",
+  failed_delivery: "Failed Delivery",
 };
 
 const VALID_TRANSITIONS = {
-  pending:          ["confirmed", "cancelled"],
-  confirmed:        ["processing", "cancelled"],
-  processing:       ["shipped", "cancelled"],
-  shipped:          ["delivered", "failed_delivery"],
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["processing", "cancelled"],
+  processing: ["shipped", "cancelled"],
+  shipped: ["delivered", "failed_delivery"],
   out_for_delivery: ["delivered", "failed_delivery"],
-  delivered:        ["received"],
-  received:         [],
-  cancelled:        [],
-  failed_delivery:  ["processing", "cancelled"],
+  delivered: ["received"],
+  received: [],
+  cancelled: [],
+  failed_delivery: ["processing", "cancelled"],
 };
 
 const SELLER_TRANSITIONS = {
-  pending:    ["confirmed", "cancelled"],
-  confirmed:  ["processing", "cancelled"],
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["processing", "cancelled"],
   processing: ["shipped", "cancelled"],
 };
 
-/** Statuses a seller may transition TO. */
 const SELLER_ALLOWED_TARGETS = new Set([
   "confirmed",
   "processing",
@@ -78,95 +90,193 @@ const SELLER_ALLOWED_TARGETS = new Set([
   "cancelled",
 ]);
 
-const VALID_STATUS_SET  = new Set(Object.keys(VALID_TRANSITIONS));
-const PAGE_SIZE_DEFAULT = 20;
-const PAGE_SIZE_MAX     = 100;
+const VALID_STATUS_SET = new Set(
+  Object.keys(VALID_TRANSITIONS)
+);
 
-function allowedTransitionsForRole(currentStatus, role = "seller") {
-  if (role === "seller") return SELLER_TRANSITIONS[currentStatus] || [];
+const PAGE_SIZE_DEFAULT = 20;
+const PAGE_SIZE_MAX = 100;
+
+/* ══════════════════════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════════════════════ */
+
+function allowedTransitionsForRole(
+  currentStatus,
+  role = "seller"
+) {
+  if (role === "seller") {
+    return SELLER_TRANSITIONS[currentStatus] || [];
+  }
+
   return VALID_TRANSITIONS[currentStatus] || [];
 }
 
-function isTransitionAllowed(fromStatus, toStatus, role = "seller") {
-  return allowedTransitionsForRole(fromStatus, role).includes(toStatus);
+function isTransitionAllowed(
+  fromStatus,
+  toStatus,
+  role = "seller"
+) {
+  return allowedTransitionsForRole(
+    fromStatus,
+    role
+  ).includes(toStatus);
 }
 
-function safeInt(value, defaultVal, min = 1, max = Infinity) {
+function safeInt(
+  value,
+  defaultVal,
+  min = 1,
+  max = Infinity
+) {
   const n = parseInt(value, 10);
-  if (isNaN(n)) return defaultVal;
-  return Math.min(max, Math.max(min, n));
+
+  if (Number.isNaN(n)) {
+    return defaultVal;
+  }
+
+  return Math.min(
+    max,
+    Math.max(min, n)
+  );
 }
 
-/** Escape LIKE wildcards so user input is matched literally. */
-function escapeLike(str) {
-  return str.replace(/[\\%_]/g, "\\$&");
+function escapeLike(value) {
+  return String(value).replace(/[\\%_]/g, "\\$&");
 }
 
-/** Postgres "invalid input syntax" (e.g. malformed id) → treat as not found. */
-function isBadIdError(err) {
-  return err?.code === "22P02";
+function isBadIdError(error) {
+  return error?.code === "22P02";
 }
 
-/** Debug info is only exposed outside production. */
-function buildDebug(stage, err) {
-  if (IS_PROD) return undefined;
+/**
+ * Returns safe database debugging information.
+ *
+ * Full details are returned only when:
+ *
+ * ORDER_STATUS_DEBUG=true
+ *
+ * This is useful during live Render debugging without permanently
+ * exposing database internals to clients.
+ */
+function buildDebug(stage, error) {
+  if (!ORDER_STATUS_DEBUG) {
+    return undefined;
+  }
+
   return {
     stage,
-    code      : err?.code       ?? null,
-    detail    : err?.detail     ?? null,
-    hint      : err?.hint       ?? null,
-    constraint: err?.constraint ?? null,
-    table     : err?.table      ?? null,
-    column    : err?.column     ?? null,
+    message: error?.message ?? null,
+    code: error?.code ?? null,
+    detail: error?.detail ?? null,
+    hint: error?.hint ?? null,
+    constraint: error?.constraint ?? null,
+    table: error?.table ?? null,
+    column: error?.column ?? null,
   };
 }
 
-/* Cache the schema check — it never changes at runtime. */
+/* ══════════════════════════════════════════════════════════════
+   ORDER GROUP UPDATED_AT DETECTION
+══════════════════════════════════════════════════════════════ */
+
 let orderGroupsHasUpdatedAt = null;
 
 async function groupsHasUpdatedAt(client) {
-  if (orderGroupsHasUpdatedAt !== null) return orderGroupsHasUpdatedAt;
+  if (orderGroupsHasUpdatedAt !== null) {
+    return orderGroupsHasUpdatedAt;
+  }
+
   const { rows } = await client.query(
-    `SELECT 1 FROM information_schema.columns
+    `SELECT 1
+     FROM information_schema.columns
      WHERE table_schema = 'public'
-       AND table_name   = 'order_groups'
-       AND column_name  = 'updated_at'`
+       AND table_name = 'order_groups'
+       AND column_name = 'updated_at'`
   );
+
   orderGroupsHasUpdatedAt = rows.length > 0;
+
   return orderGroupsHasUpdatedAt;
 }
 
-/** Recalculates parent order_groups.status from its sub-orders. */
-async function localRecomputeGroupStatus(client, orderGroupId) {
+/* ══════════════════════════════════════════════════════════════
+   RECOMPUTE PARENT ORDER GROUP STATUS
+══════════════════════════════════════════════════════════════ */
+
+async function localRecomputeGroupStatus(
+  client,
+  orderGroupId
+) {
   const { rows: orders } = await client.query(
-    `SELECT status FROM public.orders WHERE order_group_id = $1`,
+    `SELECT status
+     FROM public.orders
+     WHERE order_group_id = $1`,
     [orderGroupId]
   );
 
-  if (!orders.length) return "pending";
+  if (!orders.length) {
+    return "pending";
+  }
 
-  const active = orders.map((o) => o.status).filter((s) => s !== "cancelled");
+  const activeStatuses = orders
+    .map((order) => order.status)
+    .filter((status) => status !== "cancelled");
 
   let newStatus = "pending";
-  if (active.length === 0) {
+
+  if (activeStatuses.length === 0) {
     newStatus = "cancelled";
-  } else if (active.every((s) => s === "received")) {
+  } else if (
+    activeStatuses.every(
+      (status) => status === "received"
+    )
+  ) {
     newStatus = "received";
-  } else if (active.every((s) => s === "delivered" || s === "received")) {
+  } else if (
+    activeStatuses.every(
+      (status) =>
+        status === "delivered" ||
+        status === "received"
+    )
+  ) {
     newStatus = "delivered";
-  } else if (active.some((s) =>
-    ["shipped", "out_for_delivery", "delivered", "received"].includes(s))) {
+  } else if (
+    activeStatuses.some((status) =>
+      [
+        "shipped",
+        "out_for_delivery",
+        "delivered",
+        "received",
+      ].includes(status)
+    )
+  ) {
     newStatus = "shipped";
-  } else if (active.some((s) => s === "processing")) {
+  } else if (
+    activeStatuses.some(
+      (status) => status === "processing"
+    )
+  ) {
     newStatus = "processing";
-  } else if (active.every((s) => s === "confirmed")) {
+  } else if (
+    activeStatuses.every(
+      (status) => status === "confirmed"
+    )
+  ) {
     newStatus = "confirmed";
   }
 
-  const setUpdated = (await groupsHasUpdatedAt(client)) ? ", updated_at = NOW()" : "";
+  const hasUpdatedAt =
+    await groupsHasUpdatedAt(client);
+
+  const updatedAtClause = hasUpdatedAt
+    ? ", updated_at = NOW()"
+    : "";
 
   await client.query(
-    `UPDATE public.order_groups SET status = $1${setUpdated} WHERE id = $2`,
+    `UPDATE public.order_groups
+     SET status = $1${updatedAtClause}
+     WHERE id = $2`,
     [newStatus, orderGroupId]
   );
 
@@ -174,78 +284,116 @@ async function localRecomputeGroupStatus(client, orderGroupId) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   NOTIFICATION SERVICE (lazy-loaded, non-fatal)
+   NOTIFICATION SERVICE
 ══════════════════════════════════════════════════════════════ */
+
 let notifier = null;
 
 (async () => {
   try {
-    notifier = await import("../../services/notificationService.js");
-    console.log("[seller/orders] ✓ notificationService loaded");
-  } catch (err) {
+    notifier = await import(
+      "../../services/notificationService.js"
+    );
+
+    console.log(
+      "[seller/orders] ✓ notificationService loaded"
+    );
+  } catch (error) {
     console.warn(
-      "[seller/orders] notificationService unavailable — " +
-      "basic order notifications disabled:",
-      err.message
+      "[seller/orders] notificationService unavailable:",
+      error.message
     );
   }
 })();
 
-/**
- * Notify buyer of non-shipped transitions (confirmed, processing, cancelled).
- * "shipped" uses sendShipmentNotifications() instead.
- */
-async function dispatchStatusNotifications({ order, orderGroup, buyer, newStatus }) {
-  if (!notifier) return;
+/* ══════════════════════════════════════════════════════════════
+   BUYER STATUS NOTIFICATIONS
+══════════════════════════════════════════════════════════════ */
 
-  const { sendOrderStatusEmail, createNotification } = notifier;
+async function dispatchStatusNotifications({
+  order,
+  orderGroup,
+  buyer,
+  newStatus,
+}) {
+  if (!notifier) {
+    return;
+  }
 
-  const trackId = order.tracking_id
-    ?? orderGroup?.tracking_id
-    ?? order.id.slice(0, 8).toUpperCase();
+  const {
+    sendOrderStatusEmail,
+    createNotification,
+  } = notifier;
 
-  const statusLabel = STATUS_LABELS[newStatus] ?? newStatus;
+  const trackingId =
+    order.tracking_id ??
+    orderGroup?.tracking_id ??
+    order.id.slice(0, 8).toUpperCase();
+
+  const statusLabel =
+    STATUS_LABELS[newStatus] ?? newStatus;
 
   const statusMessages = {
-    confirmed:  `Your shipment ${trackId} has been confirmed by the seller.`,
-    processing: `Your shipment ${trackId} is being prepared for Loemart Express pickup.`,
-    cancelled:  `Your shipment ${trackId} has been cancelled.`,
+    confirmed:
+      `Your shipment ${trackingId} has been confirmed by the seller.`,
+
+    processing:
+      `Your shipment ${trackingId} is being prepared for Loemart Express pickup.`,
+
+    cancelled:
+      `Your shipment ${trackingId} has been cancelled.`,
   };
 
   const jobs = [];
 
-  if (buyer?.email && sendOrderStatusEmail) {
+  if (
+    buyer?.email &&
+    typeof sendOrderStatusEmail === "function"
+  ) {
     jobs.push(
       sendOrderStatusEmail({
-        to     : buyer.email,
-        name   : buyer.name,
-        orderId: trackId,
-        status : statusLabel,
+        to: buyer.email,
+        name: buyer.name,
+        orderId: trackingId,
+        status: statusLabel,
         message: statusMessages[newStatus],
-      }).catch((err) =>
-        console.warn("[seller/orders] buyer email failed:", err.message)
-      )
+      }).catch((error) => {
+        console.warn(
+          "[seller/orders] buyer email failed:",
+          error.message
+        );
+      })
     );
   }
 
-  if (buyer?.id && createNotification) {
+  if (
+    buyer?.id &&
+    typeof createNotification === "function"
+  ) {
     jobs.push(
       createNotification({
-        userId : buyer.id,
-        type   : "order_status_update",
-        title  : `Shipment ${statusLabel}`,
-        message: statusMessages[newStatus]
-          ?? `Your shipment ${trackId} is ${statusLabel.toLowerCase()}`,
-        link   : `/shop/orders/${orderGroup?.tracking_id ?? orderGroup?.id}`,
-        meta   : {
+        userId: buyer.id,
+        type: "order_status_update",
+        title: `Shipment ${statusLabel}`,
+        message:
+          statusMessages[newStatus] ??
+          `Your shipment ${trackingId} is ${statusLabel.toLowerCase()}`,
+        link: `/shop/orders/${
+          orderGroup?.tracking_id ??
+          orderGroup?.id
+        }`,
+        meta: {
           orderGroupId: orderGroup?.id,
-          orderId     : order.id,
-          trackingId  : trackId,
+          orderId: order.id,
+          trackingId,
           newStatus,
         },
-      }).catch((err) =>
-        console.warn("[seller/orders] buyer notification failed:", err.message)
-      )
+      }).catch((error) => {
+        console.warn(
+          "[seller/orders] buyer notification failed:",
+          error.message
+        );
+      })
     );
   }
 
@@ -253,86 +401,167 @@ async function dispatchStatusNotifications({ order, orderGroup, buyer, newStatus
 }
 
 /* ══════════════════════════════════════════════════════════════
-   AUTH — all routes require authenticated seller
+   AUTH
 ══════════════════════════════════════════════════════════════ */
+
 router.use(authenticateSeller);
 
 /* ══════════════════════════════════════════════════════════════
    GET /stats
 ══════════════════════════════════════════════════════════════ */
+
 router.get("/stats", async (req, res) => {
   const sellerId = req.user.id;
 
   try {
     const { rows: [stats] } = await pool.query(
       `SELECT
-         COUNT(*)                                              AS total_orders,
-         COUNT(*) FILTER (WHERE status = 'pending')           AS pending,
-         COUNT(*) FILTER (WHERE status = 'confirmed')         AS confirmed,
-         COUNT(*) FILTER (WHERE status = 'processing')        AS processing,
-         COUNT(*) FILTER (WHERE status = 'shipped')           AS shipped,
-         COUNT(*) FILTER (WHERE status = 'out_for_delivery')  AS out_for_delivery,
-         COUNT(*) FILTER (WHERE status = 'delivered')         AS delivered,
-         COUNT(*) FILTER (WHERE status = 'received')          AS received,
-         COUNT(*) FILTER (WHERE status = 'cancelled')         AS cancelled,
-         COUNT(*) FILTER (WHERE status = 'failed_delivery')   AS failed_delivery,
+         COUNT(*) AS total_orders,
+
+         COUNT(*) FILTER (
+           WHERE status = 'pending'
+         ) AS pending,
+
+         COUNT(*) FILTER (
+           WHERE status = 'confirmed'
+         ) AS confirmed,
+
+         COUNT(*) FILTER (
+           WHERE status = 'processing'
+         ) AS processing,
+
+         COUNT(*) FILTER (
+           WHERE status = 'shipped'
+         ) AS shipped,
+
+         COUNT(*) FILTER (
+           WHERE status = 'out_for_delivery'
+         ) AS out_for_delivery,
+
+         COUNT(*) FILTER (
+           WHERE status = 'delivered'
+         ) AS delivered,
+
+         COUNT(*) FILTER (
+           WHERE status = 'received'
+         ) AS received,
+
+         COUNT(*) FILTER (
+           WHERE status = 'cancelled'
+         ) AS cancelled,
+
+         COUNT(*) FILTER (
+           WHERE status = 'failed_delivery'
+         ) AS failed_delivery,
+
          COALESCE(
-           SUM(subtotal) FILTER (WHERE status <> 'cancelled'), 0
+           SUM(subtotal)
+           FILTER (WHERE status <> 'cancelled'),
+           0
          ) AS total_revenue,
+
          COALESCE(
-           SUM(subtotal) FILTER (WHERE status IN ('delivered', 'received')), 0
+           SUM(subtotal)
+           FILTER (
+             WHERE status IN ('delivered', 'received')
+           ),
+           0
          ) AS confirmed_revenue
+
        FROM public.orders
        WHERE seller_id = $1`,
       [sellerId]
     );
 
-    let earningsData = { pending: 0, cleared: 0, paid: 0, void: 0 };
+    let earningsData = {
+      pending: 0,
+      cleared: 0,
+      paid: 0,
+      void: 0,
+    };
+
     try {
-      const { rows: [earnings] } = await pool.query(
+      const {
+        rows: [earnings],
+      } = await pool.query(
         `SELECT
-           COALESCE(SUM(net_amount) FILTER (WHERE status = 'pending'), 0) AS pending,
-           COALESCE(SUM(net_amount) FILTER (WHERE status = 'cleared'), 0) AS cleared,
-           COALESCE(SUM(net_amount) FILTER (WHERE status = 'paid'),    0) AS paid,
-           COALESCE(SUM(net_amount) FILTER (WHERE status = 'void'),    0) AS void
+           COALESCE(
+             SUM(net_amount)
+             FILTER (WHERE status = 'pending'),
+             0
+           ) AS pending,
+
+           COALESCE(
+             SUM(net_amount)
+             FILTER (WHERE status = 'cleared'),
+             0
+           ) AS cleared,
+
+           COALESCE(
+             SUM(net_amount)
+             FILTER (WHERE status = 'paid'),
+             0
+           ) AS paid,
+
+           COALESCE(
+             SUM(net_amount)
+             FILTER (WHERE status = 'void'),
+             0
+           ) AS void
+
          FROM public.seller_earnings
          WHERE seller_id = $1`,
         [sellerId]
       );
-      if (earnings) earningsData = earnings;
-    } catch (err) {
-      console.warn("[seller/orders] earnings query failed:", err.message);
+
+      if (earnings) {
+        earningsData = earnings;
+      }
+    } catch (error) {
+      console.warn(
+        "[seller/orders] earnings query failed:",
+        error.message
+      );
     }
 
     return res.json({
       success: true,
       data: {
         counts: {
-          total:            Number(stats.total_orders),
-          pending:          Number(stats.pending),
-          confirmed:        Number(stats.confirmed),
-          processing:       Number(stats.processing),
-          shipped:          Number(stats.shipped),
-          out_for_delivery: Number(stats.out_for_delivery),
-          delivered:        Number(stats.delivered),
-          received:         Number(stats.received),
-          cancelled:        Number(stats.cancelled),
-          failed_delivery:  Number(stats.failed_delivery),
+          total: Number(stats.total_orders),
+          pending: Number(stats.pending),
+          confirmed: Number(stats.confirmed),
+          processing: Number(stats.processing),
+          shipped: Number(stats.shipped),
+          out_for_delivery:
+            Number(stats.out_for_delivery),
+          delivered: Number(stats.delivered),
+          received: Number(stats.received),
+          cancelled: Number(stats.cancelled),
+          failed_delivery:
+            Number(stats.failed_delivery),
         },
+
         revenue: {
-          total    : Number(stats.total_revenue),
-          confirmed: Number(stats.confirmed_revenue),
+          total: Number(stats.total_revenue),
+          confirmed:
+            Number(stats.confirmed_revenue),
         },
+
         earnings: {
           pending: Number(earningsData.pending),
           cleared: Number(earningsData.cleared),
-          paid   : Number(earningsData.paid),
-          void   : Number(earningsData.void),
+          paid: Number(earningsData.paid),
+          void: Number(earningsData.void),
         },
       },
     });
-  } catch (err) {
-    console.error("[seller/orders] GET /stats:", err.message);
+  } catch (error) {
+    console.error(
+      "[seller/orders] GET /stats:",
+      error.message
+    );
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch order stats",
@@ -341,115 +570,191 @@ router.get("/stats", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   GET /  — paginated order list, scoped to seller
+   GET /
 ══════════════════════════════════════════════════════════════ */
+
 router.get("/", async (req, res) => {
   const sellerId = req.user.id;
 
   try {
-    const page   = safeInt(req.query.page,  1, 1);
-    const limit  = safeInt(req.query.limit, PAGE_SIZE_DEFAULT, 1, PAGE_SIZE_MAX);
+    const page = safeInt(
+      req.query.page,
+      1,
+      1
+    );
+
+    const limit = safeInt(
+      req.query.limit,
+      PAGE_SIZE_DEFAULT,
+      1,
+      PAGE_SIZE_MAX
+    );
+
     const offset = (page - 1) * limit;
 
-    const rawStatus = typeof req.query.status === "string" ? req.query.status : null;
-    const status    = rawStatus && VALID_STATUS_SET.has(rawStatus) ? rawStatus : null;
+    const rawStatus =
+      typeof req.query.status === "string"
+        ? req.query.status
+        : null;
 
-    const search = typeof req.query.search === "string"
-      ? req.query.search.trim() || null
-      : null;
+    const status =
+      rawStatus &&
+      VALID_STATUS_SET.has(rawStatus)
+        ? rawStatus
+        : null;
 
-    const conditions = ["o.seller_id = $1"];
-    const params     = [sellerId];
-    let   pIdx       = 2;
+    const search =
+      typeof req.query.search === "string"
+        ? req.query.search.trim() || null
+        : null;
+
+    const conditions = [
+      "o.seller_id = $1",
+    ];
+
+    const params = [sellerId];
+
+    let parameterIndex = 2;
 
     if (status) {
-      conditions.push(`o.status = $${pIdx++}`);
+      conditions.push(
+        `o.status = $${parameterIndex}`
+      );
+
       params.push(status);
+      parameterIndex += 1;
     }
 
     if (search) {
-      conditions.push(`(
-        o.tracking_id  ILIKE $${pIdx}
-        OR og.tracking_id ILIKE $${pIdx}
-        OR u.name         ILIKE $${pIdx}
-      )`);
-      params.push(`%${escapeLike(search)}%`);
-      pIdx++;
+      conditions.push(
+        `(
+          o.tracking_id ILIKE $${parameterIndex} ESCAPE '\\'
+          OR og.tracking_id ILIKE $${parameterIndex} ESCAPE '\\'
+          OR u.name ILIKE $${parameterIndex} ESCAPE '\\'
+        )`
+      );
+
+      params.push(
+        `%${escapeLike(search)}%`
+      );
+
+      parameterIndex += 1;
     }
 
-    const where = conditions.join(" AND ");
+    const where =
+      conditions.join(" AND ");
 
-    const { rows: [{ count }] } = await pool.query(
+    const {
+      rows: [{ count }],
+    } = await pool.query(
       `SELECT COUNT(*) AS count
        FROM public.orders o
-       LEFT JOIN public.order_groups og ON og.id = o.order_group_id
-       LEFT JOIN market.users         u  ON u.id  = og.user_id
+       LEFT JOIN public.order_groups og
+         ON og.id = o.order_group_id
+       LEFT JOIN market.users u
+         ON u.id = og.user_id
        WHERE ${where}`,
       params
     );
 
     const totalItems = Number(count);
-    const totalPages = totalItems === 0 ? 1 : Math.ceil(totalItems / limit);
 
-    const { rows: orders } = await pool.query(
-      `SELECT
-         o.id,
-         o.tracking_id,
-         o.status,
-         o.subtotal,
-         o.created_at,
-         o.updated_at,
-         o.shipped_at,
-         o.delivered_at,
-         o.pickup_ready_at,
+    const totalPages =
+      totalItems === 0
+        ? 1
+        : Math.ceil(
+            totalItems / limit
+          );
 
-         og.id             AS order_group_id,
-         og.tracking_id    AS parent_tracking_id,
-         og.grand_total,
-         og.payment_method,
-         og.payment_status,
+    const { rows: orders } =
+      await pool.query(
+        `SELECT
+           o.id,
+           o.tracking_id,
+           o.status,
+           o.subtotal,
+           o.created_at,
+           o.updated_at,
+           o.shipped_at,
+           o.delivered_at,
+           o.pickup_ready_at,
 
-         a.city,
-         a.state,
+           og.id AS order_group_id,
+           og.tracking_id AS parent_tracking_id,
+           og.grand_total,
+           og.payment_method,
+           og.payment_status,
 
-         u.name            AS buyer_name,
-         u.email           AS buyer_email,
+           a.city,
+           a.state,
 
-         (SELECT COUNT(*)::int
-          FROM public.order_items oi
-          WHERE oi.order_id = o.id) AS item_count,
+           u.name AS buyer_name,
+           u.email AS buyer_email,
 
-         d.dispatch_code,
-         d.status           AS dispatch_status
+           (
+             SELECT COUNT(*)::int
+             FROM public.order_items oi
+             WHERE oi.order_id = o.id
+           ) AS item_count,
 
-       FROM public.orders o
-       LEFT JOIN public.order_groups     og ON og.id    = o.order_group_id
-       LEFT JOIN public.user_addresses   a  ON a.id     = og.address_id
-       LEFT JOIN market.users            u  ON u.id     = og.user_id
-       LEFT JOIN public.order_dispatches d  ON d.order_id = o.id
-       WHERE ${where}
-       ORDER BY o.created_at DESC
-       LIMIT $${pIdx} OFFSET $${pIdx + 1}`,
-      [...params, limit, offset]
-    );
+           d.dispatch_code,
+           d.status AS dispatch_status
+
+         FROM public.orders o
+
+         LEFT JOIN public.order_groups og
+           ON og.id = o.order_group_id
+
+         LEFT JOIN public.user_addresses a
+           ON a.id = og.address_id
+
+         LEFT JOIN market.users u
+           ON u.id = og.user_id
+
+         LEFT JOIN public.order_dispatches d
+           ON d.order_id = o.id
+
+         WHERE ${where}
+
+         ORDER BY o.created_at DESC
+
+         LIMIT $${parameterIndex}
+         OFFSET $${parameterIndex + 1}`,
+        [
+          ...params,
+          limit,
+          offset,
+        ]
+      );
 
     return res.json({
       success: true,
       data: {
         orders,
+
         pagination: {
           page,
           limit,
           totalItems,
           totalPages,
-          hasNext: page < totalPages,
-          hasPrev: page > 1,
+          hasNext:
+            page < totalPages,
+          hasPrev:
+            page > 1,
         },
-        filters: { status, search },
+
+        filters: {
+          status,
+          search,
+        },
       },
     });
-  } catch (err) {
-    console.error("[seller/orders] GET /:", err.message);
+  } catch (error) {
+    console.error(
+      "[seller/orders] GET /:",
+      error.message
+    );
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch orders",
@@ -458,19 +763,22 @@ router.get("/", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   GET /:orderId — full detail
+   GET /:orderId
 ══════════════════════════════════════════════════════════════ */
+
 router.get("/:orderId", async (req, res) => {
-  const sellerId    = req.user.id;
+  const sellerId = req.user.id;
   const { orderId } = req.params;
 
   try {
-    const { rows: [order] } = await pool.query(
+    const {
+      rows: [order],
+    } = await pool.query(
       `SELECT
          o.*,
 
-         og.id              AS order_group_id,
-         og.tracking_id     AS parent_tracking_id,
+         og.id AS order_group_id,
+         og.tracking_id AS parent_tracking_id,
          og.grand_total,
          og.payment_method,
          og.payment_status,
@@ -488,85 +796,162 @@ router.get("/:orderId", async (req, res) => {
          a.city,
          a.state,
 
-         u.name             AS buyer_name,
-         u.email            AS buyer_email,
+         u.name AS buyer_name,
+         u.email AS buyer_email,
 
-         d.id               AS dispatch_id,
+         d.id AS dispatch_id,
          d.dispatch_code,
-         d.status           AS dispatch_status,
+         d.status AS dispatch_status,
          d.pickup_scheduled_at,
          d.pickup_confirmed_at,
          d.out_for_delivery_at,
          d.estimated_at,
-         d.delivered_at     AS dispatch_delivered_at,
+         d.delivered_at AS dispatch_delivered_at,
          d.delivery_photo_url,
          d.failure_reason,
          d.attempt_count,
 
-         da.name            AS agent_name,
-         da.phone           AS agent_phone,
-         da.vehicle_type    AS agent_vehicle
+         da.name AS agent_name,
+         da.phone AS agent_phone,
+         da.vehicle_type AS agent_vehicle
 
        FROM public.orders o
-       LEFT JOIN public.order_groups     og ON og.id    = o.order_group_id
-       LEFT JOIN public.user_addresses   a  ON a.id     = og.address_id
-       LEFT JOIN market.users            u  ON u.id     = og.user_id
-       LEFT JOIN public.order_dispatches d  ON d.order_id = o.id
-       LEFT JOIN public.delivery_agents  da ON da.id    = d.agent_id
-       WHERE o.id = $1 AND o.seller_id = $2`,
+
+       LEFT JOIN public.order_groups og
+         ON og.id = o.order_group_id
+
+       LEFT JOIN public.user_addresses a
+         ON a.id = og.address_id
+
+       LEFT JOIN market.users u
+         ON u.id = og.user_id
+
+       LEFT JOIN public.order_dispatches d
+         ON d.order_id = o.id
+
+       LEFT JOIN public.delivery_agents da
+         ON da.id = d.agent_id
+
+       WHERE o.id = $1
+         AND o.seller_id = $2`,
       [orderId, sellerId]
     );
 
     if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
     }
 
-    const { rows: items } = await pool.query(
-      `SELECT
-         oi.id,
-         oi.product_id,
-         oi.variant_id,
-         oi.variant_name,
-         oi.sku,
-         COALESCE(oi.quantity, oi.qty,       0)  AS quantity,
-         COALESCE(oi.price,    oi.unit_price, 0)  AS price,
-         COALESCE(oi.image,    oi.image_url    )  AS image,
-         p.name                                   AS product_name,
-         (COALESCE(oi.quantity, oi.qty,       0) *
-          COALESCE(oi.price,    oi.unit_price, 0)) AS line_total
-       FROM public.order_items oi
-       LEFT JOIN market.products p ON p.id = oi.product_id
-       WHERE oi.order_id = $1
-       ORDER BY oi.id`,
-      [orderId]
-    );
+    const { rows: items } =
+      await pool.query(
+        `SELECT
+           oi.id,
+           oi.product_id,
+           oi.variant_id,
+           oi.variant_name,
+           oi.sku,
 
-    let history = [];
-    try {
-      const { rows } = await pool.query(
-        `SELECT from_status, to_status, changed_by_role, note, created_at
-         FROM public.order_status_history
-         WHERE order_id = $1
-         ORDER BY created_at ASC`,
+           COALESCE(
+             oi.quantity,
+             oi.qty,
+             0
+           ) AS quantity,
+
+           COALESCE(
+             oi.price,
+             oi.unit_price,
+             0
+           ) AS price,
+
+           COALESCE(
+             oi.image,
+             oi.image_url
+           ) AS image,
+
+           p.name AS product_name,
+
+           (
+             COALESCE(
+               oi.quantity,
+               oi.qty,
+               0
+             )
+             *
+             COALESCE(
+               oi.price,
+               oi.unit_price,
+               0
+             )
+           ) AS line_total
+
+         FROM public.order_items oi
+
+         LEFT JOIN market.products p
+           ON p.id = oi.product_id
+
+         WHERE oi.order_id = $1
+
+         ORDER BY oi.id`,
         [orderId]
       );
+
+    let history = [];
+
+    try {
+      const { rows } =
+        await pool.query(
+          `SELECT
+             from_status,
+             to_status,
+             changed_by_role,
+             note,
+             created_at
+
+           FROM public.order_status_history
+
+           WHERE order_id = $1
+
+           ORDER BY created_at ASC`,
+          [orderId]
+        );
+
       history = rows;
-    } catch (err) {
-      console.warn("[seller/orders] history query failed:", err.message);
+    } catch (error) {
+      console.warn(
+        "[seller/orders] history query failed:",
+        error.message
+      );
     }
 
     let earning = null;
+
     try {
-      const { rows: [e] } = await pool.query(
-        `SELECT gross_amount, platform_fee, delivery_fee, net_amount,
-                status, cleared_at, paid_at
+      const {
+        rows: [earningRow],
+      } = await pool.query(
+        `SELECT
+           gross_amount,
+           platform_fee,
+           delivery_fee,
+           net_amount,
+           status,
+           cleared_at,
+           paid_at
+
          FROM public.seller_earnings
+
          WHERE order_id = $1`,
         [orderId]
       );
-      earning = e ?? null;
-    } catch (err) {
-      console.warn("[seller/orders] earnings query failed:", err.message);
+
+      earning = earningRow ?? null;
+    } catch (error) {
+      console.warn(
+        "[seller/orders] earnings query failed:",
+        error.message
+      );
     }
 
     return res.json({
@@ -576,17 +961,31 @@ router.get("/:orderId", async (req, res) => {
         items,
         history,
         earning,
+
         meta: {
-          itemCount  : items.length,
-          allowedNext: allowedTransitionsForRole(order.status, "seller"),
+          itemCount: items.length,
+
+          allowedNext:
+            allowedTransitionsForRole(
+              order.status,
+              "seller"
+            ),
         },
       },
     });
-  } catch (err) {
-    if (isBadIdError(err)) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+  } catch (error) {
+    if (isBadIdError(error)) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
     }
-    console.error("[seller/orders] GET /:orderId:", err.message);
+
+    console.error(
+      "[seller/orders] GET /:orderId:",
+      error.message
+    );
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch order",
@@ -595,392 +994,836 @@ router.get("/:orderId", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   PATCH /:orderId/status — seller updates sub-order status
+   PATCH /:orderId/status
 ══════════════════════════════════════════════════════════════ */
-router.patch("/:orderId/status", async (req, res) => {
-  const sellerId              = req.user.id;
-  const { orderId }           = req.params;
-  const { status: newStatus } = req.body ?? {};
 
-  /* ── Input validation ── */
-  if (!newStatus) {
-    return res.status(422).json({
-      success: false,
-      message: "New status is required",
-    });
-  }
+router.patch(
+  "/:orderId/status",
+  async (req, res) => {
+    const sellerId = req.user.id;
+    const { orderId } = req.params;
+    const { status: newStatus } =
+      req.body ?? {};
 
-  if (!VALID_STATUS_SET.has(newStatus)) {
-    return res.status(422).json({
-      success: false,
-      message: `Invalid status: "${newStatus}"`,
-      data   : { validStatuses: [...VALID_STATUS_SET] },
-    });
-  }
+    /* ── Validate request ── */
 
-  if (!SELLER_ALLOWED_TARGETS.has(newStatus)) {
-    return res.status(403).json({
-      success: false,
-      message:
-        `Sellers cannot set status to "${newStatus}". ` +
-        `Statuses after "shipped" are managed by Loemart Express.`,
-    });
-  }
-
-  const client = await pool.connect();
-
-  let debugStage    = "connect";
-  let currentStatus = null;
-
-  try {
-    debugStage = "begin transaction";
-    await client.query("BEGIN");
-
-    /* Lock the sub-order row for the duration of the transaction. */
-    debugStage = "load and lock order";
-    const { rows: [order] } = await client.query(
-      `SELECT
-         o.id,
-         o.status,
-         o.tracking_id,
-         o.seller_id,
-         o.subtotal,
-         o.order_group_id,
-         u.id    AS buyer_id,
-         u.name  AS buyer_name,
-         u.email AS buyer_email
-       FROM public.orders o
-       LEFT JOIN public.order_groups og ON og.id = o.order_group_id
-       LEFT JOIN market.users        u  ON u.id  = og.user_id
-       WHERE o.id = $1 AND o.seller_id = $2
-       FOR UPDATE OF o`,
-      [orderId, sellerId]
-    );
-
-    if (!order) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ success: false, message: "Order not found" });
+    if (!newStatus) {
+      return res.status(422).json({
+        success: false,
+        message: "New status is required",
+      });
     }
 
-    currentStatus = order.status;
-
-    /* ── Transition guard ── */
-    if (!isTransitionAllowed(currentStatus, newStatus, "seller")) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
+    if (
+      !VALID_STATUS_SET.has(newStatus)
+    ) {
+      return res.status(422).json({
         success: false,
-        message: `Cannot move from "${currentStatus}" to "${newStatus}"`,
+        message:
+          `Invalid status: "${newStatus}"`,
         data: {
-          currentStatus,
-          requestedStatus: newStatus,
-          allowedNext    : allowedTransitionsForRole(currentStatus, "seller"),
+          validStatuses: [
+            ...VALID_STATUS_SET,
+          ],
         },
       });
     }
 
-    /* ── Update order status ──
-       extraTimestamp comes from a fixed whitelist, never user input. */
-    const timestampClauses = {
-      shipped  : ", shipped_at   = NOW()",
-      cancelled: ", cancelled_at = NOW()",
-    };
-    const extraTimestamp = timestampClauses[newStatus] ?? "";
+    if (
+      !SELLER_ALLOWED_TARGETS.has(newStatus)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          `Sellers cannot set status to "${newStatus}". ` +
+          `Statuses after "shipped" are managed by Loemart Express.`,
+      });
+    }
 
-    debugStage = "update order status";
-    const { rows: [updated] } = await client.query(
-      `UPDATE public.orders
-       SET status     = $1,
+    const client =
+      await pool.connect();
+
+    let debugStage = "connect";
+    let currentStatus = null;
+
+    try {
+      /* ── BEGIN ── */
+
+      debugStage = "begin transaction";
+
+      await client.query("BEGIN");
+
+      /* ── Lock order ── */
+
+      debugStage =
+        "load and lock order";
+
+      const {
+        rows: [order],
+      } = await client.query(
+        `SELECT
+           o.id,
+           o.status,
+           o.tracking_id,
+           o.seller_id,
+           o.subtotal,
+           o.order_group_id,
+
+           u.id AS buyer_id,
+           u.name AS buyer_name,
+           u.email AS buyer_email
+
+         FROM public.orders o
+
+         LEFT JOIN public.order_groups og
+           ON og.id = o.order_group_id
+
+         LEFT JOIN market.users u
+           ON u.id = og.user_id
+
+         WHERE o.id = $1
+           AND o.seller_id = $2
+
+         FOR UPDATE OF o`,
+        [
+          orderId,
+          sellerId,
+        ]
+      );
+
+      if (!order) {
+        await client.query(
+          "ROLLBACK"
+        );
+
+        return res.status(404).json({
+          success: false,
+          message: "Order not found",
+        });
+      }
+
+      currentStatus = order.status;
+
+      /* ── Validate transition ── */
+
+      if (
+        !isTransitionAllowed(
+          currentStatus,
+          newStatus,
+          "seller"
+        )
+      ) {
+        await client.query(
+          "ROLLBACK"
+        );
+
+        return res.status(400).json({
+          success: false,
+
+          message:
+            `Cannot move from "${currentStatus}" ` +
+            `to "${newStatus}"`,
+
+          data: {
+            currentStatus,
+            requestedStatus: newStatus,
+
+            allowedNext:
+              allowedTransitionsForRole(
+                currentStatus,
+                "seller"
+              ),
+          },
+        });
+      }
+
+      /* ── Update order ── */
+
+      const timestampClauses = {
+        shipped:
+          ", shipped_at = NOW()",
+
+        cancelled:
+          ", cancelled_at = NOW()",
+      };
+
+      const extraTimestamp =
+        timestampClauses[newStatus] ?? "";
+
+      debugStage =
+        "update order status";
+
+      const {
+        rows: [updated],
+      } = await client.query(
+        `UPDATE public.orders
+
+         SET
+           status = $1,
            updated_at = NOW()
            ${extraTimestamp}
-       WHERE id = $2
-       RETURNING id, status, tracking_id, subtotal, order_group_id, updated_at`,
-      [newStatus, orderId]
-    );
 
-    if (!updated) {
-      throw new Error("Order status update returned no row");
-    }
+         WHERE id = $2
 
-    /* ── Status history ──
-       Errors are NOT swallowed: a failed query aborts the Postgres
-       transaction, so we let it reach the catch block and roll back. */
-    debugStage = "insert status history";
-    await client.query(
-      `INSERT INTO public.order_status_history
-         (order_id, order_group_id, from_status, to_status,
-          changed_by_id, changed_by_role, note)
-       VALUES ($1, $2, $3, $4, $5, 'seller', $6)`,
-      [
-        orderId,
-        order.order_group_id,
-        currentStatus,
-        newStatus,
-        sellerId,
-        `Seller moved order from ${currentStatus} to ${newStatus}`,
-      ]
-    );
-
-    /* ── Void earnings on cancellation (only ones not yet cleared/paid) ── */
-    if (newStatus === "cancelled") {
-      debugStage = "void seller earnings";
-      await client.query(
-        `UPDATE public.seller_earnings
-         SET status     = 'void',
-             updated_at = NOW()
-         WHERE order_id = $1
-           AND status   = 'pending'`,
-        [orderId]
+         RETURNING
+           id,
+           status,
+           tracking_id,
+           subtotal,
+           order_group_id,
+           updated_at`,
+        [
+          newStatus,
+          orderId,
+        ]
       );
-    }
 
-    /* ── Recompute parent group status ── */
-    debugStage = "recompute order group status";
-    const newGroupStatus = await localRecomputeGroupStatus(
-      client,
-      order.order_group_id
-    );
-
-    debugStage = "load order group";
-    const { rows: [group] } = await client.query(
-      `SELECT id, user_id, tracking_id
-       FROM public.order_groups
-       WHERE id = $1`,
-      [order.order_group_id]
-    );
-
-    debugStage = "commit transaction";
-    await client.query("COMMIT");
-
-    /* ── Post-commit: delivery integration (non-fatal) ── */
-    let delivery = null;
-
-    if (newStatus === "shipped") {
-      try {
-        const synced = await syncShippedOrderToDelivery(order.id);
-        delivery = synced?.delivery ?? null;
-      } catch (deliveryError) {
-        console.error(
-          "[seller/orders] Delivery sync deferred:",
-          deliveryError.message
+      if (!updated) {
+        throw new Error(
+          "Order status update returned no row"
         );
       }
-    }
 
-    console.log(
-      `[seller/orders] ✅ ${updated.tracking_id ?? orderId}:`,
-      `${currentStatus} → ${newStatus}`,
-      `| group=${newGroupStatus}`,
-      `| seller=${sellerId}`
-    );
+      /* ── Status history ── */
 
-    /* ── Notifications (fire & forget) ── */
-    if (newStatus === "shipped") {
-      sendShipmentNotifications({
-        orderId,
-        orderGroupId: order.order_group_id,
-        sellerId,
-        shippedAt   : updated.updated_at ?? new Date(),
-      }).catch((err) =>
-        console.warn("[seller/orders] shipment notification failed:", err.message)
+      debugStage =
+        "insert status history";
+
+      /*
+       * IMPORTANT:
+       *
+       * We deliberately DO NOT use .catch() here.
+       *
+       * If this INSERT fails inside a PostgreSQL transaction,
+       * PostgreSQL marks the transaction as aborted.
+       *
+       * The error must therefore immediately reach the main
+       * catch block so that we ROLLBACK and expose the actual
+       * database error during debugging.
+       */
+
+      await client.query(
+        `INSERT INTO public.order_status_history
+         (
+           order_id,
+           order_group_id,
+           from_status,
+           to_status,
+           changed_by_id,
+           changed_by_role,
+           note
+         )
+
+         VALUES
+         (
+           $1,
+           $2,
+           $3,
+           $4,
+           $5,
+           'seller',
+           $6
+         )`,
+        [
+          orderId,
+          order.order_group_id,
+          currentStatus,
+          newStatus,
+          sellerId,
+          `Seller moved order from ${currentStatus} to ${newStatus}`,
+        ]
       );
-    } else {
-      dispatchStatusNotifications({
-        order     : updated,
-        orderGroup: group,
-        buyer     : {
-          id   : order.buyer_id,
-          name : order.buyer_name,
-          email: order.buyer_email,
+
+      /* ── Seller earnings ── */
+
+      if (
+        newStatus === "cancelled"
+      ) {
+        debugStage =
+          "void seller earnings";
+
+        await client.query(
+          `UPDATE public.seller_earnings
+
+           SET
+             status = 'void',
+             updated_at = NOW()
+
+           WHERE order_id = $1
+             AND status = 'pending'`,
+          [orderId]
+        );
+      }
+
+      /* ── Recompute parent group ── */
+
+      debugStage =
+        "recompute order group status";
+
+      const newGroupStatus =
+        await localRecomputeGroupStatus(
+          client,
+          order.order_group_id
+        );
+
+      /* ── Load parent group ── */
+
+      debugStage =
+        "load order group";
+
+      const {
+        rows: [group],
+      } = await client.query(
+        `SELECT
+           id,
+           user_id,
+           tracking_id
+
+         FROM public.order_groups
+
+         WHERE id = $1`,
+        [order.order_group_id]
+      );
+
+      /* ── COMMIT ── */
+
+      debugStage =
+        "commit transaction";
+
+      await client.query(
+        "COMMIT"
+      );
+
+      /* ═══════════════════════════════════════════════════════
+         EVERYTHING BELOW THIS POINT IS AFTER COMMIT
+      ═══════════════════════════════════════════════════════ */
+
+      let delivery = null;
+
+      if (
+        newStatus === "shipped"
+      ) {
+        try {
+          const synced =
+            await syncShippedOrderToDelivery(
+              order.id
+            );
+
+          delivery =
+            synced?.delivery ?? null;
+        } catch (deliveryError) {
+          console.error(
+            "[seller/orders] Delivery sync deferred:",
+            deliveryError.message
+          );
+        }
+      }
+
+      console.log(
+        `[seller/orders] ✅ ${
+          updated.tracking_id ?? orderId
+        }: ${currentStatus} → ${newStatus} ` +
+        `| group=${newGroupStatus} ` +
+        `| seller=${sellerId}`
+      );
+
+      /* ── Notifications ── */
+
+      if (
+        newStatus === "shipped"
+      ) {
+        sendShipmentNotifications({
+          orderId,
+          orderGroupId:
+            order.order_group_id,
+          sellerId,
+
+          shippedAt:
+            updated.updated_at ??
+            new Date(),
+        }).catch((error) => {
+          console.warn(
+            "[seller/orders] shipment notification failed:",
+            error.message
+          );
+        });
+      } else {
+        dispatchStatusNotifications({
+          order: updated,
+
+          orderGroup: group,
+
+          buyer: {
+            id: order.buyer_id,
+            name: order.buyer_name,
+            email: order.buyer_email,
+          },
+
+          newStatus,
+        }).catch((error) => {
+          console.warn(
+            "[seller/orders] notification dispatch failed:",
+            error.message
+          );
+        });
+      }
+
+      /* ── Success response ── */
+
+      return res.json({
+        success: true,
+
+        message:
+          `Order status updated to ` +
+          `"${STATUS_LABELS[newStatus] ?? newStatus}"`,
+
+        data: {
+          orderId: updated.id,
+
+          trackingId:
+            updated.tracking_id,
+
+          previousStatus:
+            currentStatus,
+
+          newStatus:
+            updated.status,
+
+          updatedAt:
+            updated.updated_at,
+
+          allowedNext:
+            allowedTransitionsForRole(
+              newStatus,
+              "seller"
+            ),
+
+          groupStatus:
+            newGroupStatus,
+
+          delivery: delivery
+            ? {
+                trackingId:
+                  delivery.delivery_tracking_id,
+
+                status:
+                  delivery.status,
+              }
+            : null,
         },
-        newStatus,
-      }).catch((err) =>
-        console.warn("[seller/orders] notification dispatch failed:", err.message)
-      );
-    }
+      });
+    } catch (error) {
+      /* ── ROLLBACK ── */
 
-    return res.json({
-      success: true,
-      message: `Order status updated to "${STATUS_LABELS[newStatus] ?? newStatus}"`,
-      data: {
-        orderId       : updated.id,
-        trackingId    : updated.tracking_id,
-        previousStatus: currentStatus,
-        newStatus     : updated.status,
-        updatedAt     : updated.updated_at,
-        allowedNext   : allowedTransitionsForRole(newStatus, "seller"),
-        groupStatus   : newGroupStatus,
-        delivery: delivery
-          ? {
-              trackingId: delivery.delivery_tracking_id,
-              status    : delivery.status,
-            }
-          : null,
-      },
-    });
+      try {
+        await client.query(
+          "ROLLBACK"
+        );
+      } catch (rollbackError) {
+        console.error(
+          "[seller/orders] rollback failed:",
+          rollbackError.message
+        );
+      }
 
-  } catch (err) {
-    try {
-      await client.query("ROLLBACK");
-    } catch (rollbackError) {
-      console.error("[seller/orders] rollback failed:", rollbackError.message);
-    }
+      const databaseError =
+        error?.message ??
+        "Unknown database error";
 
-    if (isBadIdError(err)) {
-      return res.status(404).json({ success: false, message: "Order not found" });
-    }
-
-    const debugMessage = err?.message ?? "Unknown database error";
-
-    console.error(
-      "[seller/orders] PATCH /:orderId/status FAILED",
-      JSON.stringify({
+      const debugData = {
         orderId,
         sellerId,
         currentStatus,
         requestedStatus: newStatus,
-        message: debugMessage,
-        ...buildDebug(debugStage, err),
-      })
-    );
+        stage: debugStage,
 
-    return res.status(500).json({
-      success: false,
-      message: IS_PROD
-        ? "Failed to update order status"
-        : `Failed to update order status at stage "${debugStage}": ${debugMessage}`,
-      debug: buildDebug(debugStage, err),
-    });
-  } finally {
-    client.release();
-  }
-});
+        message: databaseError,
 
-/* ══════════════════════════════════════════════════════════════
-   POST /:orderId/ready — seller marks items ready for pickup
-══════════════════════════════════════════════════════════════ */
-router.post("/:orderId/ready", async (req, res) => {
-  const sellerId    = req.user.id;
-  const { orderId } = req.params;
-  const note        = typeof req.body?.note === "string"
-    ? req.body.note.trim().slice(0, 500) || null
-    : null;
+        code:
+          error?.code ?? null,
 
-  const client = await pool.connect();
-  let debugStage = "connect";
+        detail:
+          error?.detail ?? null,
 
-  try {
-    debugStage = "begin transaction";
-    await client.query("BEGIN");
+        hint:
+          error?.hint ?? null,
 
-    debugStage = "load and lock order";
-    const { rows: [order] } = await client.query(
-      `SELECT
-         o.id,
-         o.status,
-         o.tracking_id,
-         o.order_group_id,
-         a.address_line,
-         a.bus_stop,
-         a.landmark,
-         a.city,
-         a.state
-       FROM public.orders o
-       LEFT JOIN public.order_groups   og ON og.id = o.order_group_id
-       LEFT JOIN public.user_addresses a  ON a.id  = og.address_id
-       WHERE o.id = $1 AND o.seller_id = $2
-       FOR UPDATE OF o`,
-      [orderId, sellerId]
-    );
+        constraint:
+          error?.constraint ?? null,
 
-    if (!order) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ success: false, message: "Order not found" });
-    }
+        table:
+          error?.table ?? null,
 
-    if (!["confirmed", "processing"].includes(order.status)) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
+        column:
+          error?.column ?? null,
+      };
+
+      console.error(
+        "[seller/orders] PATCH /:orderId/status FAILED"
+      );
+
+      console.error(
+        JSON.stringify(
+          debugData,
+          null,
+          2
+        )
+      );
+
+      /*
+       * During debugging:
+       *
+       * ORDER_STATUS_DEBUG=true
+       *
+       * gives the browser the actual database error.
+       *
+       * Once debugging is complete, remove the environment
+       * variable or set it to false.
+       */
+
+      if (
+        ORDER_STATUS_DEBUG
+      ) {
+        return res.status(500).json({
+          success: false,
+
+          message:
+            `Failed to update order status at ` +
+            `stage "${debugStage}": ${databaseError}`,
+
+          debug: {
+            stage: debugStage,
+
+            code:
+              error?.code ?? null,
+
+            detail:
+              error?.detail ?? null,
+
+            hint:
+              error?.hint ?? null,
+
+            constraint:
+              error?.constraint ?? null,
+
+            table:
+              error?.table ?? null,
+
+            column:
+              error?.column ?? null,
+          },
+        });
+      }
+
+      return res.status(500).json({
         success: false,
         message:
-          `Order must be "confirmed" or "processing" to mark as ready ` +
-          `(current: "${order.status}")`,
+          "Failed to update order status",
       });
+    } finally {
+      client.release();
     }
-
-    debugStage = "set pickup_ready_at";
-    await client.query(
-      `UPDATE public.orders
-       SET pickup_ready_at = NOW(),
-           seller_note     = $1,
-           updated_at      = NOW()
-       WHERE id = $2`,
-      [note, orderId]
-    );
-
-    const dispatchCode = `LX-${orderId.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
-    const deliveryAddr = [
-      order.address_line,
-      order.bus_stop || order.landmark,
-      order.city,
-      order.state,
-    ].filter(Boolean).join(", ");
-
-    /* Not swallowed — a failed query inside a transaction aborts it,
-       so a silent .catch() would make the later COMMIT fail anyway. */
-    debugStage = "upsert dispatch";
-    await client.query(
-      `INSERT INTO public.order_dispatches
-         (order_id, order_group_id, dispatch_code, status,
-          delivery_address, pickup_scheduled_at)
-       VALUES ($1, $2, $3, 'pending', $4, NOW())
-       ON CONFLICT (order_id) DO UPDATE
-         SET pickup_scheduled_at = NOW(),
-             updated_at          = NOW()`,
-      [orderId, order.order_group_id, dispatchCode, deliveryAddr]
-    );
-
-    debugStage = "commit transaction";
-    await client.query("COMMIT");
-
-    console.log(
-      `[seller/orders] ✅ ${order.tracking_id ?? orderId} ready for pickup`
-    );
-
-    return res.json({
-      success: true,
-      message: "Marked as ready. Loemart Express has been notified for pickup.",
-      data: {
-        orderId,
-        trackingId: order.tracking_id,
-        dispatchCode,
-        readyAt   : new Date().toISOString(),
-      },
-    });
-
-  } catch (err) {
-    try {
-      await client.query("ROLLBACK");
-    } catch (rollbackError) {
-      console.error("[seller/orders] rollback failed:", rollbackError.message);
-    }
-
-    if (isBadIdError(err)) {
-      return res.status(404).json({ success: false, message: "Order not found" });
-    }
-
-    console.error(
-      "[seller/orders] POST /:orderId/ready FAILED",
-      JSON.stringify({ orderId, sellerId, message: err?.message, ...buildDebug(debugStage, err) })
-    );
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to mark order as ready",
-      debug  : buildDebug(debugStage, err),
-    });
-  } finally {
-    client.release();
   }
-});
+);
+
+/* ══════════════════════════════════════════════════════════════
+   POST /:orderId/ready
+══════════════════════════════════════════════════════════════ */
+
+router.post(
+  "/:orderId/ready",
+  async (req, res) => {
+    const sellerId = req.user.id;
+    const { orderId } = req.params;
+
+    const note =
+      typeof req.body?.note === "string"
+        ? req.body.note
+            .trim()
+            .slice(0, 500) || null
+        : null;
+
+    const client =
+      await pool.connect();
+
+    let debugStage = "connect";
+
+    try {
+      /* ── BEGIN ── */
+
+      debugStage =
+        "begin transaction";
+
+      await client.query(
+        "BEGIN"
+      );
+
+      /* ── Lock order ── */
+
+      debugStage =
+        "load and lock order";
+
+      const {
+        rows: [order],
+      } = await client.query(
+        `SELECT
+           o.id,
+           o.status,
+           o.tracking_id,
+           o.order_group_id,
+
+           a.address_line,
+           a.bus_stop,
+           a.landmark,
+           a.city,
+           a.state
+
+         FROM public.orders o
+
+         LEFT JOIN public.order_groups og
+           ON og.id = o.order_group_id
+
+         LEFT JOIN public.user_addresses a
+           ON a.id = og.address_id
+
+         WHERE o.id = $1
+           AND o.seller_id = $2
+
+         FOR UPDATE OF o`,
+        [
+          orderId,
+          sellerId,
+        ]
+      );
+
+      if (!order) {
+        await client.query(
+          "ROLLBACK"
+        );
+
+        return res.status(404).json({
+          success: false,
+          message: "Order not found",
+        });
+      }
+
+      /* ── Status validation ── */
+
+      if (
+        ![
+          "confirmed",
+          "processing",
+        ].includes(order.status)
+      ) {
+        await client.query(
+          "ROLLBACK"
+        );
+
+        return res.status(400).json({
+          success: false,
+
+          message:
+            `Order must be "confirmed" or "processing" ` +
+            `to mark as ready ` +
+            `(current: "${order.status}")`,
+        });
+      }
+
+      /* ── Pickup ready timestamp ── */
+
+      debugStage =
+        "set pickup_ready_at";
+
+      await client.query(
+        `UPDATE public.orders
+
+         SET
+           pickup_ready_at = NOW(),
+           seller_note = $1,
+           updated_at = NOW()
+
+         WHERE id = $2`,
+        [
+          note,
+          orderId,
+        ]
+      );
+
+      /* ── Dispatch information ── */
+
+      const dispatchCode =
+        `LX-${
+          orderId
+            .replace(/-/g, "")
+            .slice(0, 8)
+            .toUpperCase()
+        }`;
+
+      const deliveryAddress = [
+        order.address_line,
+        order.bus_stop ||
+          order.landmark,
+        order.city,
+        order.state,
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      /* ── Create/update dispatch ── */
+
+      debugStage =
+        "upsert dispatch";
+
+      await client.query(
+        `INSERT INTO public.order_dispatches
+         (
+           order_id,
+           order_group_id,
+           dispatch_code,
+           status,
+           delivery_address,
+           pickup_scheduled_at
+         )
+
+         VALUES
+         (
+           $1,
+           $2,
+           $3,
+           'pending',
+           $4,
+           NOW()
+         )
+
+         ON CONFLICT (order_id)
+         DO UPDATE SET
+           pickup_scheduled_at = NOW(),
+           updated_at = NOW()`,
+        [
+          orderId,
+          order.order_group_id,
+          dispatchCode,
+          deliveryAddress,
+        ]
+      );
+
+      /* ── COMMIT ── */
+
+      debugStage =
+        "commit transaction";
+
+      await client.query(
+        "COMMIT"
+      );
+
+      console.log(
+        `[seller/orders] ✅ ${
+          order.tracking_id ?? orderId
+        } ready for pickup`
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          "Marked as ready. Loemart Express has been notified for pickup.",
+
+        data: {
+          orderId,
+
+          trackingId:
+            order.tracking_id,
+
+          dispatchCode,
+
+          readyAt:
+            new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      try {
+        await client.query(
+          "ROLLBACK"
+        );
+      } catch (rollbackError) {
+        console.error(
+          "[seller/orders] rollback failed:",
+          rollbackError.message
+        );
+      }
+
+      if (isBadIdError(error)) {
+        return res.status(404).json({
+          success: false,
+          message: "Order not found",
+        });
+      }
+
+      console.error(
+        "[seller/orders] POST /:orderId/ready FAILED",
+        JSON.stringify(
+          {
+            orderId,
+            sellerId,
+            stage: debugStage,
+            message:
+              error?.message,
+            code:
+              error?.code ?? null,
+            detail:
+              error?.detail ?? null,
+            hint:
+              error?.hint ?? null,
+            constraint:
+              error?.constraint ?? null,
+            table:
+              error?.table ?? null,
+            column:
+              error?.column ?? null,
+          },
+          null,
+          2
+        )
+      );
+
+      if (
+        ORDER_STATUS_DEBUG
+      ) {
+        return res.status(500).json({
+          success: false,
+
+          message:
+            `Failed to mark order as ready at ` +
+            `stage "${debugStage}": ` +
+            `${error?.message ?? "Unknown database error"}`,
+
+          debug: {
+            stage: debugStage,
+            code:
+              error?.code ?? null,
+            detail:
+              error?.detail ?? null,
+            hint:
+              error?.hint ?? null,
+            constraint:
+              error?.constraint ?? null,
+            table:
+              error?.table ?? null,
+            column:
+              error?.column ?? null,
+          },
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to mark order as ready",
+      });
+    } finally {
+      client.release();
+    }
+  }
+);
 
 export default router;
