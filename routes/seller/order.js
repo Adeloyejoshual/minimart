@@ -664,12 +664,15 @@ router.patch("/:orderId/status", async (req, res) => {
   }
 
   const client = await pool.connect();
+  let debugStage = "connect";
   try {
+    debugStage = "begin transaction";
     await client.query("BEGIN");
 
     /*
      * Lock the sub-order row for the duration of the transaction.
      */
+    debugStage = "load and lock order";
     const { rows: [order] } = await client.query(
       `SELECT
          o.id,
@@ -720,6 +723,7 @@ router.patch("/:orderId/status", async (req, res) => {
     };
     const extraTimestamp = timestampClauses[newStatus] ?? "";
 
+    debugStage = "update order status";
     const { rows: [updated] } = await client.query(
       `UPDATE public.orders
        SET status     = $1,
@@ -731,6 +735,7 @@ router.patch("/:orderId/status", async (req, res) => {
     );
 
     /* ── Status history ── */
+    debugStage = "insert status history";
     await client.query(
       `INSERT INTO public.order_status_history
          (order_id, order_group_id, from_status, to_status,
@@ -765,12 +770,14 @@ router.patch("/:orderId/status", async (req, res) => {
     }
 
     /* ── Recompute parent order_groups.status ── */
+    debugStage = "recompute order group status";
     const newGroupStatus = await localRecomputeGroupStatus(
       client,
       order.order_group_id
     );
 
     /* ── Fetch group row for notifications ── */
+    debugStage = "load order group";
     const { rows: [group] } = await client.query(
       `SELECT id, user_id, tracking_id
        FROM public.order_groups
@@ -778,6 +785,7 @@ router.patch("/:orderId/status", async (req, res) => {
       [order.order_group_id]
     );
 
+    debugStage = "commit transaction";
     await client.query("COMMIT");
 
     if (newStatus === "shipped") {
@@ -846,11 +854,40 @@ router.patch("/:orderId/status", async (req, res) => {
     });
 
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("[seller/orders] PATCH /:orderId/status:", err.message);
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("[seller/orders] rollback failed:", rollbackError.message);
+    }
+
+    const debugMessage = err?.message ?? "Unknown database error";
+
+    console.error(
+      "[seller/orders] PATCH /:orderId/status FAILED",
+      JSON.stringify({
+        orderId,
+        sellerId,
+        currentStatus: typeof currentStatus !== "undefined" ? currentStatus : null,
+        requestedStatus: newStatus,
+        stage: debugStage,
+        error: debugMessage,
+        code: err?.code ?? null,
+        detail: err?.detail ?? null,
+        hint: err?.hint ?? null,
+        constraint: err?.constraint ?? null,
+      })
+    );
+
     return res.status(500).json({
       success: false,
-      message: "Failed to update order status",
+      message: `Failed to update order status at stage "${debugStage}": ${debugMessage}`,
+      debug: {
+        stage: debugStage,
+        code: err?.code ?? null,
+        detail: err?.detail ?? null,
+        hint: err?.hint ?? null,
+        constraint: err?.constraint ?? null,
+      },
     });
   } finally {
     client.release();
