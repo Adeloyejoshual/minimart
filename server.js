@@ -237,6 +237,7 @@ import publicSellerRouter from "./routes/publicSeller.routes.js";
 
 /* ── Admin delivery management ── */
 import adminDeliveryRouter from "./routes/admin/delivery.js";
+import deliveryHealthRouter from "./routes/internal/deliveryHealth.js";
 
 /* ── Marketplace products ── */
 import marketRouter        from "./routes/market/index.js";
@@ -444,6 +445,7 @@ app.use("/api/seller-dashboard", sellerDashboardRouter);
    1. adminDeliveryRouter  FIRST  — /api/admin/delivery/*
    2. adminRouter          SECOND — /api/admin/* (catch-all)
 ════════════════════════════════════════════════════════════ */
+app.use("/api/internal/marketplace", deliveryHealthRouter);
 app.use("/api/admin/delivery", adminDeliveryRouter);
 app.use("/api/admin",          adminRouter);
 
