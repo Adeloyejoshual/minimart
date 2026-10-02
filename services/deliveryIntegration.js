@@ -123,9 +123,25 @@ function buildRecipient(snapshot) {
 export async function syncShippedOrderToDelivery(orderId) {
   await ensureDeliveryIntegrationSchema();
 
-  const snapshot = await fetchShippedOrder(orderId);
+  console.log('[Delivery Integration] Sync requested:', { orderId });
+
+  let snapshot;
+  try {
+    snapshot = await fetchShippedOrder(orderId);
+  } catch (error) {
+    console.error('[Delivery Integration] Marketplace order lookup failed:', {
+      orderId,
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint,
+      constraint: error.constraint
+    });
+    throw error;
+  }
 
   if (!snapshot) {
+    console.log('[Delivery Integration] Skipped: order is not shipped or was not found.', { orderId });
     return {
       success: false,
       skipped: true,
@@ -151,6 +167,20 @@ export async function syncShippedOrderToDelivery(orderId) {
 
   const pickup = buildPickup(snapshot);
 
+  console.log('[Delivery Integration] Snapshot loaded:', {
+    orderId: snapshot.id,
+    trackingId: snapshot.tracking_id,
+    orderGroupId: snapshot.order_group_id,
+    customerUserId: snapshot.customer_user_id,
+    pickupName: pickup.name,
+    pickupCity: pickup.city,
+    pickupState: pickup.state,
+    hasPickupAddress: Boolean(pickup.address),
+    hasRecipientAddress: Boolean(snapshot.address_line),
+    recipientCity: snapshot.city,
+    recipientState: snapshot.state
+  });
+
   if (!pickup.address) {
     throw new Error(
       `Seller pickup address is missing for order ${snapshot.tracking_id || snapshot.id}.`
@@ -158,6 +188,12 @@ export async function syncShippedOrderToDelivery(orderId) {
   }
 
   const { apiUrl, apiKey } = requiredConfig();
+
+  console.log('[Delivery Integration] Sending handoff to Delivery:', {
+    orderId: snapshot.id,
+    trackingId: snapshot.tracking_id,
+    apiUrl
+  });
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
@@ -181,6 +217,13 @@ export async function syncShippedOrderToDelivery(orderId) {
     });
 
     const raw = await response.text();
+
+    console.log('[Delivery Integration] Delivery response received:', {
+      orderId: snapshot.id,
+      httpStatus: response.status,
+      ok: response.ok,
+      bodyLength: raw.length
+    });
     let payload = {};
 
     try {
@@ -190,6 +233,12 @@ export async function syncShippedOrderToDelivery(orderId) {
     }
 
     if (!response.ok || !payload.success || !payload.delivery) {
+      console.error('[Delivery Integration] Delivery handoff rejected:', {
+        orderId: snapshot.id,
+        httpStatus: response.status,
+        message: payload.message || null,
+        success: payload.success || false
+      });
       throw new Error(
         payload.message ||
         `Delivery service returned HTTP ${response.status}.`
