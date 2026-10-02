@@ -1,14 +1,21 @@
 /**
  * services/orderService.js
  *
- * v9 — Tracking ID resolution
+ * v10 — Delivery integration + hardened lookups
  * ────────────────────────────────────────────────────────────
  * NEW:
- * ✓ resolveOrderGroup() — accepts UUID or tracking ID (ORD-XXXX)
- * ✓ getOrderGroup() — accepts UUID or tracking ID
- * ✓ All existing v8 features preserved
+ * ✓ getOrderGroup() reads delivery.deliveries (external_order_id)
+ * ✓ Latest delivery per order via LATERAL (no duplicate rows)
+ * ✓ Items loaded in one batched query (no N+1)
+ * ✓ parseIdentifier(): trims/normalizes, rejects malformed IDs
+ * ✓ Legacy rows with NULL tracking_id still resolve
+ * ✓ tracking_id inserted with the group (no failing UPDATE inside
+ *   the transaction, which would abort it in Postgres)
+ * ✓ markOrderGroupPaid is idempotent
+ * ✓ All v9 features preserved
  */
 
+import { randomUUID }           from "node:crypto";
 import { pool }                 from "../config/db.js";
 import { calculateDeliveryFee } from "./delivery.js";
 
@@ -31,15 +38,44 @@ function devLog(...args) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   UUID FORMAT DETECTION
+   IDENTIFIER PARSING
    ─────────────────────────────────────────────────────────
-   Used by resolveOrderGroup and getOrderGroup to determine
-   whether the identifier is a UUID or a tracking ID.
+   UUID           → match on id
+   ORD-XXXXXXXX   → match on tracking_id (case-insensitive)
+   anything else  → null (no DB hit)
 ════════════════════════════════════════════════════════════ */
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX     = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TRACKING_REGEX = /^ORD-[0-9A-F]{8}$/;
 
 function isUUID(str) {
   return typeof str === "string" && UUID_REGEX.test(str);
+}
+
+function parseIdentifier(raw) {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  if (!value) return null;
+
+  if (isUUID(value)) return { kind: "uuid", value: value.toLowerCase() };
+
+  const upper = value.toUpperCase();
+  if (TRACKING_REGEX.test(upper)) return { kind: "tracking", value: upper };
+
+  return null;
+}
+
+/**
+ * Builds the WHERE fragment for an order_groups alias.
+ * Tracking lookups also match legacy rows whose tracking_id is NULL
+ * by recomputing ORD-<first 8 of uuid>.
+ */
+function identifierClause(parsed, alias, paramIndex) {
+  if (parsed.kind === "uuid") {
+    return `${alias}.id = $${paramIndex}`;
+  }
+  return `(${alias}.tracking_id = $${paramIndex}
+           OR (${alias}.tracking_id IS NULL
+               AND 'ORD-' || UPPER(LEFT(${alias}.id::text, 8)) = $${paramIndex}))`;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -222,6 +258,13 @@ async function decrementStock(client, item) {
 /* ════════════════════════════════════════════════════════════
    ATOMIC COUPON REDEMPTION
 ════════════════════════════════════════════════════════════ */
+function couponError(message, status = 400) {
+  const e = new Error(message);
+  e.status = status;
+  e.source = "coupon_redemption";
+  return e;
+}
+
 async function redeemCouponInTransaction(client, { code, userId, orderGroupId, subtotal }) {
   if (!code) return null;
 
@@ -235,18 +278,26 @@ async function redeemCouponInTransaction(client, { code, userId, orderGroupId, s
     [upperCode]
   );
 
-  if (!coupon)        { const e = new Error(`Coupon "${upperCode}" not found`);        e.status = 400; e.source = "coupon_redemption"; throw e; }
-  if (!coupon.is_active) { const e = new Error(`Coupon "${upperCode}" is inactive`);   e.status = 400; e.source = "coupon_redemption"; throw e; }
-  if (coupon.is_private && coupon.created_by !== userId) { const e = new Error(`Coupon "${upperCode}" not valid for you`); e.status = 403; e.source = "coupon_redemption"; throw e; }
-  if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) { const e = new Error(`Coupon "${upperCode}" has expired`); e.status = 400; e.source = "coupon_redemption"; throw e; }
-  if (coupon.usage_limit !== null && toNumber(coupon.usage_count) >= toNumber(coupon.usage_limit)) { const e = new Error(`Coupon "${upperCode}" usage limit reached`); e.status = 400; e.source = "coupon_redemption"; throw e; }
-  if (toNumber(coupon.min_purchase) > 0 && subtotal < toNumber(coupon.min_purchase)) { const e = new Error(`Coupon needs min ₦${toNumber(coupon.min_purchase).toLocaleString("en-NG")}`); e.status = 400; e.source = "coupon_redemption"; throw e; }
+  if (!coupon)           throw couponError(`Coupon "${upperCode}" not found`);
+  if (!coupon.is_active) throw couponError(`Coupon "${upperCode}" is inactive`);
+  if (coupon.is_private && coupon.created_by !== userId) {
+    throw couponError(`Coupon "${upperCode}" not valid for you`, 403);
+  }
+  if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {
+    throw couponError(`Coupon "${upperCode}" has expired`);
+  }
+  if (coupon.usage_limit !== null && toNumber(coupon.usage_count) >= toNumber(coupon.usage_limit)) {
+    throw couponError(`Coupon "${upperCode}" usage limit reached`);
+  }
+  if (toNumber(coupon.min_purchase) > 0 && subtotal < toNumber(coupon.min_purchase)) {
+    throw couponError(`Coupon needs min ₦${toNumber(coupon.min_purchase).toLocaleString("en-NG")}`);
+  }
 
   const { rows: existing } = await client.query(
     `SELECT id FROM public.coupon_redemptions WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
     [coupon.id, userId]
   );
-  if (existing.length) { const e = new Error(`Already used coupon "${upperCode}"`); e.status = 400; e.source = "coupon_redemption"; throw e; }
+  if (existing.length) throw couponError(`Already used coupon "${upperCode}"`);
 
   const actualDiscount = calculateCouponDiscount(coupon, subtotal);
   const freeShipping   = coupon.type === "free_shipping";
@@ -291,28 +342,23 @@ async function findExistingOrder(client, userId, idempotencyKey, groupCols) {
 
 /* ════════════════════════════════════════════════════════════
    RESOLVE ORDER GROUP — accepts UUID or tracking ID
-   ─────────────────────────────────────────────────────────
-   Used by routes that take :groupId from URLs.
-   Tracking IDs are user-friendly (ORD-1F9DFB89).
-   UUIDs are internal (1f9dfb89-abcd-...).
-   Both work — backward compatible.
-   
    Returns { id, tracking_id } or null.
 ════════════════════════════════════════════════════════════ */
 export async function resolveOrderGroup(identifier, userId) {
-  if (!identifier) return null;
-
-  const column = isUUID(identifier) ? "id" : "tracking_id";
+  const parsed = parseIdentifier(identifier);
+  if (!parsed || !userId) return null;
 
   const { rows: [row] } = await pool.query(
-    `SELECT id, tracking_id
-     FROM public.order_groups
-     WHERE ${column} = $1
-       AND user_id = $2`,
-    [identifier, userId]
+    `SELECT og.id, og.tracking_id
+     FROM public.order_groups og
+     WHERE ${identifierClause(parsed, "og", 1)}
+       AND og.user_id = $2
+     LIMIT 1`,
+    [parsed.value, userId]
   );
 
-  return row ?? null;
+  if (!row) return null;
+  return { id: row.id, tracking_id: row.tracking_id ?? generateTrackingId(row.id) };
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -365,41 +411,37 @@ export async function createOrderGroup({
     let discount   = 0;
     let grandTotal = cleanSubtotal + deliveryFee;
 
-    /* 3. Insert order group */
+    /* 3. Insert order group
+          id + tracking_id are generated up front so no follow-up
+          UPDATE is needed (a failed statement would abort the
+          whole transaction in Postgres). */
+    const orderGroupId = randomUUID();
+    const trackingId   = generateTrackingId(orderGroupId);
+
     const groupInsertCols = [
-      "user_id", "address_id", "total_amount", "delivery_fee",
+      "id", "user_id", "address_id", "total_amount", "delivery_fee",
       "discount", "grand_total", "payment_method", "coupon_code",
       "notes", "payment_status", "status",
     ];
     const groupInsertVals = [
-      userId, addressId, cleanSubtotal, deliveryFee, discount,
+      orderGroupId, userId, addressId, cleanSubtotal, deliveryFee, discount,
       grandTotal, paymentMethod, couponCode, notes, "pending", "pending",
     ];
 
+    if (groupCols.hasTrackingId) {
+      groupInsertCols.push("tracking_id");
+      groupInsertVals.push(trackingId);
+    }
     if (groupCols.hasIdempotencyKey && idempotencyKey) {
       groupInsertCols.push("idempotency_key");
       groupInsertVals.push(idempotencyKey);
     }
 
     const placeholders = groupInsertVals.map((_, i) => `$${i + 1}`).join(", ");
-    const { rows: [group] } = await client.query(
-      `INSERT INTO public.order_groups (${groupInsertCols.join(", ")}) VALUES (${placeholders}) RETURNING id`,
+    await client.query(
+      `INSERT INTO public.order_groups (${groupInsertCols.join(", ")}) VALUES (${placeholders})`,
       groupInsertVals
     );
-
-    const orderGroupId = group.id;
-    const trackingId   = generateTrackingId(orderGroupId);
-
-    if (groupCols.hasTrackingId) {
-      try {
-        await client.query(
-          `UPDATE public.order_groups SET tracking_id = $1 WHERE id = $2`,
-          [trackingId, orderGroupId]
-        );
-      } catch (err) {
-        console.warn("[orderService] tracking_id update failed:", err.message);
-      }
-    }
 
     /* 4. Redeem coupon */
     let redemption = null;
@@ -461,13 +503,17 @@ export async function createOrderGroup({
       });
     }
 
-    /* 7. Bump address last_used_at */
+    /* 7. Bump address last_used_at (SAVEPOINT so a failure can't abort the txn) */
     try {
+      await client.query("SAVEPOINT bump_address");
       await client.query(
         `UPDATE public.user_addresses SET last_used_at = now() WHERE id = $1 AND user_id = $2`,
         [addressId, userId]
       );
-    } catch { /* non-fatal */ }
+      await client.query("RELEASE SAVEPOINT bump_address");
+    } catch {
+      await client.query("ROLLBACK TO SAVEPOINT bump_address").catch(() => {});
+    }
 
     await client.query("COMMIT");
 
@@ -559,7 +605,7 @@ async function invalidateCouponCache(userId) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   MARK ORDER GROUP PAID
+   MARK ORDER GROUP PAID (idempotent)
 ════════════════════════════════════════════════════════════ */
 export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   const [groupCols, orderCols] = await Promise.all([
@@ -569,19 +615,28 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query(
+
+    const result = await client.query(
       `UPDATE public.order_groups
        SET payment_status = 'paid', payment_ref = $2, status = 'confirmed'
        ${groupCols.hasUpdatedAt ? ", updated_at = now()" : ""}
-       WHERE id = $1`,
+       WHERE id = $1 AND payment_status IS DISTINCT FROM 'paid'`,
       [orderGroupId, paymentRef]
     );
+
+    if (result.rowCount === 0) {
+      await client.query("ROLLBACK");
+      console.log(`[orderService] ⚡ ${orderGroupId} already paid — skipped`);
+      return;
+    }
+
     await client.query(
       `UPDATE public.orders SET status = 'confirmed'
        ${orderCols.hasUpdatedAt ? ", updated_at = now()" : ""}
        WHERE order_group_id = $1`,
       [orderGroupId]
     );
+
     await client.query("COMMIT");
     console.log(`[orderService] ✅ ${orderGroupId} marked paid`);
   } catch (err) {
@@ -635,19 +690,15 @@ export async function markOrderGroupDelivered(orderGroupId) {
 /* ════════════════════════════════════════════════════════════
    GET FULL ORDER GROUP — accepts UUID or tracking ID
    ─────────────────────────────────────────────────────────
-   URLs now use tracking IDs (ORD-1F9DFB89).
-   Old UUID links also work (backward compatible).
+   3 queries total. Delivery data comes from
+   delivery.deliveries.external_order_id (= public.orders.id),
+   latest record per order.
 ════════════════════════════════════════════════════════════ */
 export async function getOrderGroup(identifier, userId) {
-  if (!identifier) return null;
+  const parsed = parseIdentifier(identifier);
+  if (!parsed || !userId) return null;
 
-  /*
-   * Determine which column to query by:
-   *   UUID format   → og.id
-   *   Anything else → og.tracking_id (e.g. ORD-1F9DFB89)
-   */
-  const column = isUUID(identifier) ? "og.id" : "og.tracking_id";
-
+  /* 1. Group + address */
   const { rows: [group] } = await pool.query(
     `SELECT
        og.*,
@@ -661,40 +712,57 @@ export async function getOrderGroup(identifier, userId) {
        a.state
      FROM public.order_groups og
      LEFT JOIN public.user_addresses a ON a.id = og.address_id
-     WHERE ${column} = $1
-       AND og.user_id = $2`,
-    [identifier, userId]
+     WHERE ${identifierClause(parsed, "og", 1)}
+       AND og.user_id = $2
+     LIMIT 1`,
+    [parsed.value, userId]
   );
 
   if (!group) return null;
 
+  group.tracking_id = group.tracking_id ?? generateTrackingId(group.id);
+
+  /* 2. Seller orders + latest delivery each */
   const { rows: orders } = await pool.query(
     `SELECT
        o.*,
        u.name AS seller_name,
-       dl.delivery_tracking_id,
-       NULL AS delivery_status,
-       NULL AS estimated_delivery_at,
-       NULL AS delivery_delivered_at
+       d.delivery_tracking_id,
+       d.status               AS delivery_status,
+       d.estimated_delivery_at,
+       d.delivered_at         AS delivery_delivered_at,
+       d.source_type          AS delivery_source_type
      FROM public.orders o
      LEFT JOIN market.users u ON u.id = o.seller_id
-     LEFT JOIN public.order_delivery_links dl ON dl.order_id = o.id
+     LEFT JOIN LATERAL (
+       SELECT dd.delivery_tracking_id, dd.status, dd.estimated_delivery_at,
+              dd.delivered_at, dd.source_type
+       FROM delivery.deliveries dd
+       WHERE dd.external_order_id::text = o.id::text
+       ORDER BY dd.created_at DESC
+       LIMIT 1
+     ) d ON true
      WHERE o.order_group_id = $1
      ORDER BY o.created_at ASC`,
     [group.id]
   );
 
-  for (const order of orders) {
+  /* 3. All items in one query, bucketed by order */
+  const itemsByOrder = new Map(orders.map((o) => [o.id, []]));
+
+  if (orders.length) {
     const { rows: items } = await pool.query(
       `SELECT oi.*, p.name AS product_name
        FROM public.order_items oi
        LEFT JOIN market.products p ON p.id = oi.product_id
-       WHERE oi.order_id = $1
+       WHERE oi.order_id = ANY($1::uuid[])
        ORDER BY oi.id`,
-      [order.id]
+      [orders.map((o) => o.id)]
     );
-    order.items = items;
+    for (const item of items) itemsByOrder.get(item.order_id)?.push(item);
   }
+
+  for (const order of orders) order.items = itemsByOrder.get(order.id) ?? [];
 
   return { ...group, orders };
 }
