@@ -1,12 +1,6 @@
 // ════════════════════════════════════════════════════════════
 // FILE: routes/admin.js
 // Base: /api/admin
-//
-// v2 changes:
-// ✓ adminDeliveryRouter removed from here — mounted directly
-//   in server.js at /api/admin/delivery to avoid conflicts
-//   with the existing orderRouter at /api/admin/orders
-// ✓ All existing sub-routers preserved unchanged
 // ════════════════════════════════════════════════════════════
 
 import express                            from "express";
@@ -33,6 +27,7 @@ import airtimeCouponAdminRouter  from "./admin/airtimeCoupons.js";
 import couponRedemptionRouter    from "./admin/couponRedemption.js";
 import subscriptionAdminRouter   from "./admin/subscriptionAdmin.js";
 import supportAdminRouter        from "./admin/support.js";
+import activityLogsRouter        from "./admin/activityLogs.js"; // 👈 Added dedicated router
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -397,7 +392,7 @@ router.get("/stats", verifyAdmin, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// AUDIT LOGS
+// AUDIT LOGS (Legacy)
 // ══════════════════════════════════════════════════════════════
 
 // GET /api/admin/logs
@@ -443,14 +438,6 @@ router.get("/logs", verifyAdmin, async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // MOUNT SUB-ROUTERS
 // ══════════════════════════════════════════════════════════════
-/*
- * NOTE: adminDeliveryRouter is NOT mounted here.
- * It is mounted directly in server.js at /api/admin/delivery
- * BEFORE this router at /api/admin to ensure it matches first.
- *
- * Mounting it here at /orders would conflict with the existing
- * orderRouter already mounted at /orders.
- */
 router.use("/users",             verifyAdmin, userRouter);
 router.use("/products",          verifyAdmin, publicProductRouter);
 router.use("/market-products",   verifyAdmin, marketProductRouter);
@@ -468,5 +455,6 @@ router.use("/airtime-coupons",   verifyAdmin, airtimeCouponAdminRouter);
 router.use("/coupon-redemption", verifyAdmin, couponRedemptionRouter);
 router.use("/subscriptions",     verifyAdmin, subscriptionAdminRouter);
 router.use("/support",           verifyAdmin, supportAdminRouter);
+router.use("/activity-logs",     verifyAdmin, activityLogsRouter); // 👈 Dedicated sub-router
 
 export default router;
