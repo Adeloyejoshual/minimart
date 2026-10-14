@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Card, LogItem, Rfr, StatCard } from "../adminlayout/atoms";
 
 const PERIODS = [
@@ -11,21 +11,21 @@ const PERIODS = [
 export default function Logs() {
   const [period, setPeriod]   = useState("all");
   const [logs, setLogs]       = useState([]);
-  const [stats, setStats]     = useState({ today: 0, all: 0, month: 0, year: 0 });
-  const [metrics, setMetrics] = useState({ total_clicks: 0, login_visits: 0, minutes_used: 0 });
+  const [visits, setVisits]   = useState({ today: 0, all: 0, month: 0, year: 0 });
+  const [metrics, setMetrics] = useState({ clicks: 0, page_views: 0, minutes_used: 0 });
   const [total, setTotal]     = useState(0);
   const [loading, setLoading] = useState(false);
 
-  const fetchLogs = useCallback(async (p = period) => {
+  const fetchLogs = useCallback(async (selectedPeriod = period) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/activity-logs?period=${p}`);
+      const res = await fetch(`/api/admin/activity-logs?period=${selectedPeriod}`);
       const data = await res.json();
       if (data.success) {
         setLogs(data.logs || []);
         setTotal(data.total || 0);
-        setStats(data.stats || { today: 0, all: 0, month: 0, year: 0 });
-        setMetrics(data.metrics || { total_clicks: 0, login_visits: 0, minutes_used: 0 });
+        setVisits(data.visits || { today: 0, all: 0, month: 0, year: 0 });
+        setMetrics(data.metrics || { clicks: 0, page_views: 0, minutes_used: 0 });
       }
     } catch (err) {
       console.error("Failed to load activity logs:", err);
@@ -34,16 +34,16 @@ export default function Logs() {
     }
   }, [period]);
 
-  /* Load on mount & auto-refresh every 5 seconds */
+  /* Polling every 5 seconds */
   useEffect(() => {
     fetchLogs();
     const interval = setInterval(() => fetchLogs(), 5000);
     return () => clearInterval(interval);
   }, [fetchLogs]);
 
-  const handlePeriodChange = (p) => {
-    setPeriod(p);
-    fetchLogs(p);
+  const handlePeriodChange = (newPeriod) => {
+    setPeriod(newPeriod);
+    fetchLogs(newPeriod);
   };
 
   return (
@@ -51,11 +51,11 @@ export default function Logs() {
       {/* ── Page Header ── */}
       <div className="ph">
         <div className="ph-left">
-          <h1>Activity Logs & Visits</h1>
+          <h1>Activity Logs & Analytics</h1>
         </div>
         <div className="ph-right">
           <span style={{ fontSize: ".75rem", color: "var(--muted)", fontFamily: "var(--mono)" }}>
-            {total.toLocaleString()} total events
+            {total.toLocaleString()} logged events
           </span>
           <Rfr onClick={() => fetchLogs()} />
         </div>
@@ -64,25 +64,25 @@ export default function Logs() {
       {/* ── Metric Summary Cards ── */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
         gap: 12,
         marginBottom: 16
       }}>
-        <StatCard label="Today Visits" value={stats.today.toLocaleString()} color="c-green" />
-        <StatCard label="Last Month" value={stats.month.toLocaleString()} color="c-blue" />
-        <StatCard label="Last Year" value={stats.year.toLocaleString()} color="c-purple" />
-        <StatCard label="All-Time Visits" value={stats.all.toLocaleString()} color="c-orange" />
-        <StatCard label="Total Clicks" value={metrics.total_clicks.toLocaleString()} color="c-blue" />
+        <StatCard label="Today Visits" value={visits.today.toLocaleString()} color="c-green" />
+        <StatCard label="Last Month" value={visits.month.toLocaleString()} color="c-blue" />
+        <StatCard label="Last Year" value={visits.year.toLocaleString()} color="c-purple" />
+        <StatCard label="All-Time Visits" value={visits.all.toLocaleString()} color="c-orange" />
+        <StatCard label="Total Clicks" value={metrics.clicks.toLocaleString()} color="c-blue" />
         <StatCard label="Minutes Used" value={`${metrics.minutes_used}m`} color="c-green" />
       </div>
 
-      {/* ── Main Activity Card ── */}
+      {/* ── Main Activity Feed Card ── */}
       <Card
         title="Activity Log History"
         actions={[
-          /* Period Dropdown Selector */
+          /* Dropdown Selector */
           <select
-            key="period-select"
+            key="period-dropdown"
             value={period}
             onChange={(e) => handlePeriodChange(e.target.value)}
             style={{
@@ -98,17 +98,17 @@ export default function Logs() {
           >
             {PERIODS.map((p) => (
               <option key={p.value} value={p.value}>
-                {p.label} ({stats[p.value] ?? 0})
+                {p.label} ({visits[p.value] ?? 0} visits)
               </option>
             ))}
           </select>,
 
-          <span key="live" className="live-chip">
+          <span key="live-badge" className="live-chip">
             <span className="live-dot" />Auto-refresh 5s
           </span>,
         ]}
       >
-        {/* ── Pill Filter Buttons ── */}
+        {/* ── Filter Pills ── */}
         <div style={{
           display: "flex",
           gap: 8,
@@ -116,42 +116,43 @@ export default function Logs() {
           borderBottom: "1px solid var(--border, #f0eeea)",
           flexWrap: "wrap",
         }}>
-          {PERIODS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => handlePeriodChange(p.value)}
-              style={{
-                padding: "4px 12px",
-                borderRadius: 999,
-                border: period === p.value
-                  ? "1.5px solid var(--accent, #2563eb)"
-                  : "1.5px solid var(--border, #e8e6e0)",
-                background: period === p.value ? "var(--accent, #2563eb)" : "transparent",
-                color: period === p.value ? "#fff" : "var(--muted, #888)",
-                fontSize: ".72rem",
-                fontWeight: 700,
-                cursor: "pointer",
-                transition: "all .15s",
-              }}
-            >
-              {p.label}
-              <span style={{ marginLeft: 6, opacity: 0.8, fontFamily: "var(--mono)" }}>
-                {stats[p.value] ?? 0}
-              </span>
-            </button>
-          ))}
+          {PERIODS.map((p) => {
+            const active = period === p.value;
+            return (
+              <button
+                key={p.value}
+                onClick={() => handlePeriodChange(p.value)}
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  border: active ? "1.5px solid var(--accent, #2563eb)" : "1.5px solid var(--border, #e8e6e0)",
+                  background: active ? "var(--accent, #2563eb)" : "transparent",
+                  color: active ? "#fff" : "var(--muted, #888)",
+                  fontSize: ".72rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all .15s",
+                }}
+              >
+                {p.label}
+                <span style={{ marginLeft: 6, opacity: 0.8, fontFamily: "var(--mono)" }}>
+                  {visits[p.value] ?? 0}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* ── Log List ── */}
+        {/* ── Feed List ── */}
         <div className="log-list" style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
           {loading && logs.length === 0 && (
-            <div className="empty">Loading logs…</div>
+            <div className="empty">Loading events…</div>
           )}
           {logs.map((l) => (
             <LogItem key={l.id} log={l} />
           ))}
           {!loading && logs.length === 0 && (
-            <div className="empty">No activity found for this period.</div>
+            <div className="empty">No activity records found for this period.</div>
           )}
         </div>
       </Card>
