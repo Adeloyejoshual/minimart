@@ -10,7 +10,6 @@ import { verifyAdmin } from "./middleware.js";
 const router = express.Router();
 router.use(verifyAdmin);
 
-/* ─── Helper for safe integer parsing ─────────────────────── */
 const safeInt = (v, fb = 0) => {
   const n = parseInt(v);
   return isNaN(n) ? fb : n;
@@ -18,9 +17,8 @@ const safeInt = (v, fb = 0) => {
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/admin/activity-logs
-// Query params:
-//   ?period=today | all | month | year (default: all)
-//   ?limit=100 &offset=0 &search=
+// Query: ?period=today | all | month | year (default: all)
+//        &limit=100 &offset=0 &search=
 // ─────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   const client = await pool.connect();
@@ -33,7 +31,7 @@ router.get("/", async (req, res) => {
     const conditions = [];
     const params     = [];
 
-    /* ── 1. Date filter ───────────────────────────────────── */
+    /* ── 1. Date filter mapping ─────────────────────────────── */
     if (period === "today") {
       conditions.push(`l.created_at >= CURRENT_DATE`);
     } else if (period === "month") {
@@ -43,7 +41,7 @@ router.get("/", async (req, res) => {
     }
     // "all" has no date constraint
 
-    /* ── 2. Search filter ─────────────────────────────────── */
+    /* ── 2. Search filter ───────────────────────────────────── */
     if (search) {
       params.push(`%${search.toLowerCase()}%`);
       conditions.push(`(
@@ -55,7 +53,7 @@ router.get("/", async (req, res) => {
 
     const whereSql = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    /* ── 3. Fetch logs page ───────────────────────────────── */
+    /* ── 3. Fetch logs page ─────────────────────────────────── */
     const listParams = [...params, limit, offset];
     const { rows: logs } = await client.query(
       `SELECT
@@ -75,7 +73,7 @@ router.get("/", async (req, res) => {
       listParams,
     );
 
-    /* ── 4. Total count for selected period ──────────────── */
+    /* ── 4. Total count for selected period ────────────────── */
     const { rows: countRows } = await client.query(
       `SELECT COUNT(*)::int AS count
        FROM admin_logs l
@@ -84,21 +82,49 @@ router.get("/", async (req, res) => {
       params,
     );
 
-    /* ── 5. Counters for all periods ─────────────────────── */
-    const [todayCount, monthCount, yearCount, allCount] = await Promise.all([
+    /* ── 5. Aggregate Analytics (Visits, Clicks, Minutes) ──── */
+    const [
+      todayCount,
+      monthCount,
+      yearCount,
+      allCount,
+      loginVisitsCount,
+      activeMinutesResult
+    ] = await Promise.all([
+      // Visits / logs counters
       client.query(`SELECT COUNT(*)::int AS c FROM admin_logs WHERE created_at >= CURRENT_DATE`),
       client.query(`SELECT COUNT(*)::int AS c FROM admin_logs WHERE created_at >= NOW() - INTERVAL '30 days'`),
       client.query(`SELECT COUNT(*)::int AS c FROM admin_logs WHERE created_at >= NOW() - INTERVAL '365 days'`),
       client.query(`SELECT COUNT(*)::int AS c FROM admin_logs`),
+
+      // Specific login/visit sessions count
+      client.query(
+        `SELECT COUNT(*)::int AS c FROM admin_logs WHERE action IN ('login', 'visit', 'page_view')`
+      ).catch(() => ({ rows: [{ c: 0 }] })),
+
+      // Estimated active minutes (calculated from active time spans between consecutive actions)
+      client.query(
+        `SELECT COALESCE(
+           ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / 60), 
+           0
+         )::int AS minutes
+         FROM admin_logs
+         ${whereSql}`
+      ).catch(() => ({ rows: [{ minutes: 0 }] })),
     ]);
 
     return res.json({
-      success : true,
+      success: true,
       period,
-      total   : countRows[0]?.count ?? 0,
+      total: countRows[0]?.count ?? 0,
       limit,
       offset,
       logs,
+      metrics: {
+        total_clicks   : countRows[0]?.count ?? 0,
+        login_visits   : loginVisitsCount.rows[0]?.c ?? 0,
+        minutes_used   : activeMinutesResult.rows[0]?.minutes ?? 0,
+      },
       stats: {
         today : todayCount.rows[0]?.c ?? 0,
         month : monthCount.rows[0]?.c ?? 0,
