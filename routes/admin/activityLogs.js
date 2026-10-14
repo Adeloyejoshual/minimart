@@ -17,7 +17,7 @@ const safeInt = (v, fb = 0) => {
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/admin/activity-logs
-// Query: ?period=today | all | month | year (default: all)
+// Query: ?period=today | all | month | year
 //        &limit=100 &offset=0 &search=
 // ─────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
@@ -28,32 +28,34 @@ router.get("/", async (req, res) => {
     const limit  = Math.min(300, safeInt(req.query.limit, 100));
     const offset = Math.max(0, safeInt(req.query.offset, 0));
 
-    const conditions = [];
+    /* ── 1. Date filter building ─────────────────────────────── */
+    let logDateSql   = "";
+    let visitDateSql = "";
     const params     = [];
 
-    /* ── 1. Date filter mapping ─────────────────────────────── */
     if (period === "today") {
-      conditions.push(`l.created_at >= CURRENT_DATE`);
+      logDateSql   = "AND l.created_at >= CURRENT_DATE";
+      visitDateSql = "WHERE started_at >= CURRENT_DATE";
     } else if (period === "month") {
-      conditions.push(`l.created_at >= NOW() - INTERVAL '30 days'`);
+      logDateSql   = "AND l.created_at >= NOW() - INTERVAL '30 days'";
+      visitDateSql = "WHERE started_at >= NOW() - INTERVAL '30 days'";
     } else if (period === "year") {
-      conditions.push(`l.created_at >= NOW() - INTERVAL '365 days'`);
+      logDateSql   = "AND l.created_at >= NOW() - INTERVAL '365 days'";
+      visitDateSql = "WHERE started_at >= NOW() - INTERVAL '365 days'";
     }
-    // "all" has no date constraint
 
     /* ── 2. Search filter ───────────────────────────────────── */
+    let searchSql = "";
     if (search) {
       params.push(`%${search.toLowerCase()}%`);
-      conditions.push(`(
+      searchSql = `AND (
         LOWER(CAST(l.action AS TEXT))  LIKE $${params.length} OR
         LOWER(CAST(l.details AS TEXT)) LIKE $${params.length} OR
         LOWER(CAST(a.name AS TEXT))    LIKE $${params.length}
-      )`);
+      )`;
     }
 
-    const whereSql = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-    /* ── 3. Fetch logs page ─────────────────────────────────── */
+    /* ── 3. Fetch Activity Logs ─────────────────────────────── */
     const listParams = [...params, limit, offset];
     const { rows: logs } = await client.query(
       `SELECT
@@ -67,50 +69,47 @@ router.get("/", async (req, res) => {
          a.email                   AS admin_email
        FROM admin_logs l
        LEFT JOIN admins a ON a.id = l.admin_id
-       ${whereSql}
+       WHERE 1=1 ${logDateSql} ${searchSql}
        ORDER BY l.created_at DESC
        LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
       listParams,
     );
 
-    /* ── 4. Total count for selected period ────────────────── */
+    /* ── 4. Total Log Count for Period ──────────────────────── */
     const { rows: countRows } = await client.query(
       `SELECT COUNT(*)::int AS count
        FROM admin_logs l
        LEFT JOIN admins a ON a.id = l.admin_id
-       ${whereSql}`,
+       WHERE 1=1 ${logDateSql} ${searchSql}`,
       params,
     );
 
-    /* ── 5. Aggregate Analytics (Visits, Clicks, Minutes) ──── */
+    /* ── 5. Analytics from `site_visits` & `admin_logs` ─────── */
     const [
-      todayCount,
-      monthCount,
-      yearCount,
-      allCount,
-      loginVisitsCount,
-      activeMinutesResult
+      vToday,
+      vMonth,
+      vYear,
+      vAll,
+      periodMetrics
     ] = await Promise.all([
-      // Visits / logs counters
-      client.query(`SELECT COUNT(*)::int AS c FROM admin_logs WHERE created_at >= CURRENT_DATE`),
-      client.query(`SELECT COUNT(*)::int AS c FROM admin_logs WHERE created_at >= NOW() - INTERVAL '30 days'`),
-      client.query(`SELECT COUNT(*)::int AS c FROM admin_logs WHERE created_at >= NOW() - INTERVAL '365 days'`),
-      client.query(`SELECT COUNT(*)::int AS c FROM admin_logs`),
+      // Visit Counts across periods
+      client.query(`SELECT COUNT(*)::int AS c FROM public.site_visits WHERE started_at >= CURRENT_DATE`),
+      client.query(`SELECT COUNT(*)::int AS c FROM public.site_visits WHERE started_at >= NOW() - INTERVAL '30 days'`),
+      client.query(`SELECT COUNT(*)::int AS c FROM public.site_visits WHERE started_at >= NOW() - INTERVAL '365 days'`),
+      client.query(`SELECT COUNT(*)::int AS c FROM public.site_visits`),
 
-      // Specific login/visit sessions count
-      client.query(
-        `SELECT COUNT(*)::int AS c FROM admin_logs WHERE action IN ('login', 'visit', 'page_view')`
-      ).catch(() => ({ rows: [{ c: 0 }] })),
-
-      // Estimated active minutes (calculated from active time spans between consecutive actions)
-      client.query(
-        `SELECT COALESCE(
-           ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / 60), 
-           0
-         )::int AS minutes
-         FROM admin_logs
-         ${whereSql}`
-      ).catch(() => ({ rows: [{ minutes: 0 }] })),
+      // Clicks & Minutes used for the selected period
+      client.query(`
+        SELECT
+          COALESCE(SUM(clicks_count), 0)::int AS total_clicks,
+          COALESCE(SUM(page_views), 0)::int   AS total_page_views,
+          COALESCE(
+            ROUND(SUM(EXTRACT(EPOCH FROM (last_active_at - started_at))) / 60), 
+            0
+          )::int AS minutes_used
+        FROM public.site_visits
+        ${visitDateSql}
+      `),
     ]);
 
     return res.json({
@@ -120,16 +119,16 @@ router.get("/", async (req, res) => {
       limit,
       offset,
       logs,
-      metrics: {
-        total_clicks   : countRows[0]?.count ?? 0,
-        login_visits   : loginVisitsCount.rows[0]?.c ?? 0,
-        minutes_used   : activeMinutesResult.rows[0]?.minutes ?? 0,
+      visits: {
+        today : vToday.rows[0]?.c ?? 0,
+        month : vMonth.rows[0]?.c ?? 0,
+        year  : vYear.rows[0]?.c  ?? 0,
+        all   : vAll.rows[0]?.c   ?? 0,
       },
-      stats: {
-        today : todayCount.rows[0]?.c ?? 0,
-        month : monthCount.rows[0]?.c ?? 0,
-        year  : yearCount.rows[0]?.c  ?? 0,
-        all   : allCount.rows[0]?.c   ?? 0,
+      metrics: {
+        clicks       : periodMetrics.rows[0]?.total_clicks ?? 0,
+        page_views   : periodMetrics.rows[0]?.total_page_views ?? 0,
+        minutes_used : periodMetrics.rows[0]?.minutes_used ?? 0,
       },
     });
 
