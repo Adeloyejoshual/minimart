@@ -1,3 +1,5 @@
+// src/pages/admin/AdminDashboard.jsx
+
 import { useEffect, useState, useMemo, useCallback } from "react";
 import axios from "axios";
 
@@ -27,14 +29,25 @@ import CouponRedemption   from "./SuperAdmin/CouponRedemption";
 import AdminSubscriptions from "./SuperAdmin/AdminSubscriptions";
 import SupportAdmin       from "./Support";
 import SourceAnalytics    from "./tabs/SourceAnalytics";
+import NewsletterAdmin    from "./SuperAdmin/NewsletterAdmin"; // ← Deal Newsletter
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
 
-const LOG_POLL_INTERVAL = 5_000;
+/* ════════════════════════════════════════════════════════════
+   ENV + API bases
+════════════════════════════════════════════════════════════ */
 const BASE     = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
 const PAY_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/payment`;
 
+/* ════════════════════════════════════════════════════════════
+   CONSTANTS
+════════════════════════════════════════════════════════════ */
+const LOG_POLL_INTERVAL = 5_000;
+
+/* ════════════════════════════════════════════════════════════
+   createApi
+════════════════════════════════════════════════════════════ */
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
@@ -46,6 +59,9 @@ const createApi = (token) => {
   };
 };
 
+/* ════════════════════════════════════════════════════════════
+   CONFIRM MODAL
+════════════════════════════════════════════════════════════ */
 function Confirm({ cfg, onClose }) {
   if (!cfg) return null;
   return (
@@ -69,6 +85,9 @@ function Confirm({ cfg, onClose }) {
   );
 }
 
+/* ════════════════════════════════════════════════════════════
+   useData
+════════════════════════════════════════════════════════════ */
 function useData(api) {
   const [stats, setStats] = useState({
     users: 0, orders: 0, revenue: 0, dailySales: [],
@@ -254,16 +273,10 @@ function useData(api) {
     supportCount      : reloadSupportCount,
     subscriptionStats : reloadSubscriptionStats,
   }), [
-    safe,
-    safeList,
-    reloadPlans,
-    reloadReportCount,
-    reloadMarketPendingCount,
-    reloadVerificationCount,
-    reloadVendorCount,
-    reloadWithdrawalCount,
-    reloadAirtimeCount,
-    reloadSupportCount,
+    safe, safeList, reloadPlans, reloadReportCount,
+    reloadMarketPendingCount, reloadVerificationCount,
+    reloadVendorCount, reloadWithdrawalCount,
+    reloadAirtimeCount, reloadSupportCount,
     reloadSubscriptionStats,
   ]);
 
@@ -291,16 +304,10 @@ function useData(api) {
     ]);
     setLoading(false);
   }, [
-    safe,
-    safeList,
-    reloadPlans,
-    reloadReportCount,
-    reloadMarketPendingCount,
-    reloadVerificationCount,
-    reloadVendorCount,
-    reloadWithdrawalCount,
-    reloadAirtimeCount,
-    reloadSupportCount,
+    safe, safeList, reloadPlans, reloadReportCount,
+    reloadMarketPendingCount, reloadVerificationCount,
+    reloadVendorCount, reloadWithdrawalCount,
+    reloadAirtimeCount, reloadSupportCount,
     reloadSubscriptionStats,
   ]);
 
@@ -315,6 +322,9 @@ function useData(api) {
   };
 }
 
+/* ════════════════════════════════════════════════════════════
+   useDerived
+════════════════════════════════════════════════════════════ */
 function useDerived({
   users, products, pending, orders, payments, stats,
   productTab, userQ, productQ, orderQ, payQ,
@@ -383,6 +393,9 @@ function useDerived({
   };
 }
 
+/* ════════════════════════════════════════════════════════════
+   useActions
+════════════════════════════════════════════════════════════ */
 function useActions(api, reload) {
   const [busy, setBusy] = useState(null);
 
@@ -395,52 +408,64 @@ function useActions(api, reload) {
 
   return {
     busy,
+
     banUser: (id) => run(`bu-${id}`, async () => {
       await api.post(`/users/${id}/ban`);
       await reload.users();
     }),
+
     unbanUser: (id) => run(`ubu-${id}`, async () => {
       await api.post(`/users/${id}/unban`);
       await reload.users();
     }),
+
     banAdmin: (id) => run(`ba-${id}`, async () => {
       await api.post(`/admins/${id}/ban`);
       await reload.admins();
     }),
+
     unbanAdmin: (id) => run(`uba-${id}`, async () => {
       await api.post(`/admins/${id}/unban`);
       await reload.admins();
     }),
+
     editAdminRole: (id, role) => run(`er-${id}`, async () => {
       await api.patch(`/admins/${id}/role`, { role });
       await reload.admins();
     }),
+
     registerAdmin: (form) => run("register", async () => {
       await api.post("/admins/register", form);
       await reload.admins();
     }),
+
     approveProduct: (id) => run(`ap-${id}`, async () => {
       await api.post(`/products/${id}/approve`);
       await reload.products();
     }),
+
     rejectProduct: (id) => run(`rp-${id}`, async () => {
       await api.post(`/products/${id}/reject`);
       await reload.products();
     }),
+
     refundPayment: (id) => run(`rf-${id}`, async () => {
       await api.post(`/payments/${id}/refund`);
       await reload.payments();
     }),
+
     cancelOrder: (id) => run(`co-${id}`, async () => {
       await api.post(`/orders/${id}/cancel`);
       await reload.orders();
     }),
+
     toggleSystem: async (key, system) => {
       const next = { ...system, [key]: !system[key] };
       reload.system(next);
       try   { await api.post("/system", next); }
       catch { reload.system(system); }
     },
+
     savePlan: async (plan) => {
       await run(`plan-${plan.id}`, () =>
         api.put(`/plans/${plan.id}`, {
@@ -457,6 +482,7 @@ function useActions(api, reload) {
       );
       await reload.plans();
     },
+
     togglePlan: async (plan) => {
       await run(`pt-${plan.id}`, () =>
         api.put(
@@ -467,6 +493,7 @@ function useActions(api, reload) {
       );
       await reload.plans();
     },
+
     cancelSellerSubscription: async (userId) => {
       await run(`csub-${userId}`, async () => {
         await api.post(`/subscriptions/${userId}/cancel`);
@@ -476,6 +503,9 @@ function useActions(api, reload) {
   };
 }
 
+/* ════════════════════════════════════════════════════════════
+   ADMIN DASHBOARD
+════════════════════════════════════════════════════════════ */
 export default function AdminDashboard() {
   const token = useMemo(() => localStorage.getItem("admin_token"), []);
   const api   = useMemo(() => createApi(token), [token]);
@@ -509,6 +539,7 @@ export default function AdminDashboard() {
   });
   const actions = useActions(api, data.reload);
 
+  /* ── Live log polling ────────────────────────────────── */
   const logRef = useMemo(() => ({ current: data.reload.logs }), []);
   useEffect(() => { logRef.current = data.reload.logs; });
 
@@ -519,6 +550,7 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ── Notification badge total ────────────────────────── */
   const totalNotifCount =
     (Array.isArray(data.pending) ? data.pending.length : 0) +
     (data.marketPendingCount || 0)       +
@@ -540,7 +572,9 @@ export default function AdminDashboard() {
     );
   }
 
+  /* ── Page map ────────────────────────────────────────── */
   const pageMap = {
+
     overview: (
       <Overview
         stats={data.stats}
@@ -554,6 +588,7 @@ export default function AdminDashboard() {
         goTo={setPage}
       />
     ),
+
     users: (
       <Users
         filteredUsers={derived.filteredUsers}
@@ -566,6 +601,7 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     admins: (
       <Admins
         admins={data.admins}
@@ -579,6 +615,7 @@ export default function AdminDashboard() {
         currentUser={currentUser}
       />
     ),
+
     products: (
       <Products
         displayedProds={derived.displayedProds}
@@ -595,12 +632,14 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     market_products: (
       <MarketProducts
         confirm={confirm}
         onMutation={data.reload.marketPendingCount}
       />
     ),
+
     payments: (
       <Payments
         filteredPayments={derived.filteredPayments}
@@ -612,6 +651,7 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     orders: (
       <Orders
         filteredOrders={derived.filteredOrders}
@@ -623,6 +663,7 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     withdrawals: (
       <Withdrawals
         api={api}
@@ -630,12 +671,14 @@ export default function AdminDashboard() {
         onMutation={data.reload.withdrawalCount}
       />
     ),
+
     logs: (
       <Logs
         logs={data.logs}
         reloadLogs={data.reload.logs}
       />
     ),
+
     promotions: (
       <Promotions
         plans={data.plans}
@@ -645,6 +688,7 @@ export default function AdminDashboard() {
         reloadPlans={data.reload.plans}
       />
     ),
+
     system: (
       <System
         system={data.system}
@@ -652,21 +696,25 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     reports: (
       <Reports confirm={confirm} />
     ),
+
     verification: (
       <Verification
         confirm={confirm}
         onMutation={data.reload.verificationCount}
       />
     ),
+
     vendor_verification: (
       <VendorVerification
         confirm={confirm}
         onMutation={data.reload.vendorCount}
       />
     ),
+
     leaderboard: (
       <Leaderboard
         api={api}
@@ -674,6 +722,7 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     airtime_coupons: (
       <AirtimeCoupons
         api={api}
@@ -681,12 +730,14 @@ export default function AdminDashboard() {
         onMutation={data.reload.airtimeCount}
       />
     ),
+
     coupon_redemption: (
       <CouponRedemption
         api={api}
         couponStats={data.stats.coupons}
       />
     ),
+
     subscriptions: (
       <AdminSubscriptions
         api={api}
@@ -696,6 +747,7 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     support: (
       <SupportAdmin
         api={api}
@@ -704,8 +756,17 @@ export default function AdminDashboard() {
         onMutation={data.reload.supportCount}
       />
     ),
+
     source_analytics: (
       <SourceAnalytics />
+    ),
+
+    /* ── Deal Newsletter ── */
+    newsletter: (
+      <NewsletterAdmin
+        api={api}
+        confirm={confirm}
+      />
     ),
   };
 
@@ -716,15 +777,15 @@ export default function AdminDashboard() {
         <Sidebar
           page={page}
           setPage={setPage}
-          pendingCount={data.pending.length}
-          reportCount={data.reportCount}
-          marketPendingCount={data.marketPendingCount}
-          verificationPendingCount={data.verificationPendingCount}
-          vendorPendingCount={data.vendorPendingCount}
-          withdrawalPendingCount={data.withdrawalPendingCount}
-          airtimePendingCount={data.airtimePendingCount}
+          pendingCount={data.pending?.length || 0}
+          reportCount={data.reportCount || 0}
+          marketPendingCount={data.marketPendingCount || 0}
+          verificationPendingCount={data.verificationPendingCount || 0}
+          vendorPendingCount={data.vendorPendingCount || 0}
+          withdrawalPendingCount={data.withdrawalPendingCount || 0}
+          airtimePendingCount={data.airtimePendingCount || 0}
           subscriptionActiveCount={data.subscriptionStats?.active ?? 0}
-          supportPendingCount={data.supportPendingCount}
+          supportPendingCount={data.supportPendingCount || 0}
         />
         <div className="main">
           <Topbar
