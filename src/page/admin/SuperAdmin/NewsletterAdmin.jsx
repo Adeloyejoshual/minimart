@@ -18,7 +18,7 @@ export default function NewsletterAdmin({ api, confirm }) {
   const [logs, setLogs]       = useState([]);
   const [loading, setLoading] = useState(false);
 
-  /* Fetch Stats and Logs via Admin API Client */
+  /* Fetch Stats and Logs */
   const fetchData = useCallback(async () => {
     if (!api) return;
     setLoading(true);
@@ -96,7 +96,6 @@ export default function NewsletterAdmin({ api, confirm }) {
 
   return (
     <>
-      {/* Page Header */}
       <div className="ph">
         <div className="ph-left">
           <h1>Deal Newsletter & Marketing</h1>
@@ -106,7 +105,6 @@ export default function NewsletterAdmin({ api, confirm }) {
         </div>
       </div>
 
-      {/* Summary Metrics */}
       <div style={{
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
@@ -119,7 +117,6 @@ export default function NewsletterAdmin({ api, confirm }) {
         <StatCard label="Total Failed" value={(stats?.total_failed || 0).toLocaleString()} color="c-orange" />
       </div>
 
-      {/* Actions Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 16 }}>
         
         {/* Send Test Email Card */}
