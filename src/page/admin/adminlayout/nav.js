@@ -40,3 +40,24 @@ export const NAV = [
   { id: "promotions", icon: "◈", label: "Promotions" },
   { id: "system",     icon: "⌬", label: "System" },
 ];
+
+export const TOGGLES = [
+  {
+    key: "maintenance",
+    label: "Maintenance Mode",
+    desc: "Take the platform offline for all users. Only admins can access.",
+    danger: true,
+  },
+  {
+    key: "allowPosting",
+    label: "Allow Posting",
+    desc: "Let sellers create and publish product listings.",
+    danger: false,
+  },
+  {
+    key: "allowPayments",
+    label: "Allow Payments",
+    desc: "Enable the Flutterwave payment gateway for all transactions.",
+    danger: false,
+  },
+];
