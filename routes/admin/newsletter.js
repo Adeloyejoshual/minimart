@@ -15,63 +15,8 @@ const router = express.Router();
 router.use(verifyAdmin);
 
 // ─────────────────────────────────────────────────────────────
-// POST /api/admin/newsletter/test
-// Sends a test deal newsletter to a specific email
-// ─────────────────────────────────────────────────────────────
-router.post("/test", async (req, res) => {
-  try {
-    const targetEmail = (req.body?.email || "adeloyejoshua2020@gmail.com").trim();
-    const result      = await sendTestDealNewsletter(targetEmail);
-
-    if (!result.success) {
-      return res.status(400).json(result);
-    }
-
-    /* Log admin action */
-    await pool.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, details)
-       VALUES ($1, 'send_test_newsletter', 'newsletter', $2)`,
-      [req.admin.id, `Sent test deal newsletter to ${targetEmail}`]
-    ).catch(() => {});
-
-    return res.json(result);
-  } catch (err) {
-    console.error("[POST /admin/newsletter/test]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────
-// POST /api/admin/newsletter/trigger-4day
-// Manually triggers the 50-random-users deal dispatch
-// ─────────────────────────────────────────────────────────────
-router.post("/trigger-4day", async (req, res) => {
-  try {
-    /* Run asynchronously so API returns immediately */
-    send4DayDealNewsletter().catch((err) =>
-      console.error("[newsletter-manual-trigger-err]", err.message)
-    );
-
-    /* Log admin action */
-    await pool.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, details)
-       VALUES ($1, 'trigger_4day_newsletter', 'newsletter', 'Triggered 50-user deal newsletter batch')`,
-      [req.admin.id]
-    ).catch(() => {});
-
-    return res.json({
-      success : true,
-      message : "4-Day deal newsletter dispatch started in background for 50 random users.",
-    });
-  } catch (err) {
-    console.error("[POST /admin/newsletter/trigger-4day]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────
 // GET /api/admin/newsletter/stats
-// Overall stats: Total Sent, Sent in Last 4 Days, Eligible Users, Failed
+// Quick statistics summary for dashboard
 // ─────────────────────────────────────────────────────────────
 router.get("/stats", async (req, res) => {
   try {
@@ -99,7 +44,7 @@ router.get("/stats", async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/admin/newsletter/logs
-// Recent email send logs
+// Recent email dispatch logs
 // ─────────────────────────────────────────────────────────────
 router.get("/logs", async (req, res) => {
   try {
@@ -124,6 +69,58 @@ router.get("/logs", async (req, res) => {
     return res.json({ success: true, logs: rows });
   } catch (err) {
     console.error("[GET /admin/newsletter/logs]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/admin/newsletter/test
+// Instant test send to adeloyejoshua2020@gmail.com
+// ─────────────────────────────────────────────────────────────
+router.post("/test", async (req, res) => {
+  try {
+    const targetEmail = (req.body?.email || "adeloyejoshua2020@gmail.com").trim();
+    const result      = await sendTestDealNewsletter(targetEmail);
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    await pool.query(
+      `INSERT INTO admin_logs (admin_id, action, target_type, details)
+       VALUES ($1, 'send_test_newsletter', 'newsletter', $2)`,
+      [req.admin.id, `Sent test deal newsletter to ${targetEmail}`]
+    ).catch(() => {});
+
+    return res.json(result);
+  } catch (err) {
+    console.error("[POST /admin/newsletter/test]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/admin/newsletter/trigger-4day
+// Manually triggers dispatch to 50 random users
+// ─────────────────────────────────────────────────────────────
+router.post("/trigger-4day", async (req, res) => {
+  try {
+    send4DayDealNewsletter().catch((err) =>
+      console.error("[newsletter-manual-trigger-err]", err.message)
+    );
+
+    await pool.query(
+      `INSERT INTO admin_logs (admin_id, action, target_type, details)
+       VALUES ($1, 'trigger_4day_newsletter', 'newsletter', 'Triggered 50-user deal newsletter batch')`,
+      [req.admin.id]
+    ).catch(() => {});
+
+    return res.json({
+      success : true,
+      message : "4-Day deal newsletter dispatch started in background for 50 random users.",
+    });
+  } catch (err) {
+    console.error("[POST /admin/newsletter/trigger-4day]", err.message);
     return res.status(500).json({ error: err.message });
   }
 });
