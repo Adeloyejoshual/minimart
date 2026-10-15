@@ -27,7 +27,8 @@ import airtimeCouponAdminRouter  from "./admin/airtimeCoupons.js";
 import couponRedemptionRouter    from "./admin/couponRedemption.js";
 import subscriptionAdminRouter   from "./admin/subscriptionAdmin.js";
 import supportAdminRouter        from "./admin/support.js";
-import activityLogsRouter        from "./admin/activityLogs.js"; // 👈 Added dedicated router
+import activityLogsRouter        from "./admin/activityLogs.js";
+import newsletterAdminRouter      from "./admin/newsletter.js"; // 👈 Newsletter Sub-router
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -296,6 +297,94 @@ router.get("/stats", verifyAdmin, async (req, res) => {
          WHERE satisfaction_rating IS NOT NULL`
       )),
 
+      /* ── Loemart Express delivery stats ── */
+      dispatchPendingRes,
+      dispatchOutRes,
+      dispatchDeliveredTodayRes,
+      dispatchFailedRes,
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(*) FROM public.users`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE status = 'banned'`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE created_at >= $1`, [today]),
+
+      safe(pool.query(`SELECT COUNT(*) FROM public.products`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.products WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.products WHERE created_at >= $1`, [today])),
+
+      safe(pool.query(`SELECT COUNT(*) FROM market.products`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.products WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.products WHERE created_at >= $1`, [today])),
+
+      safe(pool.query(`SELECT COUNT(*) FROM orders`)),
+      safe(pool.query(`SELECT COUNT(*) FROM orders WHERE created_at >= $1`, [today])),
+
+      pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS revenue
+         FROM payments WHERE status IN ('success','completed','paid')`
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS revenue
+         FROM payments WHERE status IN ('success','completed','paid')
+           AND created_at >= $1`, [today]
+      ),
+      pool.query(
+        `SELECT DATE(created_at) AS date,
+                COALESCE(SUM(amount), 0) AS amount
+         FROM payments
+         WHERE status IN ('success','completed','paid')
+           AND created_at >= NOW() - INTERVAL '30 days'
+         GROUP BY DATE(created_at)
+         ORDER BY date ASC`
+      ),
+
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'active'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'under_review'`)),
+
+      safe(pool.query(`SELECT COUNT(*) FROM referrals`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status IN ('verified','rewarded')`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'rewarded'`)),
+
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = true`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = false`)),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.coupon_redemptions WHERE redeemed_at >= $1`, [today]
+      )),
+
+      safe(pool.query(`SELECT COUNT(*) FROM public.support_tickets`)),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets
+         WHERE status IN ('open','waiting_for_customer')`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'in_progress'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'resolved'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'escalated'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE created_at >= $1`, [today]
+      )),
+      safe(pool.query(`SELECT COUNT(*) FROM public.reports WHERE status = 'pending'`)),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.disputes WHERE status IN ('open','under_review')`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.appeals WHERE status IN ('pending','under_review')`
+      )),
+      safe(pool.query(
+        `SELECT ROUND(AVG(satisfaction_rating), 2) AS avg_rating
+         FROM public.support_tickets
+         WHERE satisfaction_rating IS NOT NULL`
+      )),
+
       /* Loemart Express — orders needing dispatch (shipped) */
       safe(pool.query(
         `SELECT COUNT(*) FROM public.orders WHERE status = 'shipped'`
@@ -455,6 +544,7 @@ router.use("/airtime-coupons",   verifyAdmin, airtimeCouponAdminRouter);
 router.use("/coupon-redemption", verifyAdmin, couponRedemptionRouter);
 router.use("/subscriptions",     verifyAdmin, subscriptionAdminRouter);
 router.use("/support",           verifyAdmin, supportAdminRouter);
-router.use("/activity-logs",     verifyAdmin, activityLogsRouter); // 👈 Dedicated sub-router
+router.use("/activity-logs",     verifyAdmin, activityLogsRouter);
+router.use("/newsletter",        verifyAdmin, newsletterAdminRouter); // 👈 Dedicated newsletter sub-router
 
 export default router;
