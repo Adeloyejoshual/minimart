@@ -1,10 +1,11 @@
 /**
- * server.js — v5.1
+ * server.js — v5.2
  * ─────────────────────────────────────────────────────────────
  * Fixed:
  * ✓ Removed duplicate imports for ssrRouter & sitemapRouter
  * ✓ Public Seller Storefront routes (/api/sellers, /api/stores)
  * ✓ All v4/v5 features, delivery, webhooks & crons preserved
+ * ✓ Integrated 4-Day Deal Newsletter cron job (runs every 4 days at 09:00 UTC)
  */
 
 import express           from "express";
@@ -291,7 +292,7 @@ import { initLeaderboardCron }      from "./services/leaderboardCron.js";
 import { purgeDeletedAccounts }     from "./crons/purgeDeletedAccounts.js";
 
 /* ── Email services ── */
-import { sendWeeklyNewsletter } from "./services/weeklyNewsletter.js";
+import { sendWeeklyNewsletter, send4DayDealNewsletter } from "./services/weeklyNewsletter.js";
 import { processInactiveUsers } from "./services/inactiveUsers.js";
 import { ensureDeliveryIntegrationSchema, startDeliveryIntegrationJob } from "./services/deliveryIntegration.js";
 
@@ -405,11 +406,7 @@ app.use(globalLimiter);
 /* ── Payments ── */
 app.use("/api/payment", paymentRouter);
 
-/* ── Checkout ─────────────────────────────────────────────────
-   ORDER IS CRITICAL:
-   1. buyerReceiptRouter  FIRST  — adds POST/GET on /:orderId/*
-   2. checkoutRouter      SECOND — handles everything else
-─────────────────────────────────────────────────────────── */
+/* ── Checkout ── */
 app.use("/api/checkout/orders", buyerReceiptRouter);
 app.use("/api/checkout",        checkoutRouter);
 
@@ -424,27 +421,18 @@ app.use("/api/seller-auth", sellerAuthRouter);
 /* ── Seller onboarding ── */
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
 
-/* ════════════════════════════════════════════════════════════
-   SELLER SUB-ROUTES
-   ORDER IS CRITICAL — specific routes BEFORE catch-all.
-════════════════════════════════════════════════════════════ */
+/* ── Seller sub-routes ── */
 app.use("/api/seller/orders",        sellerOrderRouter);
 app.use("/api/seller/products",      sellerProductRouter);
 app.use("/api/seller/payout",        sellerPayoutRoutes);
 app.use("/api/seller/settings",      sellerSettingsRouter);
 app.use("/api/seller/notifications", sellerNotificationsRouter);
-app.use("/api/seller",               sellerProfileRouter);   /* catch-all LAST */
+app.use("/api/seller",               sellerProfileRouter);
 
 /* ── Seller Dashboard (legacy) ── */
 app.use("/api/seller-dashboard", sellerDashboardRouter);
 
-/* ════════════════════════════════════════════════════════════
-   ADMIN ROUTES
-   ─────────────────────────────────────────────────────────
-   ORDER IS CRITICAL:
-   1. adminDeliveryRouter  FIRST  — /api/admin/delivery/*
-   2. adminRouter          SECOND — /api/admin/* (catch-all)
-════════════════════════════════════════════════════════════ */
+/* ── Admin ── */
 app.use("/api/internal/marketplace", deliveryHealthRouter);
 app.use("/api/admin/delivery", adminDeliveryRouter);
 app.use("/api/admin",          adminRouter);
@@ -596,6 +584,7 @@ if (!IS_PROD) {
 /* ════════════════════════════════════════════════════════════
    GLOBAL ERROR HANDLER
 ════════════════════════════════════════════════════════════ */
+
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   const reqId = req.requestId ?? "unknown";
@@ -722,7 +711,7 @@ async function start() {
   startCleanupJob();
   initLeaderboardCron();
 
-  /* 4 — Cron jobs */
+  /* 5 — Cron jobs */
   await (async () => {
     let cron;
     try {
@@ -757,6 +746,14 @@ async function start() {
       )
     );
 
+    /* ── 4-Day Deal Newsletter — Every 4 days at 09:00 UTC ── */
+    cron.schedule("0 9 */4 * *", () => {
+      console.log("[cron] Running 4-day deal newsletter dispatch...");
+      send4DayDealNewsletter().catch((err) =>
+        console.error("[cron] 4DayDealNewsletter:", err.message)
+      );
+    });
+
     /* ── Inactive user nudges — daily 09:00 UTC ── */
     cron.schedule("0 9 * * *", () =>
       processInactiveUsers().catch((err) =>
@@ -767,103 +764,14 @@ async function start() {
     console.log("✅ [cron] Auto-confirm deliveries → every hour");
     console.log("✅ [cron] Account purge           → daily    02:00 UTC");
     console.log("✅ [cron] Weekly newsletter        → Monday   08:00 UTC");
+    console.log("✅ [cron] 4-Day Deal newsletter   → every 4 days 09:00 UTC");
     console.log("✅ [cron] Inactive users           → daily    09:00 UTC");
   })();
 
-  /* 5 — Open HTTP server LAST */
+  /* 6 — Open HTTP server LAST */
   server.listen(PORT, () => {
     const env = process.env.NODE_ENV || "development";
     console.log(`\n🚀 Loemart server  |  port=${PORT}  |  env=${env}`);
-    console.log(`
-  ═══════════════════════════════════════════════════════
-  ROUTE MAP
-  ═══════════════════════════════════════════════════════
-
-  ── Seller Auth  (market.users JWT) ────────────────────
-    POST  /api/seller-auth/register
-    POST  /api/seller-auth/verify-email
-    POST  /api/seller-auth/login
-    GET   /api/seller-auth/me
-
-  ── Seller Orders ──────────────────────────────────────
-    GET   /api/seller/orders/stats
-    GET   /api/seller/orders
-    GET   /api/seller/orders/:id
-    PATCH /api/seller/orders/:id/status
-    POST  /api/seller/orders/:id/ready
-
-  ── Seller Products ────────────────────────────────────
-    GET    /api/seller/products
-    GET    /api/seller/products/:id
-    PUT    /api/seller/products/:id
-    PATCH  /api/seller/products/:id/pause
-    PATCH  /api/seller/products/:id/images
-    DELETE /api/seller/products/:id/images/:imgId
-    DELETE /api/seller/products/:id
-    POST   /api/products  ← addproduct (authenticateSeller)
-
-  ── Seller Payout / Settings / Notifications ───────────
-    /api/seller/payout/*
-    /api/seller/settings/*
-    /api/seller/notifications/*
-
-  ── Seller Profile (catch-all) ─────────────────────────
-    /api/seller/*
-
-  ── Public Seller Storefront ───────────────────────────
-    GET   /api/sellers/:idOrSlug
-    GET   /api/sellers/:idOrSlug/products
-    GET   /api/stores/:idOrSlug
-
-  ── Checkout (public) ──────────────────────────────────
-    GET   /api/checkout/address/zones          ← PUBLIC
-    POST  /api/checkout/webhook/*              ← PUBLIC
-
-  ── Checkout (auth required) ───────────────────────────
-    GET   /api/checkout/address
-    POST  /api/checkout/address
-    PATCH /api/checkout/address/:id
-    PATCH /api/checkout/address/:id/default
-    PATCH /api/checkout/address/:id/mark-used
-    DEL   /api/checkout/address/:id
-    POST  /api/checkout/calculate
-    POST  /api/checkout                        ← place order
-    POST  /api/checkout/retry-payment
-    GET   /api/checkout/orders
-    GET   /api/checkout/orders/:id
-
-  ── Buyer Receipt (auth required) ──────────────────────
-    POST  /api/checkout/orders/:id/confirm-received
-    GET   /api/checkout/orders/:id/receipt-status
-
-  ── Admin — Loemart Express Delivery ───────────────────
-    GET   /api/admin/delivery/pending-dispatch
-    GET   /api/admin/delivery/:id/dispatch
-    POST  /api/admin/delivery/:id/dispatch     ← assign agent
-    POST  /api/admin/delivery/:id/delivered    ← agent drop-off
-    POST  /api/admin/delivery/:id/failed       ← failed attempt
-
-  ── Admin (existing) ───────────────────────────────────
-    POST  /api/admin/login
-    GET   /api/admin/me
-    GET   /api/admin/stats
-    GET   /api/admin/logs
-    /api/admin/users/*
-    /api/admin/orders/*
-    /api/admin/products/*
-    ... (all existing admin sub-routers)
-
-  ── Health ─────────────────────────────────────────────
-    GET   /api/health
-
-  ── Cron Jobs ──────────────────────────────────────────
-    Auto-confirm deliveries  → every hour
-    Account purge            → daily    02:00 UTC
-    Weekly newsletter        → Monday   08:00 UTC
-    Inactive users           → daily    09:00 UTC
-
-  ═══════════════════════════════════════════════════════
-    `);
   });
 }
 
