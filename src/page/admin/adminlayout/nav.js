@@ -1,5 +1,3 @@
-// adminlayout/nav.js
-
 export const NAV = [
   { g: "Dashboard" },
   { id: "overview", icon: "◈", label: "Overview" },
@@ -24,6 +22,9 @@ export const NAV = [
   { id: "airtime_coupons",   icon: "📱", label: "Airtime" },
   { id: "coupon_redemption", icon: "🎟️", label: "Redeem Coupons" },
 
+  { g: "Marketing" },
+  { id: "newsletter", icon: "✉️", label: "Deal Newsletter" },
+
   { g: "Moderation" },
   { id: "reports",      icon: "⚑", label: "Reports" },
   { id: "verification", icon: "✦", label: "Verification" },
@@ -32,7 +33,7 @@ export const NAV = [
   { id: "support", icon: "🎧", label: "Support Center" },
 
   { g: "Growth" },
-  { id: "leaderboard",    icon: "⬖", label: "Leaderboard" },
+  { id: "leaderboard",      icon: "⬖", label: "Leaderboard" },
   { id: "source_analytics", icon: "📊", label: "Source Analytics" },
 
   { g: "Config" },
