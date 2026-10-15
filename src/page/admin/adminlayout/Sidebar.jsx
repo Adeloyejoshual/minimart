@@ -1,5 +1,3 @@
-// adminlayout/Sidebar.jsx
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -8,23 +6,27 @@ import { NAV } from "./nav";
 export default function Sidebar({
   page,
   setPage,
-  pendingCount,
-  reportCount,
-  marketPendingCount,
-  verificationPendingCount,
-  vendorPendingCount,
-  withdrawalPendingCount,
-  airtimePendingCount,
-  subscriptionActiveCount,
-  supportPendingCount,
+  pendingCount = 0,
+  reportCount = 0,
+  marketPendingCount = 0,
+  verificationPendingCount = 0,
+  vendorPendingCount = 0,
+  withdrawalPendingCount = 0,
+  airtimePendingCount = 0,
+  subscriptionActiveCount = 0,
+  supportPendingCount = 0,
+  newsletterFailedCount = 0, // Optional: badge for failed email alerts
 }) {
   const navigate = useNavigate();
   const [loggingOut, setLoggingOut] = useState(false);
 
   /* ── Get logged-in admin info ── */
   const admin = (() => {
-    try { return JSON.parse(localStorage.getItem("admin") || "null"); }
-    catch { return null; }
+    try {
+      return JSON.parse(localStorage.getItem("admin") || "null");
+    } catch {
+      return null;
+    }
   })();
 
   /* ── Handle logout ── */
@@ -65,6 +67,7 @@ export default function Sidebar({
     airtime_coupons     : airtimePendingCount,
     subscriptions       : subscriptionActiveCount,
     support             : supportPendingCount,
+    newsletter          : newsletterFailedCount,
   };
 
   const redBadges = new Set([
@@ -74,6 +77,7 @@ export default function Sidebar({
     "withdrawals",
     "airtime_coupons",
     "support",
+    "newsletter",
   ]);
 
   const blueBadges = new Set([
