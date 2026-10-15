@@ -2,27 +2,23 @@
 // FILE: services/weeklyNewsletter.js
 // ════════════════════════════════════════════════════════════
 //
-// Weekly newsletter service — powered by Resend.
+// Newsletter & Deal Dispatch Service — Powered by Resend.
+// Fully integrated with Homepage v7 product ranking & image extraction.
 //
-// What it does:
-//  1. Finds all opted-in, email-verified, non-restricted users
-//     who have NOT received this week's edition yet.
-//  2. Pulls the week's top products (promoted first, then
-//     highest engagement).
-//  3. Pulls top categories by active listing count.
-//  4. Pulls platform stats for the past 7 days.
-//  5. Sends a personalised HTML + plain-text email via Resend
-//     in small batches (respects rate limits).
-//  6. Logs every attempt to newsletter_logs (idempotent upsert).
-//     Re-running in the same ISO week skips already-sent users.
-//
+// Features:
+//  1. send4DayDealNewsletter(): Sends AliExpress/Jumia-style deals to 50
+//     random verified users every 4 days.
+//  2. sendTestNewsletter(): Sends a test email directly to
+//     adeloyejoshua2020@gmail.com.
+//  3. sendWeeklyNewsletter(): Full weekly platform digest.
+//  4. Idempotent logging to newsletter_logs (prevents duplicate sends).
 // ════════════════════════════════════════════════════════════
 
 import { Resend } from "resend";
 import { pool }   from "../config/db.js";
 
 /* ════════════════════════════════════════════════════════════
-   RESEND CLIENT  (lazy singleton — mirrors your email service)
+   RESEND CLIENT  (lazy singleton)
 ════════════════════════════════════════════════════════════ */
 let _resend = null;
 
@@ -31,9 +27,7 @@ function getClient() {
 
   const key = process.env.RESEND_API_KEY;
   if (!key) {
-    console.warn(
-      "[newsletter] ⚠  RESEND_API_KEY not set — dry-run/console fallback active"
-    );
+    console.warn("[newsletter] ⚠ RESEND_API_KEY not set — dry-run active");
     return null;
   }
 
@@ -50,23 +44,18 @@ function getClient() {
 getClient();
 
 /* ════════════════════════════════════════════════════════════
-   BRAND / ENV  (matches your existing email service pattern)
+   BRAND & CONFIG
 ════════════════════════════════════════════════════════════ */
-const FROM_ADDRESS = process.env.EMAIL_FROM     || "Loemart <no-reply@loemart.com>";
+const FROM_ADDRESS = process.env.EMAIL_FROM     || "Loemart Deals <no-reply@loemart.com>";
 const BRAND        = process.env.EMAIL_BRAND    || "Loemart";
 const SUPPORT      = process.env.EMAIL_SUPPORT  || "support@loemart.com";
 const FRONTEND_URL = (process.env.FRONTEND_URL  || "https://loemart.com").replace(/\/$/, "");
 const YEAR         = new Date().getFullYear();
 const IS_PROD      = process.env.NODE_ENV === "production";
 
-/* ════════════════════════════════════════════════════════════
-   CONFIG
-════════════════════════════════════════════════════════════ */
 const CFG = Object.freeze({
   BATCH_SIZE       : parseInt(process.env.NL_BATCH_SIZE      ?? "50",   10),
   BATCH_DELAY_MS   : parseInt(process.env.NL_BATCH_DELAY_MS  ?? "1200", 10),
-  TOP_PRODUCTS     : parseInt(process.env.NL_TOP_PRODUCTS    ?? "6",    10),
-  TOP_CATEGORIES   : parseInt(process.env.NL_TOP_CATEGORIES  ?? "4",    10),
   MAX_RETRIES      : 2,
   RETRY_DELAY_MS   : 800,
   DRY_RUN          : process.env.NL_DRY_RUN === "true" || !IS_PROD,
@@ -78,24 +67,14 @@ const CFG = Object.freeze({
 /* ════════════════════════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════════════════════════ */
-
-/** ISO week key — e.g. "2025-W03" */
-const getWeekKey = () => {
-  const now  = new Date();
-  const jan1 = new Date(now.getFullYear(), 0, 1);
-  const week = Math.ceil(
-    ((now - jan1) / 86_400_000 + jan1.getDay() + 1) / 7
-  );
-  return `${now.getFullYear()}-W${String(week).padStart(2, "0")}`;
-};
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* Format price cleanly as ₦11,816.36 */
 const formatPrice = (n) =>
   new Intl.NumberFormat("en-NG", {
-    style                : "currency",
-    currency             : "NGN",
-    maximumFractionDigits: 0,
+    style: "currency",
+    currency: "NGN",
+    maximumFractionDigits: 2,
   }).format(Number(n ?? 0));
 
 const formatNumber = (n) =>
@@ -110,112 +89,79 @@ const escHtml = (str) =>
     .replace(/'/g,  "&#39;");
 
 /* ════════════════════════════════════════════════════════════
-   DATA FETCHERS
+   DATABASE FETCHERS (HOMEPAGE v7 RANKING ENGINE)
 ════════════════════════════════════════════════════════════ */
 
-/** Opted-in users who haven't received this week's edition */
-async function fetchSubscribers(weekKey) {
+/** Fetch 50 random verified users who haven't received an email in 4 days */
+async function fetch50RandomSubscribers() {
   const { rows } = await pool.query(
-    `SELECT u.id, u.email, u.name, u.location_city, u.location_state
+    `SELECT u.id, u.email, u.name
      FROM   public.users u
-     WHERE  u.newsletter_opted_in = TRUE
-       AND  u.email_verified      = TRUE
-       AND  u.status NOT IN ('banned', 'flagged', 'deleted')
+     WHERE  u.email_verified = TRUE
+       AND  u.status NOT IN ('banned', 'deleted', 'flagged')
        AND  NOT EXISTS (
          SELECT 1 FROM public.newsletter_logs nl
-         WHERE  nl.user_id  = u.id
-           AND  nl.week_key = $1
-           AND  nl.status   = 'sent'
+         WHERE  nl.user_id = u.id
+           AND  nl.sent_at >= NOW() - INTERVAL '4 days'
        )
-     ORDER  BY u.created_at DESC`,
-    [weekKey]
+     ORDER  BY RANDOM()
+     LIMIT  50`
   );
   return rows;
 }
 
-/** Top N products — promoted first, then most engaged */
-async function fetchTopProducts() {
+/** 
+ * Fetch top products using Homepage v7 ranking rules:
+ * Promoted > Promotion Priority > Engagement Score > Recency
+ */
+async function fetchTopProducts(limit = 11) {
   const { rows } = await pool.query(
     `SELECT
-       p.id,              p.title,        p.price,
-       p.slug,            p.main_image,   p.thumbnail_url,
-       p.location_city,   p.location_state,
-       p.engagement_score, p.is_promoted,  p.promotion_type,
-       u.name             AS seller_name,
-       u.identity_verified AS seller_verified
+       p.id,
+       p.title,
+       p.price,
+       p.slug,
+       p.main_image,
+       p.thumbnail_url,
+       p.images
      FROM  public.products p
-     LEFT  JOIN public.users u ON u.id = p.seller_id
      WHERE p.is_active = TRUE
-       AND p.status    IN ('active', 'active_limited')
+       AND p.status IN ('active', 'active_limited')
+       AND p.status <> 'deleted'
        AND (p.active_until IS NULL OR p.active_until > NOW())
        AND (p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())
      ORDER BY
-       p.is_promoted      DESC,
-       p.engagement_score DESC,
-       p.created_at       DESC
-     LIMIT $1`,
-    [CFG.TOP_PRODUCTS]
+       p.is_promoted        DESC,
+       p.promotion_priority DESC,
+       p.engagement_score   DESC,
+       p.created_at         DESC
+     LIMIT 30`
   );
-  return rows;
+
+  if (!rows.length) return [];
+
+  // Shuffle top pool slightly for variety
+  const selected = [...rows].sort(() => 0.5 - Math.random()).slice(0, limit);
+
+  return selected.map((p) => {
+    /* Homepage v7 Image Fallback Logic */
+    let image = p.main_image || p.thumbnail_url || null;
+    if (!image && Array.isArray(p.images) && p.images.length > 0) {
+      const first = p.images[0];
+      image = typeof first === "string" ? first : first?.url ?? null;
+    }
+
+    return {
+      id    : p.id,
+      title : p.title,
+      price : Number(p.price || 0),
+      slug  : p.slug,
+      image : image || "https://loemart.com/placeholder.png",
+    };
+  });
 }
 
-/** Top categories by active listing count */
-async function fetchTopCategories() {
-  const { rows } = await pool.query(
-    `SELECT
-       c.id,
-       c.name,
-       c.slug,
-       COUNT(p.id)::INT AS listing_count
-     FROM  public.categories c
-     LEFT  JOIN public.products p
-       ON  p.category_id = c.id
-           AND p.is_active = TRUE
-           AND p.status IN ('active', 'active_limited')
-           AND (p.active_until IS NULL OR p.active_until > NOW())
-     WHERE c.is_active = TRUE
-     GROUP BY c.id, c.name, c.slug
-     ORDER BY listing_count DESC
-     LIMIT $1`,
-    [CFG.TOP_CATEGORIES]
-  );
-  return rows;
-}
-
-/** Platform stats — last 7 days */
-async function fetchWeeklyStats() {
-  const [usersRes, listingsRes, activeRes] = await Promise.all([
-    pool.query(
-      `SELECT COUNT(*)::INT AS count
-       FROM   public.users
-       WHERE  created_at >= NOW() - INTERVAL '7 days'
-         AND  status NOT IN ('banned', 'deleted')`
-    ),
-    pool.query(
-      `SELECT COUNT(*)::INT AS count
-       FROM   public.products
-       WHERE  created_at >= NOW() - INTERVAL '7 days'
-         AND  status <> 'deleted'`
-    ),
-    pool.query(
-      `SELECT COUNT(*)::INT AS count
-       FROM   public.products
-       WHERE  is_active = TRUE
-         AND  status IN ('active', 'active_limited')
-         AND  (active_until IS NULL OR active_until > NOW())`
-    ),
-  ]);
-
-  return {
-    new_users       : usersRes.rows[0]?.count    ?? 0,
-    new_listings    : listingsRes.rows[0]?.count ?? 0,
-    active_listings : activeRes.rows[0]?.count   ?? 0,
-  };
-}
-
-/* ════════════════════════════════════════════════════════════
-   LOG HELPERS
-════════════════════════════════════════════════════════════ */
+/** Log sent email to prevent duplicate sends */
 async function logSend(userId, weekKey, status, errorMsg = null) {
   try {
     await pool.query(
@@ -235,257 +181,146 @@ async function logSend(userId, weekKey, status, errorMsg = null) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   EMAIL TEMPLATE
+   EMAIL TEMPLATES
 ════════════════════════════════════════════════════════════ */
 
-/* ── Shared inline styles ── */
-const S = {
-  body    : `margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%;`,
-  card    : `max-width:600px;width:100%;`,
-  header  : `background:linear-gradient(135deg,#16a34a 0%,#15803d 100%);border-radius:16px 16px 0 0;padding:32px 40px;text-align:center;`,
-  body_td : `background:#fff;padding:36px 40px;`,
-  footer  : `background:#f3f4f6;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;`,
-  h2      : `margin:0 0 16px;font-size:18px;font-weight:700;color:#111827;`,
-  ctaGreen: `display:inline-block;background:#16a34a;color:#fff;font-size:15px;font-weight:700;padding:14px 36px;border-radius:8px;text-decoration:none;letter-spacing:.2px;`,
-  ctaAmber: `display:inline-block;background:#d97706;color:#fff;font-size:14px;font-weight:700;padding:11px 28px;border-radius:7px;text-decoration:none;`,
-  label   : `margin:4px 0 0;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;`,
-  stat    : `margin:0;font-size:22px;font-weight:800;color:#15803d;`,
-  divider : `border:none;border-top:1px solid #f3f4f6;margin:0 0 32px;`,
-};
+/** AliExpress / Jumia Style Deals Grid Template */
+function buildAliExpressEmailHtml(subscriber, products) {
+  const name     = escHtml((subscriber.name ?? "").split(" ")[0] || "Customer");
+  const heroBig  = products[0];
+  const hero4    = products.slice(1, 5);
+  const grid6    = products.slice(5, 11);
 
-function buildProductCard(p) {
-  const image    = p.main_image || p.thumbnail_url || null;
-  const location = [p.location_city, p.location_state].filter(Boolean).join(", ");
-  const href     = `${FRONTEND_URL}/products/${escHtml(p.slug)}`;
+  const exploreUrl = `${FRONTEND_URL}/browse`;
+  const unsubUrl   = `${FRONTEND_URL}${CFG.UNSUBSCRIBE_PATH}`;
 
-  const badge = p.is_promoted
-    ? `<span style="display:inline-block;background:#f97316;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;letter-spacing:.5px;margin-bottom:6px;text-transform:uppercase;">
-         Featured
-       </span>`
-    : "";
-
-  const imgBlock = image
-    ? `<img src="${escHtml(image)}" alt="${escHtml(p.title)}" width="100%"
-            style="display:block;height:160px;object-fit:cover;" />`
-    : `<div style="height:160px;background:linear-gradient(135deg,#f3f4f6,#e5e7eb);
-                   display:flex;align-items:center;justify-content:center;">
-         <span style="font-size:32px;">🛍️</span>
-       </div>`;
-
-  return `
-    <td style="width:46%;vertical-align:top;padding:10px;">
-      <a href="${href}" style="text-decoration:none;color:inherit;">
-        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;
-                    overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06);">
-          ${imgBlock}
-          <div style="padding:12px;">
-            ${badge}
-            <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#111827;
-                      line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;
-                      -webkit-box-orient:vertical;overflow:hidden;">
-              ${escHtml(p.title)}
-            </p>
-            <p style="margin:0 0 6px;font-size:15px;font-weight:700;color:#16a34a;">
-              ${formatPrice(p.price)}
-            </p>
-            ${location
-              ? `<p style="margin:0;font-size:11px;color:#6b7280;">
-                   📍 ${escHtml(location)}
-                 </p>`
-              : ""}
+  /* Build Top 2x2 Mini Grid */
+  const hero4Cards = hero4.map((p) => {
+    const pUrl = `${FRONTEND_URL}/products/${escHtml(p.slug)}`;
+    return `
+      <td width="50%" style="padding:3px;vertical-align:top;">
+        <a href="${pUrl}" style="text-decoration:none;display:block;background:#fff;border-radius:6px;overflow:hidden;border:1px solid #f0f0f0;">
+          <div style="height:100px;background:#fafafa;">
+            <img src="${escHtml(p.image)}" alt="${escHtml(p.title)}" width="100%" height="100" style="object-fit:cover;display:block;" />
           </div>
-        </div>
-      </a>
-    </td>`;
-}
+          <div style="padding:6px 4px;background:#fff;">
+            <span style="font-size:11px;font-weight:800;color:#111827;">${formatPrice(p.price)}</span>
+          </div>
+        </a>
+      </td>`;
+  });
 
-function buildCategoryPill(cat) {
-  return `
-    <a href="${FRONTEND_URL}${CFG.BROWSE_PATH}?category=${escHtml(cat.slug)}"
-       style="display:inline-block;background:#f3f4f6;color:#374151;
-              font-size:12px;font-weight:600;padding:6px 14px;
-              border-radius:99px;text-decoration:none;margin:4px;
-              border:1px solid #e5e7eb;">
-      ${escHtml(cat.name)}
-      <span style="color:#9ca3af;margin-left:4px;">
-        ${formatNumber(cat.listing_count)}
-      </span>
-    </a>`;
-}
+  /* Build 3-Column Product Grid */
+  const gridRows = [];
+  for (let i = 0; i < grid6.length; i += 3) {
+    const chunk = grid6.slice(i, i + 3);
+    const cols  = chunk.map((p) => {
+      const pUrl = `${FRONTEND_URL}/products/${escHtml(p.slug)}`;
+      return `
+        <td width="33.33%" style="padding:4px;vertical-align:top;">
+          <a href="${pUrl}" style="text-decoration:none;display:block;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #eee;">
+            <div style="height:120px;background:#f9fafb;">
+              <img src="${escHtml(p.image)}" alt="${escHtml(p.title)}" width="100%" height="120" style="object-fit:cover;display:block;" />
+            </div>
+            <div style="padding:8px 6px;">
+              <p style="margin:0 0 4px;font-size:11px;color:#374151;height:28px;overflow:hidden;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">
+                ${escHtml(p.title)}
+              </p>
+              <div>
+                <span style="font-size:12px;font-weight:900;color:#000;">${formatPrice(p.price)}</span>
+              </div>
+            </div>
+          </a>
+        </td>`;
+    });
 
-/* ── Full HTML email ── */
-function buildHtml({ subscriber, products, categories, stats, weekKey }) {
-  const firstName   = escHtml((subscriber.name ?? "").split(" ")[0] || "there");
-  const unsubUrl    = `${FRONTEND_URL}${CFG.UNSUBSCRIBE_PATH}`;
-  const browseUrl   = `${FRONTEND_URL}${CFG.BROWSE_PATH}`;
-  const sellUrl     = `${FRONTEND_URL}${CFG.SELL_PATH}`;
-
-  /* Product grid — rows of 2 */
-  const productRows = [];
-  for (let i = 0; i < products.length; i += 2) {
-    const left  = products[i]     ? buildProductCard(products[i])     : `<td></td>`;
-    const right = products[i + 1] ? buildProductCard(products[i + 1]) : `<td></td>`;
-    productRows.push(`<tr>${left}${right}</tr>`);
+    while (cols.length < 3) cols.push(`<td width="33.33%"></td>`);
+    gridRows.push(`<tr>${cols.join("")}</tr>`);
   }
 
-  const categoryPills = categories.map(buildCategoryPill).join("");
-
   return `<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <title>Your Weekly Picks — ${BRAND}</title>
-  <!--[if mso]>
-  <noscript><xml><o:OfficeDocumentSettings>
-    <o:PixelsPerInch>96</o:PixelsPerInch>
-  </o:OfficeDocumentSettings></xml></noscript>
-  <![endif]-->
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Hot Deals on ${BRAND}</title>
 </head>
-<body style="${S.body}">
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 
-<!-- PREVIEW TEXT (hidden) -->
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">
-  This week's top picks, trending categories &amp; highlights — just for you 🛍️
-  &nbsp;&#847;&nbsp;&#847;&nbsp;&#847;&nbsp;&#847;&nbsp;&#847;
-</div>
-
-<!-- OUTER -->
-<table width="100%" cellpadding="0" cellspacing="0" border="0"
-       style="background:#f9fafb;padding:32px 0;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f5;padding:20px 0;">
   <tr>
     <td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" border="0"
-             style="${S.card}">
-
+      <table width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.06);">
+        
         <!-- HEADER -->
         <tr>
-          <td style="${S.header}">
-            <h1 style="margin:0;color:#fff;font-size:24px;font-weight:800;letter-spacing:-.3px;">
-              Your Weekly Picks 🛍️
-            </h1>
-            <p style="margin:8px 0 0;color:rgba(255,255,255,.85);font-size:14px;">
-              ${escHtml(weekKey)} &nbsp;·&nbsp; Curated just for you
-            </p>
+          <td style="padding:16px 20px;background:#ffffff;border-bottom:1px solid #f0f0f0;">
+            <table width="100%">
+              <tr>
+                <td style="font-size:20px;font-weight:900;color:#16a34a;letter-spacing:-0.5px;">${BRAND}</td>
+                <td align="right" style="font-size:12px;color:#6b7280;">Recommended for <strong>${name}</strong></td>
+              </tr>
+            </table>
           </td>
         </tr>
 
-        <!-- BODY -->
+        <!-- TOP HERO SECTION (1 Big + 2x2 Mini) -->
         <tr>
-          <td style="${S.body_td}">
-
-            <!-- Greeting -->
-            <p style="margin:0 0 24px;font-size:16px;color:#111827;line-height:1.6;">
-              Hi <strong>${firstName}</strong> 👋,<br />
-              Here's what's hot on ${escHtml(BRAND)} this week.
-              The best deals move fast — don't miss out!
-            </p>
-
-            <!-- STATS STRIP -->
-            <table width="100%" cellpadding="0" cellspacing="0" border="0"
-                   style="background:#f0fdf4;border:1px solid #bbf7d0;
-                           border-radius:12px;margin-bottom:32px;">
-              <tr>
-                <td align="center"
-                    style="padding:18px 10px;border-right:1px solid #bbf7d0;">
-                  <p style="${S.stat}">${formatNumber(stats.new_listings)}</p>
-                  <p style="${S.label}">New Listings</p>
-                </td>
-                <td align="center"
-                    style="padding:18px 10px;border-right:1px solid #bbf7d0;">
-                  <p style="${S.stat}">${formatNumber(stats.active_listings)}</p>
-                  <p style="${S.label}">Active Listings</p>
-                </td>
-                <td align="center" style="padding:18px 10px;">
-                  <p style="${S.stat}">${formatNumber(stats.new_users)}</p>
-                  <p style="${S.label}">New Members</p>
-                </td>
-              </tr>
-            </table>
-
-            <!-- TOP PRODUCTS -->
-            <h2 style="${S.h2}">🔥 Top Picks This Week</h2>
-            <table width="100%" cellpadding="0" cellspacing="0" border="0"
-                   style="margin-bottom:32px;">
-              ${productRows.join("\n")}
-            </table>
-
-            <!-- Browse CTA -->
-            <table width="100%" cellpadding="0" cellspacing="0" border="0"
-                   style="margin-bottom:36px;">
-              <tr>
-                <td align="center">
-                  <a href="${browseUrl}" style="${S.ctaGreen}">
-                    Browse All Listings →
-                  </a>
-                </td>
-              </tr>
-            </table>
-
-            <hr style="${S.divider}" />
-
-            <!-- TRENDING CATEGORIES -->
-            <h2 style="${S.h2}">📂 Trending Categories</h2>
-            <p style="margin:0 0 16px;font-size:14px;color:#6b7280;">
-              Numbers show active listings right now.
-            </p>
-            <div style="margin-bottom:32px;line-height:2.2;">
-              ${categoryPills}
-            </div>
-
-            <hr style="${S.divider}" />
-
-            <!-- SELL CTA -->
+          <td style="padding:12px;background:#edf7ed;">
             <table width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
-                <td style="background:linear-gradient(135deg,#fefce8,#fef9c3);
-                            border:1px solid #fde68a;border-radius:12px;
-                            padding:24px 28px;">
-                  <h3 style="margin:0 0 8px;font-size:17px;font-weight:700;color:#92400e;">
-                    💡 Got something to sell?
-                  </h3>
-                  <p style="margin:0 0 16px;font-size:14px;color:#78350f;line-height:1.6;">
-                    Thousands of buyers are browsing ${escHtml(BRAND)} right now.
-                    List your item in under 2 minutes — it's completely free!
-                  </p>
-                  <a href="${sellUrl}" style="${S.ctaAmber}">
-                    Post a Free Listing →
+                <!-- Big Hero Product (Left) -->
+                ${heroBig ? `
+                <td width="50%" style="padding:3px;vertical-align:top;">
+                  <a href="${FRONTEND_URL}/products/${escHtml(heroBig.slug)}" style="text-decoration:none;display:block;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;">
+                    <div style="height:210px;background:#fafafa;">
+                      <img src="${escHtml(heroBig.image)}" alt="${escHtml(heroBig.title)}" width="100%" height="210" style="object-fit:cover;display:block;" />
+                    </div>
+                    <div style="padding:10px;background:#fff;">
+                      <span style="font-size:14px;font-weight:900;color:#000;">${formatPrice(heroBig.price)}</span>
+                    </div>
                   </a>
+                </td>` : ""}
+
+                <!-- 2x2 Mini Grid (Right) -->
+                <td width="50%" style="vertical-align:top;">
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>${hero4Cards[0] || ""} ${hero4Cards[1] || ""}</tr>
+                    <tr>${hero4Cards[2] || ""} ${hero4Cards[3] || ""}</tr>
+                  </table>
                 </td>
               </tr>
             </table>
+          </td>
+        </tr>
 
+        <!-- EXPLORE DEALS BUTTON -->
+        <tr>
+          <td align="center" style="padding:18px 12px;background:#ffffff;">
+            <a href="${exploreUrl}" style="display:inline-block;background:#000000;color:#ffffff;font-size:14px;font-weight:700;padding:12px 48px;border-radius:4px;text-decoration:none;letter-spacing:0.5px;">
+              Explore deals
+            </a>
+          </td>
+        </tr>
+
+        <!-- 3-COLUMN PRODUCT GRID -->
+        <tr>
+          <td style="padding:8px 12px 20px 12px;background:#ffffff;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              ${gridRows.join("")}
+            </table>
           </td>
         </tr>
 
         <!-- FOOTER -->
         <tr>
-          <td style="${S.footer}">
-            <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;line-height:1.6;">
-              You're receiving this because you subscribed to weekly updates
-              from <strong>${escHtml(BRAND)}</strong>.<br />
-              We send one email per week — no spam, ever.
+          <td style="padding:20px;background:#fafafa;border-top:1px solid #f0f0f0;text-align:center;font-size:11px;color:#9ca3af;">
+            <p style="margin:0 0 8px;">You are receiving this because you're a registered member on ${BRAND}.</p>
+            <p style="margin:0;">
+              <a href="${unsubUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a> &nbsp;•&nbsp;
+              <a href="${FRONTEND_URL}/privacy" style="color:#6b7280;text-decoration:underline;">Privacy Policy</a>
             </p>
-            <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;">
-              Questions? Reply to this email or contact
-              <a href="mailto:${escHtml(SUPPORT)}"
-                 style="color:#6b7280;">${escHtml(SUPPORT)}</a>
-            </p>
-            <p style="margin:0;font-size:12px;">
-              <a href="${unsubUrl}"
-                 style="color:#6b7280;text-decoration:underline;">
-                Unsubscribe or manage preferences
-              </a>
-              &nbsp;·&nbsp;
-              <a href="${FRONTEND_URL}/privacy"
-                 style="color:#6b7280;text-decoration:underline;">
-                Privacy Policy
-              </a>
-            </p>
-            <p style="margin:12px 0 0;font-size:11px;color:#d1d5db;">
-              © ${YEAR} ${escHtml(BRAND)}. All rights reserved.
-            </p>
+            <p style="margin:8px 0 0;">© ${YEAR} ${BRAND}. All rights reserved.</p>
           </td>
         </tr>
 
@@ -498,210 +333,119 @@ function buildHtml({ subscriber, products, categories, stats, weekKey }) {
 </html>`.trim();
 }
 
-/* ── Plain-text fallback ── */
-function buildText({ subscriber, products, stats, weekKey }) {
-  const firstName = (subscriber.name ?? "").split(" ")[0] || "there";
-
-  const productLines = products.map(
-    (p) =>
-      `  • ${p.title}\n` +
-      `    ${formatPrice(p.price)}  —  ${FRONTEND_URL}/products/${p.slug}`
-  );
-
-  return [
-    `Hi ${firstName},`,
-    ``,
-    `Here's your ${BRAND} weekly digest for ${weekKey}.`,
-    ``,
-    `── PLATFORM THIS WEEK ──────────────────────────`,
-    `  New listings   : ${formatNumber(stats.new_listings)}`,
-    `  Active listings: ${formatNumber(stats.active_listings)}`,
-    `  New members    : ${formatNumber(stats.new_users)}`,
-    ``,
-    `── TOP PICKS ────────────────────────────────────`,
-    ...productLines,
-    ``,
-    `Browse all listings: ${FRONTEND_URL}${CFG.BROWSE_PATH}`,
-    ``,
-    `── POST A FREE LISTING ──────────────────────────`,
-    `  ${FRONTEND_URL}${CFG.SELL_PATH}`,
-    ``,
-    `── MANAGE PREFERENCES ───────────────────────────`,
-    `  ${FRONTEND_URL}${CFG.UNSUBSCRIBE_PATH}`,
-    ``,
-    `Questions? Contact us at ${SUPPORT}`,
-    ``,
-    `© ${YEAR} ${BRAND}. All rights reserved.`,
-  ].join("\n");
-}
-
 /* ════════════════════════════════════════════════════════════
-   SEND ONE EMAIL  (with retry)
-════════════════════════════════════════════════════════════ */
-async function sendToOne(resend, subscriber, html, text, weekKey) {
-  /* DRY RUN — log only, no real send */
-  if (CFG.DRY_RUN || !resend) {
-    console.log(
-      `[newsletter] DRY-RUN — would send to ${subscriber.email} (${weekKey})`
-    );
-    await logSend(subscriber.id, weekKey, "sent");
-    return { ok: true };
-  }
-
-  let lastErr = null;
-
-  for (let attempt = 1; attempt <= CFG.MAX_RETRIES + 1; attempt++) {
-    try {
-      const { error } = await resend.emails.send({
-        from        : FROM_ADDRESS,
-        to          : [subscriber.email],
-        reply_to    : SUPPORT,
-        subject     : `🛍️ Your Weekly Picks on ${BRAND}`,
-        html,
-        text,
-        headers     : {
-          "X-Newsletter-Week"    : weekKey,
-          "List-Unsubscribe"     : `<${FRONTEND_URL}${CFG.UNSUBSCRIBE_PATH}>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-          "Precedence"           : "bulk",
-        },
-        tags: [
-          { name: "category", value: "newsletter" },
-          { name: "week",     value: weekKey       },
-        ],
-      });
-
-      if (error) throw new Error(error.message ?? JSON.stringify(error));
-
-      await logSend(subscriber.id, weekKey, "sent");
-      return { ok: true };
-
-    } catch (err) {
-      lastErr = err;
-      console.warn(
-        `[newsletter] send attempt ${attempt} failed ` +
-        `user=${subscriber.id} email=${subscriber.email}: ${err.message}`
-      );
-      if (attempt <= CFG.MAX_RETRIES) {
-        await sleep(CFG.RETRY_DELAY_MS * attempt);
-      }
-    }
-  }
-
-  await logSend(
-    subscriber.id,
-    weekKey,
-    "failed",
-    lastErr?.message ?? "unknown error"
-  );
-  return { ok: false, error: lastErr?.message };
-}
-
-/* ════════════════════════════════════════════════════════════
-   MAIN EXPORT
+   DISPATCH FUNCTIONS
 ════════════════════════════════════════════════════════════ */
 
 /**
- * sendWeeklyNewsletter()
- *
- * Safe to call multiple times in the same ISO week — already-sent
- * users are excluded via the newsletter_logs unique constraint.
- *
- * Returns a summary:
- * {
- *   week_key    : "2025-W03",
- *   total       : 1200,
- *   sent        : 1195,
- *   failed      : 5,
- *   duration_ms : 48200,
- * }
+ * 1. 4-DAY DEAL DISPATCH (Sends to 50 Random Users)
  */
-export async function sendWeeklyNewsletter() {
-  const weekKey   = getWeekKey();
+export async function send4DayDealNewsletter() {
+  const resend = getClient();
   const startedAt = Date.now();
-  const resend    = getClient();
+  const weekKey = `4DAY-${Date.now()}`;
 
-  console.log(
-    `\n[newsletter] ══ START  week=${weekKey}` +
-    `  dry_run=${CFG.DRY_RUN}  resend=${!!resend} ══`
-  );
+  console.log(`\n[deal-newsletter] ══ STARTING 4-DAY DEALS DISPATCH ══`);
 
-  /* ── Fetch all shared data in parallel ── */
-  const [subscribers, products, categories, stats] = await Promise.all([
-    fetchSubscribers(weekKey),
-    fetchTopProducts(),
-    fetchTopCategories(),
-    fetchWeeklyStats(),
-  ]);
-
-  const total = subscribers.length;
-
-  console.log(
-    `[newsletter] subscribers=${total}  ` +
-    `products=${products.length}  categories=${categories.length}`
-  );
-  console.log(
-    `[newsletter] stats — ` +
-    `new_users=${stats.new_users}  ` +
-    `new_listings=${stats.new_listings}  ` +
-    `active_listings=${stats.active_listings}`
-  );
-
-  if (total === 0) {
-    console.log("[newsletter] No eligible subscribers — nothing to send.");
-    return {
-      week_key    : weekKey,
-      total       : 0,
-      sent        : 0,
-      failed      : 0,
-      duration_ms : Date.now() - startedAt,
-    };
+  const subscribers = await fetch50RandomSubscribers();
+  if (!subscribers.length) {
+    console.log(`[deal-newsletter] No eligible users found (all received in last 4 days).`);
+    return { sent: 0, total: 0 };
   }
 
-  let sent   = 0;
+  const products = await fetchTopProducts(11);
+  if (products.length < 3) {
+    console.log(`[deal-newsletter] Not enough active products in database.`);
+    return { sent: 0, total: subscribers.length, error: "Not enough products" };
+  }
+
+  let sent = 0;
   let failed = 0;
 
-  /* ── Process in batches ── */
-  const totalBatches = Math.ceil(total / CFG.BATCH_SIZE);
+  for (const subscriber of subscribers) {
+    const html = buildAliExpressEmailHtml(subscriber, products);
 
-  for (let i = 0; i < subscribers.length; i += CFG.BATCH_SIZE) {
-    const batch    = subscribers.slice(i, i + CFG.BATCH_SIZE);
-    const batchNum = Math.floor(i / CFG.BATCH_SIZE) + 1;
-
-    console.log(
-      `[newsletter] batch ${batchNum}/${totalBatches}  ` +
-      `(${i + 1}–${Math.min(i + CFG.BATCH_SIZE, total)} of ${total})`
-    );
-
-    /* Build + send in parallel within the batch */
-    await Promise.all(
-      batch.map(async (subscriber) => {
-        const html   = buildHtml({ subscriber, products, categories, stats, weekKey });
-        const text   = buildText({ subscriber, products, stats, weekKey });
-        const result = await sendToOne(resend, subscriber, html, text, weekKey);
-
-        if (result.ok) {
-          sent++;
-        } else {
-          failed++;
-        }
-      })
-    );
-
-    /* Pause between batches — respect Resend rate limits */
-    if (i + CFG.BATCH_SIZE < subscribers.length) {
-      await sleep(CFG.BATCH_DELAY_MS);
+    if (CFG.DRY_RUN || !resend) {
+      console.log(`[deal-newsletter] DRY-RUN -> Would send to: ${subscriber.email}`);
+      await logSend(subscriber.id, weekKey, "sent");
+      sent++;
+      continue;
     }
+
+    try {
+      const { error } = await resend.emails.send({
+        from: FROM_ADDRESS,
+        to: [subscriber.email],
+        reply_to: SUPPORT,
+        subject: `🛒 Fresh deals picked for you on ${BRAND}`,
+        html: html,
+        headers: {
+          "List-Unsubscribe": `<${FRONTEND_URL}${CFG.UNSUBSCRIBE_PATH}>`,
+          "Precedence": "bulk",
+        },
+      });
+
+      if (error) throw new Error(error.message);
+
+      await logSend(subscriber.id, weekKey, "sent");
+      sent++;
+    } catch (err) {
+      console.error(`[deal-newsletter] Failed user=${subscriber.email}:`, err.message);
+      await logSend(subscriber.id, weekKey, "failed", err.message);
+      failed++;
+    }
+
+    await sleep(200); // Respect Resend rate limits
   }
 
-  const duration_ms = Date.now() - startedAt;
+  const duration = ((Date.now() - startedAt) / 1000).toFixed(1);
+  console.log(`[deal-newsletter] ══ FINISHED: Sent ${sent}/${subscribers.length} in ${duration}s ══\n`);
 
-  const summary = { week_key: weekKey, total, sent, failed, duration_ms };
+  return { total: subscribers.length, sent, failed, duration_seconds: duration };
+}
 
-  console.log(
-    `[newsletter] ══ DONE ══\n` +
-    JSON.stringify(summary, null, 2)
-  );
+/**
+ * 2. TEST SENDER (Sends directly to adeloyejoshua2020@gmail.com)
+ */
+export async function sendTestDealNewsletter(targetEmail = "adeloyejoshua2020@gmail.com") {
+  const resend = getClient();
 
-  return summary;
+  console.log(`\n[deal-newsletter] 🧪 SENDING TEST EMAIL TO: ${targetEmail}`);
+
+  const mockSubscriber = {
+    id: "test-user-id",
+    email: targetEmail,
+    name: "Joshua",
+  };
+
+  const products = await fetchTopProducts(11);
+  if (!products.length) {
+    console.error("[deal-newsletter] ❌ No active products found in DB!");
+    return { success: false, error: "No active products in DB" };
+  }
+
+  const html = buildAliExpressEmailHtml(mockSubscriber, products);
+
+  if (!resend) {
+    console.log(`[deal-newsletter] ⚠️ Dry-run active (RESEND_API_KEY missing). Email generated.`);
+    return { success: true, dryRun: true };
+  }
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: [targetEmail],
+      reply_to: SUPPORT,
+      subject: `🛒 [TEST] Fresh deals picked for you on ${BRAND}`,
+      html: html,
+    });
+
+    if (error) throw new Error(error.message);
+
+    console.log(`[deal-newsletter] ✅ Test email sent successfully to ${targetEmail}! ID: ${data?.id}`);
+    return { success: true, targetEmail, productsCount: products.length, resendId: data?.id };
+  } catch (err) {
+    console.error(`[deal-newsletter] ❌ Failed to send test email:`, err.message);
+    return { success: false, error: err.message };
+  }
 }
