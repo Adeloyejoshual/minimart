@@ -28,7 +28,7 @@ import couponRedemptionRouter    from "./admin/couponRedemption.js";
 import subscriptionAdminRouter   from "./admin/subscriptionAdmin.js";
 import supportAdminRouter        from "./admin/support.js";
 import activityLogsRouter        from "./admin/activityLogs.js";
-import newsletterAdminRouter      from "./admin/newsletter.js"; // 👈 Newsletter Sub-router
+import newsletterAdminRouter     from "./admin/newsletter.js";
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -209,7 +209,6 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       supportAppealsOpenRes,
       supportAvgRatingRes,
 
-      /* ── Loemart Express delivery stats ── */
       dispatchPendingRes,
       dispatchOutRes,
       dispatchDeliveredTodayRes,
@@ -297,180 +296,88 @@ router.get("/stats", verifyAdmin, async (req, res) => {
          WHERE satisfaction_rating IS NOT NULL`
       )),
 
-      /* ── Loemart Express delivery stats ── */
-      dispatchPendingRes,
-      dispatchOutRes,
-      dispatchDeliveredTodayRes,
-      dispatchFailedRes,
-    ] = await Promise.all([
-      pool.query(`SELECT COUNT(*) FROM public.users`),
-      pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
-      pool.query(`SELECT COUNT(*) FROM public.users WHERE status = 'banned'`),
-      pool.query(`SELECT COUNT(*) FROM public.users WHERE created_at >= $1`, [today]),
-
-      safe(pool.query(`SELECT COUNT(*) FROM public.products`)),
-      safe(pool.query(`SELECT COUNT(*) FROM public.products WHERE status = 'pending'`)),
-      safe(pool.query(`SELECT COUNT(*) FROM public.products WHERE created_at >= $1`, [today])),
-
-      safe(pool.query(`SELECT COUNT(*) FROM market.products`)),
-      safe(pool.query(`SELECT COUNT(*) FROM market.products WHERE status = 'pending'`)),
-      safe(pool.query(`SELECT COUNT(*) FROM market.products WHERE created_at >= $1`, [today])),
-
-      safe(pool.query(`SELECT COUNT(*) FROM orders`)),
-      safe(pool.query(`SELECT COUNT(*) FROM orders WHERE created_at >= $1`, [today])),
-
-      pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS revenue
-         FROM payments WHERE status IN ('success','completed','paid')`
-      ),
-      pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS revenue
-         FROM payments WHERE status IN ('success','completed','paid')
-           AND created_at >= $1`, [today]
-      ),
-      pool.query(
-        `SELECT DATE(created_at) AS date,
-                COALESCE(SUM(amount), 0) AS amount
-         FROM payments
-         WHERE status IN ('success','completed','paid')
-           AND created_at >= NOW() - INTERVAL '30 days'
-         GROUP BY DATE(created_at)
-         ORDER BY date ASC`
-      ),
-
-      safe(pool.query(`SELECT COUNT(*) FROM market.vendors`)),
-      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'pending'`)),
-      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'active'`)),
-      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'under_review'`)),
-
-      safe(pool.query(`SELECT COUNT(*) FROM referrals`)),
-      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'pending'`)),
-      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status IN ('verified','rewarded')`)),
-      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'rewarded'`)),
-
-      safe(pool.query(`SELECT COUNT(*) FROM public.coupons`)),
-      safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = true`)),
-      safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = false`)),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.coupon_redemptions WHERE redeemed_at >= $1`, [today]
-      )),
-
-      safe(pool.query(`SELECT COUNT(*) FROM public.support_tickets`)),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.support_tickets
-         WHERE status IN ('open','waiting_for_customer')`
-      )),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'in_progress'`
-      )),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'resolved'`
-      )),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'escalated'`
-      )),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.support_tickets WHERE created_at >= $1`, [today]
-      )),
-      safe(pool.query(`SELECT COUNT(*) FROM public.reports WHERE status = 'pending'`)),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.disputes WHERE status IN ('open','under_review')`
-      )),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.appeals WHERE status IN ('pending','under_review')`
-      )),
-      safe(pool.query(
-        `SELECT ROUND(AVG(satisfaction_rating), 2) AS avg_rating
-         FROM public.support_tickets
-         WHERE satisfaction_rating IS NOT NULL`
-      )),
-
-      /* Loemart Express — orders needing dispatch (shipped) */
+      /* Loemart Express delivery stats */
       safe(pool.query(
         `SELECT COUNT(*) FROM public.orders WHERE status = 'shipped'`
       )),
-      /* Loemart Express — currently out for delivery */
       safe(pool.query(
         `SELECT COUNT(*) FROM public.orders WHERE status = 'out_for_delivery'`
       )),
-      /* Loemart Express — delivered today */
       safe(pool.query(
         `SELECT COUNT(*) FROM public.orders
          WHERE status IN ('delivered', 'received')
            AND delivered_at >= $1`, [today]
       )),
-      /* Loemart Express — failed delivery attempts */
       safe(pool.query(
         `SELECT COUNT(*) FROM public.orders WHERE status = 'failed_delivery'`
       )),
     ]);
 
     return res.json({
-      users:       Number(usersRes.rows[0].count),
-      activeUsers: Number(activeUsersRes.rows[0].count),
-      bannedUsers: Number(bannedUsersRes.rows[0].count),
-      todayUsers:  Number(todayUsersRes.rows[0].count),
+      users:       Number(usersRes.rows[0]?.count ?? 0),
+      activeUsers: Number(activeUsersRes.rows[0]?.count ?? 0),
+      bannedUsers: Number(bannedUsersRes.rows[0]?.count ?? 0),
+      todayUsers:  Number(todayUsersRes.rows[0]?.count ?? 0),
 
-      totalProducts:   Number(pubProductsRes.rows[0].count),
-      pendingProducts: Number(pubPendingRes.rows[0].count),
-      todayProducts:   Number(pubTodayRes.rows[0].count),
+      totalProducts:   Number(pubProductsRes.rows[0]?.count ?? 0),
+      pendingProducts: Number(pubPendingRes.rows[0]?.count ?? 0),
+      todayProducts:   Number(pubTodayRes.rows[0]?.count ?? 0),
 
-      marketTotalProducts:   Number(mktProductsRes.rows[0].count),
-      marketPendingProducts: Number(mktPendingRes.rows[0].count),
-      marketTodayProducts:   Number(mktTodayRes.rows[0].count),
+      marketTotalProducts:   Number(mktProductsRes.rows[0]?.count ?? 0),
+      marketPendingProducts: Number(mktPendingRes.rows[0]?.count ?? 0),
+      marketTodayProducts:   Number(mktTodayRes.rows[0]?.count ?? 0),
 
-      orders:      Number(ordersRes.rows[0].count),
-      todayOrders: Number(todayOrdersRes.rows[0].count),
+      orders:      Number(ordersRes.rows[0]?.count ?? 0),
+      todayOrders: Number(todayOrdersRes.rows[0]?.count ?? 0),
 
-      revenue:      Number(revenueRes.rows[0].revenue),
-      todayRevenue: Number(todayRevenueRes.rows[0].revenue),
+      revenue:      Number(revenueRes.rows[0]?.revenue ?? 0),
+      todayRevenue: Number(todayRevenueRes.rows[0]?.revenue ?? 0),
       dailySales:   dailySalesRes.rows.map((r) => ({
         date  : r.date,
         amount: Number(r.amount),
       })),
 
-      vendorsTotal:       Number(vendorsTotalRes.rows[0].count),
-      vendorsPending:     Number(vendorsPendingRes.rows[0].count),
-      vendorsActive:      Number(vendorsActiveRes.rows[0].count),
-      vendorsUnderReview: Number(vendorsReviewRes.rows[0].count),
+      vendorsTotal:       Number(vendorsTotalRes.rows[0]?.count ?? 0),
+      vendorsPending:     Number(vendorsPendingRes.rows[0]?.count ?? 0),
+      vendorsActive:      Number(vendorsActiveRes.rows[0]?.count ?? 0),
+      vendorsUnderReview: Number(vendorsReviewRes.rows[0]?.count ?? 0),
 
       referrals: {
-        total   : Number(totalReferralsRes.rows[0].count),
-        pending : Number(pendingReferralsRes.rows[0].count),
-        verified: Number(verifiedReferralsRes.rows[0].count),
-        rewarded: Number(rewardedReferralsRes.rows[0].count),
+        total   : Number(totalReferralsRes.rows[0]?.count ?? 0),
+        pending : Number(pendingReferralsRes.rows[0]?.count ?? 0),
+        verified: Number(verifiedReferralsRes.rows[0]?.count ?? 0),
+        rewarded: Number(rewardedReferralsRes.rows[0]?.count ?? 0),
       },
 
       coupons: {
-        total    : Number(couponTotalRes.rows[0].count),
-        available: Number(couponAvailableRes.rows[0].count),
-        redeemed : Number(couponRedeemedRes.rows[0].count),
-        today    : Number(couponTodayRes.rows[0].count),
+        total    : Number(couponTotalRes.rows[0]?.count ?? 0),
+        available: Number(couponAvailableRes.rows[0]?.count ?? 0),
+        redeemed : Number(couponRedeemedRes.rows[0]?.count ?? 0),
+        today    : Number(couponTodayRes.rows[0]?.count ?? 0),
       },
 
       support: {
         tickets: {
-          total      : Number(supportTicketsTotalRes.rows[0].count),
-          open       : Number(supportTicketsOpenRes.rows[0].count),
-          in_progress: Number(supportTicketsInProgressRes.rows[0].count),
-          resolved   : Number(supportTicketsResolvedRes.rows[0].count),
-          escalated  : Number(supportTicketsEscalatedRes.rows[0].count),
-          today      : Number(supportTicketsTodayRes.rows[0].count),
+          total      : Number(supportTicketsTotalRes.rows[0]?.count ?? 0),
+          open       : Number(supportTicketsOpenRes.rows[0]?.count ?? 0),
+          in_progress: Number(supportTicketsInProgressRes.rows[0]?.count ?? 0),
+          resolved   : Number(supportTicketsResolvedRes.rows[0]?.count ?? 0),
+          escalated  : Number(supportTicketsEscalatedRes.rows[0]?.count ?? 0),
+          today      : Number(supportTicketsTodayRes.rows[0]?.count ?? 0),
         },
-        reports_pending: Number(supportReportsPendingRes.rows[0].count),
-        disputes_open  : Number(supportDisputesOpenRes.rows[0].count),
-        appeals_open   : Number(supportAppealsOpenRes.rows[0].count),
+        reports_pending: Number(supportReportsPendingRes.rows[0]?.count ?? 0),
+        disputes_open  : Number(supportDisputesOpenRes.rows[0]?.count ?? 0),
+        appeals_open   : Number(supportAppealsOpenRes.rows[0]?.count ?? 0),
         avg_rating     : supportAvgRatingRes.rows[0]?.avg_rating
           ? Number(supportAvgRatingRes.rows[0].avg_rating)
           : null,
       },
 
-      /* ── Loemart Express delivery stats ── */
       loemartExpress: {
-        pendingDispatch : Number(dispatchPendingRes.rows[0].count),
-        outForDelivery  : Number(dispatchOutRes.rows[0].count),
-        deliveredToday  : Number(dispatchDeliveredTodayRes.rows[0].count),
-        failedDelivery  : Number(dispatchFailedRes.rows[0].count),
+        pendingDispatch : Number(dispatchPendingRes.rows[0]?.count ?? 0),
+        outForDelivery  : Number(dispatchOutRes.rows[0]?.count ?? 0),
+        deliveredToday  : Number(dispatchDeliveredTodayRes.rows[0]?.count ?? 0),
+        failedDelivery  : Number(dispatchFailedRes.rows[0]?.count ?? 0),
       },
     });
 
@@ -481,7 +388,7 @@ router.get("/stats", verifyAdmin, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// AUDIT LOGS (Legacy)
+// AUDIT LOGS
 // ══════════════════════════════════════════════════════════════
 
 // GET /api/admin/logs
@@ -545,6 +452,6 @@ router.use("/coupon-redemption", verifyAdmin, couponRedemptionRouter);
 router.use("/subscriptions",     verifyAdmin, subscriptionAdminRouter);
 router.use("/support",           verifyAdmin, supportAdminRouter);
 router.use("/activity-logs",     verifyAdmin, activityLogsRouter);
-router.use("/newsletter",        verifyAdmin, newsletterAdminRouter); // 👈 Dedicated newsletter sub-router
+router.use("/newsletter",        verifyAdmin, newsletterAdminRouter);
 
 export default router;
