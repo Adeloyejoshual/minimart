@@ -5,13 +5,11 @@
 // Newsletter & Deal Dispatch Service — Powered by Resend.
 // Fully integrated with Homepage v7 product ranking & image extraction.
 //
-// Features:
-//  1. send4DayDealNewsletter(): Sends AliExpress/Jumia-style deals to 50
-//     random verified users every 4 days.
-//  2. sendTestNewsletter(): Sends a test email directly to
-//     adeloyejoshua2020@gmail.com.
-//  3. sendWeeklyNewsletter(): Full weekly platform digest.
-//  4. Idempotent logging to newsletter_logs (prevents duplicate sends).
+// Exports:
+//  1. sendWeeklyNewsletter(): Monday weekly platform digest.
+//  2. send4DayDealNewsletter(): AliExpress/Jumia style deal newsletter
+//     sent to 50 random verified users every 4 days.
+//  3. sendTestDealNewsletter(email): Instant test email sender for admins.
 // ════════════════════════════════════════════════════════════
 
 import { Resend } from "resend";
@@ -46,7 +44,7 @@ getClient();
 /* ════════════════════════════════════════════════════════════
    BRAND & CONFIG
 ════════════════════════════════════════════════════════════ */
-const FROM_ADDRESS = process.env.EMAIL_FROM     || "Loemart Deals <no-reply@loemart.com>";
+const FROM_ADDRESS = process.env.EMAIL_FROM     || "Loemart <no-reply@loemart.com>";
 const BRAND        = process.env.EMAIL_BRAND    || "Loemart";
 const SUPPORT      = process.env.EMAIL_SUPPORT  || "support@loemart.com";
 const FRONTEND_URL = (process.env.FRONTEND_URL  || "https://loemart.com").replace(/\/$/, "");
@@ -69,7 +67,6 @@ const CFG = Object.freeze({
 ════════════════════════════════════════════════════════════ */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* Format price cleanly as ₦11,816.36 */
 const formatPrice = (n) =>
   new Intl.NumberFormat("en-NG", {
     style: "currency",
@@ -87,6 +84,15 @@ const escHtml = (str) =>
     .replace(/>/g,  "&gt;")
     .replace(/"/g,  "&quot;")
     .replace(/'/g,  "&#39;");
+
+const getWeekKey = () => {
+  const now  = new Date();
+  const jan1 = new Date(now.getFullYear(), 0, 1);
+  const week = Math.ceil(
+    ((now - jan1) / 86_400_000 + jan1.getDay() + 1) / 7
+  );
+  return `${now.getFullYear()}-W${String(week).padStart(2, "0")}`;
+};
 
 /* ════════════════════════════════════════════════════════════
    DATABASE FETCHERS (HOMEPAGE v7 RANKING ENGINE)
@@ -110,10 +116,27 @@ async function fetch50RandomSubscribers() {
   return rows;
 }
 
-/** 
- * Fetch top products using Homepage v7 ranking rules:
- * Promoted > Promotion Priority > Engagement Score > Recency
- */
+/** Opted-in users for weekly digest who haven't received this week's edition */
+async function fetchWeeklySubscribers(weekKey) {
+  const { rows } = await pool.query(
+    `SELECT u.id, u.email, u.name, u.location_city, u.location_state
+     FROM   public.users u
+     WHERE  u.newsletter_opted_in = TRUE
+       AND  u.email_verified      = TRUE
+       AND  u.status NOT IN ('banned', 'flagged', 'deleted')
+       AND  NOT EXISTS (
+         SELECT 1 FROM public.newsletter_logs nl
+         WHERE  nl.user_id  = u.id
+           AND  nl.week_key = $1
+           AND  nl.status   = 'sent'
+       )
+     ORDER  BY u.created_at DESC`,
+    [weekKey]
+  );
+  return rows;
+}
+
+/** Fetch top products using Homepage v7 ranking rules */
 async function fetchTopProducts(limit = 11) {
   const { rows } = await pool.query(
     `SELECT
@@ -140,11 +163,9 @@ async function fetchTopProducts(limit = 11) {
 
   if (!rows.length) return [];
 
-  // Shuffle top pool slightly for variety
   const selected = [...rows].sort(() => 0.5 - Math.random()).slice(0, limit);
 
   return selected.map((p) => {
-    /* Homepage v7 Image Fallback Logic */
     let image = p.main_image || p.thumbnail_url || null;
     if (!image && Array.isArray(p.images) && p.images.length > 0) {
       const first = p.images[0];
@@ -334,11 +355,64 @@ function buildAliExpressEmailHtml(subscriber, products) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   DISPATCH FUNCTIONS
+   EXPORTS
 ════════════════════════════════════════════════════════════ */
 
 /**
- * 1. 4-DAY DEAL DISPATCH (Sends to 50 Random Users)
+ * 1. WEEKLY NEWSLETTER DIGEST (Monday Schedule)
+ */
+export async function sendWeeklyNewsletter() {
+  const weekKey   = getWeekKey();
+  const startedAt = Date.now();
+  const resend    = getClient();
+
+  console.log(`\n[newsletter] ══ START WEEKLY DIGEST week=${weekKey} ══`);
+
+  const subscribers = await fetchWeeklySubscribers(weekKey);
+  const products    = await fetchTopProducts(6);
+
+  if (!subscribers.length) {
+    console.log("[newsletter] No eligible weekly subscribers — nothing to send.");
+    return { week_key: weekKey, total: 0, sent: 0, failed: 0, duration_ms: Date.now() - startedAt };
+  }
+
+  let sent = 0, failed = 0;
+
+  for (const subscriber of subscribers) {
+    const html = buildAliExpressEmailHtml(subscriber, products);
+
+    if (CFG.DRY_RUN || !resend) {
+      await logSend(subscriber.id, weekKey, "sent");
+      sent++;
+      continue;
+    }
+
+    try {
+      const { error } = await resend.emails.send({
+        from: FROM_ADDRESS,
+        to: [subscriber.email],
+        reply_to: SUPPORT,
+        subject: `🛍️ Your Weekly Digest on ${BRAND}`,
+        html: html,
+      });
+
+      if (error) throw new Error(error.message);
+      await logSend(subscriber.id, weekKey, "sent");
+      sent++;
+    } catch (err) {
+      console.error(`[newsletter] Failed user=${subscriber.email}:`, err.message);
+      await logSend(subscriber.id, weekKey, "failed", err.message);
+      failed++;
+    }
+
+    await sleep(200);
+  }
+
+  return { week_key: weekKey, total: subscribers.length, sent, failed, duration_ms: Date.now() - startedAt };
+}
+
+/**
+ * 2. 4-DAY DEAL DISPATCH (Sends to 50 Random Users)
  */
 export async function send4DayDealNewsletter() {
   const resend = getClient();
@@ -395,7 +469,7 @@ export async function send4DayDealNewsletter() {
       failed++;
     }
 
-    await sleep(200); // Respect Resend rate limits
+    await sleep(200);
   }
 
   const duration = ((Date.now() - startedAt) / 1000).toFixed(1);
@@ -405,7 +479,7 @@ export async function send4DayDealNewsletter() {
 }
 
 /**
- * 2. TEST SENDER (Sends directly to adeloyejoshua2020@gmail.com)
+ * 3. TEST SENDER (Sends directly to adeloyejoshua2020@gmail.com)
  */
 export async function sendTestDealNewsletter(targetEmail = "adeloyejoshua2020@gmail.com") {
   const resend = getClient();
