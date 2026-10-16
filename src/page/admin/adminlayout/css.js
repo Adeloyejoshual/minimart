@@ -1,3 +1,5 @@
+// src/pages/admin/adminlayout/css.js
+
 export const css = `
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap');
 
@@ -455,4 +457,107 @@ textarea.input { resize: vertical; min-height: 70px; }
 ::-webkit-scrollbar       { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE SIDEBAR DRAWER
+════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .wrap {
+    flex-direction: column !important;
+  }
+
+  /* Hide sidebar off-screen on mobile */
+  .sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 270px !important;
+    z-index: 9999 !important;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease-in-out;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Slide in sidebar when open */
+  .sidebar.sb-open {
+    transform: translateX(0) !important;
+  }
+
+  /* Dark background blur backdrop */
+  .sb-overlay {
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(0, 0, 0, 0.6) !important;
+    backdrop-filter: blur(3px);
+    z-index: 9998 !important;
+  }
+
+  /* Mobile close button inside logo */
+  .sb-logo {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+
+  .sb-close-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: none !important;
+    color: #fff !important;
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 50% !important;
+    font-size: 1rem !important;
+    cursor: pointer !important;
+  }
+
+  /* Hamburger button on topbar */
+  .tb-menu-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    background: var(--card2, #1e293b) !important;
+    border: 1px solid var(--border, #334155) !important;
+    color: #fff !important;
+    border-radius: 6px !important;
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 1.2rem !important;
+    cursor: pointer !important;
+  }
+
+  /* Main body takes 100% screen on mobile */
+  .main {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+
+  /* Tighter body padding on mobile */
+  .body {
+    padding: 16px 14px !important;
+  }
+
+  /* Stack stat cards on small screens */
+  .sg {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  /* Smaller topbar padding */
+  .topbar {
+    padding: 10px 14px !important;
+  }
+}
+
+/* Hide mobile controls on desktop */
+@media (min-width: 769px) {
+  .sb-close-btn,
+  .tb-menu-btn,
+  .sb-overlay {
+    display: none !important;
+  }
+}
 `;
