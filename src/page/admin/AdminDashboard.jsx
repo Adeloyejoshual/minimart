@@ -521,6 +521,7 @@ export default function AdminDashboard() {
   const adminName = currentUser?.name || "Admin";
 
   const [page,       setPage]       = useState("overview");
+  const [sbOpen,     setSbOpen]     = useState(false);
   const [productTab, setProductTab] = useState("all");
   const [userQ,      setUserQ]      = useState("");
   const [productQ,   setProductQ]   = useState("");
@@ -777,6 +778,8 @@ export default function AdminDashboard() {
         <Sidebar
           page={page}
           setPage={setPage}
+          sbOpen={sbOpen}
+          setSbOpen={setSbOpen}
           pendingCount={data.pending?.length || 0}
           reportCount={data.reportCount || 0}
           marketPendingCount={data.marketPendingCount || 0}
@@ -792,6 +795,7 @@ export default function AdminDashboard() {
             page={page}
             adminName={adminName}
             notifCount={totalNotifCount}
+            onToggleSidebar={() => setSbOpen((prev) => !prev)}
           />
           <div className="body">
             {pageMap[page] ?? null}
