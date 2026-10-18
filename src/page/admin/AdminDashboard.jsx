@@ -30,6 +30,7 @@ import AdminSubscriptions from "./SuperAdmin/AdminSubscriptions";
 import SupportAdmin       from "./Support";
 import SourceAnalytics    from "./tabs/SourceAnalytics";
 import NewsletterAdmin    from "./SuperAdmin/NewsletterAdmin"; // ← Deal Newsletter
+import SpinWheelAdmin     from "./SuperAdmin/SpinWheelAdmin";  // ← Spin & Win
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
@@ -765,6 +766,14 @@ export default function AdminDashboard() {
     /* ── Deal Newsletter ── */
     newsletter: (
       <NewsletterAdmin
+        api={api}
+        confirm={confirm}
+      />
+    ),
+
+    /* ── Spin & Win ── */
+    spin_wheel: (
+      <SpinWheelAdmin
         api={api}
         confirm={confirm}
       />
