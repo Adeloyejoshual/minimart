@@ -29,6 +29,7 @@ import subscriptionAdminRouter   from "./admin/subscriptionAdmin.js";
 import supportAdminRouter        from "./admin/support.js";
 import activityLogsRouter        from "./admin/activityLogs.js";
 import newsletterAdminRouter     from "./admin/newsletter.js";
+import spinwheelAdminRouter      from "./admin/spinwheel.js";   // ← Spin & Win
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -453,5 +454,6 @@ router.use("/subscriptions",     verifyAdmin, subscriptionAdminRouter);
 router.use("/support",           verifyAdmin, supportAdminRouter);
 router.use("/activity-logs",     verifyAdmin, activityLogsRouter);
 router.use("/newsletter",        verifyAdmin, newsletterAdminRouter);
+router.use("/spinwheel",         verifyAdmin, spinwheelAdminRouter);  // ← Spin & Win
 
 export default router;
