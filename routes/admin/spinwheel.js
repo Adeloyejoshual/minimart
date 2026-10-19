@@ -9,7 +9,6 @@
 
 import express from "express";
 import { pool } from "../../config/db.js";
-import { authenticate } from "../../middleware/auth.js";
 
 import {
   WHEEL_SEGMENTS,
@@ -19,17 +18,13 @@ import {
 
 const router = express.Router();
 
-/* ════════════════════════════════════════════════════════════
-   AUTH GUARD
-════════════════════════════════════════════════════════════ */
-const requireAdmin = (req, res, next) => {
-  if (req.user?.role === "admin" || req.user?.is_admin === true) {
-    return next();
+/* Admin authentication is applied by routes/admin.js through verifyAdmin. */
+router.use((req, res, next) => {
+  if (!req.admin) {
+    return res.status(403).json({ success: false, message: "Admin access required." });
   }
-  return res.status(403).json({ success: false, message: "Admin access required." });
-};
-
-router.use(authenticate, requireAdmin);
+  return next();
+});
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -56,7 +51,7 @@ router.post("/seed", async (req, res) => {
         await client.query(
           `INSERT INTO spinwheel_prizes
              (segment_key, label, reward_type, reward_value,
-              probability, color, background_color, emoji,
+              probability, color, bg AS background_color, emoji,
               is_big_win, is_active, display_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
            ON CONFLICT (segment_key) DO NOTHING`,
@@ -80,7 +75,7 @@ router.post("/seed", async (req, res) => {
           `INSERT INTO spinwheel_tasks
              (task_key, label, platform, task_type, category,
               spins_reward, verification_type, destination_url,
-              is_active, display_order)
+              active, display_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
            ON CONFLICT (task_key) DO NOTHING`,
           [
@@ -132,7 +127,7 @@ router.get("/prizes", async (_req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, segment_key, label, reward_type, reward_value,
-              probability, color, background_color, emoji,
+              probability, color, bg AS background_color, emoji,
               is_big_win, is_active, display_order,
               max_wins, wins_count, created_at, updated_at
        FROM   spinwheel_prizes
@@ -166,13 +161,31 @@ router.put("/prizes", async (req, res) => {
 
   /* ── Validate each prize ── */
   const validTypes = ["airtime", "fixed", "percentage", "free_shipping", "none"];
+  const seenKeys = new Set();
   for (const p of prizes) {
-    if (!p.segment_key) return fail(res, 400, "Each prize needs a segment_key.");
+    if (!p.segment_key || typeof p.segment_key !== "string") {
+      return fail(res, 400, "Each prize needs a valid segment_key.");
+    }
+    if (seenKeys.has(p.segment_key)) {
+      return fail(res, 400, `Duplicate segment_key "${p.segment_key}".`);
+    }
+    seenKeys.add(p.segment_key);
+    if (!String(p.label || "").trim()) {
+      return fail(res, 400, "Every prize needs a label.");
+    }
     if (!validTypes.includes(p.reward_type)) {
       return fail(res, 400, `Invalid reward_type "${p.reward_type}".`);
     }
-    if (Number(p.probability) < 0 || Number(p.probability) > 100) {
+    const probability = Number(p.probability);
+    const rewardValue = Number(p.reward_value ?? 0);
+    if (!Number.isFinite(probability) || probability < 0 || probability > 100) {
       return fail(res, 400, `Probability must be 0–100 for "${p.label}".`);
+    }
+    if (!Number.isFinite(rewardValue) || rewardValue < 0) {
+      return fail(res, 400, `Reward value must be a non-negative number for "${p.label}".`);
+    }
+    if (p.max_wins != null && (!Number.isInteger(Number(p.max_wins)) || Number(p.max_wins) < 1)) {
+      return fail(res, 400, `max_wins must be a positive whole number or null for "${p.label}".`);
     }
   }
 
@@ -185,7 +198,7 @@ router.put("/prizes", async (req, res) => {
       await client.query(
         `INSERT INTO spinwheel_prizes
            (segment_key, label, reward_type, reward_value,
-            probability, color, background_color, emoji,
+            probability, color, bg, emoji,
             is_big_win, is_active, display_order, max_wins)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (segment_key) DO UPDATE SET
@@ -194,7 +207,7 @@ router.put("/prizes", async (req, res) => {
            reward_value     = EXCLUDED.reward_value,
            probability      = EXCLUDED.probability,
            color            = EXCLUDED.color,
-           background_color = EXCLUDED.background_color,
+           bg               = EXCLUDED.bg,
            emoji            = EXCLUDED.emoji,
            is_big_win       = EXCLUDED.is_big_win,
            is_active        = EXCLUDED.is_active,
@@ -239,7 +252,7 @@ router.get("/tasks", async (_req, res) => {
     const { rows } = await pool.query(
       `SELECT id, task_key, label, platform, task_type, category,
               spins_reward, verification_type, destination_url,
-              is_active, display_order, created_at, updated_at
+              active AS is_active, display_order, created_at, updated_at
        FROM   spinwheel_tasks
        ORDER  BY display_order`
     );
@@ -283,7 +296,7 @@ router.put("/tasks", async (req, res) => {
         `INSERT INTO spinwheel_tasks
            (task_key, label, platform, task_type, category,
             spins_reward, verification_type, destination_url,
-            is_active, display_order)
+            active, display_order)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (task_key) DO UPDATE SET
            label             = EXCLUDED.label,
@@ -305,7 +318,7 @@ router.put("/tasks", async (req, res) => {
           Number(t.spins_reward || 1),
           t.verification_type || "honor",
           t.destination_url || "",
-          t.is_active !== false,
+          (t.is_active ?? t.active) !== false,
           i,
         ]
       );
@@ -363,8 +376,11 @@ router.put("/settings", async (req, res) => {
     if (!allowedKeys.includes(key)) {
       return fail(res, 400, `Unknown setting: "${key}".`);
     }
-    if (typeof settings[key] !== "number" || settings[key] < 0) {
-      return fail(res, 400, `"${key}" must be a non-negative number.`);
+    if (typeof settings[key] !== "number" || !Number.isFinite(settings[key]) || !Number.isInteger(settings[key]) || settings[key] < 0) {
+      return fail(res, 400, `"${key}" must be a non-negative whole number.`);
+    }
+    if (key === "coupon_expiry_days" && settings[key] < 1) {
+      return fail(res, 400, '"coupon_expiry_days" must be at least 1 day.');
     }
   }
 
@@ -374,12 +390,13 @@ router.put("/settings", async (req, res) => {
 
     for (const [key, val] of Object.entries(settings)) {
       await client.query(
-        `INSERT INTO spinwheel_settings (setting_key, setting_value)
-         VALUES ($1, $2)
+        `INSERT INTO spinwheel_settings (setting_key, setting_value, updated_by)
+         VALUES ($1, $2, $3)
          ON CONFLICT (setting_key) DO UPDATE SET
            setting_value = EXCLUDED.setting_value,
-           updated_at    = now()`,
-        [key, JSON.stringify({ value: val })]
+           updated_at    = now(),
+           updated_by    = EXCLUDED.updated_by`,
+        [key, JSON.stringify({ value: val }), req.admin?.id ?? null]
       );
     }
 
