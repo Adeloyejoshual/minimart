@@ -4,9 +4,8 @@ import { pool } from "../config/db.js";
 
 const router = express.Router();
 
-// --- MIDDLEWARES ---
+// --- AUTH MIDDLEWARES ---
 
-// Optional Auth: Attaches req.user if token is present, allows guest access
 function optionalAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -22,11 +21,10 @@ function optionalAuth(req, res, next) {
   next();
 }
 
-// Strict Auth: Blocks unauthenticated users
 function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Please log in to perform this action." });
+    return res.status(401).json({ message: "Please log in to spin or view your history." });
   }
   try {
     const token = authHeader.split(" ")[1];
@@ -37,18 +35,18 @@ function requireAuth(req, res, next) {
   }
 }
 
-// --- DATABASE LOADER (100% DB-DRIVEN) ---
+// --- DATABASE LOADER ---
 
 async function loadConfigFromDB() {
   const [prizesRes, tasksRes, settingsRes] = await Promise.all([
     pool.query(`
-      SELECT segment_key, label, reward_type, reward_value, probability, color, background_color, emoji, is_big_win 
+      SELECT id, segment_key, label, reward_type, reward_value, probability, color, background_color, emoji, is_big_win 
       FROM spinwheel_prizes 
       WHERE is_active = true 
       ORDER BY display_order ASC
     `),
     pool.query(`
-      SELECT task_key, label, platform, spins_reward, destination_url 
+      SELECT id, task_key, label, platform, spins_reward, destination_url 
       FROM spinwheel_tasks 
       WHERE is_active = true 
       ORDER BY display_order ASC
@@ -64,6 +62,7 @@ async function loadConfigFromDB() {
   return {
     segments: prizesRes.rows.map(p => ({
       id: p.segment_key,
+      db_id: p.id,
       label: p.label,
       type: p.reward_type,
       value: Number(p.reward_value),
@@ -90,7 +89,7 @@ async function loadConfigFromDB() {
 
 // --- PUBLIC CONFIG ROUTE ---
 
-// GET /api/spinwheel/config (Loads wheel configuration directly from DB)
+// GET /api/spinwheel/config
 router.get("/config", async (req, res) => {
   try {
     const config = await loadConfigFromDB();
@@ -118,79 +117,98 @@ router.get("/state", optionalAuth, async (req, res) => {
       });
     }
 
-    const userId = req.user.id;
-    const today = new Date().toISOString().slice(0, 10);
+    const userId = String(req.user.id);
 
-    const userSpinsRes = await pool.query(
-      `SELECT last_free_spin_date, daily_spins_used, bonus_spins_balance FROM spinwheel_user_spins WHERE user_id = $1`,
+    // Count spins today from `spinwheel_spins`
+    const spinsTodayRes = await pool.query(
+      `SELECT COUNT(*) as count FROM spinwheel_spins WHERE user_id = $1 AND created_at >= CURRENT_DATE`,
       [userId]
     );
 
-    let freeSpinsAvailable = config.settings.MAX_FREE_DAILY;
-    let bonusSpins = 0;
+    const spinsToday = Number(spinsTodayRes.rows[0]?.count || 0);
+    const freeSpinsAvailable = Math.max(0, config.settings.MAX_FREE_DAILY - spinsToday);
 
-    if (userSpinsRes.rows.length > 0) {
-      const row = userSpinsRes.rows[0];
-      const lastDate = row.last_free_spin_date ? new Date(row.last_free_spin_date).toISOString().slice(0, 10) : null;
-      if (lastDate === today) {
-        freeSpinsAvailable = Math.max(0, config.settings.MAX_FREE_DAILY - row.daily_spins_used);
-      }
-      bonusSpins = row.bonus_spins_balance || 0;
-    }
+    res.json({
+      isGuest: false,
+      spinsRemaining: freeSpinsAvailable,
+      freeSpinsAvailable,
+      bonusSpins: 0,
+      completedTasks: []
+    });
+  } catch (error) {
+    console.error("[spinwheel] /state error:", error);
+    res.status(500).json({ message: "Failed to load user spin state" });
+  }
+});
 
-    const tasksRes = await pool.query(
-      `SELECT task_id FROM spinwheel_claims WHERE user_id = $1`,
+// --- USER HISTORY ROUTE ---
+
+// GET /api/spinwheel/history (Reads directly from spinwheel_spins & spinwheel_rewards)
+router.get("/history", requireAuth, async (req, res) => {
+  try {
+    const userId = String(req.user.id);
+
+    const historyRes = await pool.query(
+      `SELECT s.id, s.prize_snapshot, s.created_at, r.claim_status, r.expires_at, r.claimed_at
+       FROM spinwheel_spins s
+       LEFT JOIN spinwheel_rewards r ON r.spin_id = s.id
+       WHERE s.user_id = $1
+       ORDER BY s.created_at DESC
+       LIMIT 50`,
       [userId]
     );
 
     res.json({
-      isGuest: false,
-      spinsRemaining: freeSpinsAvailable + bonusSpins,
-      freeSpinsAvailable,
-      bonusSpins,
-      completedTasks: tasksRes.rows.map(r => r.task_id)
+      history: historyRes.rows.map(row => {
+        const snapshot = typeof row.prize_snapshot === "string" 
+          ? JSON.parse(row.prize_snapshot) 
+          : (row.prize_snapshot || {});
+
+        return {
+          id: row.id,
+          segmentKey: snapshot.id || snapshot.segment_key,
+          prizeLabel: snapshot.label || "Prize",
+          rewardType: snapshot.type || snapshot.reward_type || "none",
+          rewardValue: Number(snapshot.value || snapshot.reward_value || 0),
+          emoji: snapshot.emoji || "🎁",
+          color: snapshot.color || "#FFFFFF",
+          bg: snapshot.bg || snapshot.background_color || "#3B82F6",
+          claimStatus: row.claim_status || "completed",
+          createdAt: row.created_at
+        };
+      })
     });
   } catch (error) {
-    console.error("[spinwheel] /state error:", error);
-    res.status(500).json({ message: "Failed to load spinwheel user state" });
+    console.error("[spinwheel] /history error:", error);
+    res.status(500).json({ message: "Failed to fetch spin history from database" });
   }
 });
 
-// --- PROTECTED ACTION ROUTES ---
+// --- PROTECTED SPIN ACTION ---
 
 // POST /api/spinwheel/spin
 router.post("/spin", requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = String(req.user.id);
     const config = await loadConfigFromDB();
-    const today = new Date().toISOString().slice(0, 10);
 
     if (!config.segments || config.segments.length === 0) {
       return res.status(400).json({ message: "No active wheel segments found in database." });
     }
 
-    const userSpinsRes = await pool.query(
-      `SELECT last_free_spin_date, daily_spins_used, bonus_spins_balance FROM spinwheel_user_spins WHERE user_id = $1`,
+    // Check daily spin limit from `spinwheel_spins`
+    const spinsTodayRes = await pool.query(
+      `SELECT COUNT(*) as count FROM spinwheel_spins WHERE user_id = $1 AND created_at >= CURRENT_DATE`,
       [userId]
     );
+    const spinsToday = Number(spinsTodayRes.rows[0]?.count || 0);
+    const freeAvailable = Math.max(0, config.settings.MAX_FREE_DAILY - spinsToday);
 
-    let dailyUsed = 0;
-    let bonusSpins = 0;
-    let lastDate = null;
-
-    if (userSpinsRes.rows.length > 0) {
-      const row = userSpinsRes.rows[0];
-      lastDate = row.last_free_spin_date ? new Date(row.last_free_spin_date).toISOString().slice(0, 10) : null;
-      dailyUsed = lastDate === today ? row.daily_spins_used : 0;
-      bonusSpins = row.bonus_spins_balance || 0;
+    if (freeAvailable <= 0) {
+      return res.status(400).json({ message: "No spins remaining today. Come back tomorrow!" });
     }
 
-    const freeAvailable = Math.max(0, config.settings.MAX_FREE_DAILY - dailyUsed);
-    if (freeAvailable <= 0 && bonusSpins <= 0) {
-      return res.status(400).json({ message: "No spins remaining today. Complete tasks for extra spins!" });
-    }
-
-    // Weighted Probability Engine
+    // Weighted Probability Algorithm
     const segments = config.segments;
     const totalProb = segments.reduce((sum, s) => sum + s.probability, 0);
     let rand = Math.random() * totalProb;
@@ -204,77 +222,42 @@ router.post("/spin", requireAuth, async (req, res) => {
       rand -= seg.probability;
     }
 
-    if (freeAvailable > 0) {
-      dailyUsed += 1;
-    } else {
-      bonusSpins -= 1;
+    // 1. Insert into `spinwheel_spins`
+    const spinInsertRes = await pool.query(
+      `INSERT INTO spinwheel_spins (user_id, prize_id, prize_snapshot, spin_status)
+       VALUES ($1, $2, $3, 'completed')
+       RETURNING id`,
+      [userId, winningSegment.db_id || null, JSON.stringify(winningSegment)]
+    );
+    const spinId = spinInsertRes.rows[0].id;
+
+    // 2. Update `wins_count` on `spinwheel_prizes`
+    if (winningSegment.db_id) {
+      await pool.query(
+        `UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1`,
+        [winningSegment.db_id]
+      );
     }
 
-    await pool.query(
-      `INSERT INTO spinwheel_user_spins (user_id, last_free_spin_date, daily_spins_used, bonus_spins_balance)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (user_id) DO UPDATE SET
-         last_free_spin_date = EXCLUDED.last_free_spin_date,
-         daily_spins_used = EXCLUDED.daily_spins_used,
-         bonus_spins_balance = EXCLUDED.bonus_spins_balance`,
-      [userId, today, dailyUsed, bonusSpins]
-    );
+    // 3. Insert into `spinwheel_rewards` if reward is not 'none'
+    if (winningSegment.type !== "none") {
+      const expiryDays = config.settings.COUPON_EXPIRY_DAYS || 30;
+      await pool.query(
+        `INSERT INTO spinwheel_rewards (user_id, spin_id, prize_id, reward_snapshot, claim_status, expires_at)
+         VALUES ($1, $2, $3, $4, 'unclaimed', NOW() + INTERVAL '${expiryDays} days')`,
+        [userId, spinId, winningSegment.db_id || null, JSON.stringify(winningSegment)]
+      );
+    }
 
-    // Record win in database log
-    await pool.query(
-      `INSERT INTO spinwheel_logs (user_id, segment_key, prize_label, reward_type, reward_value)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [userId, winningSegment.id, winningSegment.label, winningSegment.type, winningSegment.value]
-    );
+    const spinsRemaining = Math.max(0, freeAvailable - 1);
 
     res.json({
       winningSegment,
-      spinsRemaining: Math.max(0, config.settings.MAX_FREE_DAILY - dailyUsed) + bonusSpins
+      spinsRemaining
     });
   } catch (error) {
     console.error("[spinwheel] /spin error:", error);
-    res.status(500).json({ message: "Failed to execute spin" });
-  }
-});
-
-// POST /api/spinwheel/claim-task
-router.post("/claim-task", requireAuth, async (req, res) => {
-  try {
-    const { taskId } = req.body;
-    const userId = req.user.id;
-    const config = await loadConfigFromDB();
-
-    const task = config.tasks.find(t => t.id === taskId);
-    if (!task) {
-      return res.status(404).json({ message: "Task not found" });
-    }
-
-    const existing = await pool.query(
-      `SELECT id FROM spinwheel_claims WHERE user_id = $1 AND task_id = $2`,
-      [userId, taskId]
-    );
-
-    if (existing.rows.length > 0) {
-      return res.status(400).json({ message: "Task already claimed" });
-    }
-
-    await pool.query(
-      `INSERT INTO spinwheel_claims (user_id, task_id) VALUES ($1, $2)`,
-      [userId, taskId]
-    );
-
-    await pool.query(
-      `INSERT INTO spinwheel_user_spins (user_id, bonus_spins_balance)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET
-         bonus_spins_balance = spinwheel_user_spins.bonus_spins_balance + EXCLUDED.bonus_spins_balance`,
-      [userId, task.spins_reward]
-    );
-
-    res.json({ message: "Task claimed successfully!", spinsReward: task.spins_reward });
-  } catch (error) {
-    console.error("[spinwheel] /claim-task error:", error);
-    res.status(500).json({ message: "Failed to claim task" });
+    res.status(500).json({ message: "Failed to process spin" });
   }
 });
 
