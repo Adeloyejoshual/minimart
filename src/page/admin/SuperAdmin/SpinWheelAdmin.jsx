@@ -80,8 +80,8 @@ export default function SpinWheelAdmin({ api, confirm }) {
   /* ── Settings ── */
   const [settings, setSettings] = useState({
     max_free_daily: 1,
-    max_bonus_stacked: 10,
-    coupon_expiry_days: 7,
+    max_bonus_stacked: 100,
+    coupon_expiry_days: 30,
   });
 
   /* ── Stats ── */
@@ -476,10 +476,10 @@ export default function SpinWheelAdmin({ api, confirm }) {
                               value={t.platform}
                               onChange={(e) => updateTask(i, "platform", e.target.value)}
                             >
-                              <option value="instagram">Instagram</option>
-                              <option value="tiktok">TikTok</option>
-                              <option value="telegram">Telegram</option>
-                              <option value="whatsapp">WhatsApp</option>
+                              <option value="Instagram">Instagram</option>
+                              <option value="TikTok">TikTok</option>
+                              <option value="Telegram">Telegram</option>
+                              <option value="WhatsApp Channel">WhatsApp Channel</option>
                             </select>
                           </td>
                           <td>
@@ -644,7 +644,7 @@ function normalizeTask(t) {
     spins_reward:      Number(t.spins_reward ?? 1),
     verification_type: t.verification_type ?? t.verify_type ?? "honor",
     destination_url:   t.destination_url ?? t.url ?? "",
-    is_active:         t.is_active !== false,
+    is_active:         (t.is_active ?? t.active) !== false,
     display_order:     t.display_order ?? 0,
   };
 }
