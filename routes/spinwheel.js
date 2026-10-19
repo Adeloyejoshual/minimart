@@ -312,7 +312,7 @@ const handleTaskClaim = async (req, res) => {
 
     await pool.query(
       `INSERT INTO spinwheel_rewards (user_id, claim_status, reward_snapshot)
-       VALUES ($1, 'task_completed', $2)`,
+       VALUES ($1, 'task_completed', $2::jsonb)`,
       [userId, JSON.stringify(snapshot)]
     );
 
@@ -330,7 +330,7 @@ const handleTaskClaim = async (req, res) => {
 router.post("/earn-task", requireAuth, handleTaskClaim);
 router.post("/claim-task", requireAuth, handleTaskClaim);
 
-// 6. POST /api/spinwheel/spin (ATOMIC TRANSACTION)
+// 6. POST /api/spinwheel/spin (COCKROACHDB TYPE SAFE)
 router.post("/spin", requireAuth, async (req, res) => {
   const client = await pool.connect();
 
@@ -367,10 +367,10 @@ router.post("/spin", requireAuth, async (req, res) => {
     // START TRANSACTION
     await client.query("BEGIN");
 
-    // 1. Insert Spin
+    // 1. Insert Spin (with explicit type casting)
     const spinInsertRes = await client.query(
       `INSERT INTO spinwheel_spins (user_id, prize_id, prize_snapshot, spin_status)
-       VALUES ($1, $2, $3, 'completed')
+       VALUES ($1, $2::uuid, $3::jsonb, 'completed')
        RETURNING id`,
       [userId, prizeId, JSON.stringify(winningSegment)]
     );
@@ -379,17 +379,17 @@ router.post("/spin", requireAuth, async (req, res) => {
     // 2. Increment Win Count
     if (prizeId) {
       await client.query(
-        `UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1`,
+        `UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1::uuid`,
         [prizeId]
       );
     }
 
-    // 3. Record Reward
+    // 3. Record Reward (with explicit type casting)
     const isWin = winningSegment.type !== "none";
     if (isWin) {
       await client.query(
         `INSERT INTO spinwheel_rewards (user_id, spin_id, prize_id, reward_snapshot, claim_status, expires_at)
-         VALUES ($1, $2, $3, $4, 'unclaimed', NOW() + INTERVAL '30 days')`,
+         VALUES ($1, $2::uuid, $3::uuid, $4::jsonb, 'unclaimed', NOW() + INTERVAL '30 days')`,
         [userId, spinId, prizeId, JSON.stringify(winningSegment)]
       );
     }
@@ -411,10 +411,9 @@ router.post("/spin", requireAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    // ROLLBACK ON ERROR (Prevents ghost spin entries in history)
     await client.query("ROLLBACK");
-    console.error("[spinwheel] /spin error:", error);
-    res.status(500).json({ message: "Failed to process spin." });
+    console.error("[spinwheel] /spin error:", error.message, error.stack);
+    res.status(500).json({ message: "Failed to process spin. Please try again." });
   } finally {
     client.release();
   }
