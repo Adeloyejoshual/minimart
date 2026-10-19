@@ -4,7 +4,6 @@ import { pool } from "../config/db.js";
 
 const router = express.Router();
 
-// Helper to extract numeric setting values safely from CockroachDB JSONB
 function parseSettingValue(raw, defaultValue) {
   if (raw === undefined || raw === null) return defaultValue;
   let val = raw;
@@ -94,7 +93,7 @@ async function loadConfigFromDB() {
       url: t.destination_url
     })),
     settings: {
-      MAX_FREE_DAILY: parseSettingValue(settingsObj.max_free_daily, 1),
+      MAX_FREE_DAILY: parseSettingValue(settingsObj.max_free_daily, 5), // Set 5 spins for testing
       MAX_BONUS_STACKED: parseSettingValue(settingsObj.max_bonus_stacked, 10),
       COUPON_EXPIRY_DAYS: parseSettingValue(settingsObj.coupon_expiry_days, 30)
     }
@@ -103,7 +102,6 @@ async function loadConfigFromDB() {
 
 // --- PUBLIC CONFIG ROUTE ---
 
-// GET /api/spinwheel/config
 router.get("/config", async (req, res) => {
   try {
     const config = await loadConfigFromDB();
@@ -116,13 +114,12 @@ router.get("/config", async (req, res) => {
 
 // --- OPTIONAL AUTH STATE ROUTE ---
 
-// GET /api/spinwheel/state
 router.get("/state", optionalAuth, async (req, res) => {
   try {
     const config = await loadConfigFromDB();
-    const maxDaily = config.settings.MAX_FREE_DAILY || 1;
+    const maxDaily = config.settings.MAX_FREE_DAILY || 5;
 
-    // IF GUEST: Allow 1 spin preview so the "SPIN" button stays active
+    // GUEST USER: Give 5 spins preview so button is active
     if (!req.user) {
       return res.json({
         isGuest: true,
@@ -135,7 +132,7 @@ router.get("/state", optionalAuth, async (req, res) => {
 
     const userId = String(req.user.id);
 
-    // Count today's spins for logged-in user in UTC
+    // Count today's spins from DB
     const spinsTodayRes = await pool.query(
       `SELECT COUNT(*) as count 
        FROM spinwheel_spins 
@@ -162,7 +159,6 @@ router.get("/state", optionalAuth, async (req, res) => {
 
 // --- USER HISTORY ROUTE ---
 
-// GET /api/spinwheel/history
 router.get("/history", requireAuth, async (req, res) => {
   try {
     const userId = String(req.user.id);
@@ -205,18 +201,16 @@ router.get("/history", requireAuth, async (req, res) => {
 
 // --- PROTECTED SPIN ACTION ---
 
-// POST /api/spinwheel/spin
 router.post("/spin", requireAuth, async (req, res) => {
   try {
     const userId = String(req.user.id);
     const config = await loadConfigFromDB();
-    const maxDaily = config.settings.MAX_FREE_DAILY || 1;
+    const maxDaily = config.settings.MAX_FREE_DAILY || 5;
 
     if (!config.segments || config.segments.length === 0) {
       return res.status(400).json({ message: "No active wheel segments found in database." });
     }
 
-    // Check spins count today
     const spinsTodayRes = await pool.query(
       `SELECT COUNT(*) as count 
        FROM spinwheel_spins 
@@ -231,7 +225,7 @@ router.post("/spin", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "No spins remaining today. Come back tomorrow!" });
     }
 
-    // Weighted Random Picker
+    // Weighted Probability Algorithm
     const segments = config.segments;
     const totalProb = segments.reduce((sum, s) => sum + s.probability, 0);
     let rand = Math.random() * totalProb;
@@ -245,7 +239,7 @@ router.post("/spin", requireAuth, async (req, res) => {
       rand -= seg.probability;
     }
 
-    // Insert spin record
+    // Insert spin entry
     const spinInsertRes = await pool.query(
       `INSERT INTO spinwheel_spins (user_id, prize_id, prize_snapshot, spin_status)
        VALUES ($1, $2, $3, 'completed')
@@ -254,7 +248,7 @@ router.post("/spin", requireAuth, async (req, res) => {
     );
     const spinId = spinInsertRes.rows[0].id;
 
-    // Update wins_count in spinwheel_prizes
+    // Increment wins_count
     if (winningSegment.db_id) {
       await pool.query(
         `UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1`,
@@ -262,7 +256,7 @@ router.post("/spin", requireAuth, async (req, res) => {
       );
     }
 
-    // Insert reward record if reward is not 'none'
+    // Record reward if not 'none'
     if (winningSegment.type !== "none") {
       const expiryDays = config.settings.COUPON_EXPIRY_DAYS || 30;
       await pool.query(
