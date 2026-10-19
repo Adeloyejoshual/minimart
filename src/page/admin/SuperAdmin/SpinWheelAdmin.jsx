@@ -115,8 +115,8 @@ export default function SpinWheelAdmin({ api, confirm }) {
         const s = sRes.value.data.settings;
         setSettings({
           max_free_daily:     s.max_free_daily?.value     ?? 1,
-          max_bonus_stacked:  s.max_bonus_stacked?.value  ?? 10,
-          coupon_expiry_days: s.coupon_expiry_days?.value ?? 7,
+          max_bonus_stacked:  s.max_bonus_stacked?.value  ?? 100,
+          coupon_expiry_days: s.coupon_expiry_days?.value ?? 30,
         });
       }
 
@@ -333,6 +333,7 @@ export default function SpinWheelAdmin({ api, confirm }) {
                         <th>Type</th>
                         <th>Value</th>
                         <th>Prob %</th>
+                        <th>Max Wins</th>
                         <th>Color</th>
                         <th>BG</th>
                         <th>Emoji</th>
@@ -383,6 +384,19 @@ export default function SpinWheelAdmin({ api, confirm }) {
                               step="0.01"
                               value={p.probability}
                               onChange={(e) => updatePrize(i, "probability", Number(e.target.value))}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              className="sw-input sw-input-sm"
+                              type="number"
+                              min="1"
+                              step="1"
+                              placeholder="No cap"
+                              value={p.max_wins ?? ""}
+                              onChange={(e) =>
+                                updatePrize(i, "max_wins", e.target.value === "" ? null : Number(e.target.value))
+                              }
                             />
                           </td>
                           <td>
