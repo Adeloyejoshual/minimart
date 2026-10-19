@@ -51,7 +51,7 @@ router.post("/seed", async (req, res) => {
         await client.query(
           `INSERT INTO spinwheel_prizes
              (segment_key, label, reward_type, reward_value,
-              probability, color, bg AS background_color, emoji,
+              probability, color, bg, emoji,
               is_big_win, is_active, display_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
            ON CONFLICT (segment_key) DO NOTHING`,
@@ -306,7 +306,7 @@ router.put("/tasks", async (req, res) => {
            spins_reward      = EXCLUDED.spins_reward,
            verification_type = EXCLUDED.verification_type,
            destination_url   = EXCLUDED.destination_url,
-           is_active         = EXCLUDED.is_active,
+           active            = EXCLUDED.active,
            display_order     = EXCLUDED.display_order,
            updated_at        = now()`,
         [
