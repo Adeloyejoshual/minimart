@@ -4,13 +4,13 @@
 // ════════════════════════════════════════════════════════════
 
 import express from "express";
-import { pool } from "../../config/db.js";
+import { pool } from "../config/db.js";
 
 import {
   WHEEL_SEGMENTS,
   EARN_TASKS_DEF,
   SPIN_CONSTANTS,
-} from "../../config/spinwheel.config.js";
+} from "../config/spinwheel.config.js";
 
 const router = express.Router();
 
