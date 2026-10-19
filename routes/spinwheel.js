@@ -25,6 +25,13 @@ function formatCountdown(seconds) {
   return [h, m, s].map(v => String(v).padStart(2, "0")).join(":");
 }
 
+function isValidUUID(str) {
+  if (!str || typeof str !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
+// --- AUTH MIDDLEWARE ---
+
 function optionalAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -53,6 +60,8 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ message: "Session expired. Please log in again." });
   }
 }
+
+// --- DB LOADERS ---
 
 async function loadSegmentsAndSettings() {
   const [prizesRes, settingsRes] = await Promise.all([
@@ -142,6 +151,8 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
     streak: 1
   };
 }
+
+// --- API ENDPOINTS ---
 
 // 1. GET /api/spinwheel/config
 router.get("/config", optionalAuth, async (req, res) => {
@@ -319,21 +330,26 @@ const handleTaskClaim = async (req, res) => {
 router.post("/earn-task", requireAuth, handleTaskClaim);
 router.post("/claim-task", requireAuth, handleTaskClaim);
 
-// 6. POST /api/spinwheel/spin
+// 6. POST /api/spinwheel/spin (ATOMIC TRANSACTION)
 router.post("/spin", requireAuth, async (req, res) => {
+  const client = await pool.connect();
+
   try {
     const userId = String(req.user.id);
     const { segments, maxFreeDaily } = await loadSegmentsAndSettings();
 
     if (!segments || segments.length === 0) {
+      client.release();
       return res.status(400).json({ message: "No active wheel segments found in database." });
     }
 
     const spinStatus = await getSpinStatusForUser(userId, maxFreeDaily);
     if (!spinStatus.can_spin) {
+      client.release();
       return res.status(400).json({ message: `No spins remaining today. Next spin in ${spinStatus.next_spin_in}` });
     }
 
+    // Weighted Random Segment Selection
     const totalProb = segments.reduce((sum, s) => sum + s.probability, 0);
     let rand = Math.random() * totalProb;
     let winningSegment = segments[0];
@@ -346,29 +362,40 @@ router.post("/spin", requireAuth, async (req, res) => {
       rand -= seg.probability;
     }
 
-    const spinInsertRes = await pool.query(
+    const prizeId = isValidUUID(winningSegment.db_id) ? winningSegment.db_id : null;
+
+    // START TRANSACTION
+    await client.query("BEGIN");
+
+    // 1. Insert Spin
+    const spinInsertRes = await client.query(
       `INSERT INTO spinwheel_spins (user_id, prize_id, prize_snapshot, spin_status)
        VALUES ($1, $2, $3, 'completed')
        RETURNING id`,
-      [userId, winningSegment.db_id || null, JSON.stringify(winningSegment)]
+      [userId, prizeId, JSON.stringify(winningSegment)]
     );
     const spinId = spinInsertRes.rows[0].id;
 
-    if (winningSegment.db_id) {
-      await pool.query(
+    // 2. Increment Win Count
+    if (prizeId) {
+      await client.query(
         `UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1`,
-        [winningSegment.db_id]
+        [prizeId]
       );
     }
 
+    // 3. Record Reward
     const isWin = winningSegment.type !== "none";
     if (isWin) {
-      await pool.query(
+      await client.query(
         `INSERT INTO spinwheel_rewards (user_id, spin_id, prize_id, reward_snapshot, claim_status, expires_at)
          VALUES ($1, $2, $3, $4, 'unclaimed', NOW() + INTERVAL '30 days')`,
-        [userId, spinId, winningSegment.db_id || null, JSON.stringify(winningSegment)]
+        [userId, spinId, prizeId, JSON.stringify(winningSegment)]
       );
     }
+
+    // COMMIT TRANSACTION
+    await client.query("COMMIT");
 
     res.json({
       segment_id: winningSegment.id,
@@ -384,8 +411,12 @@ router.post("/spin", requireAuth, async (req, res) => {
       }
     });
   } catch (error) {
+    // ROLLBACK ON ERROR (Prevents ghost spin entries in history)
+    await client.query("ROLLBACK");
     console.error("[spinwheel] /spin error:", error);
     res.status(500).json({ message: "Failed to process spin." });
+  } finally {
+    client.release();
   }
 });
 
