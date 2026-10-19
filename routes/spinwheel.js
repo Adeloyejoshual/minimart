@@ -72,6 +72,10 @@ async function loadConfigFromDB() {
     settingsObj[row.setting_key] = row.setting_value;
   }
 
+  const maxDaily = parseSettingValue(settingsObj.max_free_daily, 5);
+  const maxBonus = parseSettingValue(settingsObj.max_bonus_stacked, 10);
+  const expiryDays = parseSettingValue(settingsObj.coupon_expiry_days, 30);
+
   return {
     segments: prizesRes.rows.map(p => ({
       id: p.segment_key,
@@ -93,9 +97,13 @@ async function loadConfigFromDB() {
       url: t.destination_url
     })),
     settings: {
-      MAX_FREE_DAILY: parseSettingValue(settingsObj.max_free_daily, 5), // Set 5 spins for testing
-      MAX_BONUS_STACKED: parseSettingValue(settingsObj.max_bonus_stacked, 10),
-      COUPON_EXPIRY_DAYS: parseSettingValue(settingsObj.coupon_expiry_days, 30)
+      MAX_FREE_DAILY: maxDaily,
+      maxFreeDaily: maxDaily,
+      max_free_daily: maxDaily,
+      MAX_BONUS_STACKED: maxBonus,
+      maxBonusStacked: maxBonus,
+      COUPON_EXPIRY_DAYS: expiryDays,
+      couponExpiryDays: expiryDays
     }
   };
 }
@@ -112,19 +120,22 @@ router.get("/config", async (req, res) => {
   }
 });
 
-// --- OPTIONAL AUTH STATE ROUTE ---
+// --- OPTIONAL AUTH STATE HANDLER ---
 
-router.get("/state", optionalAuth, async (req, res) => {
+async function handleUserState(req, res) {
   try {
     const config = await loadConfigFromDB();
     const maxDaily = config.settings.MAX_FREE_DAILY || 5;
 
-    // GUEST USER: Give 5 spins preview so button is active
     if (!req.user) {
       return res.json({
         isGuest: true,
         spinsRemaining: maxDaily,
+        spinsAvailable: maxDaily,
         freeSpinsAvailable: maxDaily,
+        canSpin: true,
+        hasSpunToday: false,
+        nextSpinTime: null,
         bonusSpins: 0,
         completedTasks: []
       });
@@ -132,7 +143,6 @@ router.get("/state", optionalAuth, async (req, res) => {
 
     const userId = String(req.user.id);
 
-    // Count today's spins from DB
     const spinsTodayRes = await pool.query(
       `SELECT COUNT(*) as count 
        FROM spinwheel_spins 
@@ -143,19 +153,29 @@ router.get("/state", optionalAuth, async (req, res) => {
 
     const spinsToday = Number(spinsTodayRes.rows[0]?.count || 0);
     const freeSpinsAvailable = Math.max(0, maxDaily - spinsToday);
+    const canSpin = freeSpinsAvailable > 0;
 
     res.json({
       isGuest: false,
       spinsRemaining: freeSpinsAvailable,
-      freeSpinsAvailable,
+      spinsAvailable: freeSpinsAvailable,
+      freeSpinsAvailable: freeSpinsAvailable,
+      canSpin: canSpin,
+      hasSpunToday: !canSpin,
+      nextSpinTime: canSpin ? null : new Date(Date.now() + 86400000).toISOString(),
       bonusSpins: 0,
       completedTasks: []
     });
   } catch (error) {
-    console.error("[spinwheel] /state error:", error);
+    console.error("[spinwheel] state error:", error);
     res.status(500).json({ message: "Failed to load user spin state" });
   }
-});
+}
+
+// Endpoint aliases to match whatever URL the frontend calls
+router.get("/state", optionalAuth, handleUserState);
+router.get("/user-state", optionalAuth, handleUserState);
+router.get("/me", optionalAuth, handleUserState);
 
 // --- USER HISTORY ROUTE ---
 
@@ -270,7 +290,8 @@ router.post("/spin", requireAuth, async (req, res) => {
 
     res.json({
       winningSegment,
-      spinsRemaining
+      spinsRemaining,
+      canSpin: spinsRemaining > 0
     });
   } catch (error) {
     console.error("[spinwheel] /spin error:", error);
