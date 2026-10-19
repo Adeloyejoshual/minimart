@@ -51,7 +51,8 @@ const getIp = (req) =>
 function spinWheel(segments) {
   const eligible = (segments || []).filter((segment) =>
     Number(segment.probability) > 0 &&
-    (segment.max_wins == null || Number(segment.wins_count || 0) < Number(segment.max_wins))
+    (segment.type === "none" || segment.max_wins == null ||
+      Number(segment.wins_count || 0) < Number(segment.max_wins))
   );
   const totalWeight = eligible.reduce((sum, segment) => sum + Number(segment.probability || 0), 0);
   if (!eligible.length || totalWeight <= 0) return null;
