@@ -4,8 +4,8 @@
 // Protected admin endpoints for managing Spin & Win prizes,
 // tasks and settings stored in the new spinwheel_* tables.
 //
-// The existing routes/spinwheel.js continues to read from
-// spinwheel.config.js until you explicitly switch it over.
+// The live routes/spinwheel.js reads prize, task and setting values
+// from the spinwheel_* database tables, preserving legacy spin history.
 
 import express from "express";
 import { pool } from "../../config/db.js";
@@ -281,8 +281,17 @@ router.put("/tasks", async (req, res) => {
     if (!validCats.includes(t.category)) {
       return fail(res, 400, `Invalid category "${t.category}".`);
     }
-    if (Number(t.spins_reward) < 1) {
-      return fail(res, 400, `spins_reward must be ≥ 1 for "${t.label}".`);
+    if (!String(t.label || "").trim() || !String(t.platform || "").trim()) {
+      return fail(res, 400, "Every task needs a label and platform.");
+    }
+    if (!Number.isInteger(Number(t.spins_reward)) || Number(t.spins_reward) < 1) {
+      return fail(res, 400, `spins_reward must be a positive whole number for "${t.label}".`);
+    }
+    if ((t.verification_type ?? "honor") !== "honor") {
+      return fail(res, 400, "Only honor-based task verification is currently supported.");
+    }
+    if (t.destination_url && !/^https:\/\//i.test(t.destination_url)) {
+      return fail(res, 400, `Task URL must start with https:// for "${t.label}".`);
     }
   }
 
