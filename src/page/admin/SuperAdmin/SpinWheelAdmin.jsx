@@ -1,4 +1,4 @@
-// FILE: src/pages/admin/SuperAdmin/SpinWheelAdmin.jsx
+// FILE: src/page/admin/SuperAdmin/SpinWheelAdmin.jsx
 
 import { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
@@ -80,8 +80,8 @@ export default function SpinWheelAdmin({ api, confirm }) {
   /* ── Settings ── */
   const [settings, setSettings] = useState({
     max_free_daily: 1,
-    max_bonus_stacked: 10,
-    coupon_expiry_days: 7,
+    max_bonus_stacked: 100,
+    coupon_expiry_days: 30,
   });
 
   /* ── Stats ── */
@@ -115,8 +115,8 @@ export default function SpinWheelAdmin({ api, confirm }) {
         const s = sRes.value.data.settings;
         setSettings({
           max_free_daily:     s.max_free_daily?.value     ?? 1,
-          max_bonus_stacked:  s.max_bonus_stacked?.value  ?? 10,
-          coupon_expiry_days: s.coupon_expiry_days?.value ?? 7,
+          max_bonus_stacked:  s.max_bonus_stacked?.value  ?? 100,
+          coupon_expiry_days: s.coupon_expiry_days?.value ?? 30,
         });
       }
 
@@ -137,7 +137,7 @@ export default function SpinWheelAdmin({ api, confirm }) {
   const handleSeed = async () => {
     confirm({
       title: "Seed Spin & Win Data",
-      body: "This will copy your current prize and task configuration from spinwheel.config.js into the database. Your live spin wheel will NOT be affected — it still reads from the config file until you switch it over.",
+      body: "This imports default prizes and tasks only when their database tables are empty. The live wheel reads its prize, task, and settings configuration from the database. Existing spin history and coupons are preserved.",
       confirm: "Seed Now",
       action: async () => {
         try {
@@ -333,6 +333,7 @@ export default function SpinWheelAdmin({ api, confirm }) {
                         <th>Type</th>
                         <th>Value</th>
                         <th>Prob %</th>
+                        <th>Max Wins</th>
                         <th>Color</th>
                         <th>BG</th>
                         <th>Emoji</th>
@@ -383,6 +384,19 @@ export default function SpinWheelAdmin({ api, confirm }) {
                               step="0.01"
                               value={p.probability}
                               onChange={(e) => updatePrize(i, "probability", Number(e.target.value))}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              className="sw-input sw-input-sm"
+                              type="number"
+                              min="1"
+                              step="1"
+                              placeholder="No cap"
+                              value={p.max_wins ?? ""}
+                              onChange={(e) =>
+                                updatePrize(i, "max_wins", e.target.value === "" ? null : Number(e.target.value))
+                              }
                             />
                           </td>
                           <td>
@@ -476,10 +490,10 @@ export default function SpinWheelAdmin({ api, confirm }) {
                               value={t.platform}
                               onChange={(e) => updateTask(i, "platform", e.target.value)}
                             >
-                              <option value="instagram">Instagram</option>
-                              <option value="tiktok">TikTok</option>
-                              <option value="telegram">Telegram</option>
-                              <option value="whatsapp">WhatsApp</option>
+                              <option value="Instagram">Instagram</option>
+                              <option value="TikTok">TikTok</option>
+                              <option value="Telegram">Telegram</option>
+                              <option value="WhatsApp Channel">WhatsApp Channel</option>
                             </select>
                           </td>
                           <td>
@@ -644,7 +658,7 @@ function normalizeTask(t) {
     spins_reward:      Number(t.spins_reward ?? 1),
     verification_type: t.verification_type ?? t.verify_type ?? "honor",
     destination_url:   t.destination_url ?? t.url ?? "",
-    is_active:         t.is_active !== false,
+    is_active:         (t.is_active ?? t.active) !== false,
     display_order:     t.display_order ?? 0,
   };
 }
