@@ -47,7 +47,7 @@ function optionalAuth(req, res, next) {
 function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Please log in to spin or view history." });
+    return res.status(401).json({ message: "Please log in to spin or claim tasks." });
   }
   try {
     const token = authHeader.split(" ")[1];
@@ -76,7 +76,6 @@ async function loadSegmentsAndSettings() {
     settingsObj[row.setting_key] = row.setting_value;
   }
 
-  // Set default to 5 spins for testing
   const maxFreeDaily = parseSettingValue(settingsObj.max_free_daily, 5);
 
   const segments = prizesRes.rows.map(p => ({
@@ -97,8 +96,10 @@ async function loadSegmentsAndSettings() {
 
 async function getSpinStatusForUser(userId, maxFreeDaily) {
   let spinsToday = 0;
+  let bonusSpinsRemaining = 0;
 
   if (userId) {
+    // Count today's spins
     const spinsTodayRes = await pool.query(
       `SELECT COUNT(*) as count 
        FROM spinwheel_spins 
@@ -107,13 +108,34 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
       [String(userId)]
     );
     spinsToday = Number(spinsTodayRes.rows[0]?.count || 0);
+
+    // Calculate bonus spins from completed tasks
+    const bonusRes = await pool.query(
+      `SELECT reward_snapshot FROM spinwheel_rewards 
+       WHERE user_id = $1 AND claim_status = 'task_completed'`,
+      [String(userId)]
+    );
+
+    let totalBonusEarned = 0;
+    for (const row of bonusRes.rows) {
+      const snapshot = typeof row.reward_snapshot === "string" 
+        ? JSON.parse(row.reward_snapshot) 
+        : (row.reward_snapshot || {});
+      totalBonusEarned += Number(snapshot.spins_reward || 1);
+    }
+
+    // Determine unused bonus spins
+    const totalSpinsUsedRes = await pool.query(
+      `SELECT COUNT(*) as count FROM spinwheel_spins WHERE user_id = $1`,
+      [String(userId)]
+    );
+    const totalSpinsUsed = Number(totalSpinsUsedRes.rows[0]?.count || 0);
+    bonusSpinsRemaining = Math.max(0, totalBonusEarned - Math.max(0, totalSpinsUsed - spinsToday));
   }
 
   const canFreeSpin = spinsToday < maxFreeDaily;
-  const bonusSpinsRemaining = 0; // Can be expanded with referral/bonus logic
   const canSpin = canFreeSpin || bonusSpinsRemaining > 0;
 
-  // Calculate seconds remaining until UTC midnight
   const now = new Date();
   const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
   const nextSpinSeconds = Math.max(0, Math.floor((midnight.getTime() - now.getTime()) / 1000));
@@ -212,10 +234,109 @@ router.get("/referral-spins", optionalAuth, async (req, res) => {
 
 // 4. GET /api/spinwheel/tasks
 router.get("/tasks", optionalAuth, async (req, res) => {
-  res.json({ completed_task_ids: [], stats: { total_earned: 0 } });
+  try {
+    const tasksRes = await pool.query(
+      `SELECT id, task_key, label, platform, spins_reward, destination_url 
+       FROM spinwheel_tasks 
+       WHERE is_active = true 
+       ORDER BY display_order ASC`
+    );
+
+    let completedTaskIds = [];
+    let totalEarned = 0;
+
+    if (req.user) {
+      const claimsRes = await pool.query(
+        `SELECT reward_snapshot FROM spinwheel_rewards 
+         WHERE user_id = $1 AND claim_status = 'task_completed'`,
+        [String(req.user.id)]
+      );
+
+      completedTaskIds = claimsRes.rows.map(row => {
+        const snap = typeof row.reward_snapshot === "string" ? JSON.parse(row.reward_snapshot) : row.reward_snapshot;
+        totalEarned += Number(snap?.spins_reward || 1);
+        return snap?.task_id;
+      }).filter(Boolean);
+    }
+
+    res.json({
+      tasks: tasksRes.rows.map(t => ({
+        id: t.task_key || t.id,
+        label: t.label,
+        platform: t.platform,
+        spins_reward: Number(t.spins_reward),
+        url: t.destination_url
+      })),
+      completed_task_ids: completedTaskIds,
+      stats: { total_earned: totalEarned }
+    });
+  } catch (error) {
+    console.error("[spinwheel] /tasks error:", error);
+    res.status(500).json({ message: "Failed to fetch tasks." });
+  }
 });
 
-// 5. POST /api/spinwheel/spin
+// 5. POST /api/spinwheel/earn-task & /claim-task (Handles completing social/earn tasks)
+const handleTaskClaim = async (req, res) => {
+  try {
+    const userId = String(req.user.id);
+    const taskId = req.body.task_id || req.body.taskId || req.body.task_key;
+
+    if (!taskId) {
+      return res.status(400).json({ message: "Task ID is required." });
+    }
+
+    // Check if task exists in DB
+    const taskRes = await pool.query(
+      `SELECT task_key, label, spins_reward FROM spinwheel_tasks WHERE (task_key = $1 OR id::text = $1) AND is_active = true`,
+      [taskId]
+    );
+
+    const spinsReward = taskRes.rows.length > 0 ? Number(taskRes.rows[0].spins_reward) : 1;
+    const taskLabel = taskRes.rows.length > 0 ? taskRes.rows[0].label : "Earn Task";
+
+    // Check if task was already completed by this user
+    const existingRes = await pool.query(
+      `SELECT id FROM spinwheel_rewards 
+       WHERE user_id = $1 
+         AND claim_status = 'task_completed' 
+         AND (reward_snapshot->>'task_id' = $2 OR reward_snapshot->>'task_key' = $2)`,
+      [userId, taskId]
+    );
+
+    if (existingRes.rows.length > 0) {
+      return res.status(400).json({ message: "Task already claimed." });
+    }
+
+    // Record completed task reward in spinwheel_rewards
+    const snapshot = {
+      task_id: taskId,
+      task_key: taskId,
+      label: taskLabel,
+      spins_reward: spinsReward
+    };
+
+    await pool.query(
+      `INSERT INTO spinwheel_rewards (user_id, claim_status, reward_snapshot)
+       VALUES ($1, 'task_completed', $2)`,
+      [userId, JSON.stringify(snapshot)]
+    );
+
+    res.json({
+      success: true,
+      message: `Task claimed! You earned +${spinsReward} bonus spin(s).`,
+      spins_awarded: spinsReward
+    });
+  } catch (error) {
+    console.error("[spinwheel] claim-task error:", error);
+    res.status(500).json({ message: "Failed to claim task." });
+  }
+};
+
+router.post("/earn-task", requireAuth, handleTaskClaim);
+router.post("/claim-task", requireAuth, handleTaskClaim);
+
+// 6. POST /api/spinwheel/spin
 router.post("/spin", requireAuth, async (req, res) => {
   try {
     const userId = String(req.user.id);
@@ -270,9 +391,8 @@ router.post("/spin", requireAuth, async (req, res) => {
       );
     }
 
-    // Respond matching SpinWheel.jsx expectations
     res.json({
-      segment_id: winningSegment.id, // e.g. "seg_1"
+      segment_id: winningSegment.id,
       result: {
         is_win: isWin,
         label: winningSegment.label,
