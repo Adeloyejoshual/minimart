@@ -4,7 +4,6 @@ import { pool } from "../config/db.js";
 
 const router = express.Router();
 
-// Helper to extract setting values safely from JSONB/raw
 function parseSettingValue(raw, defaultValue) {
   if (raw === undefined || raw === null) return defaultValue;
   let val = raw;
@@ -18,7 +17,6 @@ function parseSettingValue(raw, defaultValue) {
   return isNaN(num) ? defaultValue : num;
 }
 
-// Format seconds into HH:MM:SS string
 function formatCountdown(seconds) {
   if (seconds <= 0) return "00:00:00";
   const h = Math.floor(seconds / 3600);
@@ -26,8 +24,6 @@ function formatCountdown(seconds) {
   const s = seconds % 60;
   return [h, m, s].map(v => String(v).padStart(2, "0")).join(":");
 }
-
-// --- AUTH MIDDLEWARE ---
 
 function optionalAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -58,15 +54,13 @@ function requireAuth(req, res, next) {
   }
 }
 
-// --- DB DATA FETCHERS ---
-
 async function loadSegmentsAndSettings() {
   const [prizesRes, settingsRes] = await Promise.all([
     pool.query(`
-      SELECT id, segment_key, label, reward_type, reward_value, probability, color, background_color, emoji, is_big_win 
+      SELECT DISTINCT ON (segment_key) id, segment_key, label, reward_type, reward_value, probability, color, background_color, emoji, is_big_win 
       FROM spinwheel_prizes 
       WHERE is_active = true 
-      ORDER BY display_order ASC
+      ORDER BY segment_key, display_order ASC
     `),
     pool.query(`SELECT setting_key, setting_value FROM spinwheel_settings`)
   ]);
@@ -99,7 +93,6 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
   let bonusSpinsRemaining = 0;
 
   if (userId) {
-    // Count today's spins
     const spinsTodayRes = await pool.query(
       `SELECT COUNT(*) as count 
        FROM spinwheel_spins 
@@ -109,7 +102,6 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
     );
     spinsToday = Number(spinsTodayRes.rows[0]?.count || 0);
 
-    // Calculate bonus spins from completed tasks
     const bonusRes = await pool.query(
       `SELECT reward_snapshot FROM spinwheel_rewards 
        WHERE user_id = $1 AND claim_status = 'task_completed'`,
@@ -118,13 +110,10 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
 
     let totalBonusEarned = 0;
     for (const row of bonusRes.rows) {
-      const snapshot = typeof row.reward_snapshot === "string" 
-        ? JSON.parse(row.reward_snapshot) 
-        : (row.reward_snapshot || {});
+      const snapshot = typeof row.reward_snapshot === "string" ? JSON.parse(row.reward_snapshot) : (row.reward_snapshot || {});
       totalBonusEarned += Number(snapshot.spins_reward || 1);
     }
 
-    // Determine unused bonus spins
     const totalSpinsUsedRes = await pool.query(
       `SELECT COUNT(*) as count FROM spinwheel_spins WHERE user_id = $1`,
       [String(userId)]
@@ -133,7 +122,8 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
     bonusSpinsRemaining = Math.max(0, totalBonusEarned - Math.max(0, totalSpinsUsed - spinsToday));
   }
 
-  const canFreeSpin = spinsToday < maxFreeDaily;
+  const freeSpinsRemaining = Math.max(0, maxFreeDaily - spinsToday);
+  const canFreeSpin = freeSpinsRemaining > 0;
   const canSpin = canFreeSpin || bonusSpinsRemaining > 0;
 
   const now = new Date();
@@ -143,6 +133,7 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
   return {
     can_free_spin: canFreeSpin,
     can_spin: canSpin,
+    free_spins_remaining: freeSpinsRemaining,
     spins_used_today: spinsToday,
     max_daily_spins: maxFreeDaily,
     bonus_spins_remaining: bonusSpinsRemaining,
@@ -151,8 +142,6 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
     streak: 1
   };
 }
-
-// --- API ENDPOINTS ---
 
 // 1. GET /api/spinwheel/config
 router.get("/config", optionalAuth, async (req, res) => {
@@ -196,10 +185,7 @@ router.get("/history", optionalAuth, async (req, res) => {
     );
 
     const history = historyRes.rows.map(row => {
-      const snapshot = typeof row.prize_snapshot === "string"
-        ? JSON.parse(row.prize_snapshot)
-        : (row.prize_snapshot || {});
-
+      const snapshot = typeof row.prize_snapshot === "string" ? JSON.parse(row.prize_snapshot) : (row.prize_snapshot || {});
       return {
         id: row.id,
         segment_id: snapshot.id || snapshot.segment_key,
@@ -276,7 +262,7 @@ router.get("/tasks", optionalAuth, async (req, res) => {
   }
 });
 
-// 5. POST /api/spinwheel/earn-task & /claim-task (Handles completing social/earn tasks)
+// 5. POST /api/spinwheel/earn-task & /claim-task
 const handleTaskClaim = async (req, res) => {
   try {
     const userId = String(req.user.id);
@@ -286,7 +272,6 @@ const handleTaskClaim = async (req, res) => {
       return res.status(400).json({ message: "Task ID is required." });
     }
 
-    // Check if task exists in DB
     const taskRes = await pool.query(
       `SELECT task_key, label, spins_reward FROM spinwheel_tasks WHERE (task_key = $1 OR id::text = $1) AND is_active = true`,
       [taskId]
@@ -295,7 +280,6 @@ const handleTaskClaim = async (req, res) => {
     const spinsReward = taskRes.rows.length > 0 ? Number(taskRes.rows[0].spins_reward) : 1;
     const taskLabel = taskRes.rows.length > 0 ? taskRes.rows[0].label : "Earn Task";
 
-    // Check if task was already completed by this user
     const existingRes = await pool.query(
       `SELECT id FROM spinwheel_rewards 
        WHERE user_id = $1 
@@ -308,7 +292,6 @@ const handleTaskClaim = async (req, res) => {
       return res.status(400).json({ message: "Task already claimed." });
     }
 
-    // Record completed task reward in spinwheel_rewards
     const snapshot = {
       task_id: taskId,
       task_key: taskId,
@@ -351,7 +334,6 @@ router.post("/spin", requireAuth, async (req, res) => {
       return res.status(400).json({ message: `No spins remaining today. Next spin in ${spinStatus.next_spin_in}` });
     }
 
-    // Weighted Random Segment Selection
     const totalProb = segments.reduce((sum, s) => sum + s.probability, 0);
     let rand = Math.random() * totalProb;
     let winningSegment = segments[0];
@@ -364,7 +346,6 @@ router.post("/spin", requireAuth, async (req, res) => {
       rand -= seg.probability;
     }
 
-    // Save Spin Record to DB
     const spinInsertRes = await pool.query(
       `INSERT INTO spinwheel_spins (user_id, prize_id, prize_snapshot, spin_status)
        VALUES ($1, $2, $3, 'completed')
@@ -373,7 +354,6 @@ router.post("/spin", requireAuth, async (req, res) => {
     );
     const spinId = spinInsertRes.rows[0].id;
 
-    // Increment win count on prizes table
     if (winningSegment.db_id) {
       await pool.query(
         `UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1`,
@@ -381,7 +361,6 @@ router.post("/spin", requireAuth, async (req, res) => {
       );
     }
 
-    // If winning prize (not 'none'), record in rewards table
     const isWin = winningSegment.type !== "none";
     if (isWin) {
       await pool.query(
