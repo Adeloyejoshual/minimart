@@ -1,4 +1,3 @@
-// src/pages/Profile/SpinWheel.jsx
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, Link }                         from "react-router-dom";
 
@@ -33,7 +32,7 @@ const NAV_TABS = [
 ];
 
 const RULES = [
-  "1 free spin per day — resets at midnight",
+  "Free daily spins reset at midnight",
   "Earn bonus spins by following us on social media or joining our community groups",
   "Earn +1 bonus spin for every friend who signs up with your invite code",
   "Bonus spins never expire and stack up to 10",
@@ -91,7 +90,7 @@ export default function SpinWheel() {
     try {
       const [configRes, historyRes, referralRes, tasksRes] =
         await Promise.all([
-          fetch(`${API}/spinwheel/config`,        { headers: authH() }),
+          fetch(`${API}/spinwheel/config`,         { headers: authH() }),
           fetch(`${API}/spinwheel/history`,        { headers: authH() }),
           fetch(`${API}/spinwheel/referral-spins`, { headers: authH() }),
           fetch(`${API}/spinwheel/tasks`,          { headers: authH() }),
@@ -168,21 +167,24 @@ export default function SpinWheel() {
   /* ══════════════════════════════════════════
      COMPUTED
   ══════════════════════════════════════════ */
-  const canFreeSpin = spinStatus?.can_free_spin ?? spinStatus?.can_spin ?? false;
+  const canFreeSpin = spinStatus?.can_free_spin ?? false;
+  const freeLeft    = spinStatus?.free_spins_remaining ?? (canFreeSpin ? 1 : 0);
   const bonusLeft   = spinStatus?.bonus_spins_remaining || 0;
-  const canSpin     = canFreeSpin || bonusLeft > 0;
+  const canSpin     = freeLeft > 0 || bonusLeft > 0;
 
   const currentSpinType = useCallback(() => {
-    if (canFreeSpin)   return "free";
+    if (freeLeft > 0)  return "free";
     if (bonusLeft > 0) return "bonus";
     return null;
-  }, [canFreeSpin, bonusLeft]);
+  }, [freeLeft, bonusLeft]);
 
-  const totalSpinsAvailable = (canFreeSpin ? 1 : 0) + bonusLeft;
-  const pendingTasksCount   = EARN_TASKS.filter(
+  const totalSpinsAvailable = freeLeft + bonusLeft;
+  
+  const pendingTasksCount = EARN_TASKS.filter(
     (t) => !completedTasks.includes(t.id)
   ).length;
-  const totalPossibleSpins  = useMemo(
+  
+  const totalPossibleSpins = useMemo(
     () => EARN_TASKS.reduce((a, t) => a + t.spins_reward, 0),
     []
   );
@@ -248,17 +250,17 @@ export default function SpinWheel() {
       setTargetId(data.segment_id);
       setSpinResult({ ...data.result, spin_type: type });
 
+      // Optimistically update spins locally
       setSpinStatus((prev) => {
         if (!prev) return prev;
         const u = { ...prev };
         if (type === "free") {
-          u.can_free_spin = false;
-          u.can_spin      = false;
+          u.free_spins_remaining = Math.max(0, (u.free_spins_remaining || 1) - 1);
+          u.can_free_spin        = u.free_spins_remaining > 0;
+          u.can_spin             = u.free_spins_remaining > 0 || (u.bonus_spins_remaining || 0) > 0;
         } else {
-          u.bonus_spins_remaining = Math.max(
-            0,
-            (u.bonus_spins_remaining || 0) - 1
-          );
+          u.bonus_spins_remaining = Math.max(0, (u.bonus_spins_remaining || 0) - 1);
+          u.can_spin = (u.free_spins_remaining || 0) > 0 || u.bonus_spins_remaining > 0;
         }
         return u;
       });
@@ -289,7 +291,7 @@ export default function SpinWheel() {
 
     setTimeout(() => {
       setShowResult(true);
-      loadConfig(true);
+      loadConfig(true); // Fetch updated state from server silently
     }, 400);
   }, [spinResult, loadConfig]);
 
@@ -310,7 +312,7 @@ export default function SpinWheel() {
       return `Come back in ${spinStatus?.next_spin_in || "..."}`;
     const type = currentSpinType();
     if (type === "free")
-      return <><Icon name="star" size={16} /> SPIN NOW! (Free)</>;
+      return <><Icon name="star" size={16} /> SPIN NOW! ({freeLeft} free {freeLeft > 1 ? "spins" : "spin"} left)</>;
     if (type === "bonus")
       return <><Icon name="gift" size={16} /> SPIN NOW! ({bonusLeft} bonus left)</>;
     return "No Spins Available";
@@ -382,7 +384,7 @@ export default function SpinWheel() {
           <p className="sw-topbar-sub">
             {totalSpinsAvailable > 0
               ? `${totalSpinsAvailable} spin${totalSpinsAvailable > 1 ? "s" : ""} available`
-              : "1 free spin per day"}
+              : `Next spin in ${spinStatus?.next_spin_in || "..."}`}
           </p>
         </div>
 
@@ -494,14 +496,14 @@ export default function SpinWheel() {
             )}
 
             {/* Free spin ready */}
-            {canFreeSpin && (
+            {freeLeft > 0 && (
               <div className="sw-ready-banner" role="status">
                 <Icon
                   name="sparkle"
                   size={20}
                   style={{ color: "#e8630a" }}
                 />
-                <p>Your free spin is ready!</p>
+                <p>You have {freeLeft} free spin{freeLeft > 1 ? "s" : ""} ready!</p>
               </div>
             )}
 
