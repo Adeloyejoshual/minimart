@@ -1,4 +1,4 @@
-// FILE: src/pages/admin/SuperAdmin/SpinWheelAdmin.jsx
+// FILE: src/page/admin/SuperAdmin/SpinWheelAdmin.jsx
 
 import { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
@@ -137,7 +137,7 @@ export default function SpinWheelAdmin({ api, confirm }) {
   const handleSeed = async () => {
     confirm({
       title: "Seed Spin & Win Data",
-      body: "This will copy your current prize and task configuration from spinwheel.config.js into the database. Your live spin wheel will NOT be affected — it still reads from the config file until you switch it over.",
+      body: "This imports default prizes and tasks only when their database tables are empty. The live wheel reads its prize, task, and settings configuration from the database. Existing spin history and coupons are preserved.",
       confirm: "Seed Now",
       action: async () => {
         try {
