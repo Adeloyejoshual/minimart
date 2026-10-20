@@ -1,121 +1,96 @@
-import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { sellerApi } from "./SellerDashboard";
 import "./Products.css";
 
-const PAGE_SIZE = 12;
-const LOW_STOCK = 5;
 const API = "/api/seller/products";
+const PER_PAGE = 12;
 
 const FILTERS = [
-  { key: "", label: "All" },
-  { key: "pending", label: "Pending" },
-  { key: "approved", label: "Approved" },
-  { key: "rejected", label: "Rejected" },
-  { key: "paused", label: "Paused" },
+  ["", "All"],
+  ["pending", "Pending"],
+  ["approved", "Approved"],
+  ["rejected", "Rejected"],
+  ["paused", "Paused"],
 ];
 
-const fmt = (v) =>
-  `₦${Number(v ?? 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function money(v) {
+  return "₦" + Number(v || 0).toLocaleString("en-NG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
-function getCover(p) {
-  if (Array.isArray(p.images) && p.images.length) {
-    const m = p.images.find((i) => i.is_primary) ?? p.images[0];
-    return m?.url ?? m?.image_url ?? null;
+function cover(p) {
+  if (p.images?.length) {
+    const m = p.images.find((i) => i.is_primary) || p.images[0];
+    return m?.url || m?.image_url || "";
   }
-  return p.image_url ?? null;
+  return p.image_url || "";
 }
 
-function getStock(p) {
-  if (Array.isArray(p.variants) && p.variants.length)
+function stock(p) {
+  if (p.variants?.length)
     return p.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
-  return Number(p.stock ?? p.quantity ?? 0);
+  return Number(p.stock || p.quantity || 0);
 }
 
-function statusClass(p) {
-  if (p.is_paused) return "sp-chip--paused";
-  return `sp-chip--${p.status ?? "paused"}`;
+function chipClass(p) {
+  if (p.is_paused) return "";
+  if (p.status === "approved" || p.status === "active") return "sp-chip-green";
+  if (p.status === "pending") return "sp-chip-yellow";
+  if (p.status === "rejected") return "sp-chip-red";
+  return "";
 }
 
-function statusLabel(p) {
+function chipText(p) {
   if (p.is_paused) return "Paused";
-  return (p.status ?? "—").charAt(0).toUpperCase() + (p.status ?? "").slice(1);
+  return (p.status || "—").replace(/^\w/, (c) => c.toUpperCase());
 }
 
-function stockClass(n) {
-  if (n <= 0) return "sp-stock--out";
-  if (n <= LOW_STOCK) return "sp-stock--low";
-  return "sp-stock--ok";
+function stockInfo(n) {
+  if (n <= 0) return ["sp-stock-out", "Out of stock"];
+  if (n <= 5) return ["sp-stock-low", n + " left"];
+  return ["sp-stock-ok", n + " in stock"];
 }
 
-function stockText(n) {
-  if (n <= 0) return "Out of stock";
-  if (n <= LOW_STOCK) return `${n} left`;
-  return `${n} in stock`;
-}
-
-function pageNumbers(cur, total) {
-  const count = Math.min(total, 5);
+function pages(cur, total) {
+  const n = Math.min(total, 5);
   let s = total <= 5 ? 1 : cur <= 3 ? 1 : cur >= total - 2 ? total - 4 : cur - 2;
-  s = Math.max(1, s);
-  return Array.from({ length: count }, (_, i) => s + i);
+  if (s < 1) s = 1;
+  return Array.from({ length: n }, (_, i) => s + i);
 }
-
-/* ── Icons (tiny, inline SVG) ── */
-const I = {
-  search: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
-  x: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
-  plus: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
-  edit: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
-  trash: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>,
-  pause: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
-  play: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
-  refresh: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
-  grid: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
-  list: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
-  box: <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
-  alert: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
-};
 
 /* ── Image ── */
 function Img({ src, alt, className }) {
-  const [err, setErr] = useState(false);
-  if (!src || err) return <div className={className}><span style={{ color: "#ccc" }}>{I.box}</span></div>;
-  return (
-    <div className={className}>
-      <img key={src} src={src} alt={alt} loading="lazy" onError={() => setErr(true)} />
-    </div>
-  );
+  const [bad, setBad] = useState(false);
+  if (!src || bad) return <div className={className} />;
+  return <img className={className} src={src} alt={alt} loading="lazy" decoding="async" onError={() => setBad(true)} />;
 }
 
 /* ── Card ── */
-const Card = memo(function Card({ p, onEdit, onDelete, onPause }) {
-  const cover = useMemo(() => getCover(p), [p]);
-  const stock = useMemo(() => getStock(p), [p]);
+const Card = memo(function Card({ p, onEdit, onDel, onPause }) {
+  const n = stock(p);
+  const [sc, st] = stockInfo(n);
   const canPause = p.status === "approved" || p.status === "active";
 
   return (
     <div className="sp-card">
-      <div className="sp-card-img">
-        <Img src={cover} alt={p.name} className="sp-card-img" />
-        <span className={`sp-chip sp-card-status ${statusClass(p)}`}>{statusLabel(p)}</span>
-        {p.is_paused && <div className="sp-card-paused">Paused</div>}
-      </div>
+      <Img src={cover(p)} alt={p.name} className="sp-card-img" />
       <div className="sp-card-body">
-        <p className="sp-card-name" title={p.name}>{p.name}</p>
+        <p className="sp-card-name">{p.name}</p>
         {p.category && <p className="sp-card-cat">{p.category}</p>}
-        <div className="sp-card-footer">
-          <span className="sp-card-price">{fmt(p.price)}</span>
-          <span className={`sp-stock ${stockClass(stock)}`}>{stockText(stock)}</span>
+        <div className="sp-card-row">
+          <span className="sp-price">{money(p.price)}</span>
+          <span className={sc}>{st}</span>
         </div>
-        <div className="sp-card-actions">
-          <button className="sp-btn" onClick={() => onEdit(p)}>{I.edit} Edit</button>
-          {canPause && (
-            <button className="sp-btn sp-btn-warn" onClick={() => onPause(p)}>
-              {p.is_paused ? I.play : I.pause}
-            </button>
-          )}
-          <button className="sp-btn sp-btn-danger" onClick={() => onDelete(p)}>{I.trash}</button>
+        <div className="sp-card-row">
+          <span className={`sp-chip ${chipClass(p)}`}>{chipText(p)}</span>
+        </div>
+        <div className="sp-card-btns">
+          <button className="sp-btn" onClick={() => onEdit(p)}>Edit</button>
+          {canPause && <button className="sp-btn" onClick={() => onPause(p)}>{p.is_paused ? "Resume" : "Pause"}</button>}
+          <button className="sp-btn sp-btn-red" onClick={() => onDel(p)}>Delete</button>
         </div>
       </div>
     </div>
@@ -123,51 +98,44 @@ const Card = memo(function Card({ p, onEdit, onDelete, onPause }) {
 });
 
 /* ── Row ── */
-const Row = memo(function Row({ p, onEdit, onDelete, onPause }) {
-  const cover = useMemo(() => getCover(p), [p]);
-  const stock = useMemo(() => getStock(p), [p]);
+const Row = memo(function Row({ p, onEdit, onDel, onPause }) {
+  const n = stock(p);
+  const [sc, st] = stockInfo(n);
   const canPause = p.status === "approved" || p.status === "active";
 
   return (
     <div className="sp-row">
       <div className="sp-row-info">
-        <Img src={cover} alt={p.name} className="sp-row-thumb" />
-        <div style={{ minWidth: 0 }}>
-          <p className="sp-row-name">{p.name}</p>
-          {p.category && <p className="sp-row-cat">{p.category}</p>}
-        </div>
+        <Img src={cover(p)} alt={p.name} className="sp-thumb" />
+        <span className="sp-row-name">{p.name}</span>
       </div>
-      <span className="sp-row-price">{fmt(p.price)}</span>
-      <span className={`sp-stock ${stockClass(stock)}`}>{stockText(stock)}</span>
-      <span className={`sp-chip ${statusClass(p)}`}>{statusLabel(p)}</span>
-      <div className="sp-row-actions">
-        <button className="sp-btn" onClick={() => onEdit(p)} title="Edit">{I.edit}</button>
-        {canPause && (
-          <button className="sp-btn sp-btn-warn" onClick={() => onPause(p)} title="Pause">
-            {p.is_paused ? I.play : I.pause}
-          </button>
-        )}
-        <button className="sp-btn sp-btn-danger" onClick={() => onDelete(p)} title="Delete">{I.trash}</button>
+      <span>{money(p.price)}</span>
+      <span className={sc}>{st}</span>
+      <span className={`sp-chip ${chipClass(p)}`}>{chipText(p)}</span>
+      <div className="sp-row-btns">
+        <button className="sp-btn" onClick={() => onEdit(p)}>Edit</button>
+        {canPause && <button className="sp-btn" onClick={() => onPause(p)}>{p.is_paused ? "▶" : "⏸"}</button>}
+        <button className="sp-btn sp-btn-red" onClick={() => onDel(p)}>✕</button>
       </div>
     </div>
   );
 });
 
 /* ── Modal ── */
-function Modal({ onClose, title, children }) {
+function Modal({ title, onClose, children }) {
   useEffect(() => {
-    document.body.classList.add("sp-no-scroll");
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
+    document.body.classList.add("sp-lock");
+    const esc = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
     return () => {
-      document.body.classList.remove("sp-no-scroll");
-      document.removeEventListener("keydown", onKey);
+      document.body.classList.remove("sp-lock");
+      window.removeEventListener("keydown", esc);
     };
   }, [onClose]);
 
   return (
     <div className="sp-overlay" onClick={onClose}>
-      <div className="sp-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <div className="sp-modal" onClick={(e) => e.stopPropagation()}>
         <h3>{title}</h3>
         {children}
       </div>
@@ -175,195 +143,141 @@ function Modal({ onClose, title, children }) {
   );
 }
 
-/* ── Skeletons ── */
-function SkelGrid({ n }) {
-  return (
-    <div className="sp-grid">
-      {Array.from({ length: n }).map((_, i) => (
-        <div key={i} className="sp-skel-card">
-          <div className="sp-skel-card-img sp-skeleton" />
-          <div className="sp-skel-card-body">
-            <div className="sp-skeleton" style={{ height: 10, width: "75%" }} />
-            <div className="sp-skeleton" style={{ height: 10, width: "50%" }} />
-            <div className="sp-skeleton" style={{ height: 10, width: "90%" }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SkelList({ n }) {
-  return (
-    <div className="sp-table">
-      {Array.from({ length: n }).map((_, i) => (
-        <div key={i} className="sp-skel-row">
-          <div className="sp-skeleton" style={{ width: 40, height: 40, borderRadius: 6 }} />
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-            <div className="sp-skeleton" style={{ height: 10, width: "60%" }} />
-            <div className="sp-skeleton" style={{ height: 10, width: "40%" }} />
-          </div>
-          <div className="sp-skeleton" style={{ width: 70, height: 20 }} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════
-   MAIN
-═════════════════════════════════════════════════════════ */
+/* ── Main ── */
 export default function Products() {
-  const navigate = useNavigate();
+  const nav = useNavigate();
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [searchIn, setSearchIn] = useState("");
-  const [search, setSearch] = useState("");
+  const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pag, setPag] = useState(null);
   const [view, setView] = useState("grid");
-  const [delTarget, setDelTarget] = useState(null);
-  const [pauseTarget, setPauseTarget] = useState(null);
-  const [error, setError] = useState(null);
+  const [delItem, setDelItem] = useState(null);
+  const [pauseItem, setPauseItem] = useState(null);
+  const [err, setErr] = useState("");
 
-  const searchRef = useRef();
-  const abortRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const abort = useRef(null);
 
-  const [mobile, setMobile] = useState(false);
   useEffect(() => {
-    const check = () => setMobile(window.innerWidth < 640);
+    const check = () => setIsMobile(window.innerWidth < 640);
     check();
     window.addEventListener("resize", check, { passive: true });
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // debounce search
   useEffect(() => {
-    const t = setTimeout(() => { setSearch(searchIn.trim()); setPage(1); }, 350);
+    const t = setTimeout(() => { setQDebounced(q.trim()); setPage(1); }, 350);
     return () => clearTimeout(t);
-  }, [searchIn]);
+  }, [q]);
 
-  // fetch
-  const load = useCallback(async (silent = false) => {
-    abortRef.current?.abort();
+  const load = useCallback(async () => {
+    abort.current?.abort();
     const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    if (!silent) setLoading(true); else setRefreshing(true);
-    setError(null);
+    abort.current = ctrl;
+    setLoading(true);
+    setErr("");
     try {
       const { data } = await sellerApi.get(API, {
-        params: { page, limit: PAGE_SIZE, ...(filter && { status: filter }), ...(search && { search }) },
+        params: { page, limit: PER_PAGE, ...(filter && { status: filter }), ...(qDebounced && { search: qDebounced }) },
         signal: ctrl.signal,
       });
       if (data.success) {
-        setItems(data.products ?? data.data?.products ?? []);
-        setPag(data.pagination ?? data.data?.pagination ?? null);
+        setItems(data.products || data.data?.products || []);
+        setPag(data.pagination || data.data?.pagination || null);
       } else {
-        setError(data.message ?? "Failed to load");
+        setErr(data.message || "Failed");
       }
-    } catch (err) {
-      if (err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
-      setError(err.response?.data?.message ?? err.message);
+    } catch (e) {
+      if (e.name === "CanceledError" || e.code === "ERR_CANCELED") return;
+      setErr(e.message);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
-  }, [page, filter, search]);
+  }, [page, filter, qDebounced]);
 
-  useEffect(() => { load(); return () => abortRef.current?.abort(); }, [load]);
+  useEffect(() => { load(); return () => abort.current?.abort(); }, [load]);
 
-  const onEdit = useCallback((p) => navigate(`/minimart/edit-ad/${p.id}`), [navigate]);
-  const onDeleted = useCallback(() => { setDelTarget(null); load(true); }, [load]);
-  const onToggled = useCallback(() => { setPauseTarget(null); load(true); }, [load]);
+  const refresh = () => load();
+  const onEdit = (p) => nav("/minimart/edit-ad/" + p.id);
 
-  const totalPages = pag?.totalPages ?? 0;
+  const doDelete = async () => {
+    if (!delItem) return;
+    try {
+      const { data } = await sellerApi.delete(API + "/" + delItem.id);
+      if (data.success) { setDelItem(null); load(); }
+    } catch { /* ignore */ }
+  };
+
+  const doPause = async () => {
+    if (!pauseItem) return;
+    try {
+      const { data } = await sellerApi.patch(API + "/" + pauseItem.id + "/pause");
+      if (data.success) { setPauseItem(null); load(); }
+    } catch { /* ignore */ }
+  };
+
+  const tp = pag?.totalPages || 0;
+  const showGrid = isMobile || view === "grid";
 
   return (
     <div className="sp-page">
 
-      {/* Header */}
       <div className="sp-header">
         <div>
           <h2>Listings</h2>
-          <p>{pag?.total ?? items.length} products</p>
+          <small>{pag?.total || items.length} products</small>
         </div>
-        <div className="sp-header-actions">
-          <button className="sp-btn" onClick={() => load(true)} disabled={refreshing || loading}>
-            <span style={{ display: "inline-flex", animation: refreshing ? "sp-spin 0.6s linear infinite" : "none" }}>
-              {I.refresh}
-            </span>
-            {!mobile && "Refresh"}
+        <div className="sp-actions">
+          <button className="sp-btn" onClick={refresh} disabled={loading}>
+            {loading ? <span className="sp-spin" /> : "Refresh"}
           </button>
-          {!mobile && (
-            <div className="sp-view-toggle">
-              <button className={`sp-view-btn ${view === "grid" ? "sp-view-btn--active" : ""}`} onClick={() => setView("grid")}>{I.grid}</button>
-              <button className={`sp-view-btn ${view === "list" ? "sp-view-btn--active" : ""}`} onClick={() => setView("list")}>{I.list}</button>
-            </div>
+          {!isMobile && (
+            <>
+              <button className={`sp-btn ${view === "grid" ? "sp-btn-dark" : ""}`} onClick={() => setView("grid")}>Grid</button>
+              <button className={`sp-btn ${view === "list" ? "sp-btn-dark" : ""}`} onClick={() => setView("list")}>List</button>
+            </>
           )}
-          <button className="sp-btn sp-btn-primary" onClick={() => navigate("/minimart/post-ad")}>
-            {I.plus} {mobile ? "New" : "New product"}
-          </button>
+          <button className="sp-btn sp-btn-dark" onClick={() => nav("/minimart/post-ad")}>+ New</button>
         </div>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="sp-error">
-          {I.alert} <span>{error}</span>
-          <button onClick={() => load(true)}>Retry</button>
-        </div>
-      )}
+      {err && <div className="sp-error">{err} — <button className="sp-btn" onClick={refresh}>Retry</button></div>}
 
-      {/* Search + Filters */}
-      <div className="sp-search-wrap">
-        <span className="sp-search-icon">{I.search}</span>
-        <input
-          ref={searchRef}
-          className="sp-search"
-          placeholder="Search products…"
-          value={searchIn}
-          onChange={(e) => setSearchIn(e.target.value)}
-        />
-        {searchIn && (
-          <button className="sp-search-clear" onClick={() => { setSearchIn(""); searchRef.current?.focus(); }}>
-            {I.x}
-          </button>
-        )}
-      </div>
+      <input className="sp-search" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
 
       <div className="sp-filters">
-        {FILTERS.map(({ key, label }) => (
-          <button key={key}
-            className={`sp-pill ${filter === key ? "sp-pill--active" : ""}`}
-            onClick={() => { setFilter(key); setPage(1); }}>
-            {label}
+        {FILTERS.map(([k, l]) => (
+          <button key={k} className={`sp-pill ${filter === k ? "sp-pill-on" : ""}`} onClick={() => { setFilter(k); setPage(1); }}>
+            {l}
           </button>
         ))}
       </div>
 
-      {/* Content */}
       {loading ? (
-        mobile || view === "grid" ? <SkelGrid n={8} /> : <SkelList n={6} />
+        <div className="sp-grid">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="sp-card">
+              <div className="sp-card-img sp-skel" />
+              <div className="sp-card-body">
+                <div className="sp-skel" style={{ height: 12, width: "70%", marginBottom: 6 }} />
+                <div className="sp-skel" style={{ height: 12, width: "40%" }} />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : items.length === 0 ? (
         <div className="sp-empty">
-          <span style={{ color: "#ccc" }}>{I.box}</span>
-          <h3>{search || filter ? "No products found" : "No listings yet"}</h3>
-          <p>{search || filter ? "Try different search or clear filters." : "Post your first product to start selling."}</p>
-          {search || filter ? (
-            <button className="sp-btn" onClick={() => { setSearchIn(""); setFilter(""); }}>Clear filters</button>
-          ) : (
-            <button className="sp-btn sp-btn-primary" onClick={() => navigate("/minimart/post-ad")}>
-              {I.plus} Post product
-            </button>
-          )}
+          <p>{q || filter ? "No products found." : "No listings yet."}</p>
+          <button className="sp-btn sp-btn-dark" onClick={() => nav("/minimart/post-ad")}>+ Post product</button>
         </div>
-      ) : mobile || view === "grid" ? (
+      ) : showGrid ? (
         <div className="sp-grid">
           {items.map((p) => (
-            <Card key={p.id} p={p} onEdit={onEdit} onDelete={setDelTarget} onPause={setPauseTarget} />
+            <Card key={p.id} p={p} onEdit={onEdit} onDel={setDelItem} onPause={setPauseItem} />
           ))}
         </div>
       ) : (
@@ -372,59 +286,44 @@ export default function Products() {
             <span>Product</span><span>Price</span><span>Stock</span><span>Status</span><span></span>
           </div>
           {items.map((p) => (
-            <Row key={p.id} p={p} onEdit={onEdit} onDelete={setDelTarget} onPause={setPauseTarget} />
+            <Row key={p.id} p={p} onEdit={onEdit} onDel={setDelItem} onPause={setPauseItem} />
           ))}
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="sp-pagination">
-          <p className="sp-pagination-info">Page {pag.page} of {totalPages} · {pag.total} products</p>
-          <div className="sp-pagination-btns">
-            <button className="sp-page-btn" onClick={() => setPage(page - 1)} disabled={page === 1}>Prev</button>
-            {pageNumbers(page, totalPages).map((n) => (
-              <button key={n} className={`sp-page-btn ${page === n ? "sp-page-btn--active" : ""}`} onClick={() => setPage(n)}>{n}</button>
+      {tp > 1 && (
+        <div className="sp-pag">
+          <span>Page {pag.page} of {tp}</span>
+          <div className="sp-pag-btns">
+            <button className="sp-pag-btn" disabled={page === 1} onClick={() => setPage(page - 1)}>Prev</button>
+            {pages(page, tp).map((n) => (
+              <button key={n} className={`sp-pag-btn ${page === n ? "sp-pag-btn-on" : ""}`} onClick={() => setPage(n)}>{n}</button>
             ))}
-            <button className="sp-page-btn" onClick={() => setPage(page + 1)} disabled={page === totalPages}>Next</button>
+            <button className="sp-pag-btn" disabled={page === tp} onClick={() => setPage(page + 1)}>Next</button>
           </div>
         </div>
       )}
 
-      {/* Modals */}
-      {delTarget && (
-        <Modal onClose={() => setDelTarget(null)} title="Delete listing">
-          <p>"<strong>{delTarget.name}</strong>" will be permanently removed. This cannot be undone.</p>
-          <div className="sp-modal-actions">
-            <button className="sp-btn" onClick={() => setDelTarget(null)}>Cancel</button>
-            <button className="sp-btn sp-btn-danger" onClick={async () => {
-              try {
-                const { data } = await sellerApi.delete(`${API}/${delTarget.id}`);
-                if (data.success) onDeleted();
-              } catch { /* ignore */ }
-            }}>Delete</button>
+      {delItem && (
+        <Modal title="Delete listing" onClose={() => setDelItem(null)}>
+          <p>Remove "<strong>{delItem.name}</strong>"? This cannot be undone.</p>
+          <div className="sp-modal-btns">
+            <button className="sp-btn" onClick={() => setDelItem(null)}>Cancel</button>
+            <button className="sp-btn sp-btn-red" onClick={doDelete}>Delete</button>
           </div>
         </Modal>
       )}
 
-      {pauseTarget && (
-        <Modal onClose={() => setPauseTarget(null)} title={pauseTarget.is_paused ? "Resume listing" : "Pause listing"}>
-          <p>
-            {pauseTarget.is_paused
-              ? "Buyers will be able to see and purchase this listing again."
-              : "This listing will be hidden from buyers until you resume it."}
-          </p>
-          <div className="sp-modal-actions">
-            <button className="sp-btn" onClick={() => setPauseTarget(null)}>Cancel</button>
-            <button className="sp-btn sp-btn-primary" onClick={async () => {
-              try {
-                const { data } = await sellerApi.patch(`${API}/${pauseTarget.id}/pause`);
-                if (data.success) onToggled();
-              } catch { /* ignore */ }
-            }}>{pauseTarget.is_paused ? "Resume" : "Pause"}</button>
+      {pauseItem && (
+        <Modal title={pauseItem.is_paused ? "Resume" : "Pause"} onClose={() => setPauseItem(null)}>
+          <p>{pauseItem.is_paused ? "Show this listing to buyers again?" : "Hide this listing from buyers?"}</p>
+          <div className="sp-modal-btns">
+            <button className="sp-btn" onClick={() => setPauseItem(null)}>Cancel</button>
+            <button className="sp-btn sp-btn-dark" onClick={doPause}>{pauseItem.is_paused ? "Resume" : "Pause"}</button>
           </div>
         </Modal>
       )}
+
     </div>
   );
 }
