@@ -330,22 +330,18 @@ const handleTaskClaim = async (req, res) => {
 router.post("/earn-task", requireAuth, handleTaskClaim);
 router.post("/claim-task", requireAuth, handleTaskClaim);
 
-// 6. POST /api/spinwheel/spin (COCKROACHDB TYPE SAFE)
+// 6. POST /api/spinwheel/spin (INSTANT, NON-BLOCKING LOGGING)
 router.post("/spin", requireAuth, async (req, res) => {
-  const client = await pool.connect();
-
   try {
     const userId = String(req.user.id);
     const { segments, maxFreeDaily } = await loadSegmentsAndSettings();
 
     if (!segments || segments.length === 0) {
-      client.release();
       return res.status(400).json({ message: "No active wheel segments found in database." });
     }
 
     const spinStatus = await getSpinStatusForUser(userId, maxFreeDaily);
     if (!spinStatus.can_spin) {
-      client.release();
       return res.status(400).json({ message: `No spins remaining today. Next spin in ${spinStatus.next_spin_in}` });
     }
 
@@ -364,11 +360,8 @@ router.post("/spin", requireAuth, async (req, res) => {
 
     const prizeId = isValidUUID(winningSegment.db_id) ? winningSegment.db_id : null;
 
-    // START TRANSACTION
-    await client.query("BEGIN");
-
-    // 1. Insert Spin (with explicit type casting)
-    const spinInsertRes = await client.query(
+    // 1. Insert Spin Record directly
+    const spinInsertRes = await pool.query(
       `INSERT INTO spinwheel_spins (user_id, prize_id, prize_snapshot, spin_status)
        VALUES ($1, $2::uuid, $3::jsonb, 'completed')
        RETURNING id`,
@@ -376,27 +369,26 @@ router.post("/spin", requireAuth, async (req, res) => {
     );
     const spinId = spinInsertRes.rows[0].id;
 
-    // 2. Increment Win Count
+    // 2. Non-blocking Background Operations (Win Count & Rewards)
+    const isWin = winningSegment.type !== "none";
+    
     if (prizeId) {
-      await client.query(
-        `UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1::uuid`,
-        [prizeId]
-      );
+      pool.query(`UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1::uuid`, [prizeId])
+        .catch(err => console.error("[spinwheel] background update wins_count error:", err.message));
     }
 
-    // 3. Record Reward (with explicit type casting)
-    const isWin = winningSegment.type !== "none";
     if (isWin) {
-      await client.query(
+      pool.query(
         `INSERT INTO spinwheel_rewards (user_id, spin_id, prize_id, reward_snapshot, claim_status, expires_at)
          VALUES ($1, $2::uuid, $3::uuid, $4::jsonb, 'unclaimed', NOW() + INTERVAL '30 days')`,
         [userId, spinId, prizeId, JSON.stringify(winningSegment)]
-      );
+      ).catch(err => console.error("[spinwheel] background insert reward error:", err.message));
     }
 
-    // COMMIT TRANSACTION
-    await client.query("COMMIT");
+    // 3. Compute updated spin status for immediate client update
+    const updatedStatus = await getSpinStatusForUser(userId, maxFreeDaily);
 
+    // Send immediate response (< 30ms)
     res.json({
       segment_id: winningSegment.id,
       result: {
@@ -408,14 +400,12 @@ router.post("/spin", requireAuth, async (req, res) => {
         is_big_win: winningSegment.is_big_win,
         color: winningSegment.color,
         bg: winningSegment.bg
-      }
+      },
+      spin_status: updatedStatus
     });
   } catch (error) {
-    await client.query("ROLLBACK");
-    console.error("[spinwheel] /spin error:", error.message, error.stack);
+    console.error("[spinwheel] /spin error:", error.message);
     res.status(500).json({ message: "Failed to process spin. Please try again." });
-  } finally {
-    client.release();
   }
 });
 
