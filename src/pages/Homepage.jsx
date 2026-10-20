@@ -10,7 +10,6 @@ import TopNav              from "../components/TopNav";
 import BottomNav           from "../components/BottomNav";
 import Footer              from "../components/Footer";
 import LocationPicker      from "../components/LocationPicker";
-import SpinWheelWidget     from "../components/SpinWheelWidget"; // 🌟 ADDED WIDGET IMPORT
 import MasonryCard, {
   naira, getImageUrl, formatCity, PinIcon,
 }                          from "../components/MasonryCard";
@@ -1293,8 +1292,7 @@ export default function Homepage({ user }) {
         <PlusIcon size={18} /> Sell Now
       </button>
 
-      {/* ══ SPIN & WIN WIDGET (Handles both Guests & Logged-in Users) ══ */}
-      <SpinWheelWidget user={user} />
+      {/* SpinWinModal is mounted globally in App.jsx — do not add it here */}
 
       <ScrollTopBtn />
       <BottomNav />
