@@ -1,13 +1,10 @@
-/* ── PAGE ── */
 .sp-page {
   max-width: 1200px;
   margin: 0 auto;
   padding: 16px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  touch-action: pan-y;
 }
 
-/* ── HEADER ── */
 .sp-top {
   display: flex;
   justify-content: space-between;
@@ -29,7 +26,6 @@
   font-size: 13px;
 }
 
-/* ── BUTTONS ── */
 .sp-btns {
   display: flex;
   gap: 6px;
@@ -45,12 +41,10 @@
   cursor: pointer;
   font-family: inherit;
   color: #333;
-  transition: opacity 0.15s;
 }
 
 .sp-btn:disabled {
   opacity: 0.4;
-  cursor: default;
 }
 
 .sp-btn-dark {
@@ -64,7 +58,6 @@
   border-color: #e88;
 }
 
-/* ── SEARCH ── */
 .sp-search {
   width: 100%;
   padding: 8px 12px;
@@ -77,11 +70,6 @@
   outline: none;
 }
 
-.sp-search:focus {
-  border-color: #999;
-}
-
-/* ── FILTER PILLS ── */
 .sp-pills {
   display: flex;
   gap: 4px;
@@ -115,22 +103,17 @@
 }
 
 @media (max-width: 1023px) {
-  .sp-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+  .sp-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 639px) {
-  .sp-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  .sp-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* ── CARD ── */
+/* ── CARD  (no overflow:hidden — that kills mobile scroll) ── */
 .sp-card {
   border: 1px solid #e5e5e5;
   border-radius: 8px;
-  overflow: hidden;
   background: #fff;
 }
 
@@ -140,9 +123,10 @@
   object-fit: cover;
   display: block;
   background: #f5f5f5;
+  border-radius: 7px 7px 0 0;
   pointer-events: none;
-  -webkit-user-drag: none;
   user-select: none;
+  -webkit-user-drag: none;
 }
 
 .sp-card-body {
@@ -166,7 +150,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
 }
 
 .sp-card-info {
@@ -200,7 +183,6 @@
   background: #fff;
   border: 1px solid #e5e5e5;
   border-radius: 8px;
-  overflow: hidden;
 }
 
 .sp-table th {
@@ -258,7 +240,6 @@
 
 .sp-pag-btn:disabled {
   opacity: 0.3;
-  cursor: default;
 }
 
 .sp-pag-on {
@@ -267,7 +248,7 @@
   border-color: #111;
 }
 
-/* ── EMPTY STATE ── */
+/* ── EMPTY / ERROR ── */
 .sp-empty {
   text-align: center;
   padding: 48px 16px;
@@ -277,7 +258,6 @@
   font-size: 14px;
 }
 
-/* ── ERROR ── */
 .sp-error {
   color: #c00;
   font-size: 13px;
@@ -287,10 +267,7 @@
 /* ── MODAL ── */
 .sp-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: rgba(0, 0, 0, 0.4);
   z-index: 999;
   display: flex;
@@ -325,7 +302,7 @@
   justify-content: flex-end;
 }
 
-/* ── SKELETON / LOADING ── */
+/* ── SKELETON ── */
 .sp-skel {
   background: #eee;
   border-radius: 4px;
@@ -333,9 +310,7 @@
 
 /* ── SPINNER ── */
 @keyframes sp-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
 .sp-spin {
@@ -348,7 +323,6 @@
   animation: sp-spin 0.6s linear infinite;
 }
 
-/* ── SCROLL LOCK ── */
 body.sp-lock {
   overflow: hidden;
 }
