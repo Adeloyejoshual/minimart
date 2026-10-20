@@ -1,18 +1,14 @@
 import express from "express";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { pool } from "../config/db.js";
+import { invalidateUserCache } from "./coupons.js"; // Clear coupon cache on win
 
 const router = express.Router();
 
 const VIBRANT_PALETTE = [
-  "#FF4500", // Vibrant Orange Red
-  "#6366F1", // Indigo
-  "#10B981", // Emerald Green
-  "#EC4899", // Hot Pink
-  "#4B5563", // Dark Slate Gray
-  "#8B5CF6", // Purple
-  "#06B6D4", // Cyan
-  "#F59E0B"  // Amber Yellow
+  "#FF4500", "#6366F1", "#10B981", "#EC4899",
+  "#4B5563", "#8B5CF6", "#06B6D4", "#F59E0B"
 ];
 
 function parseSettingValue(raw, defaultValue) {
@@ -40,8 +36,6 @@ function isValidUUID(str) {
   if (!str || typeof str !== "string") return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
-
-// --- AUTH MIDDLEWARE ---
 
 function optionalAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -72,8 +66,6 @@ function requireAuth(req, res, next) {
   }
 }
 
-// --- DB LOADERS ---
-
 async function loadSegmentsAndSettings() {
   const [prizesRes, settingsRes] = await Promise.all([
     pool.query(`
@@ -93,7 +85,6 @@ async function loadSegmentsAndSettings() {
   const maxFreeDaily = parseSettingValue(settingsObj.max_free_daily, 5);
 
   const segments = prizesRes.rows.map((p, index) => {
-    // Pick vibrant background color
     let sliceBg = p.background_color;
     if (!sliceBg || sliceBg === "#FFFFFF" || sliceBg === "#fff") {
       sliceBg = p.color && p.color !== "#FFFFFF" && p.color !== "#fff" 
@@ -109,13 +100,11 @@ async function loadSegmentsAndSettings() {
       type: p.reward_type,
       value: Number(p.reward_value),
       probability: Number(p.probability),
-      // All color variations mapped to fill color for WheelCanvas
       color: sliceBg,
       bg: sliceBg,
       background_color: sliceBg,
       backgroundColor: sliceBg,
       fillColor: sliceBg,
-      // White text for contrast
       textColor: "#FFFFFF",
       fontColor: "#FFFFFF",
       emoji: p.emoji || "🎁",
@@ -181,9 +170,6 @@ async function getSpinStatusForUser(userId, maxFreeDaily) {
   };
 }
 
-// --- API ENDPOINTS ---
-
-// 1. GET /api/spinwheel/config
 router.get("/config", optionalAuth, async (req, res) => {
   try {
     const { segments, maxFreeDaily } = await loadSegmentsAndSettings();
@@ -200,7 +186,6 @@ router.get("/config", optionalAuth, async (req, res) => {
   }
 });
 
-// 2. GET /api/spinwheel/history
 router.get("/history", optionalAuth, async (req, res) => {
   try {
     if (!req.user) {
@@ -253,12 +238,10 @@ router.get("/history", optionalAuth, async (req, res) => {
   }
 });
 
-// 3. GET /api/spinwheel/referral-spins
 router.get("/referral-spins", optionalAuth, async (req, res) => {
   res.json({ referral_spins: [] });
 });
 
-// 4. GET /api/spinwheel/tasks
 router.get("/tasks", optionalAuth, async (req, res) => {
   try {
     const tasksRes = await pool.query(
@@ -302,7 +285,6 @@ router.get("/tasks", optionalAuth, async (req, res) => {
   }
 });
 
-// 5. POST /api/spinwheel/earn-task & /claim-task
 const handleTaskClaim = async (req, res) => {
   try {
     const userId = String(req.user.id);
@@ -359,7 +341,6 @@ const handleTaskClaim = async (req, res) => {
 router.post("/earn-task", requireAuth, handleTaskClaim);
 router.post("/claim-task", requireAuth, handleTaskClaim);
 
-// 6. POST /api/spinwheel/spin
 router.post("/spin", requireAuth, async (req, res) => {
   try {
     const userId = String(req.user.id);
@@ -398,17 +379,50 @@ router.post("/spin", requireAuth, async (req, res) => {
 
     const isWin = winningSegment.type !== "none";
     
+    // Background metrics update
     if (prizeId) {
       pool.query(`UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1::uuid`, [prizeId])
         .catch(err => console.error("[spinwheel] background update wins_count error:", err.message));
     }
 
     if (isWin) {
+      // 1. Insert into internal spin history
       pool.query(
         `INSERT INTO spinwheel_rewards (user_id, spin_id, prize_id, reward_snapshot, claim_status, expires_at)
          VALUES ($1, $2::uuid, $3::uuid, $4::jsonb, 'unclaimed', NOW() + INTERVAL '30 days')`,
         [userId, spinId, prizeId, JSON.stringify(winningSegment)]
       ).catch(err => console.error("[spinwheel] background insert reward error:", err.message));
+
+      // 2. MINT ACTUAL COUPON / AIRTIME REWARD
+      try {
+        if (winningSegment.type === "airtime") {
+          const code = `AIR-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+          await pool.query(
+            `INSERT INTO airtime_coupons (code, amount, status, user_id) 
+             VALUES ($1, $2, 'available', $3)`,
+            [code, winningSegment.value, userId]
+          );
+        } else if (["fixed", "percentage", "free_shipping"].includes(winningSegment.type)) {
+          const code = `SPIN-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+          await pool.query(
+            `INSERT INTO coupons (
+              code, type, value, usage_limit, is_private, created_by, description, expires_at
+             ) VALUES ($1, $2, $3, 1, true, $4, $5, NOW() + INTERVAL '30 days')`,
+            [
+              code, 
+              winningSegment.type, 
+              winningSegment.value, 
+              userId, 
+              `🎡 Spin & Win — ${winningSegment.label}`
+            ]
+          );
+        }
+        
+        // INSTANTLY INVALIDATE REDIS CACHE FOR THE USER
+        await invalidateUserCache(userId).catch(e => console.error("[spinwheel] Cache invalidation failed:", e.message));
+      } catch (err) {
+        console.error("[spinwheel] Failed to mint actual coupon:", err.message);
+      }
     }
 
     const updatedStatus = await getSpinStatusForUser(userId, maxFreeDaily);
