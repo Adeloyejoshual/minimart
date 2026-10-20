@@ -9,8 +9,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import "../styles/SpinWinModal.css";
 
 const STORAGE_KEY = "loemart_spin_modal_dismissed_at";
-const DISMISS_COOLOFF_MS = 12 * 60 * 60 * 1000; // 12 hours
-const POPUP_DELAY_MS = 5000; // browse first, then promote
+const DISMISS_COOLOFF_MS = 12 * 60 * 60 * 1000; // 12 hours cooldown
+const POPUP_DELAY_MS = 5000;                     // 5 seconds homepage delay
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -21,7 +21,7 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
-const HOME_PATHS = new Set(["/", "/home", "/homepage"]);
+const HOME_PATHS = new Set(["/", "/home", "/homepage", "/loemart"]);
 
 function wasRecentlyDismissed() {
   try {
@@ -38,29 +38,25 @@ function markDismissed() {
   try {
     localStorage.setItem(STORAGE_KEY, String(Date.now()));
   } catch {
-    /* private mode / quota — ignore */
+    /* private browsing / quota fallback */
   }
 }
 
 /**
- * Homepage-only Spin & Win promo.
+ * Homepage-only Spin & Win promotional popup.
  *
- * Flow:
- * 1) User opens homepage
- * 2) Browses ~5s
- * 3) Modal appears (unless 12h cooldown active)
- * 4) Spin CTA → /spinwheel  OR  close
- * 5) Either action starts 12h cooldown
- *
- * Popup never grants spins/rewards — eligibility lives in backend /spinwheel.
+ * Smart Auth Handling:
+ * - Registered Users → Taken directly to `/spin`
+ * - Guest Visitors  → Taken to `/auth?redirect=%2Fspin` to register/login
  */
-export default function SpinWinModal() {
+export default function SpinWinModal({ user }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const titleId = useId();
   const descId = useId();
 
-  const isHomepage = HOME_PATHS.has(pathname);
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const isHomepage = HOME_PATHS.has(normalizedPath);
 
   const [isOpen, setIsOpen] = useState(false);
 
@@ -102,22 +98,24 @@ export default function SpinWinModal() {
   }, []);
 
   const closeModal = useCallback(() => {
-    markDismissed(); // 12h cooldown — intentional
+    markDismissed();
     setIsOpen(false);
   }, []);
 
-  const openSpinPage = useCallback(() => {
-    markDismissed(); // visiting spin counts as handled promo
+  const handleActionClick = useCallback(() => {
+    markDismissed();
     setIsOpen(false);
-    navigate("/spinwheel");
-  }, [navigate]);
 
-  /**
-   * Schedule / reset popup timer whenever route changes.
-   * - Leaving homepage: cancel timer + close modal
-   * - Entering homepage: start a fresh 5s timer (if cooldown allows)
-   * Prevents stale timeouts from a previous homepage visit.
-   */
+    if (user) {
+      // Logged in -> Go directly to spin wheel
+      navigate("/spin");
+    } else {
+      // Visitor -> Go to Auth to register first, then redirect to spin wheel
+      navigate("/auth?redirect=%2Fspin");
+    }
+  }, [navigate, user]);
+
+  /* ── 1. Handle delay timer & route switching ── */
   useEffect(() => {
     clearTimer();
 
@@ -131,34 +129,26 @@ export default function SpinWinModal() {
       return undefined;
     }
 
-    // Fresh timer for this homepage visit only
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
-      // Re-check route + cooldown at fire time (user may have navigated away)
-      const stillHome = HOME_PATHS.has(
-        window.location.pathname.replace(/\/+$/, "") || "/"
-      );
-      // pathname from hook is source of truth inside React tree;
-      // also guard against cooldown set in another tab
-      if (!stillHome || wasRecentlyDismissed()) return;
+      const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
+      if (!HOME_PATHS.has(currentPath) || wasRecentlyDismissed()) return;
 
       previouslyFocusedRef.current = document.activeElement;
       setIsOpen(true);
     }, POPUP_DELAY_MS);
 
-    return () => {
-      clearTimer();
-    };
+    return () => clearTimer();
   }, [isHomepage, pathname, clearTimer]);
 
-  // Body scroll lock while open
+  /* ── 2. Handle scroll lock while open ── */
   useEffect(() => {
     if (!isOpen) return undefined;
     lockBodyScroll();
     return () => unlockBodyScroll();
   }, [isOpen, lockBodyScroll, unlockBodyScroll]);
 
-  // Focus move-in on open, restore on close
+  /* ── 3. Manage focus on open/close ── */
   useEffect(() => {
     if (isOpen) {
       const t = window.setTimeout(() => {
@@ -173,13 +163,13 @@ export default function SpinWinModal() {
       try {
         prev.focus();
       } catch {
-        /* node may be unmounted */
+        /* Element might be unmounted */
       }
     }
     return undefined;
   }, [isOpen]);
 
-  // Focus trap + Escape
+  /* ── 4. Keyboard trap (Tab) & Escape key listener ── */
   useEffect(() => {
     if (!isOpen) return undefined;
 
@@ -189,6 +179,7 @@ export default function SpinWinModal() {
         closeModal();
         return;
       }
+
       if (e.key !== "Tab") return;
 
       const root = cardRef.current;
@@ -227,7 +218,6 @@ export default function SpinWinModal() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [isOpen, closeModal]);
 
-  // Hard gate — never render off-homepage
   if (!isOpen || !isHomepage) return null;
 
   return (
@@ -263,28 +253,42 @@ export default function SpinWinModal() {
         <span className="sp-badge">Loemart Rewards</span>
 
         <h2 id={titleId} className="sp-title">
-          Your next reward{" "}
-          <span className="sp-title-accent">awaits</span>
+          {user ? (
+            <>
+              Your next reward <span className="sp-title-accent">awaits</span>
+            </>
+          ) : (
+            <>
+              Get <span className="sp-title-accent">1 Free Daily Spin</span>
+            </>
+          )}
         </h2>
 
         <p id={descId} className="sp-subtitle">
-          Spin the wheel for a chance at discount coupons and airtime rewards.
-          Signed-in shoppers can use one free spin per day when available —
-          then keep browsing or list your own items free on Loemart.
+          {user ? (
+            <>
+              Spin the wheel for a chance at discount coupons and airtime rewards.
+              Use your free daily spin today — then explore products or list yours free on Loemart.
+            </>
+          ) : (
+            <>
+              Create your free Loemart account to spin the wheel for discount coupons and airtime rewards.
+              Plus, buy or list products for free across Nigeria!
+            </>
+          )}
         </p>
 
         <button
           type="button"
           className="sp-cta-btn"
-          onClick={openSpinPage}
+          onClick={handleActionClick}
         >
-          <span>SPIN &amp; WIN NOW</span>
+          <span>{user ? "SPIN & WIN NOW" : "CLAIM FREE SPIN NOW"}</span>
           <span aria-hidden="true">→</span>
         </button>
 
         <p className="sp-fineprint">
-          Rewards depend on wheel results and account eligibility. Daily free
-          spin limits are enforced on the spin page. Terms apply.
+          Rewards depend on wheel results and account eligibility. Terms apply.
         </p>
       </div>
     </div>
