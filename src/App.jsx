@@ -200,6 +200,7 @@ import SupportDashboard   from "./page/admin/Support/SupportDashboard";
    COMPONENTS
 ════════════════════════════════════════════════════════════ */
 import DesktopHeader from "./components/DesktopHeader";
+import SpinWinModal  from "./components/SpinWinModal"; // 🌟 ADDED SPIN MODAL
 
 /* ════════════════════════════════════════════════════════════
    CONSTANTS
@@ -724,6 +725,9 @@ function AppInner() {
     <>
       {/* Offline floating banner — only shows when no data/Wi-Fi */}
       <OfflineBanner />
+
+      {/* 🌟 SPIN & WIN PROMO POPUP — Global mount, handles its own URL logic */}
+      <SpinWinModal />
 
       <ScrollToTop />
       <Toaster position="top-right" toastOptions={TOASTER_OPTIONS} />
