@@ -16,8 +16,6 @@ import MasonryCard, {
 import {
   useLocation as useStoredLocation,
   formatLocationLabel,
-  readCachedGps,
-  writeCachedGps,
 }                          from "../hooks/useLocation";
 import "../styles/Homepage.css";
 
@@ -37,12 +35,6 @@ const LS_STALE_MS     = 60_000;        // >1 min ⇒ silently refresh in bg
 
 const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
 const CAT_LIST = [ALL_CAT, ...CATEGORIES];
-
-const GPS_OPTS = {
-  timeout           : 5_000,
-  enableHighAccuracy: false,
-  maximumAge        : 300_000,
-};
 
 /* ══════════════════════════════════════════════════════════
    PAID SUBSCRIPTION HELPERS
@@ -570,7 +562,7 @@ export default function Homepage({ user }) {
   try { cacheCtx = useProductCache(); } catch {}
   const { setProducts: setCachedProducts, setLoaded: setCacheLoaded } = cacheCtx;
 
-  /* Location hook */
+  /* Location hook — purely manual; no GPS auto-request */
   const {
     location : savedLocation,
     save     : saveLocation,
@@ -580,7 +572,6 @@ export default function Homepage({ user }) {
   /* ── State ──────────────────────────────────────────── */
   const [pickerOpen,   setPickerOpen]   = useState(false);
   const [fallbackInfo, setFallbackInfo] = useState(null);
-  const [gpsCoords,    setGpsCoords]    = useState(() => readCachedGps());
   const [unreadCount,  setUnreadCount]  = useState(0);
 
   const [products,    setProducts]    = useState([]);
@@ -604,7 +595,6 @@ export default function Homepage({ user }) {
   const productsRef  = useRef([]);
   const sentinelRef  = useRef(null);
   const hiddenAtRef  = useRef(null);
-  const gpsAttempted = useRef(false);
   const abortRef     = useRef(null);
   const hasHydratedFromCacheRef = useRef(false);
 
@@ -615,31 +605,19 @@ export default function Homepage({ user }) {
     return () => clearTimeout(t);
   }, [fallbackInfo]);
 
-  /* ── Silent GPS on first load ── */
-  useEffect(() => {
-    if (savedLocation?.source === "manual") return;
-    if (gpsAttempted.current || gpsCoords)  return;
-    gpsAttempted.current = true;
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      ({ coords: c }) => {
-        const result = { lat: c.latitude, lng: c.longitude };
-        writeCachedGps(result);
-        setGpsCoords(result);
-      },
-      () => {},
-      GPS_OPTS,
-    );
-  }, [savedLocation, gpsCoords]);
-
   /* ══════════════════════════════════════════════════════
      BUILD URL
+     ──────────────────────────────────────────────────────
+     Location is included ONLY if the user manually saved one
+     via the LocationPicker. We never silently request GPS.
   ══════════════════════════════════════════════════════ */
   const buildUrl = useCallback((pg = 0, catId = "all") => {
     const params = new URLSearchParams({ limit: PAGE_SIZE, page: pg });
     if (catId !== "all") params.set("category_id", catId);
     if (savedLocation) {
-      const coords = savedLocation.coords || gpsCoords;
+      // Only forward coords if the user ALREADY shared them (e.g. via
+      // the picker's "use my location" button). Never pulled silently.
+      const coords = savedLocation.coords;
       if (coords?.lat && coords?.lng) {
         params.set("lat", coords.lat);
         params.set("lng", coords.lng);
@@ -648,7 +626,7 @@ export default function Homepage({ user }) {
       if (savedLocation.city)  params.set("city",  savedLocation.city);
     }
     return `${API}/homepage?${params}`;
-  }, [savedLocation, gpsCoords]);
+  }, [savedLocation]);
 
   /* ══════════════════════════════════════════════════════
      APPLY DATA (used by both network and cache paths)
