@@ -136,7 +136,7 @@ export default function SpinWheel() {
 
   useEffect(() => { loadConfig(); }, [loadConfig]);
 
-  /* ── Poll every 90s ── */
+  /* ── Poll every 90s for background updates ── */
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -202,6 +202,7 @@ export default function SpinWheel() {
             ...prev,
             bonus_spins_remaining:
               (prev.bonus_spins_remaining || 0) + (task.spins_reward || 1),
+            can_spin: true
           }
         : prev
     );
@@ -217,7 +218,7 @@ export default function SpinWheel() {
   }, []);
 
   /* ══════════════════════════════════════════
-     SPIN
+     SPIN (INSTANT SYNC)
   ══════════════════════════════════════════ */
   const handleSpin = useCallback(async () => {
     if (spinning || !canSpin) return;
@@ -250,20 +251,10 @@ export default function SpinWheel() {
       setTargetId(data.segment_id);
       setSpinResult({ ...data.result, spin_type: type });
 
-      // Optimistically update spins locally
-      setSpinStatus((prev) => {
-        if (!prev) return prev;
-        const u = { ...prev };
-        if (type === "free") {
-          u.free_spins_remaining = Math.max(0, (u.free_spins_remaining || 1) - 1);
-          u.can_free_spin        = u.free_spins_remaining > 0;
-          u.can_spin             = u.free_spins_remaining > 0 || (u.bonus_spins_remaining || 0) > 0;
-        } else {
-          u.bonus_spins_remaining = Math.max(0, (u.bonus_spins_remaining || 0) - 1);
-          u.can_spin = (u.free_spins_remaining || 0) > 0 || u.bonus_spins_remaining > 0;
-        }
-        return u;
-      });
+      // INSTANT SYNC: Directly update state with the server payload
+      if (data.spin_status) {
+        setSpinStatus(data.spin_status);
+      }
     } catch {
       alert("Network error. Please try again.");
       setSpinning(false);
@@ -291,7 +282,7 @@ export default function SpinWheel() {
 
     setTimeout(() => {
       setShowResult(true);
-      loadConfig(true); // Fetch updated state from server silently
+      loadConfig(true); // Silent background refresh
     }, 400);
   }, [spinResult, loadConfig]);
 
