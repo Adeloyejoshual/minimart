@@ -4,6 +4,17 @@ import { pool } from "../config/db.js";
 
 const router = express.Router();
 
+const VIBRANT_PALETTE = [
+  "#FF4500", // Vibrant Orange Red
+  "#6366F1", // Indigo
+  "#10B981", // Emerald Green
+  "#EC4899", // Hot Pink
+  "#4B5563", // Dark Slate Gray
+  "#8B5CF6", // Purple
+  "#06B6D4", // Cyan
+  "#F59E0B"  // Amber Yellow
+];
+
 function parseSettingValue(raw, defaultValue) {
   if (raw === undefined || raw === null) return defaultValue;
   let val = raw;
@@ -66,7 +77,7 @@ function requireAuth(req, res, next) {
 async function loadSegmentsAndSettings() {
   const [prizesRes, settingsRes] = await Promise.all([
     pool.query(`
-      SELECT DISTINCT ON (segment_key) id, segment_key, label, reward_type, reward_value, probability, color, background_color, emoji, is_big_win 
+      SELECT DISTINCT ON (segment_key) id, segment_key, label, reward_type, reward_value, probability, color, background_color, emoji, is_big_win, display_order 
       FROM spinwheel_prizes 
       WHERE is_active = true 
       ORDER BY segment_key, display_order ASC
@@ -81,18 +92,36 @@ async function loadSegmentsAndSettings() {
 
   const maxFreeDaily = parseSettingValue(settingsObj.max_free_daily, 5);
 
-  const segments = prizesRes.rows.map(p => ({
-    id: p.segment_key,
-    db_id: p.id,
-    label: p.label,
-    type: p.reward_type,
-    value: Number(p.reward_value),
-    probability: Number(p.probability),
-    color: p.color || "#FFFFFF",
-    bg: p.background_color || "#3B82F6",
-    emoji: p.emoji || "🎁",
-    is_big_win: Boolean(p.is_big_win)
-  }));
+  const segments = prizesRes.rows.map((p, index) => {
+    // Pick vibrant background color
+    let sliceBg = p.background_color;
+    if (!sliceBg || sliceBg === "#FFFFFF" || sliceBg === "#fff") {
+      sliceBg = p.color && p.color !== "#FFFFFF" && p.color !== "#fff" 
+        ? p.color 
+        : VIBRANT_PALETTE[index % VIBRANT_PALETTE.length];
+    }
+
+    return {
+      id: p.segment_key,
+      segment_key: p.segment_key,
+      db_id: p.id,
+      label: p.label,
+      type: p.reward_type,
+      value: Number(p.reward_value),
+      probability: Number(p.probability),
+      // All color variations mapped to fill color for WheelCanvas
+      color: sliceBg,
+      bg: sliceBg,
+      background_color: sliceBg,
+      backgroundColor: sliceBg,
+      fillColor: sliceBg,
+      // White text for contrast
+      textColor: "#FFFFFF",
+      fontColor: "#FFFFFF",
+      emoji: p.emoji || "🎁",
+      is_big_win: Boolean(p.is_big_win)
+    };
+  });
 
   return { segments, maxFreeDaily };
 }
@@ -204,7 +233,7 @@ router.get("/history", optionalAuth, async (req, res) => {
         reward_type: snapshot.type || snapshot.reward_type || "none",
         reward_value: Number(snapshot.value || snapshot.reward_value || 0),
         emoji: snapshot.emoji || "🎁",
-        color: snapshot.color || "#FFFFFF",
+        color: "#FFFFFF",
         bg: snapshot.bg || snapshot.background_color || "#3B82F6",
         claim_status: row.claim_status || "completed",
         created_at: row.created_at
@@ -330,7 +359,7 @@ const handleTaskClaim = async (req, res) => {
 router.post("/earn-task", requireAuth, handleTaskClaim);
 router.post("/claim-task", requireAuth, handleTaskClaim);
 
-// 6. POST /api/spinwheel/spin (INSTANT, NON-BLOCKING LOGGING)
+// 6. POST /api/spinwheel/spin
 router.post("/spin", requireAuth, async (req, res) => {
   try {
     const userId = String(req.user.id);
@@ -345,7 +374,6 @@ router.post("/spin", requireAuth, async (req, res) => {
       return res.status(400).json({ message: `No spins remaining today. Next spin in ${spinStatus.next_spin_in}` });
     }
 
-    // Weighted Random Segment Selection
     const totalProb = segments.reduce((sum, s) => sum + s.probability, 0);
     let rand = Math.random() * totalProb;
     let winningSegment = segments[0];
@@ -360,7 +388,6 @@ router.post("/spin", requireAuth, async (req, res) => {
 
     const prizeId = isValidUUID(winningSegment.db_id) ? winningSegment.db_id : null;
 
-    // 1. Insert Spin Record directly
     const spinInsertRes = await pool.query(
       `INSERT INTO spinwheel_spins (user_id, prize_id, prize_snapshot, spin_status)
        VALUES ($1, $2::uuid, $3::jsonb, 'completed')
@@ -369,7 +396,6 @@ router.post("/spin", requireAuth, async (req, res) => {
     );
     const spinId = spinInsertRes.rows[0].id;
 
-    // 2. Non-blocking Background Operations (Win Count & Rewards)
     const isWin = winningSegment.type !== "none";
     
     if (prizeId) {
@@ -385,10 +411,8 @@ router.post("/spin", requireAuth, async (req, res) => {
       ).catch(err => console.error("[spinwheel] background insert reward error:", err.message));
     }
 
-    // 3. Compute updated spin status for immediate client update
     const updatedStatus = await getSpinStatusForUser(userId, maxFreeDaily);
 
-    // Send immediate response (< 30ms)
     res.json({
       segment_id: winningSegment.id,
       result: {
@@ -398,7 +422,7 @@ router.post("/spin", requireAuth, async (req, res) => {
         type: winningSegment.type,
         value: winningSegment.value,
         is_big_win: winningSegment.is_big_win,
-        color: winningSegment.color,
+        color: "#FFFFFF",
         bg: winningSegment.bg
       },
       spin_status: updatedStatus
