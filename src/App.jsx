@@ -1,13 +1,16 @@
 /**
  * App.jsx
  *
- * v3.2 — Recovery Engine + Offline Banner + Tab-Wake Auto-Refresh
+ * v3.3 — Dual Auth System (Buyer + Seller Independent Guards)
  * ─────────────────────────────────────────────────────
+ * ✓ ProtectedRoute       → checks marketplace_token (public.users / buyers)
+ * ✓ SellerProtectedRoute → checks sellerToken      (market.users  / sellers)
+ * ✓ AdminProtectedRoute  → checks admin_token      (admin accounts)
+ * ✓ Sellers can post ads WITHOUT a public.users account
  * ✓ Blank-screen recovery after Chrome background kill
  * ✓ Offline / No-Data floating banner
  * ✓ Auto-refresh after 45 min background (online only)
  * ✓ Auth timeout prevents infinite loading spinner
- * ✓ All existing routes, guards & admin preserved
  */
 
 import { useEffect, useState, useCallback, memo, useRef } from "react";
@@ -102,7 +105,7 @@ import NearbyPageDesktop from "./desktop/NearbyPageDesktop";
 import DealsPage         from "./pages/Homepage/DealsPage";
 
 /* ════════════════════════════════════════════════════════════
-   PAGES — AUTH
+   PAGES — AUTH (BUYER)
 ════════════════════════════════════════════════════════════ */
 import AuthPage       from "./pages/AuthPage";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -210,11 +213,30 @@ const USERS_API = `${BASE_URL}/api/users`;
 const CART_API  = `${BASE_URL}/api/cart`;
 const FAVS_API  = `${BASE_URL}/api/favorites`;
 
+/*
+ * TOKEN KEYS
+ * ──────────────────────────────────────────────────
+ * marketplace → buyer JWT (public.users)
+ * seller      → seller JWT (market.users) — stored by backend as "sellerToken"
+ * admin       → admin JWT
+ */
 export const TOKEN_KEYS = {
   marketplace : "marketplace_token",
-  seller      : "seller_token",
+  seller      : "sellerToken",   // ← matches backend SELLER_TOKEN_KEY
   admin       : "admin_token",
 };
+
+/*
+ * Legacy fallback keys the seller token might be stored under.
+ * SellerProtectedRoute checks all of these for backward compatibility.
+ */
+const SELLER_TOKEN_FALLBACKS = [
+  "sellerToken",
+  "seller_token",
+  "market_token",
+  "sellerAuthToken",
+  "seller_auth_token",
+];
 
 const FAV_KEY = "loemart_favs";
 
@@ -248,7 +270,21 @@ const HEADER_HIDDEN_PREFIXES = [
   "/reset-password",
   "/admin",
   "/invite/",
+  "/seller/login",
+  "/seller/dashboard",
+  "/minimart/post-ad",
 ];
+
+/* ════════════════════════════════════════════════════════════
+   TOKEN HELPERS
+════════════════════════════════════════════════════════════ */
+const getSellerToken = () => {
+  for (const key of SELLER_TOKEN_FALLBACKS) {
+    const val = localStorage.getItem(key);
+    if (val) return val;
+  }
+  return null;
+};
 
 /* ════════════════════════════════════════════════════════════
    FAVOURITES
@@ -325,6 +361,9 @@ async function syncCartAfterLogin(token) {
 
 /* ════════════════════════════════════════════════════════════
    AUTH STORAGE
+   Only clears BUYER tokens — seller tokens are managed separately
+   by the seller login flow, so logging out of buyer doesn't log
+   out of seller account.
 ════════════════════════════════════════════════════════════ */
 function clearAllAuthStorage() {
   localStorage.removeItem(TOKEN_KEYS.marketplace);
@@ -491,7 +530,20 @@ function InviteRedirect() {
 
 /* ════════════════════════════════════════════════════════════
    ROUTE GUARDS
+   ──────────────────────────────────────────────────
+   Three independent auth systems:
+     1. ProtectedRoute        → buyer   (marketplace_token)
+     2. SellerProtectedRoute  → seller  (sellerToken)
+     3. AdminProtectedRoute   → admin   (admin_token)
+
+   A user can hold all three tokens simultaneously —
+   e.g. a seller browsing as a buyer, who is also staff.
 ════════════════════════════════════════════════════════════ */
+
+/**
+ * ProtectedRoute — guards BUYER routes.
+ * Requires a logged-in buyer (public.users via marketplace_token).
+ */
 function ProtectedRoute({ user, children }) {
   const location = useLocation();
   if (!user) {
@@ -506,6 +558,32 @@ function ProtectedRoute({ user, children }) {
   return children;
 }
 
+/**
+ * SellerProtectedRoute — guards SELLER routes.
+ * Requires a seller JWT (market.users via sellerToken).
+ * Does NOT require the buyer `user` state.
+ *
+ * Checks several legacy token keys for backward compatibility.
+ */
+function SellerProtectedRoute({ children }) {
+  const location    = useLocation();
+  const sellerToken = getSellerToken();
+
+  if (!sellerToken) {
+    return (
+      <Navigate
+        to={`/seller/login?redirect=${encodeURIComponent(location.pathname)}`}
+        replace
+      />
+    );
+  }
+  return children;
+}
+
+/**
+ * AdminProtectedRoute — guards ADMIN routes.
+ * Requires an admin session with optional role matching.
+ */
 function AdminProtectedRoute({ admin, role, children }) {
   if (!admin) return <Navigate to="/admin/login" replace />;
   if (admin.role === "super_admin") return children;
@@ -515,6 +593,10 @@ function AdminProtectedRoute({ admin, role, children }) {
   return children;
 }
 
+/**
+ * AuthGuestRoute — guards guest-only routes (buyer login, signup).
+ * Already-authenticated buyers are redirected away.
+ */
 function AuthGuestRoute({ user, redirectTo, children }) {
   const [params] = useSearchParams();
   if (user) {
@@ -559,7 +641,6 @@ function AppInner() {
   const loggingOutRef  = useRef(false);
   const navigate       = useNavigate();
 
-  /* ── Recovery Engine: Tab-wake + Offline detection ── */
   useTabWakeListener();
   useSystemThemeWatcher();
 
@@ -570,7 +651,7 @@ function AppInner() {
     queryClient.clear();
   }, [queryClient]);
 
-  /* ── Auth check on mount (strict 6s timeout prevents freeze) ── */
+  /* ── Buyer auth check on mount ── */
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEYS.marketplace);
     if (!token) {
@@ -581,7 +662,7 @@ function AppInner() {
     axios
       .get(`${USERS_API}/me`, {
         headers: { Authorization: `Bearer ${token}` },
-        timeout: 6000, // Never hang forever on bad network
+        timeout: 6000,
       })
       .then((res) => {
         if (loggingOutRef.current) return;
@@ -593,20 +674,18 @@ function AppInner() {
         syncFavouritesOnLogin(token, userData.id);
       })
       .catch(() => {
-        // On timeout / network error — clear broken token, still unlock UI
         clearAllAuthStorage();
         clearFavouritesOnLogout();
         clearQueryCache();
         setUser(null);
       })
       .finally(() => {
-        // ALWAYS unlock the loading screen
         setAuthChecked(true);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── Soft re-auth on tab-wake (after short background) ── */
+  /* ── Soft re-auth on tab-wake ── */
   useEffect(() => {
     const onTabWake = () => {
       const token = localStorage.getItem(TOKEN_KEYS.marketplace);
@@ -622,7 +701,6 @@ function AppInner() {
           setUser(userData);
         })
         .catch(() => {
-          // Token expired while backgrounded — silent logout
           clearAllAuthStorage();
           setUser(null);
         });
@@ -645,7 +723,7 @@ function AppInner() {
     }
   }, []);
 
-  /* ── Login success ── */
+  /* ── Buyer login success ── */
   const handleAuthSuccess = useCallback(
     (userData, token, navigateFn, from) => {
       clearQueryCache();
@@ -666,7 +744,7 @@ function AppInner() {
     [resetCache, clearQueryCache]
   );
 
-  /* ── Logout ── */
+  /* ── Buyer logout (does NOT touch seller token) ── */
   const handleLogout = useCallback(
     async (navigateFn) => {
       if (loggingOutRef.current) return;
@@ -723,12 +801,8 @@ function AppInner() {
 
   return (
     <>
-      {/* Offline floating banner — only shows when no data/Wi-Fi */}
       <OfflineBanner />
-
-      {/* 🌟 SPIN & WIN PROMO POPUP — Passes user state to direct visitors to /auth */}
       <SpinWinModal user={user} />
-
       <ScrollToTop />
       <Toaster position="top-right" toastOptions={TOASTER_OPTIONS} />
       <SiteHeader user={user} onLogout={handleLogout} />
@@ -742,11 +816,9 @@ function AppInner() {
         <Route path="/product/:slug" element={<ProductRoute user={user} />} />
         <Route path="/shop/:slug" element={<MarketDetail user={user} />} />
 
-        {/* Jumia-style Category Catalog */}
         <Route path="/catalog" element={<CategoryCatalog user={user} />} />
         <Route path="/category/:slug" element={<CategoryCatalog user={user} />} />
 
-        {/* Seller routes */}
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
         <Route path="/seller/store/:sellerId" element={<SellerPage />} />
 
@@ -760,14 +832,13 @@ function AppInner() {
         <Route path="/loemart" element={<HomePage user={user} />} />
         <Route path="/loemart/search" element={<LoemartSearchPage user={user} />} />
 
-        {/* Homepage sub-pages */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
         <Route path="/latest" element={<LatestPage user={user} />} />
         <Route path="/nearby" element={<NearbyRoute user={user} />} />
         <Route path="/deals" element={<DealsPage user={user} />} />
 
         {/* ══════════════════════════════════════════════
-            AUTH (guests only)
+            BUYER AUTH (guests only)
         ══════════════════════════════════════════════ */}
         <Route
           path="/auth"
@@ -796,13 +867,40 @@ function AppInner() {
         <Route path="/invite/:code" element={<InviteRedirect />} />
 
         {/* ══════════════════════════════════════════════
-            SELLER
+            SELLER ROUTES
+            Guarded by SellerProtectedRoute (checks sellerToken).
+            Independent from buyer auth — a user does NOT need
+            a public.users account to access these.
         ══════════════════════════════════════════════ */}
         <Route path="/become-seller" element={<BecomeSeller user={user} />} />
-        <Route path="/seller/dashboard" element={<SellerDashboard />} />
-        <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
-        {/* Subscription */}
+        <Route
+          path="/seller/dashboard"
+          element={
+            <SellerProtectedRoute>
+              <SellerDashboard />
+            </SellerProtectedRoute>
+          }
+        />
+        <Route
+          path="/seller/dashboard/:tab"
+          element={
+            <SellerProtectedRoute>
+              <SellerDashboard />
+            </SellerProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/minimart/post-ad"
+          element={
+            <SellerProtectedRoute>
+              <PostAds />
+            </SellerProtectedRoute>
+          }
+        />
+
+        {/* Subscription — stays as buyer-protected (future: could be seller too) */}
         <Route
           path="/seller/subscription"
           element={
@@ -822,7 +920,7 @@ function AppInner() {
         <Route path="/subscription/callback/paystack" element={<Payment />} />
 
         {/* ══════════════════════════════════════════════
-            PROFILE & USER
+            BUYER PROFILE & USER (public.users)
         ══════════════════════════════════════════════ */}
         <Route
           path="/profile"
@@ -975,14 +1073,6 @@ function AppInner() {
           element={
             <ProtectedRoute user={user}>
               <Invitation user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/minimart/post-ad"
-          element={
-            <ProtectedRoute user={user}>
-              <PostAds user={user} />
             </ProtectedRoute>
           }
         />
