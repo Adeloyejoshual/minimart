@@ -1,890 +1,436 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useNavigate, Link }                         from "react-router-dom";
+import express from "express";
+import jwt from "jsonwebtoken";
+import { pool } from "../config/db.js";
 
-/* ── Components ── */
-import Icon               from "../../components/SpinWheel/Icon.jsx";
-import SpinCounterBadge   from "../../components/SpinWheel/SpinCounterBadge.jsx";
-import CountdownTimer     from "../../components/SpinWheel/CountdownTimer.jsx";
-import BonusSpinToast     from "../../components/SpinWheel/BonusSpinToast.jsx";
-import ReferralSpinsPanel from "../../components/SpinWheel/ReferralSpinsPanel.jsx";
-import EarnTab            from "../../components/SpinWheel/EarnTab.jsx";
-import WheelCanvas        from "../../components/SpinWheel/WheelCanvas.jsx";
-import ResultModal        from "../../components/SpinWheel/ResultModal.jsx";
-import HistoryTab         from "../../components/SpinWheel/HistoryTab.jsx";
+const router = express.Router();
 
-/* ── Utilities ── */
-import { sound }        from "../../components/SpinWheel/SoundManager.js";
-import { fireConfetti } from "../../components/SpinWheel/confetti.js";
-import {
-  API, authH, getToken, isBigWin, EARN_TASKS,
-} from "../../components/SpinWheel/helpers.js";
-
-import "../../styles/SpinWheel.css";
-
-/* ══════════════════════════════════════════════════════════════
-   NAV TABS CONFIG
-══════════════════════════════════════════════════════════════ */
-const NAV_TABS = [
-  { key: "wheel",     label: "Spin",      iconName: "spin"    },
-  { key: "earn",      label: "Earn",      iconName: "bolt"    },
-  { key: "history",   label: "History",   iconName: "history" },
-  { key: "referrals", label: "Referrals", iconName: "gift"    },
+const VIBRANT_PALETTE = [
+  "#FF4500", // Vibrant Orange Red
+  "#6366F1", // Indigo
+  "#10B981", // Emerald Green
+  "#EC4899", // Hot Pink
+  "#4B5563", // Dark Slate Gray
+  "#8B5CF6", // Purple
+  "#06B6D4", // Cyan
+  "#F59E0B"  // Amber Yellow
 ];
 
-const RULES = [
-  "Free daily spins reset at midnight",
-  "Earn bonus spins by following us on social media or joining our community groups",
-  "Earn +1 bonus spin for every friend who signs up with your invite code",
-  "Bonus spins never expire and stack up to 10",
-  "Coupons expire 30 days after winning",
-  "Airtime credited within 24 hours",
-  "Each coupon can only be used once",
-  "Each earn task can only be completed once",
-  "Prizes are non-transferable",
-  "Loemart reserves the right to cancel rewards from fraudulent activity",
-];
+function parseSettingValue(raw, defaultValue) {
+  if (raw === undefined || raw === null) return defaultValue;
+  let val = raw;
+  if (typeof val === "string") {
+    try { val = JSON.parse(val); } catch (e) {}
+  }
+  if (typeof val === "object" && val !== null && "value" in val) {
+    val = val.value;
+  }
+  const num = Number(val);
+  return isNaN(num) ? defaultValue : num;
+}
 
-/* ══════════════════════════════════════════════════════════════
-   MAIN
-══════════════════════════════════════════════════════════════ */
-export default function SpinWheel() {
-  const navigate = useNavigate();
+function formatCountdown(seconds) {
+  if (seconds <= 0) return "00:00:00";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return [h, m, s].map(v => String(v).padStart(2, "0")).join(":");
+}
 
-  /* ── Server data ── */
-  const [segments,       setSegments]       = useState([]);
-  const [spinStatus,     setSpinStatus]     = useState(null);
-  const [history,        setHistory]        = useState([]);
-  const [stats,          setStats]          = useState(null);
-  const [referralSpins,  setReferralSpins]  = useState([]);
-  const [completedTasks, setCompletedTasks] = useState([]);
-  const [taskStats,      setTaskStats]      = useState(null);
+function isValidUUID(str) {
+  if (!str || typeof str !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
 
-  /* ── UI state ── */
-  const [loading,    setLoading]    = useState(true);
-  const [spinning,   setSpinning]   = useState(false);
-  const [spinResult, setSpinResult] = useState(null);
-  const [showResult, setShowResult] = useState(false);
-  const [targetId,   setTargetId]   = useState(null);
-  const [tab,        setTab]        = useState("wheel");
-  const [bonusToast, setBonusToast] = useState(null);
-  const [spinType,   setSpinType]   = useState("free");
-  const [soundOn,    setSoundOn]    = useState(true);
-  const [bigWin,     setBigWin]     = useState(false);
-  const [shake,      setShake]      = useState(false);
-  const [error,      setError]      = useState(null);
+// --- AUTH MIDDLEWARE ---
 
-  /* ── Auth guard ── */
-  useEffect(() => {
-    if (!getToken()) navigate("/auth?redirect=/spin");
-  }, [navigate]);
+function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    req.user = null;
+    return next();
+  }
+  try {
+    const token = authHeader.split(" ")[1];
+    req.user = jwt.verify(token, process.env.JWT_SECRET || "fallback_secret");
+  } catch (err) {
+    req.user = null;
+  }
+  next();
+}
 
-  /* ── Sound sync ── */
-  useEffect(() => { sound.muted = !soundOn; }, [soundOn]);
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Please log in to spin or claim tasks." });
+  }
+  try {
+    const token = authHeader.split(" ")[1];
+    req.user = jwt.verify(token, process.env.JWT_SECRET || "fallback_secret");
+    next();
+  } catch (err) {
+    return res.status(401).json({ message: "Session expired. Please log in again." });
+  }
+}
 
-  /* ══════════════════════════════════════════
-     LOAD ALL DATA
-  ══════════════════════════════════════════ */
-  const loadConfig = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    setError(null);
-    try {
-      const [configRes, historyRes, referralRes, tasksRes] =
-        await Promise.all([
-          fetch(`${API}/spinwheel/config`,         { headers: authH() }),
-          fetch(`${API}/spinwheel/history`,        { headers: authH() }),
-          fetch(`${API}/spinwheel/referral-spins`, { headers: authH() }),
-          fetch(`${API}/spinwheel/tasks`,          { headers: authH() }),
-        ]);
+// --- DB LOADERS ---
 
-      if (configRes.status === 401) {
-        navigate("/auth?redirect=/spin");
-        return;
-      }
+async function loadSegmentsAndSettings() {
+  const [prizesRes, settingsRes] = await Promise.all([
+    pool.query(`
+      SELECT DISTINCT ON (segment_key) id, segment_key, label, reward_type, reward_value, probability, color, background_color, emoji, is_big_win, display_order 
+      FROM spinwheel_prizes 
+      WHERE is_active = true 
+      ORDER BY segment_key, display_order ASC
+    `),
+    pool.query(`SELECT setting_key, setting_value FROM spinwheel_settings`)
+  ]);
 
-      if (configRes.ok) {
-        const d = await configRes.json();
-        setSegments(d.segments    || []);
-        setSpinStatus(d.spin_status || null);
-      } else {
-        const d = await configRes.json().catch(() => ({}));
-        setError(d.message || "Failed to load wheel config.");
-      }
-
-      if (historyRes.ok) {
-        const d = await historyRes.json();
-        setHistory(d.history || []);
-        setStats(d.stats    || null);
-      }
-
-      if (referralRes.ok) {
-        const d = await referralRes.json();
-        setReferralSpins(d.referral_spins || []);
-      }
-
-      if (tasksRes.ok) {
-        const d = await tasksRes.json();
-        setCompletedTasks(d.completed_task_ids || []);
-        setTaskStats(d.stats || null);
-      }
-    } catch (err) {
-      console.error("[SpinWheel] loadConfig:", err);
-      setError("Could not connect. Check your internet.");
-    } finally {
-      setLoading(false);
-    }
-  }, [navigate]);
-
-  useEffect(() => { loadConfig(); }, [loadConfig]);
-
-  /* ── Poll every 90s for background updates ── */
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`${API}/spinwheel/config`, {
-          headers: authH(),
-        });
-        if (!res.ok) return;
-        const d   = await res.json();
-        const nxt = d.spin_status;
-        if (!nxt) return;
-
-        setSpinStatus((prev) => {
-          const prevBonus = prev?.bonus_spins_remaining || 0;
-          const nxtBonus  = nxt.bonus_spins_remaining   || 0;
-          if (prev && nxtBonus > prevBonus) {
-            setBonusToast({
-              spins_awarded: nxtBonus - prevBonus,
-              referred_user: nxt.latest_referral_name || "Someone",
-            });
-          }
-          return nxt;
-        });
-      } catch (_) {}
-    }, 90_000);
-    return () => clearInterval(interval);
-  }, []);
-
-  /* ══════════════════════════════════════════
-     COMPUTED
-  ══════════════════════════════════════════ */
-  const canFreeSpin = spinStatus?.can_free_spin ?? false;
-  const freeLeft    = spinStatus?.free_spins_remaining ?? (canFreeSpin ? 1 : 0);
-  const bonusLeft   = spinStatus?.bonus_spins_remaining || 0;
-  const canSpin     = freeLeft > 0 || bonusLeft > 0;
-
-  const currentSpinType = useCallback(() => {
-    if (freeLeft > 0)  return "free";
-    if (bonusLeft > 0) return "bonus";
-    return null;
-  }, [freeLeft, bonusLeft]);
-
-  const totalSpinsAvailable = freeLeft + bonusLeft;
-  
-  const pendingTasksCount = EARN_TASKS.filter(
-    (t) => !completedTasks.includes(t.id)
-  ).length;
-  
-  const totalPossibleSpins = useMemo(
-    () => EARN_TASKS.reduce((a, t) => a + t.spins_reward, 0),
-    []
-  );
-
-  /* ══════════════════════════════════════════
-     TASK CLAIMED
-  ══════════════════════════════════════════ */
-  const handleTaskClaimed = useCallback((task) => {
-    setCompletedTasks((prev) =>
-      prev.includes(task.id) ? prev : [...prev, task.id]
-    );
-    setSpinStatus((prev) =>
-      prev
-        ? {
-            ...prev,
-            bonus_spins_remaining:
-              (prev.bonus_spins_remaining || 0) + (task.spins_reward || 1),
-            can_spin: true
-          }
-        : prev
-    );
-    setBonusToast({
-      spins_awarded: task.spins_reward,
-      referred_user: `You completed: ${task.label}`,
-    });
-    setTaskStats((prev) => ({
-      ...prev,
-      total_earned:
-        ((prev?.total_earned) || 0) + (task.spins_reward || 1),
-    }));
-  }, []);
-
-  /* ══════════════════════════════════════════
-     SPIN (INSTANT SYNC)
-  ══════════════════════════════════════════ */
-  const handleSpin = useCallback(async () => {
-    if (spinning || !canSpin) return;
-
-    sound.resume();
-    sound.spinStart();
-
-    const type = currentSpinType();
-    if (!type) return;
-
-    setSpinType(type);
-    setSpinning(true);
-    setSpinResult(null);
-    setBigWin(false);
-
-    try {
-      const res  = await fetch(`${API}/spinwheel/spin`, {
-        method  : "POST",
-        headers : authH(),
-        body    : JSON.stringify({ spin_type: type }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        alert(data.message || "Could not spin. Please try again.");
-        setSpinning(false);
-        return;
-      }
-
-      setTargetId(data.segment_id);
-      setSpinResult({ ...data.result, spin_type: type });
-
-      // INSTANT SYNC: Directly update state with the server payload
-      if (data.spin_status) {
-        setSpinStatus(data.spin_status);
-      }
-    } catch {
-      alert("Network error. Please try again.");
-      setSpinning(false);
-    }
-  }, [spinning, canSpin, currentSpinType]);
-
-  /* ══════════════════════════════════════════
-     SPIN END
-  ══════════════════════════════════════════ */
-  const handleSpinEnd = useCallback(() => {
-    setSpinning(false);
-
-    if (spinResult?.is_win) {
-      const big = isBigWin(spinResult);
-      setBigWin(big);
-      setShake(true);
-      setTimeout(() => setShake(false), 600);
-      sound.win();
-      fireConfetti(big);
-      if (big && "vibrate" in navigator)
-        navigator.vibrate([200, 100, 200, 100, 400]);
-    } else {
-      sound.lose();
-    }
-
-    setTimeout(() => {
-      setShowResult(true);
-      loadConfig(true); // Silent background refresh
-    }, 400);
-  }, [spinResult, loadConfig]);
-
-  const closeResult = useCallback(() => {
-    setShowResult(false);
-    setSpinResult(null);
-    setTargetId(null);
-    setBigWin(false);
-  }, []);
-
-  const handleTick = useCallback(() => { sound.tick(); }, []);
-
-  /* ── Spin button label ── */
-  const spinBtnLabel = () => {
-    if (spinning)
-      return <><Icon name="loader" size={16} /> Spinning…</>;
-    if (!canSpin)
-      return `Come back in ${spinStatus?.next_spin_in || "..."}`;
-    const type = currentSpinType();
-    if (type === "free")
-      return <><Icon name="star" size={16} /> SPIN NOW! ({freeLeft} free {freeLeft > 1 ? "spins" : "spin"} left)</>;
-    if (type === "bonus")
-      return <><Icon name="gift" size={16} /> SPIN NOW! ({bonusLeft} bonus left)</>;
-    return "No Spins Available";
-  };
-
-  const wheelSize = Math.min(
-    typeof window !== "undefined" ? window.innerWidth - 48 : 320,
-    320
-  );
-
-  /* ── Nav tab counts ── */
-  const navCounts = {
-    wheel    : totalSpinsAvailable,
-    earn     : pendingTasksCount,
-    history  : history.length,
-    referrals: referralSpins.length,
-  };
-
-  /* ── Error state ── */
-  if (!loading && error) {
-    return (
-      <div className="sw-page">
-        <div className="sw-error-state" role="alert">
-          <Icon name="warning" size={32} style={{ color: "#f59e0b" }} />
-          <p>{error}</p>
-          <button
-            onClick={() => loadConfig()}
-            className="sw-error-retry"
-            aria-label="Retry loading"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
+  const settingsObj = {};
+  for (const row of settingsRes.rows) {
+    settingsObj[row.setting_key] = row.setting_value;
   }
 
-  /* ══════════════════════════════════════════
-     RENDER
-  ══════════════════════════════════════════ */
-  return (
-    <div className="sw-page">
+  const maxFreeDaily = parseSettingValue(settingsObj.max_free_daily, 5);
 
-      {/* Toast */}
-      <BonusSpinToast
-        bonus={bonusToast}
-        onClose={() => setBonusToast(null)}
-      />
+  const segments = prizesRes.rows.map((p, index) => {
+    // Pick vibrant background color
+    let sliceBg = p.background_color;
+    if (!sliceBg || sliceBg === "#FFFFFF" || sliceBg === "#fff") {
+      sliceBg = p.color && p.color !== "#FFFFFF" && p.color !== "#fff" 
+        ? p.color 
+        : VIBRANT_PALETTE[index % VIBRANT_PALETTE.length];
+    }
 
-      {/* ── Topbar ── */}
-      <div className="sw-topbar">
-        <button
-          className="sw-back"
-          onClick={() => navigate(-1)}
-          aria-label="Go back"
-        >
-          <Icon name="arrowLeft" size={20} />
-        </button>
+    return {
+      id: p.segment_key,
+      segment_key: p.segment_key,
+      db_id: p.id,
+      label: p.label,
+      type: p.reward_type,
+      value: Number(p.reward_value),
+      probability: Number(p.probability),
+      // All color variations mapped to fill color for WheelCanvas
+      color: sliceBg,
+      bg: sliceBg,
+      background_color: sliceBg,
+      backgroundColor: sliceBg,
+      fillColor: sliceBg,
+      // White text for contrast
+      textColor: "#FFFFFF",
+      fontColor: "#FFFFFF",
+      emoji: p.emoji || "🎁",
+      is_big_win: Boolean(p.is_big_win)
+    };
+  });
 
-        <div>
-          <h1 className="sw-topbar-title">
-            <Icon
-              name="spin"
-              size={20}
-              style={{ color: "#e8630a" }}
-            />{" "}
-            Spin &amp; Win
-          </h1>
-          <p className="sw-topbar-sub">
-            {totalSpinsAvailable > 0
-              ? `${totalSpinsAvailable} spin${totalSpinsAvailable > 1 ? "s" : ""} available`
-              : `Next spin in ${spinStatus?.next_spin_in || "..."}`}
-          </p>
-        </div>
-
-        <button
-          className="sw-sound-btn"
-          onClick={() => setSoundOn((s) => !s)}
-          aria-label={soundOn ? "Mute sounds" : "Unmute sounds"}
-        >
-          <Icon name={soundOn ? "soundOn" : "soundOff"} size={20} />
-        </button>
-
-        <div className="sw-topbar-stats">
-          {stats && (
-            <div
-              className="sw-topbar-win-rate"
-              aria-label={`${stats.total_wins} wins`}
-            >
-              <span>{stats.total_wins}</span>
-              <small>wins</small>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Nav ── */}
-      <nav className="sw-nav" aria-label="Spin wheel sections">
-        {NAV_TABS.map((t) => (
-          <button
-            key={t.key}
-            className={`sw-nav-btn${tab === t.key ? " active" : ""}`}
-            onClick={() => setTab(t.key)}
-            aria-selected={tab === t.key}
-            aria-label={t.label}
-          >
-            <Icon name={t.iconName} size={15} />
-            <span>{t.label}</span>
-            {navCounts[t.key] > 0 && (
-              <span
-                className={`sw-nav-count${
-                  t.key === "earn" ? " sw-nav-count--earn" : ""
-                }`}
-                aria-hidden="true"
-              >
-                {navCounts[t.key]}
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
-
-      <div className="sw-scroll">
-
-        {/* ══════════ WHEEL TAB ══════════ */}
-        {tab === "wheel" && (
-          <>
-            <SpinCounterBadge spinStatus={spinStatus} />
-
-            {!canSpin && spinStatus?.next_spin_seconds && (
-              <CountdownTimer
-                secondsLeft={spinStatus.next_spin_seconds}
-              />
-            )}
-
-            {/* Streak */}
-            {(stats?.streak || spinStatus?.streak || 0) > 0 && (
-              <div className="sw-streak">
-                <Icon
-                  name="flame"
-                  size={22}
-                  className="sw-streak-icon"
-                  style={{ color: "#f97316" }}
-                />
-                <div className="sw-streak-body">
-                  <p className="sw-streak-title">Spin Streak!</p>
-                  <p className="sw-streak-sub">
-                    Keep spinning daily to maintain your streak
-                  </p>
-                </div>
-                <div
-                  className="sw-streak-days"
-                  aria-label={`${
-                    stats?.streak || spinStatus?.streak
-                  } day streak`}
-                >
-                  {stats?.streak || spinStatus?.streak || 0}
-                  <small>days</small>
-                </div>
-              </div>
-            )}
-
-            {/* No spins banner */}
-            {spinStatus && !canSpin && (
-              <div className="sw-status-banner" role="status">
-                <Icon
-                  name="clock"
-                  size={20}
-                  style={{ color: "#f59e0b" }}
-                />
-                <div>
-                  <p>
-                    Next spin in{" "}
-                    <strong>{spinStatus.next_spin_in}</strong>
-                  </p>
-                  <small>
-                    Complete tasks to earn bonus spins instantly!
-                  </small>
-                </div>
-              </div>
-            )}
-
-            {/* Free spin ready */}
-            {freeLeft > 0 && (
-              <div className="sw-ready-banner" role="status">
-                <Icon
-                  name="sparkle"
-                  size={20}
-                  style={{ color: "#e8630a" }}
-                />
-                <p>You have {freeLeft} free spin{freeLeft > 1 ? "s" : ""} ready!</p>
-              </div>
-            )}
-
-            {/* Bonus spins */}
-            {bonusLeft > 0 && (
-              <div className="sw-bonus-banner" role="status">
-                <Icon
-                  name="gift"
-                  size={20}
-                  style={{ color: "#6366f1" }}
-                />
-                <div>
-                  <p>
-                    You have{" "}
-                    <strong>
-                      {bonusLeft} bonus spin
-                      {bonusLeft > 1 ? "s" : ""}
-                    </strong>{" "}
-                    from referrals &amp; tasks!
-                  </p>
-                  <small>
-                    These don't expire — use them any time
-                  </small>
-                </div>
-              </div>
-            )}
-
-            {/* Wheel */}
-            <div className="sw-wheel-wrap">
-              <div
-                className={`sw-pointer${
-                  canSpin && !spinning ? " sw-pointer--ready" : ""
-                }`}
-                aria-hidden="true"
-              >
-                <Icon
-                  name="pointerDown"
-                  size={28}
-                  style={{ color: "#e8630a" }}
-                />
-              </div>
-
-              <div
-                className={`sw-canvas-outer${shake ? " shake" : ""}`}
-              >
-                <div
-                  className={`sw-canvas-wrap${
-                    bigWin ? " sw-canvas-wrap--big-win" : ""
-                  }`}
-                  style={{ width: wheelSize, height: wheelSize }}
-                >
-                  {loading ? (
-                    <div
-                      className="sw-canvas-loading"
-                      style={{ width: wheelSize, height: wheelSize }}
-                    >
-                      <div
-                        className="sw-sk-wheel"
-                        style={{
-                          width : wheelSize,
-                          height: wheelSize,
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <WheelCanvas
-                      segments={segments}
-                      targetSegmentId={targetId}
-                      spinning={spinning}
-                      onSpinEnd={handleSpinEnd}
-                      onTick={handleTick}
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Spin button */}
-            <button
-              className={[
-                "sw-spin-btn",
-                spinning                          ? "sw-spin-btn--spinning" : "",
-                !canSpin                          ? "sw-spin-btn--disabled" : "",
-                canSpin && !spinning              ? "sw-spin-btn--pulse"    : "",
-                spinType === "bonus" && !spinning ? "sw-spin-btn--bonus"    : "",
-              ].filter(Boolean).join(" ")}
-              onClick={handleSpin}
-              disabled={spinning || !canSpin || loading}
-              aria-label={
-                spinning          ? "Spinning…"          :
-                !canSpin          ? "No spins available"  :
-                spinType === "bonus" ? "Use bonus spin"   :
-                "Spin the wheel for free"
-              }
-            >
-              {spinBtnLabel()}
-            </button>
-
-            {/* Earn shortcut */}
-            {pendingTasksCount > 0 && (
-              <button
-                className="sw-earn-shortcut"
-                onClick={() => setTab("earn")}
-                aria-label={`Complete ${pendingTasksCount} tasks to earn more spins`}
-              >
-                <div className="sw-earn-shortcut-left">
-                  <div className="sw-earn-shortcut-icon">
-                    <Icon
-                      name="bolt"
-                      size={18}
-                      style={{ color: "#fff" }}
-                    />
-                  </div>
-                  <div>
-                    <p className="sw-earn-shortcut-title">
-                      Earn More Spins —{" "}
-                      {pendingTasksCount} task
-                      {pendingTasksCount > 1 ? "s" : ""} available
-                    </p>
-                    <p className="sw-earn-shortcut-sub">
-                      Follow us &amp; join groups to get up to{" "}
-                      {totalPossibleSpins} bonus spins!
-                    </p>
-                  </div>
-                </div>
-                <Icon
-                  name="chevronRight"
-                  size={18}
-                  style={{ color: "#e8630a" }}
-                />
-              </button>
-            )}
-
-            {/* Invite CTA */}
-            <Link
-              to="/invite"
-              className="sw-earn-more"
-              aria-label="Invite friends to earn bonus spins"
-            >
-              <Icon
-                name="rocket"
-                size={20}
-                className="sw-earn-more-icon"
-                style={{ color: "#e8630a" }}
-              />
-              <div className="sw-earn-more-body">
-                <p className="sw-earn-more-title">Want more spins?</p>
-                <p className="sw-earn-more-sub">
-                  Invite a friend → they sign up → you get{" "}
-                  <strong>+1 bonus spin</strong> instantly!
-                </p>
-              </div>
-              <Icon
-                name="chevronRight"
-                size={18}
-                style={{ color: "#e8630a" }}
-              />
-            </Link>
-
-            {/* Prizes grid */}
-            <div className="sw-prizes">
-              <h2 className="sw-prizes-title">
-                <Icon
-                  name="gift"
-                  size={18}
-                  style={{ color: "#e8630a" }}
-                />{" "}
-                Prizes You Can Win
-              </h2>
-              <div className="sw-prizes-grid" role="list">
-                {segments.map((seg) => (
-                  <div
-                    key={seg.id}
-                    className="sw-prize-item"
-                    role="listitem"
-                    style={{
-                      background  : seg.bg,
-                      borderColor : seg.color + "44",
-                    }}
-                  >
-                    <span
-                      className="sw-prize-emoji"
-                      aria-hidden="true"
-                    >
-                      {seg.emoji || "★"}
-                    </span>
-                    <span
-                      className="sw-prize-label"
-                      style={{ color: seg.color }}
-                    >
-                      {seg.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Rules */}
-            <div className="sw-rules">
-              <h3 className="sw-rules-title">
-                <Icon
-                  name="list"
-                  size={16}
-                  style={{ color: "#6b7280" }}
-                />{" "}
-                Rules
-              </h3>
-              {RULES.map((rule, i) => (
-                <div key={i} className="sw-rule">
-                  <span className="sw-rule-dot" aria-hidden="true" />
-                  <span>{rule}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* ══════════ EARN TAB ══════════ */}
-        {tab === "earn" && (
-          <EarnTab
-            completedTaskIds={completedTasks}
-            onTaskClaimed={handleTaskClaimed}
-            totalEarned={taskStats?.total_earned}
-          />
-        )}
-
-        {/* ══════════ HISTORY TAB ══════════ */}
-        {tab === "history" && (
-          <HistoryTab history={history} stats={stats} />
-        )}
-
-        {/* ══════════ REFERRALS TAB ══════════ */}
-        {tab === "referrals" && (
-          <>
-            {/* Summary */}
-            <div
-              className="sw-ref-summary"
-              role="region"
-              aria-label="Referral summary"
-            >
-              <div className="sw-ref-summary-row">
-                {[
-                  {
-                    val     : referralSpins.length,
-                    label   : "Friends Joined",
-                    color   : "#fff",
-                    iconName: "users",
-                  },
-                  {
-                    val     : referralSpins.reduce(
-                      (a, r) => a + (r.spins_awarded || 0), 0
-                    ),
-                    label   : "Spins Earned",
-                    color   : "#e8630a",
-                    iconName: "spin",
-                  },
-                  {
-                    val     : bonusLeft,
-                    label   : "Remaining",
-                    color   : "#6366f1",
-                    iconName: "bolt",
-                  },
-                ].map((s, i, arr) => (
-                  <div
-                    key={s.label}
-                    style={{ display: "flex", alignItems: "center" }}
-                  >
-                    <div className="sw-ref-summary-stat">
-                      <Icon
-                        name={s.iconName}
-                        size={16}
-                        style={{ color: s.color, marginBottom: 4 }}
-                      />
-                      <span
-                        className="sw-ref-summary-val"
-                        style={{ color: s.color }}
-                      >
-                        {s.val}
-                      </span>
-                      <span className="sw-ref-summary-label">
-                        {s.label}
-                      </span>
-                    </div>
-                    {i < arr.length - 1 && (
-                      <div
-                        className="sw-ref-summary-divider"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* How it works */}
-            <div className="sw-how-it-works">
-              <h3 className="sw-how-title">How Bonus Spins Work</h3>
-              {[
-                {
-                  step    : "1",
-                  iconName: "share",
-                  text    : "Share your invite code from the Invite Friends page",
-                },
-                {
-                  step    : "2",
-                  iconName: "users",
-                  text    : "Your friend signs up using your code",
-                },
-                {
-                  step    : "3",
-                  iconName: "checkCircle",
-                  text    : "They verify their email address",
-                },
-                {
-                  step    : "4",
-                  iconName: "spin",
-                  text    : "You instantly receive +1 bonus spin!",
-                },
-              ].map((item) => (
-                <div key={item.step} className="sw-how-step">
-                  <div
-                    className="sw-how-step-num"
-                    aria-hidden="true"
-                  >
-                    {item.step}
-                  </div>
-                  <Icon
-                    name={item.iconName}
-                    size={20}
-                    style={{ color: "#e8630a", flexShrink: 0 }}
-                  />
-                  <p className="sw-how-step-text">{item.text}</p>
-                </div>
-              ))}
-            </div>
-
-            <ReferralSpinsPanel referralSpins={referralSpins} />
-
-            {referralSpins.length === 0 && (
-              <div className="sw-empty">
-                <Icon
-                  name="gift"
-                  size={40}
-                  style={{ color: "#d1d5db" }}
-                />
-                <p>No referral spins yet</p>
-                <small>Invite friends to earn bonus spins!</small>
-                <Link to="/invitation" className="sw-empty-invite-btn">
-                  Go to Invite Page{" "}
-                  <Icon name="arrowRight" size={14} />
-                </Link>
-              </div>
-            )}
-
-            <Link
-              to="/invitation"
-              className="sw-ref-cta"
-              aria-label="Invite more friends"
-            >
-              <Icon
-                name="share"
-                size={20}
-                style={{ color: "#e8630a" }}
-              />
-              <div style={{ flex: 1 }}>
-                <p className="sw-ref-cta-title">
-                  Invite More Friends
-                </p>
-                <p className="sw-ref-cta-sub">
-                  Each signup = +1 bonus spin for you
-                </p>
-              </div>
-              <Icon
-                name="chevronRight"
-                size={18}
-                style={{ color: "#e8630a" }}
-              />
-            </Link>
-          </>
-        )}
-
-        <p className="sw-footer">
-          © {new Date().getFullYear()} Loemart — Spin responsibly!
-        </p>
-      </div>
-
-      {/* Result modal */}
-      {showResult && spinResult && (
-        <ResultModal result={spinResult} onClose={closeResult} />
-      )}
-    </div>
-  );
+  return { segments, maxFreeDaily };
 }
+
+async function getSpinStatusForUser(userId, maxFreeDaily) {
+  let spinsToday = 0;
+  let bonusSpinsRemaining = 0;
+
+  if (userId) {
+    const spinsTodayRes = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM spinwheel_spins 
+       WHERE user_id = $1 
+         AND created_at >= (NOW() AT TIME ZONE 'UTC')::date`,
+      [String(userId)]
+    );
+    spinsToday = Number(spinsTodayRes.rows[0]?.count || 0);
+
+    const bonusRes = await pool.query(
+      `SELECT reward_snapshot FROM spinwheel_rewards 
+       WHERE user_id = $1 AND claim_status = 'task_completed'`,
+      [String(userId)]
+    );
+
+    let totalBonusEarned = 0;
+    for (const row of bonusRes.rows) {
+      const snapshot = typeof row.reward_snapshot === "string" ? JSON.parse(row.reward_snapshot) : (row.reward_snapshot || {});
+      totalBonusEarned += Number(snapshot.spins_reward || 1);
+    }
+
+    const totalSpinsUsedRes = await pool.query(
+      `SELECT COUNT(*) as count FROM spinwheel_spins WHERE user_id = $1`,
+      [String(userId)]
+    );
+    const totalSpinsUsed = Number(totalSpinsUsedRes.rows[0]?.count || 0);
+    bonusSpinsRemaining = Math.max(0, totalBonusEarned - Math.max(0, totalSpinsUsed - spinsToday));
+  }
+
+  const freeSpinsRemaining = Math.max(0, maxFreeDaily - spinsToday);
+  const canFreeSpin = freeSpinsRemaining > 0;
+  const canSpin = canFreeSpin || bonusSpinsRemaining > 0;
+
+  const now = new Date();
+  const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  const nextSpinSeconds = Math.max(0, Math.floor((midnight.getTime() - now.getTime()) / 1000));
+
+  return {
+    can_free_spin: canFreeSpin,
+    can_spin: canSpin,
+    free_spins_remaining: freeSpinsRemaining,
+    spins_used_today: spinsToday,
+    max_daily_spins: maxFreeDaily,
+    bonus_spins_remaining: bonusSpinsRemaining,
+    next_spin_in: formatCountdown(nextSpinSeconds),
+    next_spin_seconds: nextSpinSeconds,
+    streak: 1
+  };
+}
+
+// --- API ENDPOINTS ---
+
+// 1. GET /api/spinwheel/config
+router.get("/config", optionalAuth, async (req, res) => {
+  try {
+    const { segments, maxFreeDaily } = await loadSegmentsAndSettings();
+    const userId = req.user ? req.user.id : null;
+    const spinStatus = await getSpinStatusForUser(userId, maxFreeDaily);
+
+    res.json({
+      segments,
+      spin_status: spinStatus
+    });
+  } catch (error) {
+    console.error("[spinwheel] /config error:", error);
+    res.status(500).json({ message: "Failed to load wheel configuration." });
+  }
+});
+
+// 2. GET /api/spinwheel/history
+router.get("/history", optionalAuth, async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.json({ history: [], stats: { total_wins: 0, streak: 0 } });
+    }
+
+    const userId = String(req.user.id);
+
+    const historyRes = await pool.query(
+      `SELECT s.id, s.prize_snapshot, s.created_at, r.claim_status, r.expires_at
+       FROM spinwheel_spins s
+       LEFT JOIN spinwheel_rewards r ON r.spin_id = s.id
+       WHERE s.user_id = $1
+       ORDER BY s.created_at DESC
+       LIMIT 50`,
+      [userId]
+    );
+
+    const winsCountRes = await pool.query(
+      `SELECT COUNT(*) as count FROM spinwheel_spins WHERE user_id = $1`,
+      [userId]
+    );
+
+    const history = historyRes.rows.map(row => {
+      const snapshot = typeof row.prize_snapshot === "string" ? JSON.parse(row.prize_snapshot) : (row.prize_snapshot || {});
+      return {
+        id: row.id,
+        segment_id: snapshot.id || snapshot.segment_key,
+        label: snapshot.label || "Prize",
+        reward_type: snapshot.type || snapshot.reward_type || "none",
+        reward_value: Number(snapshot.value || snapshot.reward_value || 0),
+        emoji: snapshot.emoji || "🎁",
+        color: "#FFFFFF",
+        bg: snapshot.bg || snapshot.background_color || "#3B82F6",
+        claim_status: row.claim_status || "completed",
+        created_at: row.created_at
+      };
+    });
+
+    res.json({
+      history,
+      stats: {
+        total_wins: Number(winsCountRes.rows[0]?.count || 0),
+        streak: 1
+      }
+    });
+  } catch (error) {
+    console.error("[spinwheel] /history error:", error);
+    res.status(500).json({ message: "Failed to fetch spin history." });
+  }
+});
+
+// 3. GET /api/spinwheel/referral-spins
+router.get("/referral-spins", optionalAuth, async (req, res) => {
+  res.json({ referral_spins: [] });
+});
+
+// 4. GET /api/spinwheel/tasks
+router.get("/tasks", optionalAuth, async (req, res) => {
+  try {
+    const tasksRes = await pool.query(
+      `SELECT id, task_key, label, platform, spins_reward, destination_url 
+       FROM spinwheel_tasks 
+       WHERE is_active = true 
+       ORDER BY display_order ASC`
+    );
+
+    let completedTaskIds = [];
+    let totalEarned = 0;
+
+    if (req.user) {
+      const claimsRes = await pool.query(
+        `SELECT reward_snapshot FROM spinwheel_rewards 
+         WHERE user_id = $1 AND claim_status = 'task_completed'`,
+        [String(req.user.id)]
+      );
+
+      completedTaskIds = claimsRes.rows.map(row => {
+        const snap = typeof row.reward_snapshot === "string" ? JSON.parse(row.reward_snapshot) : row.reward_snapshot;
+        totalEarned += Number(snap?.spins_reward || 1);
+        return snap?.task_id;
+      }).filter(Boolean);
+    }
+
+    res.json({
+      tasks: tasksRes.rows.map(t => ({
+        id: t.task_key || t.id,
+        label: t.label,
+        platform: t.platform,
+        spins_reward: Number(t.spins_reward),
+        url: t.destination_url
+      })),
+      completed_task_ids: completedTaskIds,
+      stats: { total_earned: totalEarned }
+    });
+  } catch (error) {
+    console.error("[spinwheel] /tasks error:", error);
+    res.status(500).json({ message: "Failed to fetch tasks." });
+  }
+});
+
+// 5. POST /api/spinwheel/earn-task & /claim-task
+const handleTaskClaim = async (req, res) => {
+  try {
+    const userId = String(req.user.id);
+    const taskId = req.body.task_id || req.body.taskId || req.body.task_key;
+
+    if (!taskId) {
+      return res.status(400).json({ message: "Task ID is required." });
+    }
+
+    const taskRes = await pool.query(
+      `SELECT task_key, label, spins_reward FROM spinwheel_tasks WHERE (task_key = $1 OR id::text = $1) AND is_active = true`,
+      [taskId]
+    );
+
+    const spinsReward = taskRes.rows.length > 0 ? Number(taskRes.rows[0].spins_reward) : 1;
+    const taskLabel = taskRes.rows.length > 0 ? taskRes.rows[0].label : "Earn Task";
+
+    const existingRes = await pool.query(
+      `SELECT id FROM spinwheel_rewards 
+       WHERE user_id = $1 
+         AND claim_status = 'task_completed' 
+         AND (reward_snapshot->>'task_id' = $2 OR reward_snapshot->>'task_key' = $2)`,
+      [userId, taskId]
+    );
+
+    if (existingRes.rows.length > 0) {
+      return res.status(400).json({ message: "Task already claimed." });
+    }
+
+    const snapshot = {
+      task_id: taskId,
+      task_key: taskId,
+      label: taskLabel,
+      spins_reward: spinsReward
+    };
+
+    await pool.query(
+      `INSERT INTO spinwheel_rewards (user_id, claim_status, reward_snapshot)
+       VALUES ($1, 'task_completed', $2::jsonb)`,
+      [userId, JSON.stringify(snapshot)]
+    );
+
+    res.json({
+      success: true,
+      message: `Task claimed! You earned +${spinsReward} bonus spin(s).`,
+      spins_awarded: spinsReward
+    });
+  } catch (error) {
+    console.error("[spinwheel] claim-task error:", error);
+    res.status(500).json({ message: "Failed to claim task." });
+  }
+};
+
+router.post("/earn-task", requireAuth, handleTaskClaim);
+router.post("/claim-task", requireAuth, handleTaskClaim);
+
+// 6. POST /api/spinwheel/spin
+router.post("/spin", requireAuth, async (req, res) => {
+  try {
+    const userId = String(req.user.id);
+    const { segments, maxFreeDaily } = await loadSegmentsAndSettings();
+
+    if (!segments || segments.length === 0) {
+      return res.status(400).json({ message: "No active wheel segments found in database." });
+    }
+
+    const spinStatus = await getSpinStatusForUser(userId, maxFreeDaily);
+    if (!spinStatus.can_spin) {
+      return res.status(400).json({ message: `No spins remaining today. Next spin in ${spinStatus.next_spin_in}` });
+    }
+
+    const totalProb = segments.reduce((sum, s) => sum + s.probability, 0);
+    let rand = Math.random() * totalProb;
+    let winningSegment = segments[0];
+
+    for (const seg of segments) {
+      if (rand < seg.probability) {
+        winningSegment = seg;
+        break;
+      }
+      rand -= seg.probability;
+    }
+
+    const prizeId = isValidUUID(winningSegment.db_id) ? winningSegment.db_id : null;
+
+    const spinInsertRes = await pool.query(
+      `INSERT INTO spinwheel_spins (user_id, prize_id, prize_snapshot, spin_status)
+       VALUES ($1, $2::uuid, $3::jsonb, 'completed')
+       RETURNING id`,
+      [userId, prizeId, JSON.stringify(winningSegment)]
+    );
+    const spinId = spinInsertRes.rows[0].id;
+
+    const isWin = winningSegment.type !== "none";
+    
+    if (prizeId) {
+      pool.query(`UPDATE spinwheel_prizes SET wins_count = COALESCE(wins_count, 0) + 1 WHERE id = $1::uuid`, [prizeId])
+        .catch(err => console.error("[spinwheel] background update wins_count error:", err.message));
+    }
+
+    if (isWin) {
+      pool.query(
+        `INSERT INTO spinwheel_rewards (user_id, spin_id, prize_id, reward_snapshot, claim_status, expires_at)
+         VALUES ($1, $2::uuid, $3::uuid, $4::jsonb, 'unclaimed', NOW() + INTERVAL '30 days')`,
+        [userId, spinId, prizeId, JSON.stringify(winningSegment)]
+      ).catch(err => console.error("[spinwheel] background insert reward error:", err.message));
+    }
+
+    const updatedStatus = await getSpinStatusForUser(userId, maxFreeDaily);
+
+    res.json({
+      segment_id: winningSegment.id,
+      result: {
+        is_win: isWin,
+        label: winningSegment.label,
+        emoji: winningSegment.emoji,
+        type: winningSegment.type,
+        value: winningSegment.value,
+        is_big_win: winningSegment.is_big_win,
+        color: "#FFFFFF",
+        bg: winningSegment.bg
+      },
+      spin_status: updatedStatus
+    });
+  } catch (error) {
+    console.error("[spinwheel] /spin error:", error.message);
+    res.status(500).json({ message: "Failed to process spin. Please try again." });
+  }
+});
+
+export default router;
