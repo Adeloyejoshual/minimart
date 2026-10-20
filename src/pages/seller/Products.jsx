@@ -1,10 +1,8 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { sellerApi } from "./SellerDashboard";
-import "./Products.css";
 
 const API = "/api/seller/products";
-const PER_PAGE = 12;
 
 const FILTERS = [
   ["", "All"],
@@ -35,122 +33,83 @@ function stock(p) {
   return Number(p.stock || p.quantity || 0);
 }
 
-function chipClass(p) {
-  if (p.is_paused) return "";
-  if (p.status === "approved" || p.status === "active") return "sp-chip-green";
-  if (p.status === "pending") return "sp-chip-yellow";
-  if (p.status === "rejected") return "sp-chip-red";
-  return "";
-}
-
-function chipText(p) {
+function statusText(p) {
   if (p.is_paused) return "Paused";
   return (p.status || "—").replace(/^\w/, (c) => c.toUpperCase());
 }
 
-function stockInfo(n) {
-  if (n <= 0) return ["sp-stock-out", "Out of stock"];
-  if (n <= 5) return ["sp-stock-low", n + " left"];
-  return ["sp-stock-ok", n + " in stock"];
+function stockText(n) {
+  if (n <= 0) return "Out of stock";
+  if (n <= 5) return n + " left";
+  return n + " in stock";
 }
 
 function pages(cur, total) {
-  const n = Math.min(total, 5);
+  const count = Math.min(total, 5);
   let s = total <= 5 ? 1 : cur <= 3 ? 1 : cur >= total - 2 ? total - 4 : cur - 2;
   if (s < 1) s = 1;
-  return Array.from({ length: n }, (_, i) => s + i);
+  return Array.from({ length: count }, (_, i) => s + i);
 }
 
-/* ── Image ── */
-function Img({ src, alt, className }) {
+function Img({ src, alt, w, h }) {
   const [bad, setBad] = useState(false);
-  if (!src || bad) return <div className={className} />;
-  return <img className={className} src={src} alt={alt} loading="lazy" decoding="async" onError={() => setBad(true)} />;
+  if (!src || bad) return <div style={{ width: w, height: h, background: "#eee" }} />;
+  return <img src={src} alt={alt} width={w} height={h} loading="lazy" decoding="async" onError={() => setBad(true)} style={{ objectFit: "cover" }} />;
 }
 
-/* ── Card ── */
 const Card = memo(function Card({ p, onEdit, onDel, onPause }) {
   const n = stock(p);
-  const [sc, st] = stockInfo(n);
   const canPause = p.status === "approved" || p.status === "active";
-
   return (
-    <div className="sp-card">
-      <Img src={cover(p)} alt={p.name} className="sp-card-img" />
-      <div className="sp-card-body">
-        <p className="sp-card-name">{p.name}</p>
-        {p.category && <p className="sp-card-cat">{p.category}</p>}
-        <div className="sp-card-row">
-          <span className="sp-price">{money(p.price)}</span>
-          <span className={sc}>{st}</span>
-        </div>
-        <div className="sp-card-row">
-          <span className={`sp-chip ${chipClass(p)}`}>{chipText(p)}</span>
-        </div>
-        <div className="sp-card-btns">
-          <button className="sp-btn" onClick={() => onEdit(p)}>Edit</button>
-          {canPause && <button className="sp-btn" onClick={() => onPause(p)}>{p.is_paused ? "Resume" : "Pause"}</button>}
-          <button className="sp-btn sp-btn-red" onClick={() => onDel(p)}>Delete</button>
+    <div style={{ border: "1px solid #ddd", borderRadius: 6, overflow: "hidden", background: "#fff" }}>
+      <Img src={cover(p)} alt={p.name} w="100%" h={140} />
+      <div style={{ padding: 8 }}>
+        <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 500 }}>{p.name}</p>
+        {p.category && <p style={{ margin: "0 0 4px", fontSize: 11, color: "#999" }}>{p.category}</p>}
+        <p style={{ margin: "0 0 4px", fontSize: 13 }}>
+          <strong>{money(p.price)}</strong> — {stockText(n)}
+        </p>
+        <p style={{ margin: "0 0 8px", fontSize: 11, color: "#888" }}>{statusText(p)}</p>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => onEdit(p)}>Edit</button>
+          {canPause && <button onClick={() => onPause(p)}>{p.is_paused ? "Resume" : "Pause"}</button>}
+          <button onClick={() => onDel(p)}>Delete</button>
         </div>
       </div>
     </div>
   );
 });
 
-/* ── Row ── */
 const Row = memo(function Row({ p, onEdit, onDel, onPause }) {
   const n = stock(p);
-  const [sc, st] = stockInfo(n);
   const canPause = p.status === "approved" || p.status === "active";
-
   return (
-    <div className="sp-row">
-      <div className="sp-row-info">
-        <Img src={cover(p)} alt={p.name} className="sp-thumb" />
-        <span className="sp-row-name">{p.name}</span>
-      </div>
-      <span>{money(p.price)}</span>
-      <span className={sc}>{st}</span>
-      <span className={`sp-chip ${chipClass(p)}`}>{chipText(p)}</span>
-      <div className="sp-row-btns">
-        <button className="sp-btn" onClick={() => onEdit(p)}>Edit</button>
-        {canPause && <button className="sp-btn" onClick={() => onPause(p)}>{p.is_paused ? "▶" : "⏸"}</button>}
-        <button className="sp-btn sp-btn-red" onClick={() => onDel(p)}>✕</button>
-      </div>
-    </div>
+    <tr>
+      <td style={{ display: "flex", alignItems: "center", gap: 8, padding: 6 }}>
+        <Img src={cover(p)} alt={p.name} w={36} h={36} />
+        <span style={{ fontSize: 13 }}>{p.name}</span>
+      </td>
+      <td style={{ fontSize: 13 }}>{money(p.price)}</td>
+      <td style={{ fontSize: 12 }}>{stockText(n)}</td>
+      <td style={{ fontSize: 12 }}>{statusText(p)}</td>
+      <td>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => onEdit(p)}>Edit</button>
+          {canPause && <button onClick={() => onPause(p)}>{p.is_paused ? "▶" : "⏸"}</button>}
+          <button onClick={() => onDel(p)}>✕</button>
+        </div>
+      </td>
+    </tr>
   );
 });
 
-/* ── Modal ── */
-function Modal({ title, onClose, children }) {
-  useEffect(() => {
-    document.body.classList.add("sp-lock");
-    const esc = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", esc);
-    return () => {
-      document.body.classList.remove("sp-lock");
-      window.removeEventListener("keydown", esc);
-    };
-  }, [onClose]);
-
-  return (
-    <div className="sp-overlay" onClick={onClose}>
-      <div className="sp-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/* ── Main ── */
 export default function Products() {
   const nav = useNavigate();
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [qDebounced, setQDebounced] = useState("");
+  const [qReal, setQReal] = useState("");
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pag, setPag] = useState(null);
@@ -159,18 +118,18 @@ export default function Products() {
   const [pauseItem, setPauseItem] = useState(null);
   const [err, setErr] = useState("");
 
-  const [isMobile, setIsMobile] = useState(false);
+  const [mobile, setMobile] = useState(false);
   const abort = useRef(null);
 
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 640);
-    check();
-    window.addEventListener("resize", check, { passive: true });
-    return () => window.removeEventListener("resize", check);
+    const c = () => setMobile(window.innerWidth < 640);
+    c();
+    window.addEventListener("resize", c, { passive: true });
+    return () => window.removeEventListener("resize", c);
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => { setQDebounced(q.trim()); setPage(1); }, 350);
+    const t = setTimeout(() => { setQReal(q.trim()); setPage(1); }, 350);
     return () => clearTimeout(t);
   }, [q]);
 
@@ -182,7 +141,11 @@ export default function Products() {
     setErr("");
     try {
       const { data } = await sellerApi.get(API, {
-        params: { page, limit: PER_PAGE, ...(filter && { status: filter }), ...(qDebounced && { search: qDebounced }) },
+        params: {
+          page, limit: 12,
+          ...(filter && { status: filter }),
+          ...(qReal && { search: qReal }),
+        },
         signal: ctrl.signal,
       });
       if (data.success) {
@@ -197,11 +160,10 @@ export default function Products() {
     } finally {
       setLoading(false);
     }
-  }, [page, filter, qDebounced]);
+  }, [page, filter, qReal]);
 
   useEffect(() => { load(); return () => abort.current?.abort(); }, [load]);
 
-  const refresh = () => load();
   const onEdit = (p) => nav("/minimart/edit-ad/" + p.id);
 
   const doDelete = async () => {
@@ -209,7 +171,7 @@ export default function Products() {
     try {
       const { data } = await sellerApi.delete(API + "/" + delItem.id);
       if (data.success) { setDelItem(null); load(); }
-    } catch { /* ignore */ }
+    } catch { /* */ }
   };
 
   const doPause = async () => {
@@ -217,111 +179,117 @@ export default function Products() {
     try {
       const { data } = await sellerApi.patch(API + "/" + pauseItem.id + "/pause");
       if (data.success) { setPauseItem(null); load(); }
-    } catch { /* ignore */ }
+    } catch { /* */ }
   };
 
   const tp = pag?.totalPages || 0;
-  const showGrid = isMobile || view === "grid";
+  const grid = mobile || view === "grid";
 
   return (
-    <div className="sp-page">
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: 16 }}>
 
-      <div className="sp-header">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         <div>
-          <h2>Listings</h2>
-          <small>{pag?.total || items.length} products</small>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Listings</h2>
+          <small style={{ color: "#888" }}>{pag?.total || items.length} products</small>
         </div>
-        <div className="sp-actions">
-          <button className="sp-btn" onClick={refresh} disabled={loading}>
-            {loading ? <span className="sp-spin" /> : "Refresh"}
-          </button>
-          {!isMobile && (
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
+          {!mobile && (
             <>
-              <button className={`sp-btn ${view === "grid" ? "sp-btn-dark" : ""}`} onClick={() => setView("grid")}>Grid</button>
-              <button className={`sp-btn ${view === "list" ? "sp-btn-dark" : ""}`} onClick={() => setView("list")}>List</button>
+              <button onClick={() => setView("grid")} disabled={view === "grid"}>Grid</button>
+              <button onClick={() => setView("list")} disabled={view === "list"}>List</button>
             </>
           )}
-          <button className="sp-btn sp-btn-dark" onClick={() => nav("/minimart/post-ad")}>+ New</button>
+          <button onClick={() => nav("/minimart/post-ad")}>+ New</button>
         </div>
       </div>
 
-      {err && <div className="sp-error">{err} — <button className="sp-btn" onClick={refresh}>Retry</button></div>}
+      {err && <p style={{ color: "red", fontSize: 13 }}>{err} <button onClick={load}>Retry</button></p>}
 
-      <input className="sp-search" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input
+        placeholder="Search…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        style={{ width: "100%", padding: 8, marginBottom: 8, fontSize: 13, boxSizing: "border-box" }}
+      />
 
-      <div className="sp-filters">
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
         {FILTERS.map(([k, l]) => (
-          <button key={k} className={`sp-pill ${filter === k ? "sp-pill-on" : ""}`} onClick={() => { setFilter(k); setPage(1); }}>
+          <button key={k} onClick={() => { setFilter(k); setPage(1); }}
+            style={{ fontWeight: filter === k ? 700 : 400 }}>
             {l}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <div className="sp-grid">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="sp-card">
-              <div className="sp-card-img sp-skel" />
-              <div className="sp-card-body">
-                <div className="sp-skel" style={{ height: 12, width: "70%", marginBottom: 6 }} />
-                <div className="sp-skel" style={{ height: 12, width: "40%" }} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <p>Loading…</p>
       ) : items.length === 0 ? (
-        <div className="sp-empty">
+        <div style={{ textAlign: "center", padding: 40, border: "1px solid #ddd", borderRadius: 6 }}>
           <p>{q || filter ? "No products found." : "No listings yet."}</p>
-          <button className="sp-btn sp-btn-dark" onClick={() => nav("/minimart/post-ad")}>+ Post product</button>
+          <button onClick={() => nav("/minimart/post-ad")}>+ Post product</button>
         </div>
-      ) : showGrid ? (
-        <div className="sp-grid">
+      ) : grid ? (
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: mobile ? "repeat(2,1fr)" : "repeat(4,1fr)" }}>
           {items.map((p) => (
             <Card key={p.id} p={p} onEdit={onEdit} onDel={setDelItem} onPause={setPauseItem} />
           ))}
         </div>
       ) : (
-        <div className="sp-table">
-          <div className="sp-table-head">
-            <span>Product</span><span>Price</span><span>Stock</span><span>Status</span><span></span>
-          </div>
-          {items.map((p) => (
-            <Row key={p.id} p={p} onEdit={onEdit} onDel={setDelItem} onPause={setPauseItem} />
-          ))}
-        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: "left", borderBottom: "2px solid #ddd" }}>
+              <th>Product</th><th>Price</th><th>Stock</th><th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((p) => (
+              <Row key={p.id} p={p} onEdit={onEdit} onDel={setDelItem} onPause={setPauseItem} />
+            ))}
+          </tbody>
+        </table>
       )}
 
       {tp > 1 && (
-        <div className="sp-pag">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, fontSize: 12 }}>
           <span>Page {pag.page} of {tp}</span>
-          <div className="sp-pag-btns">
-            <button className="sp-pag-btn" disabled={page === 1} onClick={() => setPage(page - 1)}>Prev</button>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button disabled={page === 1} onClick={() => setPage(page - 1)}>Prev</button>
             {pages(page, tp).map((n) => (
-              <button key={n} className={`sp-pag-btn ${page === n ? "sp-pag-btn-on" : ""}`} onClick={() => setPage(n)}>{n}</button>
+              <button key={n} onClick={() => setPage(n)} style={{ fontWeight: page === n ? 700 : 400 }}>{n}</button>
             ))}
-            <button className="sp-pag-btn" disabled={page === tp} onClick={() => setPage(page + 1)}>Next</button>
+            <button disabled={page === tp} onClick={() => setPage(page + 1)}>Next</button>
           </div>
         </div>
       )}
 
       {delItem && (
-        <Modal title="Delete listing" onClose={() => setDelItem(null)}>
-          <p>Remove "<strong>{delItem.name}</strong>"? This cannot be undone.</p>
-          <div className="sp-modal-btns">
-            <button className="sp-btn" onClick={() => setDelItem(null)}>Cancel</button>
-            <button className="sp-btn sp-btn-red" onClick={doDelete}>Delete</button>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setDelItem(null)}>
+          <div style={{ background: "#fff", padding: 20, borderRadius: 8, maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 8px" }}>Delete "{delItem.name}"?</h3>
+            <p style={{ fontSize: 13, color: "#555" }}>This cannot be undone.</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setDelItem(null)}>Cancel</button>
+              <button onClick={doDelete} style={{ color: "red" }}>Delete</button>
+            </div>
           </div>
-        </Modal>
+        </div>
       )}
 
       {pauseItem && (
-        <Modal title={pauseItem.is_paused ? "Resume" : "Pause"} onClose={() => setPauseItem(null)}>
-          <p>{pauseItem.is_paused ? "Show this listing to buyers again?" : "Hide this listing from buyers?"}</p>
-          <div className="sp-modal-btns">
-            <button className="sp-btn" onClick={() => setPauseItem(null)}>Cancel</button>
-            <button className="sp-btn sp-btn-dark" onClick={doPause}>{pauseItem.is_paused ? "Resume" : "Pause"}</button>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setPauseItem(null)}>
+          <div style={{ background: "#fff", padding: 20, borderRadius: 8, maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 8px" }}>{pauseItem.is_paused ? "Resume" : "Pause"} "{pauseItem.name}"?</h3>
+            <p style={{ fontSize: 13, color: "#555" }}>{pauseItem.is_paused ? "Show to buyers again?" : "Hide from buyers?"}</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setPauseItem(null)}>Cancel</button>
+              <button onClick={doPause}>{pauseItem.is_paused ? "Resume" : "Pause"}</button>
+            </div>
           </div>
-        </Modal>
+        </div>
       )}
 
     </div>
