@@ -55,7 +55,18 @@ function pages(cur, total) {
 function Img({ src, alt, className, w, h }) {
   const [bad, setBad] = useState(false);
   if (!src || bad) return <div className={className} style={{ width: w, height: h, background: "#eee" }} />;
-  return <img className={className} src={src} alt={alt} width={w} height={h} loading="lazy" decoding="async" onError={() => setBad(true)} />;
+  return (
+    <img
+      className={className}
+      src={src}
+      alt={alt}
+      width={w}
+      height={h}
+      loading="lazy"
+      decoding="async"
+      onError={() => setBad(true)}
+    />
+  );
 }
 
 const Card = memo(function Card({ p, onEdit, onDel, onPause }) {
@@ -65,8 +76,8 @@ const Card = memo(function Card({ p, onEdit, onDel, onPause }) {
     <div className="sp-card">
       <Img src={cover(p)} alt={p.name} className="sp-card-img" />
       <div className="sp-card-body">
-        <p className="sp-card-name">{p.name}</p>
-        {p.category && <p className="sp-card-cat">{p.category}</p>}
+        <p className="sp-card-name" title={p.name}>{p.name}</p>
+        {p.category && <p className="sp-card-cat" title={p.category}>{p.category}</p>}
         <p className="sp-card-info"><strong>{money(p.price)}</strong> · {stockText(n)}</p>
         <p className="sp-card-status">{statusText(p)}</p>
         <div className="sp-card-btns">
