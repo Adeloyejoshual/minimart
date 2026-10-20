@@ -3,6 +3,7 @@
   margin: 0 auto;
   padding: 16px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  touch-action: pan-y; /* Forces instant vertical scroll on mobile */
 }
 
 .sp-top {
@@ -43,9 +44,7 @@
   color: #333;
 }
 
-.sp-btn:disabled {
-  opacity: 0.4;
-}
+.sp-btn:disabled { opacity: 0.4; }
 
 .sp-btn-dark {
   background: #111;
@@ -94,10 +93,13 @@
   border-color: #111;
 }
 
+/* ── GRID FIXES ── */
 .sp-grid {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(4, 1fr);
+  align-items: start; /* Keeps cards aligned properly */
+  touch-action: pan-y;
 }
 
 @media (max-width: 1023px) {
@@ -113,14 +115,19 @@
   border-radius: 8px;
   overflow: hidden;
   background: #fff;
+  touch-action: pan-y;
 }
 
+/* Prevent image from swallowing thumb touch gestures */
 .sp-card-img {
   width: 100%;
   height: 140px;
   object-fit: cover;
   display: block;
   background: #f5f5f5;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .sp-card-body {
@@ -129,7 +136,7 @@
 
 .sp-card-name {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: #111;
   margin: 0 0 2px;
   white-space: nowrap;
@@ -137,10 +144,15 @@
   text-overflow: ellipsis;
 }
 
+/* Fix for long UUID categories like in screenshot */
 .sp-card-cat {
   font-size: 11px;
-  color: #999;
+  color: #888;
   margin: 0 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .sp-card-info {
@@ -162,7 +174,7 @@
 .sp-card-btns .sp-btn {
   flex: 1;
   font-size: 12px;
-  padding: 5px 4px;
+  padding: 5px 2px;
   text-align: center;
 }
 
@@ -174,6 +186,7 @@
   border: 1px solid #e5e5e5;
   border-radius: 8px;
   overflow: hidden;
+  touch-action: pan-y;
 }
 
 .sp-table th {
@@ -193,10 +206,6 @@
   vertical-align: middle;
 }
 
-.sp-table tr:last-child td {
-  border-bottom: none;
-}
-
 .sp-thumb {
   width: 36px;
   height: 36px;
@@ -205,6 +214,7 @@
   background: #f5f5f5;
   vertical-align: middle;
   margin-right: 8px;
+  pointer-events: none;
 }
 
 .sp-pag {
@@ -231,9 +241,7 @@
   font-family: inherit;
 }
 
-.sp-pag-btn:disabled {
-  opacity: 0.3;
-}
+.sp-pag-btn:disabled { opacity: 0.3; }
 
 .sp-pag-on {
   background: #111;
