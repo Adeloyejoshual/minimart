@@ -1,16 +1,11 @@
 /* ============================================================
    pages/seller/styles/SellerDashboard.css
-   Grade A — MiniMart Seller Dashboard
+   MiniMart Seller Dashboard — scroll-optimized
    ============================================================ */
 
-/* ── Keyframes ─────────────────────────────────────────────── */
+/* ── Keyframes (only used by spinner & skeleton) ─────────── */
 @keyframes sd-spin {
   to { transform: rotate(360deg); }
-}
-
-@keyframes sd-fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0);   }
 }
 
 @keyframes sd-shimmer {
@@ -18,12 +13,7 @@
   100% { background-position:  400px 0; }
 }
 
-@keyframes sd-slide-in-left {
-  from { transform: translateX(-100%); }
-  to   { transform: translateX(0);     }
-}
-
-/* ── Global reset (scoped) ─────────────────────────────────── */
+/* ── Global reset ────────────────────────────────────────── */
 *,
 *::before,
 *::after {
@@ -31,25 +21,24 @@
 }
 
 body {
-  margin:                  0;
-  background:              #f1f5f9;
-  font-family:             -apple-system, BlinkMacSystemFont,
-                           "Segoe UI", Roboto, "Helvetica Neue",
-                           Arial, sans-serif;
-  -webkit-font-smoothing:  antialiased;
+  margin: 0;
+  background: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont,
+               "Segoe UI", Roboto, "Helvetica Neue",
+               Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Scrollbar ─────────────────────────────────────────────── */
-::-webkit-scrollbar        { width: 5px; height: 5px; }
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  {
-  background:    #d1d5db;
+  background: #d1d5db;
   border-radius: 10px;
 }
-::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
-/* ── Form elements ─────────────────────────────────────────── */
+/* ── Form elements ───────────────────────────────────────── */
 input,
 textarea,
 select {
@@ -59,107 +48,111 @@ select {
 input:focus,
 textarea:focus,
 select:focus {
-  outline:     none;
-  border-color: #6366f1 !important;
-  box-shadow:  0 0 0 3px rgba(99, 102, 241, 0.12) !important;
+  outline: none;
+  border-color: #6366f1;
 }
 
 button:focus-visible {
-  outline:        2px solid #6366f1;
+  outline: 2px solid #6366f1;
   outline-offset: 2px;
 }
 
-/* ── Screen reader only ────────────────────────────────────── */
+/* ── Screen reader only ──────────────────────────────────── */
 .sr-only {
-  position:   absolute;
-  width:      1px;
-  height:     1px;
-  padding:    0;
-  margin:     -1px;
-  overflow:   hidden;
-  clip:       rect(0, 0, 0, 0);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
   white-space: nowrap;
-  border:     0;
+  border: 0;
 }
 
-/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    LAYOUT
-   ══════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════
+   Key principle: let the PAGE BODY scroll naturally.
+   No nested scroll containers, no fixed heights.
+   ══════════════════════════════════════════════════════════ */
+
 .sd-root {
-  display:    flex;
+  display: flex;
   min-height: 100vh;
   background: #f1f5f9;
 }
 
 .sd-main {
-  flex:           1;
-  display:        flex;
+  flex: 1;
+  display: flex;
   flex-direction: column;
-  min-width:      0;
-  overflow:       hidden;
+  min-width: 0;
+  /* NO overflow:hidden — breaks mobile scroll */
 }
 
 .sd-page-wrap {
-  flex:       1;
-  overflow-y: auto;
-  padding:    1.5rem;
-  scroll-behavior: smooth;
+  flex: 1;
+  padding: 1.5rem;
+  /* NO overflow-y:auto — let body scroll */
+  /* NO scroll-behavior:smooth — causes mobile jank */
 }
 
-.sd-page-anim {
-  animation: sd-fade-in 0.22s ease;
-}
-
-/* ── Desktop sidebar ───────────────────────────────────────── */
+/* ── Desktop sidebar ─────────────────────────────────────── */
 .sd-sidebar-desktop {
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
-/* ── Mobile overlay ────────────────────────────────────────── */
+/* ── Mobile overlay ──────────────────────────────────────── */
 .sd-mobile-overlay {
-  position:        fixed;
-  inset:           0;
-  background:      rgba(0, 0, 0, 0.5);
-  z-index:         98;
-  backdrop-filter: blur(2px);
-  cursor:          pointer;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 98;
+  cursor: pointer;
+  /* NO backdrop-filter — GPU killer on mobile */
 }
 
-/* ── Mobile sidebar ────────────────────────────────────────── */
+/* ── Mobile sidebar ──────────────────────────────────────── */
 .sd-sidebar-mobile {
-  position:  fixed;
-  top:       0;
-  left:      0;
-  height:    100vh;
-  z-index:   99;
-  animation: sd-slide-in-left 0.22s ease;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 99;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
-/* ══════════════════════════════════════════════════════════════
-   CENTERED CARD — used by Loading & Error screens
-   ══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   CENTERED CARD — Loading & Error screens
+   ══════════════════════════════════════════════════════════ */
+
 .sd-center-wrap {
-  min-height:      100vh;
-  display:         flex;
-  align-items:     center;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  background:      #f1f5f9;
-  padding:         2rem;
+  background: #f1f5f9;
+  padding: 2rem;
 }
 
 .sd-center-card {
-  background:     white;
-  border-radius:  24px;
-  padding:        3rem 2.5rem;
-  box-shadow:     0 4px 32px rgba(0, 0, 0, 0.08);
-  display:        flex;
+  background: white;
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+  display: flex;
   flex-direction: column;
-  align-items:    center;
-  gap:            1.25rem;
-  width:          100%;
-  max-width:      360px;
-  text-align:     center;
-  animation:      sd-fade-in 0.25s ease;
+  align-items: center;
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
 }
 
 .sd-center-card--wide {
@@ -167,69 +160,67 @@ button:focus-visible {
 }
 
 .sd-center-card__emoji {
-  font-size:   2.5rem;
+  font-size: 2.5rem;
   line-height: 1;
-  display:     block;
 }
 
 .sd-center-card__title {
-  color:       #1f2937;
-  margin:      0;
-  font-size:   1.15rem;
-  font-weight: 800;
+  color: #1f2937;
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
 }
 
 .sd-center-card__msg {
-  color:       #6b7280;
-  margin:      0;
-  font-size:   0.9rem;
-  line-height: 1.55;
+  color: #6b7280;
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .sd-center-card__desc {
-  color:       #6b7280;
-  font-size:   0.875rem;
-  text-align:  center;
-  margin:      0;
-  line-height: 1.6;
+  color: #6b7280;
+  font-size: 0.875rem;
+  margin: 0;
+  line-height: 1.55;
   white-space: pre-line;
 }
 
 .sd-center-card__actions {
-  display:        flex;
+  display: flex;
   flex-direction: column;
-  gap:            0.5rem;
-  width:          100%;
+  gap: 0.5rem;
+  width: 100%;
 }
 
-/* ── Spinner ───────────────────────────────────────────────── */
+/* ── Spinner ─────────────────────────────────────────────── */
 .sd-spinner {
-  width:         40px;
-  height:        40px;
-  border:        4px solid #e5e7eb;
-  border-top:    4px solid #6366f1;
+  width: 36px;
+  height: 36px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #6366f1;
   border-radius: 50%;
-  animation:     sd-spin 0.8s linear infinite;
-  flex-shrink:   0;
+  animation: sd-spin 0.8s linear infinite;
+  flex-shrink: 0;
 }
 
-/* ── Debug panel ───────────────────────────────────────────── */
+/* ── Debug panel ─────────────────────────────────────────── */
 .sd-debug-panel {
-  width:         100%;
-  text-align:    left;
+  width: 100%;
+  text-align: left;
   border-radius: 8px;
-  overflow:      hidden;
-  border:        1px solid #e5e7eb;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
 }
 
 .sd-debug-panel__summary {
-  background:  #f3f4f6;
-  padding:     0.5rem 0.75rem;
-  font-size:   0.78rem;
+  background: #f3f4f6;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  cursor:      pointer;
-  color:       #374151;
-  list-style:  none;
+  cursor: pointer;
+  color: #374151;
+  list-style: none;
 }
 
 .sd-debug-panel__summary::-webkit-details-marker {
@@ -237,55 +228,49 @@ button:focus-visible {
 }
 
 .sd-debug-panel__body {
-  background:  #1f2937;
-  color:       #86efac;
+  background: #1f2937;
+  color: #86efac;
   font-family: monospace;
-  font-size:   0.72rem;
-  padding:     0.75rem;
-  margin:      0;
-  overflow-x:  auto;
+  font-size: 0.72rem;
+  padding: 0.75rem;
+  margin: 0;
+  overflow-x: auto;
   white-space: pre-wrap;
-  word-break:  break-all;
+  word-break: break-all;
 }
 
-/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    BUTTONS
-   ══════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════ */
+
 .sd-primary-btn {
-  padding:       0.85rem 2rem;
-  background:    #6366f1;
-  color:         white;
-  border:        none;
-  border-radius: 12px;
-  font-weight:   700;
-  cursor:        pointer;
-  font-size:     0.9rem;
-  width:         100%;
-  font-family:   inherit;
-  transition:    opacity 0.15s, transform 0.15s;
+  padding: 0.75rem 2rem;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  width: 100%;
+  font-family: inherit;
 }
 
 .sd-primary-btn:hover {
-  opacity:   0.92;
-  transform: translateY(-1px);
-}
-
-.sd-primary-btn:active {
-  transform: translateY(0);
+  background: #4f46e5;
 }
 
 .sd-danger-btn {
-  padding:       0.85rem 2rem;
-  background:    #fef2f2;
-  color:         #ef4444;
-  border:        1px solid #fecaca;
-  border-radius: 12px;
-  font-weight:   600;
-  cursor:        pointer;
-  font-size:     0.9rem;
-  width:         100%;
-  font-family:   inherit;
-  transition:    background 0.15s;
+  padding: 0.75rem 2rem;
+  background: #fef2f2;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  width: 100%;
+  font-family: inherit;
 }
 
 .sd-danger-btn:hover {
@@ -293,40 +278,39 @@ button:focus-visible {
 }
 
 .sd-ghost-btn {
-  background:      none;
-  border:          none;
-  color:           #9ca3af;
-  cursor:          pointer;
-  font-size:       0.8rem;
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 0.8rem;
   text-decoration: underline;
-  padding:         0;
-  font-family:     inherit;
-  transition:      color 0.15s;
+  padding: 0;
+  font-family: inherit;
 }
 
 .sd-ghost-btn:hover {
   color: #6b7280;
 }
 
-/* ── Shimmer skeleton ──────────────────────────────────────── */
+/* ── Shimmer skeleton ────────────────────────────────────── */
 .sd-skeleton {
-  background-color:  #f3f4f6;
-  background-image:  linear-gradient(
+  background-color: #f3f4f6;
+  background-image: linear-gradient(
     90deg,
     #f3f4f6 25%,
     #e9eaf0 50%,
     #f3f4f6 75%
   );
-  background-size:   400px 100%;
-  animation:         sd-shimmer 1.4s infinite;
-  border-radius:     12px;
+  background-size: 400px 100%;
+  animation: sd-shimmer 1.4s infinite;
+  border-radius: 8px;
 }
 
-/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    RESPONSIVE
-   ══════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════ */
 
-/* Mobile — hide desktop sidebar, reduce padding */
+/* Mobile — hide desktop sidebar */
 @media (max-width: 768px) {
   .sd-sidebar-desktop {
     display: none !important;
@@ -337,8 +321,8 @@ button:focus-visible {
   }
 
   .sd-center-card {
-    padding:       2rem 1.5rem;
-    border-radius: 18px;
+    padding: 2rem 1.5rem;
+    border-radius: 14px;
   }
 }
 
@@ -349,18 +333,18 @@ button:focus-visible {
   }
 }
 
-/* Small mobile adjustments */
+/* Small mobile */
 @media (max-width: 400px) {
   .sd-page-wrap {
     padding: 0.75rem;
   }
 
   .sd-center-card {
-    padding: 1.75rem 1.25rem;
+    padding: 1.5rem 1.25rem;
   }
 }
 
-/* ── Print — hide sidebar + topbar ────────────────────────── */
+/* ── Print ───────────────────────────────────────────────── */
 @media print {
   .sd-sidebar-desktop,
   .sd-sidebar-mobile,
@@ -369,7 +353,6 @@ button:focus-visible {
   }
 
   .sd-page-wrap {
-    padding:   0;
-    overflow:  visible;
+    padding: 0;
   }
 }
