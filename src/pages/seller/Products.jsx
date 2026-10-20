@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { sellerApi } from "./SellerDashboard";
+import "./Products.css";
 
 const API = "/api/seller/products";
 
@@ -51,29 +52,27 @@ function pages(cur, total) {
   return Array.from({ length: count }, (_, i) => s + i);
 }
 
-function Img({ src, alt, w, h }) {
+function Img({ src, alt, className, w, h }) {
   const [bad, setBad] = useState(false);
-  if (!src || bad) return <div style={{ width: w, height: h, background: "#eee" }} />;
-  return <img src={src} alt={alt} width={w} height={h} loading="lazy" decoding="async" onError={() => setBad(true)} style={{ objectFit: "cover" }} />;
+  if (!src || bad) return <div className={className} style={{ width: w, height: h, background: "#eee" }} />;
+  return <img className={className} src={src} alt={alt} width={w} height={h} loading="lazy" decoding="async" onError={() => setBad(true)} />;
 }
 
 const Card = memo(function Card({ p, onEdit, onDel, onPause }) {
   const n = stock(p);
   const canPause = p.status === "approved" || p.status === "active";
   return (
-    <div style={{ border: "1px solid #ddd", borderRadius: 6, overflow: "hidden", background: "#fff" }}>
-      <Img src={cover(p)} alt={p.name} w="100%" h={140} />
-      <div style={{ padding: 8 }}>
-        <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 500 }}>{p.name}</p>
-        {p.category && <p style={{ margin: "0 0 4px", fontSize: 11, color: "#999" }}>{p.category}</p>}
-        <p style={{ margin: "0 0 4px", fontSize: 13 }}>
-          <strong>{money(p.price)}</strong> — {stockText(n)}
-        </p>
-        <p style={{ margin: "0 0 8px", fontSize: 11, color: "#888" }}>{statusText(p)}</p>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => onEdit(p)}>Edit</button>
-          {canPause && <button onClick={() => onPause(p)}>{p.is_paused ? "Resume" : "Pause"}</button>}
-          <button onClick={() => onDel(p)}>Delete</button>
+    <div className="sp-card">
+      <Img src={cover(p)} alt={p.name} className="sp-card-img" />
+      <div className="sp-card-body">
+        <p className="sp-card-name">{p.name}</p>
+        {p.category && <p className="sp-card-cat">{p.category}</p>}
+        <p className="sp-card-info"><strong>{money(p.price)}</strong> · {stockText(n)}</p>
+        <p className="sp-card-status">{statusText(p)}</p>
+        <div className="sp-card-btns">
+          <button className="sp-btn" onClick={() => onEdit(p)}>Edit</button>
+          {canPause && <button className="sp-btn" onClick={() => onPause(p)}>{p.is_paused ? "Resume" : "Pause"}</button>}
+          <button className="sp-btn sp-btn-red" onClick={() => onDel(p)}>Delete</button>
         </div>
       </div>
     </div>
@@ -85,23 +84,44 @@ const Row = memo(function Row({ p, onEdit, onDel, onPause }) {
   const canPause = p.status === "approved" || p.status === "active";
   return (
     <tr>
-      <td style={{ display: "flex", alignItems: "center", gap: 8, padding: 6 }}>
-        <Img src={cover(p)} alt={p.name} w={36} h={36} />
-        <span style={{ fontSize: 13 }}>{p.name}</span>
+      <td>
+        <Img src={cover(p)} alt={p.name} className="sp-thumb" w={36} h={36} />
+        {p.name}
       </td>
-      <td style={{ fontSize: 13 }}>{money(p.price)}</td>
-      <td style={{ fontSize: 12 }}>{stockText(n)}</td>
-      <td style={{ fontSize: 12 }}>{statusText(p)}</td>
+      <td>{money(p.price)}</td>
+      <td>{stockText(n)}</td>
+      <td>{statusText(p)}</td>
       <td>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => onEdit(p)}>Edit</button>
-          {canPause && <button onClick={() => onPause(p)}>{p.is_paused ? "▶" : "⏸"}</button>}
-          <button onClick={() => onDel(p)}>✕</button>
+          <button className="sp-btn" onClick={() => onEdit(p)}>Edit</button>
+          {canPause && <button className="sp-btn" onClick={() => onPause(p)}>{p.is_paused ? "▶" : "⏸"}</button>}
+          <button className="sp-btn sp-btn-red" onClick={() => onDel(p)}>✕</button>
         </div>
       </td>
     </tr>
   );
 });
+
+function Modal({ title, onClose, children }) {
+  useEffect(() => {
+    document.body.classList.add("sp-lock");
+    const esc = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => {
+      document.body.classList.remove("sp-lock");
+      window.removeEventListener("keydown", esc);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="sp-overlay" onClick={onClose}>
+      <div className="sp-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export default function Products() {
   const nav = useNavigate();
@@ -186,60 +206,66 @@ export default function Products() {
   const grid = mobile || view === "grid";
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", padding: 16 }}>
+    <div className="sp-page">
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+      <div className="sp-top">
         <div>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Listings</h2>
-          <small style={{ color: "#888" }}>{pag?.total || items.length} products</small>
+          <h2>Listings</h2>
+          <small>{pag?.total || items.length} products</small>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
+        <div className="sp-btns">
+          <button className="sp-btn" onClick={load} disabled={loading}>
+            {loading ? <span className="sp-spin" /> : "Refresh"}
+          </button>
           {!mobile && (
             <>
-              <button onClick={() => setView("grid")} disabled={view === "grid"}>Grid</button>
-              <button onClick={() => setView("list")} disabled={view === "list"}>List</button>
+              <button className={`sp-btn ${view === "grid" ? "sp-btn-dark" : ""}`} onClick={() => setView("grid")}>Grid</button>
+              <button className={`sp-btn ${view === "list" ? "sp-btn-dark" : ""}`} onClick={() => setView("list")}>List</button>
             </>
           )}
-          <button onClick={() => nav("/minimart/post-ad")}>+ New</button>
+          <button className="sp-btn sp-btn-dark" onClick={() => nav("/minimart/post-ad")}>+ New</button>
         </div>
       </div>
 
-      {err && <p style={{ color: "red", fontSize: 13 }}>{err} <button onClick={load}>Retry</button></p>}
+      {err && <p className="sp-error">{err} — <button className="sp-btn" onClick={load}>Retry</button></p>}
 
-      <input
-        placeholder="Search…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        style={{ width: "100%", padding: 8, marginBottom: 8, fontSize: 13, boxSizing: "border-box" }}
-      />
+      <input className="sp-search" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
 
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
+      <div className="sp-pills">
         {FILTERS.map(([k, l]) => (
-          <button key={k} onClick={() => { setFilter(k); setPage(1); }}
-            style={{ fontWeight: filter === k ? 700 : 400 }}>
+          <button key={k} className={`sp-pill ${filter === k ? "sp-pill-on" : ""}`} onClick={() => { setFilter(k); setPage(1); }}>
             {l}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <p>Loading…</p>
+        <div className="sp-grid">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="sp-card">
+              <div className="sp-card-img sp-skel" />
+              <div className="sp-card-body">
+                <div className="sp-skel" style={{ height: 12, width: "70%", marginBottom: 6 }} />
+                <div className="sp-skel" style={{ height: 12, width: "40%" }} />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : items.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 40, border: "1px solid #ddd", borderRadius: 6 }}>
+        <div className="sp-empty">
           <p>{q || filter ? "No products found." : "No listings yet."}</p>
-          <button onClick={() => nav("/minimart/post-ad")}>+ Post product</button>
+          <button className="sp-btn sp-btn-dark" onClick={() => nav("/minimart/post-ad")}>+ Post product</button>
         </div>
       ) : grid ? (
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: mobile ? "repeat(2,1fr)" : "repeat(4,1fr)" }}>
+        <div className="sp-grid">
           {items.map((p) => (
             <Card key={p.id} p={p} onEdit={onEdit} onDel={setDelItem} onPause={setPauseItem} />
           ))}
         </div>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <table className="sp-table">
           <thead>
-            <tr style={{ textAlign: "left", borderBottom: "2px solid #ddd" }}>
+            <tr>
               <th>Product</th><th>Price</th><th>Stock</th><th>Status</th><th></th>
             </tr>
           </thead>
@@ -252,44 +278,36 @@ export default function Products() {
       )}
 
       {tp > 1 && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, fontSize: 12 }}>
+        <div className="sp-pag">
           <span>Page {pag.page} of {tp}</span>
-          <div style={{ display: "flex", gap: 4 }}>
-            <button disabled={page === 1} onClick={() => setPage(page - 1)}>Prev</button>
+          <div className="sp-pag-btns">
+            <button className="sp-pag-btn" disabled={page === 1} onClick={() => setPage(page - 1)}>Prev</button>
             {pages(page, tp).map((n) => (
-              <button key={n} onClick={() => setPage(n)} style={{ fontWeight: page === n ? 700 : 400 }}>{n}</button>
+              <button key={n} className={`sp-pag-btn ${page === n ? "sp-pag-on" : ""}`} onClick={() => setPage(n)}>{n}</button>
             ))}
-            <button disabled={page === tp} onClick={() => setPage(page + 1)}>Next</button>
+            <button className="sp-pag-btn" disabled={page === tp} onClick={() => setPage(page + 1)}>Next</button>
           </div>
         </div>
       )}
 
       {delItem && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => setDelItem(null)}>
-          <div style={{ background: "#fff", padding: 20, borderRadius: 8, maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: "0 0 8px" }}>Delete "{delItem.name}"?</h3>
-            <p style={{ fontSize: 13, color: "#555" }}>This cannot be undone.</p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setDelItem(null)}>Cancel</button>
-              <button onClick={doDelete} style={{ color: "red" }}>Delete</button>
-            </div>
+        <Modal title="Delete listing" onClose={() => setDelItem(null)}>
+          <p>Remove "<strong>{delItem.name}</strong>"? This cannot be undone.</p>
+          <div className="sp-modal-btns">
+            <button className="sp-btn" onClick={() => setDelItem(null)}>Cancel</button>
+            <button className="sp-btn sp-btn-red" onClick={doDelete}>Delete</button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {pauseItem && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => setPauseItem(null)}>
-          <div style={{ background: "#fff", padding: 20, borderRadius: 8, maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: "0 0 8px" }}>{pauseItem.is_paused ? "Resume" : "Pause"} "{pauseItem.name}"?</h3>
-            <p style={{ fontSize: 13, color: "#555" }}>{pauseItem.is_paused ? "Show to buyers again?" : "Hide from buyers?"}</p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setPauseItem(null)}>Cancel</button>
-              <button onClick={doPause}>{pauseItem.is_paused ? "Resume" : "Pause"}</button>
-            </div>
+        <Modal title={pauseItem.is_paused ? "Resume" : "Pause"} onClose={() => setPauseItem(null)}>
+          <p>{pauseItem.is_paused ? "Show this listing to buyers again?" : "Hide this listing from buyers?"}</p>
+          <div className="sp-modal-btns">
+            <button className="sp-btn" onClick={() => setPauseItem(null)}>Cancel</button>
+            <button className="sp-btn sp-btn-dark" onClick={doPause}>{pauseItem.is_paused ? "Resume" : "Pause"}</button>
           </div>
-        </div>
+        </Modal>
       )}
 
     </div>
