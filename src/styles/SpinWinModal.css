@@ -1,0 +1,231 @@
+/* ══════════════════════════════════════════════════════════
+   SPIN & WIN POPUP — Loemart (#FF5C00)
+══════════════════════════════════════════════════════════ */
+
+.sp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: spFadeIn 0.28s ease-out forwards;
+  /* Prevent touch scroll bleed on iOS/Android */
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+@keyframes spFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.sp-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: min(90vh, 640px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  background: #ffffff;
+  border-radius: 22px;
+  padding: 36px 26px 26px;
+  text-align: center;
+  box-shadow:
+    0 24px 48px -18px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(15, 23, 42, 0.06);
+  animation: spPopUp 0.34s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  outline: none;
+}
+
+@keyframes spPopUp {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Close — 44px touch target */
+.sp-close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  touch-action: manipulation;
+  z-index: 2;
+}
+
+.sp-close-btn:hover,
+.sp-close-btn:focus-visible {
+  background: #e2e8f0;
+  color: #0f172a;
+  outline: 2px solid #FF5C00;
+  outline-offset: 2px;
+}
+
+.sp-close-btn:active {
+  transform: scale(0.94);
+}
+
+/* Icon */
+.sp-icon-wrapper {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #fff4ec 0%, #ffe4d1 100%);
+  box-shadow: 0 8px 18px rgba(255, 92, 0, 0.16);
+}
+
+.sp-wheel-icon {
+  font-size: 34px;
+  display: inline-block;
+  animation: spSpinSlow 14s linear infinite;
+}
+
+@keyframes spSpinSlow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Copy */
+.sp-badge {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid #ffd7bf;
+  background: #fff7f2;
+  color: #FF5C00;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.sp-title {
+  margin: 0 0 10px;
+  color: #0f172a;
+  font-size: clamp(20px, 5.2vw, 24px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.35px;
+}
+
+.sp-title-accent {
+  color: #FF5C00;
+}
+
+.sp-subtitle {
+  margin: 0 0 22px;
+  padding: 0 2px;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Primary CTA */
+.sp-cta-btn {
+  width: 100%;
+  min-height: 54px;
+  padding: 14px 18px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #FF5C00 0%, #e04f00 100%);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 12px 24px -8px rgba(255, 92, 0, 0.45);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  touch-action: manipulation;
+}
+
+.sp-cta-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 28px -8px rgba(255, 92, 0, 0.5);
+  filter: brightness(1.03);
+}
+
+.sp-cta-btn:focus-visible {
+  outline: 3px solid #ffb380;
+  outline-offset: 2px;
+}
+
+.sp-cta-btn:active {
+  transform: translateY(0);
+  filter: brightness(0.98);
+}
+
+.sp-fineprint {
+  margin: 14px 0 0;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* Small phones */
+@media (max-width: 380px) {
+  .sp-card {
+    padding: 30px 16px 18px;
+    border-radius: 18px;
+  }
+
+  .sp-icon-wrapper {
+    width: 64px;
+    height: 64px;
+  }
+
+  .sp-wheel-icon {
+    font-size: 30px;
+  }
+
+  .sp-subtitle {
+    font-size: 13px;
+    margin-bottom: 18px;
+  }
+
+  .sp-cta-btn {
+    min-height: 50px;
+    font-size: 15px;
+  }
+}
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  .sp-overlay,
+  .sp-card,
+  .sp-wheel-icon {
+    animation: none !important;
+  }
+}
