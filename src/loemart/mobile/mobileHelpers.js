@@ -7,6 +7,8 @@ export const API =
   import.meta.env.VITE_API_URL || "https://loemart.com/api";
 
 export const RECENT_KEY = "lm-recently-viewed";
+export const DEFAULT_LIMIT = 24;
+
 const LEGACY_KEYS = ["lm_recently_viewed", "recently_viewed", "loemart_recently_viewed"];
 
 /* ════════════════════════════════════════════════════════════
