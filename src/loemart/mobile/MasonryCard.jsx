@@ -1,6 +1,6 @@
 /**
  * src/loemart/mobile/MasonryCard.jsx
- * Product card — SVG ratings, rotating promo badges, type-safe cart, variant & fallback stock support
+ * Product card — SVG ratings, rotating promo badges, type-safe cart, full high-stock (>1000) support
  */
 
 import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -226,7 +226,7 @@ function MasonryCard({
 
   const displaySold = Number(sold ?? sold_count ?? 0) || 0;
 
-  /* ── Variant & Fallback Stock Evaluation ── */
+  /* ── Robust Stock Calculation (Supports High Stock > 1000) ── */
   const variantStockSum = useMemo(() => {
     if (!Array.isArray(variants) || variants.length === 0) return 0;
     return variants.reduce((sum, v) => {
@@ -236,27 +236,32 @@ function MasonryCard({
   }, [variants]);
 
   const maxStock = useMemo(() => {
-    // 1. If product has variants, use total variant stock sum
+    // 1. Explicit out-of-stock flags from API / database
+    if (
+      product?.is_out_of_stock === true ||
+      product?.out_of_stock === true ||
+      product?.stock_status === "out_of_stock" ||
+      product?.status === "out_of_stock"
+    ) {
+      return 0;
+    }
+
+    // 2. If product has variants, use total variant stock sum
     if (Array.isArray(variants) && variants.length > 0) {
       return variantStockSum;
     }
 
-    // 2. Check base stock values
+    // 3. Check explicit positive stock numbers (e.g., 500, 1500, 10000)
     const rawStock = stock ?? quantity;
-
     if (rawStock !== null && rawStock !== undefined) {
       const parsed = Number(rawStock);
       if (Number.isFinite(parsed) && parsed > 0) {
         return parsed;
       }
-      // Explicit out-of-stock flag
-      if (parsed === 0 && (product?.is_out_of_stock || product?.out_of_stock)) {
-        return 0;
-      }
     }
 
-    // 3. Simple active product with unpopulated or default stock -> treat as in stock (99)
-    return 99;
+    // 4. Default for active simple products where stock isn't strictly capped in DB -> 1000 available
+    return 1000;
   }, [stock, quantity, variants, variantStockSum, product]);
 
   const inStock = maxStock > 0;
