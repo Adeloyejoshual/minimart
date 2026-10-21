@@ -1,173 +1,397 @@
 /**
- * src/loemart/mobile/mobileHelpers.js
- * Mobile helper utilities, API routes, image resolvers, and recently viewed sync
+ * routes/market/helpers.js
+ * Shared helpers and constants for market & seller API routes.
  */
 
-export const API =
-  import.meta.env.VITE_API_URL || "https://loemart.com/api";
+import { pool }                          from "../../config/db.js";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
-export const RECENT_KEY = "lm-recently-viewed";
+/* ══════════════════════════════════════════════════════════════
+   R2 STORAGE CLIENT
+══════════════════════════════════════════════════════════════ */
+const r2 = new S3Client({
+  region     : process.env.R2_REGION ?? "auto",
+  endpoint   : process.env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId    : process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
 
-/* ════════════════════════════════════════════════════════════
-   IMAGE RESOLVER
-════════════════════════════════════════════════════════════ */
-export function primaryImg(images, product) {
-  if (Array.isArray(images) && images.length > 0) {
-    const primary = images.find((i) => i?.is_primary) || images[0];
-    if (primary?.url) return primary.url;
-    if (typeof primary === "string") return primary;
-  }
-  if (product?.image) return product.image;
-  if (product?.primary_image) return product.primary_image;
-  if (product?.cover_image) return product.cover_image;
-  return "/placeholder.png";
+const R2_BUCKET = process.env.R2_BUCKET_NAME;
+
+/* ══════════════════════════════════════════════════════════════
+   CONSTANTS & MAPS (EXPORTED)
+══════════════════════════════════════════════════════════════ */
+export const MAX_IMAGES    = 8;
+export const DEFAULT_LIMIT = 24;
+export const MAX_LIMIT     = 100;
+
+export const SORT_MAP = {
+  newest    : "p.created_at DESC",
+  oldest    : "p.created_at ASC",
+  price_asc : "p.price ASC",
+  price_desc: "p.price DESC",
+  views     : "p.view_count DESC, p.created_at DESC",
+  saves     : "p.save_count DESC, p.created_at DESC",
+  trending  : "p.view_count DESC, p.save_count DESC, p.created_at DESC",
+};
+
+/* ══════════════════════════════════════════════════════════════
+   FULL PRODUCT SELECT
+   CockroachDB safe:
+   - NO GROUP BY clause
+   - Correlated subqueries for arrays & collections
+   - References market.users: name (not full_name), status (not is_active)
+══════════════════════════════════════════════════════════════ */
+export const FULL_PRODUCT_SELECT = `
+  SELECT
+    p.*,
+
+    u.name          AS seller_name,
+    u.email         AS seller_email,
+    u.profile_image AS seller_avatar,
+    u.phone_number  AS seller_phone,
+    u.verified      AS seller_verified,
+
+    COALESCE((
+      SELECT json_agg(img.obj)
+      FROM (
+        SELECT json_build_object(
+          'id',          pi.id,
+          'url',         pi.image_url,
+          'storage_key', pi.storage_key,
+          'is_primary',  pi.is_primary,
+          'sort_order',  pi.sort_order
+        ) AS obj
+        FROM market.product_images pi
+        WHERE pi.product_id = p.id
+        ORDER BY pi.sort_order ASC, pi.id ASC
+      ) img
+    ), '[]'::json) AS images,
+
+    COALESCE((
+      SELECT json_agg(v.obj)
+      FROM (
+        SELECT json_build_object(
+          'id',         pv.id,
+          'sku',        pv.sku,
+          'name',       pv.name,
+          'price',      pv.price,
+          'stock',      pv.stock,
+          'attributes', pv.attributes
+        ) AS obj
+        FROM market.product_variants pv
+        WHERE pv.product_id = p.id
+        ORDER BY pv.created_at ASC, pv.id ASC
+      ) v
+    ), '[]'::json) AS variants,
+
+    COALESCE((
+      SELECT json_agg(f.obj)
+      FROM (
+        SELECT json_build_object(
+          'feature',  pf.feature,
+          'position', pf.position
+        ) AS obj
+        FROM market.product_features pf
+        WHERE pf.product_id = p.id
+        ORDER BY pf.position ASC, pf.id ASC
+      ) f
+    ), '[]'::json) AS key_features,
+
+    COALESCE((
+      SELECT json_agg(s.obj)
+      FROM (
+        SELECT json_build_object(
+          'key',      ps.spec_key,
+          'value',    ps.spec_value,
+          'position', ps.position
+        ) AS obj
+        FROM market.product_specifications ps
+        WHERE ps.product_id = p.id
+        ORDER BY ps.position ASC, ps.id ASC
+      ) s
+    ), '[]'::json) AS specifications,
+
+    COALESCE((
+      SELECT json_agg(b.obj)
+      FROM (
+        SELECT json_build_object(
+          'item',     pb.item,
+          'position', pb.position
+        ) AS obj
+        FROM market.product_box_items pb
+        WHERE pb.product_id = p.id
+        ORDER BY pb.position ASC, pb.id ASC
+      ) b
+    ), '[]'::json) AS whats_in_box
+
+  FROM market.products p
+  LEFT JOIN market.users u
+    ON u.id = p.user_id
+`;
+
+export const GROUP_BY = "";
+
+/* ── Public Visibility Rules ── */
+export const PUBLIC_CONDITIONS = [
+  "p.status IN ('approved', 'active')",
+  "p.is_active = true",
+  "p.is_hidden = false",
+  "p.is_paused = false",
+  "p.deleted_at IS NULL",
+];
+
+export function isPublicProduct(product) {
+  if (!product) return false;
+  const validStatus = product.status === "approved" || product.status === "active";
+  return (
+    validStatus &&
+    product.is_active  === true &&
+    product.is_hidden  === false &&
+    product.is_paused  === false &&
+    (product.deleted_at === null || product.deleted_at === undefined)
+  );
 }
 
-/* ════════════════════════════════════════════════════════════
-   RECENTLY VIEWED (BASED ON YOUR VIEWS) HELPERS
-════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   PAGINATION HELPERS
+══════════════════════════════════════════════════════════════ */
+export function paginate(query) {
+  const limit  = Math.min(parseInt(query.limit,  10) || DEFAULT_LIMIT, MAX_LIMIT);
+  const offset = Math.max(parseInt(query.offset, 10) || 0, 0);
+  const page   = Math.floor(offset / limit) + 1;
+  return { limit, offset, page };
+}
 
-/**
- * Get recently viewed products cached in localStorage.
- * Performs a preliminary client-side filter against static soft-delete markers.
- */
-export const getRecentlyViewed = () => {
+export function paginationMeta(total, limit, offset) {
+  const totalPages = Math.ceil(total / limit);
+  const page       = Math.floor(offset / limit) + 1;
+  return { total, page, limit, offset, totalPages, hasNext: page < totalPages };
+}
+
+export function safeSort(sort) {
+  return SORT_MAP[sort] || SORT_MAP.newest;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   STRING & DATA SANITIZERS
+══════════════════════════════════════════════════════════════ */
+export function safeStr(val, max = 2500) {
+  if (typeof val !== "string") return null;
+  const t = val.trim();
+  return t.length ? t.slice(0, max) : null;
+}
+
+export function parseJSON(raw, fallback = []) {
   try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed.filter(
-      (item) =>
-        item &&
-        (item.id || item.product_id || item._id) &&
-        item.status !== "deleted" &&
-        !item.deleted_at
-    );
+    return typeof raw === "string" ? JSON.parse(raw) : (raw ?? fallback);
   } catch {
-    return [];
+    return fallback;
   }
-};
+}
 
-/**
- * Add or update a product in the recently viewed localStorage list.
- */
-export const addToRecentlyViewed = (product) => {
-  if (!product) return;
-  const realId = String(
-    product.id || product.product_id || product._id || ""
-  );
-  if (!realId) return;
+/* ══════════════════════════════════════════════════════════════
+   HTTP RESPONSE FORMATTERS
+══════════════════════════════════════════════════════════════ */
+export const ok = (res, data = {}, status = 200) =>
+  res.status(status).json({ success: true, ...data });
 
-  // Do not store deleted or inactive products
-  if (
-    product.deleted_at ||
-    product.status === "deleted" ||
-    product.is_active === false
-  ) {
-    return;
-  }
+export const fail = (res, status, message) =>
+  res.status(status).json({ success: false, message });
 
-  try {
-    const list = getRecentlyViewed();
-    const filtered = list.filter(
-      (p) => String(p.id || p.product_id || p._id) !== realId
-    );
+/* ══════════════════════════════════════════════════════════════
+   CHILD TABLE HELPERS
+══════════════════════════════════════════════════════════════ */
+export async function insertList(client, table, column, productId, items) {
+  if (!Array.isArray(items)) return;
 
-    const newItem = {
-      id: realId,
-      product_id: realId,
-      title: product.title || product.name || "Untitled Product",
-      price: product.selling_price || product.price || 0,
-      originalPrice: product.originalPrice || product.original_price || null,
-      image: primaryImg(product.images, product),
-      slug: product.slug || realId,
-      status: product.status || "active",
-      stock: product.stock ?? 1000,
-      variants: product.variants || [],
-      updatedAt: Date.now(),
-    };
+  for (let i = 0; i < items.length; i++) {
+    const val = safeStr(String(items[i] ?? ""), 2500);
+    if (!val) continue;
 
-    filtered.unshift(newItem);
-    // Retain top 12 items max
-    localStorage.setItem(RECENT_KEY, JSON.stringify(filtered.slice(0, 12)));
-  } catch (e) {
-    console.error("addToRecentlyViewed error:", e);
-  }
-};
-
-/**
- * Validates cached recently viewed items against the live API.
- * Automatically purges soft-deleted, unapproved, hidden, or removed products from localStorage.
- */
-export const syncRecentlyViewed = async () => {
-  try {
-    const list = getRecentlyViewed();
-    if (!Array.isArray(list) || list.length === 0) {
-      localStorage.setItem(RECENT_KEY, "[]");
-      return [];
-    }
-
-    const itemsToVerify = list.filter(
-      (item) => item && (item.id || item.product_id || item._id)
-    );
-
-    if (!itemsToVerify.length) {
-      localStorage.setItem(RECENT_KEY, "[]");
-      return [];
-    }
-
-    // Verify all items in parallel against live API
-    const checks = await Promise.allSettled(
-      itemsToVerify.map(async (item) => {
-        const id = item.id || item.product_id || item._id;
-        const res = await fetch(`${API}/products/${id}`);
-        if (!res.ok) return null;
-        const json = await res.json();
-        return json?.data || null;
-      })
-    );
-
-    const validList = [];
-
-    checks.forEach((result, idx) => {
-      if (result.status === "fulfilled" && result.value) {
-        const live = result.value;
-
-        const isApprovedOrActive =
-          live.status === "approved" || live.status === "active";
-        const isNotDeleted =
-          !live.deleted_at && live.status !== "deleted";
-        const isActive =
-          live.is_active !== false &&
-          live.is_hidden !== true &&
-          live.is_paused !== true;
-
-        if (isApprovedOrActive && isNotDeleted && isActive) {
-          const original = itemsToVerify[idx];
-          validList.push({
-            ...original,
-            id: live.id,
-            product_id: live.id,
-            title: live.title || live.name || original.title,
-            price: live.selling_price || live.price || original.price,
-            originalPrice:
-              live.originalPrice || live.original_price || original.originalPrice,
-            image: primaryImg(live.images, live) || original.image,
-            slug: live.slug || original.slug,
-            status: live.status,
-            stock: live.stock ?? 1000,
-            variants: live.variants || original.variants || [],
-          });
-        }
+    try {
+      await client.query(
+        `INSERT INTO market.${table} (product_id, ${column}, position)
+         VALUES ($1, $2, $3)`,
+        [productId, val, i]
+      );
+    } catch (err) {
+      if (err.code === "42703") {
+        await client.query(
+          `INSERT INTO market.${table} (product_id, ${column})
+           VALUES ($1, $2)`,
+          [productId, val]
+        );
+      } else {
+        throw err;
       }
-    });
-
-    localStorage.setItem(RECENT_KEY, JSON.stringify(validList));
-    return validList;
-  } catch (err) {
-    console.error("syncRecentlyViewed error:", err);
-    return getRecentlyViewed();
+    }
   }
-};
+}
+
+export async function replaceList(client, table, column, productId, items) {
+  await client.query(
+    `DELETE FROM market.${table} WHERE product_id = $1`,
+    [productId]
+  );
+  await insertList(client, table, column, productId, items);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   REPLACE SPECS
+══════════════════════════════════════════════════════════════ */
+export async function replaceSpecs(client, productId, specs) {
+  await client.query(
+    "DELETE FROM market.product_specifications WHERE product_id = $1",
+    [productId]
+  );
+
+  if (!Array.isArray(specs) || !specs.length) return;
+
+  for (let i = 0; i < specs.length; i++) {
+    const k = safeStr(specs[i]?.key   ?? specs[i]?.label, 250);
+    const v = safeStr(specs[i]?.value, 1000);
+    if (!k || !v) continue;
+
+    try {
+      await client.query(
+        `INSERT INTO market.product_specifications
+           (product_id, spec_key, spec_value, position)
+         VALUES ($1, $2, $3, $4)`,
+        [productId, k, v, i]
+      );
+      continue;
+    } catch (err) {
+      if (err.code !== "42703") throw err;
+    }
+
+    try {
+      await client.query(
+        `INSERT INTO market.product_specifications
+           (product_id, spec_key, spec_value)
+         VALUES ($1, $2, $3)`,
+        [productId, k, v]
+      );
+      continue;
+    } catch (err) {
+      if (err.code !== "42703") throw err;
+    }
+
+    try {
+      await client.query(
+        `INSERT INTO market.product_specifications
+           (product_id, label, value, position)
+         VALUES ($1, $2, $3, $4)`,
+        [productId, k, v, i]
+      );
+      continue;
+    } catch (err) {
+      if (err.code !== "42703") throw err;
+    }
+
+    await client.query(
+      `INSERT INTO market.product_specifications
+         (product_id, label, value)
+       VALUES ($1, $2, $3)`,
+      [productId, k, v]
+    );
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   REPLACE VARIANTS
+══════════════════════════════════════════════════════════════ */
+export async function replaceVariants(client, productId, rawVariants) {
+  await client.query(
+    "DELETE FROM market.product_variants WHERE product_id = $1",
+    [productId]
+  );
+
+  const variants = Array.isArray(rawVariants)
+    ? rawVariants
+    : parseJSON(rawVariants, []);
+
+  if (!variants.length) return;
+
+  const seen = new Set();
+
+  for (const v of variants) {
+    const sku  = safeStr(String(v?.sku ?? ""), 100)?.toUpperCase();
+    const name = safeStr(v?.name, 250);
+
+    if (!sku || !name) continue;
+
+    if (seen.has(sku)) {
+      const err = new Error(
+        `Duplicate variant SKU within this product: "${sku}". Each variant must have a unique SKU.`
+      );
+      err.status = 422;
+      throw err;
+    }
+
+    seen.add(sku);
+
+    await client.query(
+      `INSERT INTO market.product_variants
+         (product_id, sku, name, price, stock, attributes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        productId,
+        sku,
+        name,
+        Math.max(0, parseFloat(v.price)   || 0),
+        Math.max(0, parseInt(v.stock, 10) || 0),
+        JSON.stringify(v.attributes       || {}),
+      ]
+    );
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   R2 IMAGE HELPERS
+══════════════════════════════════════════════════════════════ */
+export async function deleteFromR2(key) {
+  if (!key) return;
+  try {
+    await r2.send(
+      new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key })
+    );
+  } catch (err) {
+    console.error("R2 delete failed for key:", key, err?.message);
+  }
+}
+
+export async function deleteProductImagesFromR2(client, productId) {
+  const { rows } = await client.query(
+    "SELECT storage_key FROM market.product_images WHERE product_id = $1",
+    [productId]
+  );
+
+  await Promise.allSettled(
+    rows
+      .map((r) => r.storage_key)
+      .filter(Boolean)
+      .map(deleteFromR2)
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   OWNERSHIP GUARD
+══════════════════════════════════════════════════════════════ */
+export async function assertOwner(client, productId, userId) {
+  const { rows } = await client.query(
+    `SELECT user_id, status
+     FROM market.products
+     WHERE id = $1
+       AND deleted_at IS NULL`,
+    [productId]
+  );
+
+  if (!rows.length)               return { error: 404, message: "Product not found" };
+  if (rows[0].user_id !== userId) return { error: 403, message: "Forbidden" };
+  return { row: rows[0] };
+}
+
+export { pool };
