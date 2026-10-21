@@ -1,16 +1,14 @@
 /**
- * routes/market/getproducts.js
+ * routes/market/public.js
  *
  * GET /api/products         → Public product listing (with filters)
  * GET /api/products/:idOrSlug → Single product detail
  *
  * Business rules:
- *  - Stock comes from products.stock (auto-computed from variants on write)
- *  - sold_count is the urgency/social-proof signal (not view_count)
- *  - seller_verified, location come from JOIN with market.users
- *  - is_featured, is_trending are admin-controlled
- *  - has_delivery is delivery-agent controlled
- *  - View tracking kept for analytics only (not shown to buyers)
+ *  - Excludes soft-deleted products (deleted_at IS NOT NULL or status = 'deleted')
+ *  - Handles category filtering by name OR category_id (UUID)
+ *  - Stock comes from products.stock
+ *  - sold_count is the urgency/social-proof signal
  */
 
 import express from "express";
@@ -42,8 +40,8 @@ router.get("/", async (req, res) => {
       featured,
       trending,
       sponsored,
-      hasDelivery,   // ← NEW: filter by has_delivery
-      inStock,       // ← NEW: only show in-stock
+      hasDelivery,
+      inStock,
       minPrice,
       maxPrice,
       sort = "newest",
@@ -51,7 +49,13 @@ router.get("/", async (req, res) => {
 
     const { limit, offset } = paginate(req.query);
 
-    const conditions = [...PUBLIC_CONDITIONS];
+    /* ── Always exclude deleted items ── */
+    const conditions = [
+      "p.deleted_at IS NULL",
+      "p.status != 'deleted'",
+      ...PUBLIC_CONDITIONS,
+    ];
+
     const params = [];
     let p = 1;
 
@@ -67,17 +71,22 @@ router.get("/", async (req, res) => {
       p += 2;
     }
 
-    /* ── Category / brand / tags ── */
+    /* ── Category (supports both text name AND category_id UUID) ── */
     if (category) {
-      conditions.push(`p.category = $${p++}`);
-      params.push(category);
+      conditions.push(
+        `(p.category ILIKE $${p} OR p.category_id::text = $${p})`
+      );
+      params.push(category.trim());
+      p++;
     }
 
+    /* ── Brand ── */
     if (brand) {
       conditions.push(`p.brand ILIKE $${p++}`);
       params.push(`%${brand.trim()}%`);
     }
 
+    /* ── Tags ── */
     if (tags) {
       conditions.push(`p.tags && $${p++}::text[]`);
       params.push(tags.split(","));
@@ -94,15 +103,13 @@ router.get("/", async (req, res) => {
       params.push(parseInt(maxPrice, 10));
     }
 
-    /* ── Admin flags ── */
-    if (featured  === "true") conditions.push("p.is_featured  = true");
-    if (trending  === "true") conditions.push("p.is_trending  = true");
-    if (sponsored === "true") conditions.push("p.is_sponsored = true");
-
-    /* ── Delivery agent flag ── */
+    /* ── Admin & Agent Flags ── */
+    if (featured    === "true") conditions.push("p.is_featured  = true");
+    if (trending    === "true") conditions.push("p.is_trending  = true");
+    if (sponsored   === "true") conditions.push("p.is_sponsored = true");
     if (hasDelivery === "true") conditions.push("p.has_delivery = true");
 
-    /* ── Stock filter (only show items with stock > 0) ── */
+    /* ── Stock filter ── */
     if (inStock === "true") conditions.push("p.stock > 0");
 
     const where = `WHERE ${conditions.join(" AND ")}`;
@@ -114,7 +121,6 @@ router.get("/", async (req, res) => {
     } else if (sort === "bestselling") {
       order = `p.sold_count DESC, p.created_at DESC`;
     } else if (sort === "trending") {
-      /* Trending = recently created + high sold velocity */
       order = `(p.sold_count::float / GREATEST(EXTRACT(EPOCH FROM (now() - p.created_at)) / 86400, 1)) DESC, p.created_at DESC`;
     } else {
       order = SORT_MAP[sort] || SORT_MAP.newest;
@@ -145,8 +151,6 @@ router.get("/", async (req, res) => {
     });
   } catch (err) {
     console.error("GET /api/products error:", err.message);
-    console.error("GET /api/products code:", err.code);
-    console.error("GET /api/products detail:", err.detail ?? "—");
     fail(res, 500, "Failed to fetch products");
   }
 });
@@ -167,7 +171,8 @@ router.get("/:idOrSlug", async (req, res) => {
     const { rows } = await pool.query(
       `${FULL_PRODUCT_SELECT}
        WHERE ${whereClause}
-         AND p.deleted_at IS NULL`,
+         AND p.deleted_at IS NULL
+         AND p.status != 'deleted'`,
       [idOrSlug]
     );
 
@@ -181,7 +186,7 @@ router.get("/:idOrSlug", async (req, res) => {
 
     if (!canSee) return fail(res, 404, "Product not found");
 
-    /* Track view for analytics (not shown publicly, but useful for admin) */
+    /* Track view for analytics */
     if (isPublicProduct(product)) {
       trackView(product.id, req).catch(() => {});
     }
@@ -189,15 +194,12 @@ router.get("/:idOrSlug", async (req, res) => {
     ok(res, { data: product });
   } catch (err) {
     console.error("GET /api/products/:idOrSlug error:", err.message);
-    console.error("GET /api/products/:idOrSlug code:", err.code);
-    console.error("GET /api/products/:idOrSlug detail:", err.detail ?? "—");
     fail(res, 500, "Failed to fetch product");
   }
 });
 
 /* ══════════════════════════════════════════════════════════════
    Track view (deduped by IP for 24h)
-   Kept for internal analytics only — not exposed on frontend
 ══════════════════════════════════════════════════════════════ */
 async function trackView(productId, req) {
   const ipRaw =
