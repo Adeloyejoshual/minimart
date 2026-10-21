@@ -1,7 +1,7 @@
 /**
  * src/loemart/mobile/mobileHelpers.js
  * Mobile helper utilities, API routes, image resolvers, search history, haptic feedback,
- * price/discount formatting, flash sale countdown hook, constants, and recently viewed auto-pruning.
+ * price/discount formatting, flash sale countdown hook, sort options, constants, and recently viewed auto-pruning.
  */
 
 import { useState, useEffect } from "react";
@@ -29,6 +29,14 @@ export const TRENDING_SEARCHES = [
   "Designer Perfume",
   "Sneakers",
   "Laptops",
+];
+
+export const SORT_OPTIONS = [
+  { val: "newest", label: "Newest Arrivals" },
+  { val: "bestselling", label: "Top Sales" },
+  { val: "trending", label: "Trending" },
+  { val: "price_asc", label: "Price: Low to High" },
+  { val: "price_desc", label: "Price: High to Low" },
 ];
 
 /* ════════════════════════════════════════════════════════════
