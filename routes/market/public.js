@@ -1,13 +1,13 @@
 /**
  * routes/market/getproducts.js
  *
- * GET /api/products         → Public product listing (with filters)
+ * GET /api/products         → Public product listing (with variant-aware stock & soft-delete filtering)
  * GET /api/products/:idOrSlug → Single product detail
  *
  * Business rules:
  *  - Excludes soft-deleted products (deleted_at IS NOT NULL or status = 'deleted')
  *  - Handles category filtering by name OR category_id (UUID)
- *  - Stock comes from products.stock
+ *  - Variant-aware stock evaluation (base stock OR variant array stock)
  *  - sold_count is the urgency/social-proof signal
  */
 
@@ -109,8 +109,23 @@ router.get("/", async (req, res) => {
     if (sponsored   === "true") conditions.push("p.is_sponsored = true");
     if (hasDelivery === "true") conditions.push("p.has_delivery = true");
 
-    /* ── Stock filter ── */
-    if (inStock === "true") conditions.push("p.stock > 0");
+    /* ── Variant-Aware Stock filter ── */
+    if (inStock === "true") {
+      conditions.push(
+        `(
+          COALESCE(p.stock, 0) > 0 
+          OR (
+            p.variants IS NOT NULL 
+            AND jsonb_typeof(p.variants) = 'array' 
+            AND EXISTS (
+              SELECT 1 
+              FROM jsonb_array_elements(p.variants) AS v 
+              WHERE COALESCE((v->>'stock')::numeric, (v->>'quantity')::numeric, 0) > 0
+            )
+          )
+        )`
+      );
+    }
 
     const where = `WHERE ${conditions.join(" AND ")}`;
 
