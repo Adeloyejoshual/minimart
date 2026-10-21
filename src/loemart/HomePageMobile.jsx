@@ -1,372 +1,513 @@
 /**
- * src/pages/Minimart.jsx (Homepage)
- * 10/10 Production Ready: Menu Drawer, Fullscreen Search Routing, Masonry Grid, Type-Safe Cart Sync
- *
- * v2.1 Fix:
- * ✓ Fixed isInStock filter so newly posted products with variant stock or default stock aren't hidden
+ * src/loemart/mobile/Minimart.jsx
+ * Loemart Mobile Homepage & Marketplace Catalog
+ * Features: Auto-pruned Recently Viewed ("Based on your views"), live category filter,
+ * variant-aware stock checks, and infinite scrolling.
  */
-import { useState, useEffect, useCallback, useRef } from "react";
+
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
+import {
+  Search,
+  Sparkles,
+  Flame,
+  Tag,
+  ShieldCheck,
+  Truck,
+  Award,
+  Smartphone,
+  Shirt,
+  Watch,
+  Home,
+  SlidersHorizontal,
+  X,
+  Loader2,
+  ChevronRight,
+  Gift,
+  AlertCircle,
+} from "lucide-react";
 
-/* ── Stylesheet ── */
-import "../styles/Minimart.css";
+import MasonryCard from "./MasonryCard";
+import {
+  API,
+  getRecentlyViewed,
+  syncRecentlyViewed,
+} from "./mobileHelpers";
+import "./styles/Minimart.css";
 
-/* ── Components ── */
-import MobileTopBar from "./mobile/MobileTopBar";
-import MobileHero from "./mobile/MobileHero";
-import MobileSections from "./mobile/MobileSections";
-import MasonryCard from "./mobile/MasonryCard";
-import Footer from "../components/Footer";
-import FloatingCartButton from "../components/FloatingCartButton";
+/* ══════════════════════════════════════════════════════════════
+   CONSTANTS & STATIC DATA
+══════════════════════════════════════════════════════════════ */
+const QUICK_NAV = [
+  { id: "new", label: "New", icon: Sparkles, color: "#10b981", filter: "is_new=true" },
+  { id: "hot", label: "Hot", icon: Flame, color: "#ef4444", filter: "trending=true" },
+  { id: "deals", label: "Deals", icon: Tag, color: "#f59e0b", filter: "isFlashDeal=true" },
+  { id: "search", label: "Search", icon: Search, color: "#3b82f6", action: "focus-search" },
+];
 
-/* Sheets & Drawers */
-import { FilterSheet } from "./mobile/MobileSheets";
-import MenuDrawer from "./mobile/MenuDrawer";
+const PROMO_CATEGORIES = [
+  { id: "phones", name: "Phones", icon: Smartphone },
+  { id: "fashion", name: "Fashion", icon: Shirt },
+  { id: "watches", name: "Watches", icon: Watch },
+  { id: "home", name: "Home", icon: Home },
+];
 
-/* Helpers */
-import { 
-  API, 
-  DEFAULT_LIMIT, 
-  WISH_KEY 
-} from "./mobile/mobileHelpers";
+/* ══════════════════════════════════════════════════════════════
+   STOCK EVALUATOR
+══════════════════════════════════════════════════════════════ */
+function isInStock(product) {
+  if (!product) return false;
 
-const CART_URL = `${API}/cart`;
-
-/* ── HELPER: FILTER OUT SOLD OUT / OUT OF STOCK PRODUCTS ── */
-const isInStock = (item) => {
-  if (!item) return false;
-  
-  // Explicitly marked sold out or deleted
-  if (item.is_sold_out || item.sold_out) return false;
-  if (item.status === "out_of_stock" || item.status === "sold_out" || item.status === "deleted") return false;
-  if (item.in_stock === false) return false;
-
-  // Check numeric stock if explicitly defined
-  const numStock = Number(item.stock);
-  if (item.stock !== undefined && item.stock !== null && !isNaN(numStock) && numStock <= 0) {
-    // If main stock is 0, check if variants have stock before hiding
-    if (Array.isArray(item.variants) && item.variants.length > 0) {
-      const totalVariantStock = item.variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
-      if (totalVariantStock > 0) return true;
-    }
+  // 1. Explicit out-of-stock markers
+  if (
+    product.is_out_of_stock === true ||
+    product.out_of_stock === true ||
+    product.stock_status === "out_of_stock" ||
+    product.status === "out_of_stock"
+  ) {
     return false;
   }
 
-  return true;
-};
+  // 2. Check variant stock sum if variants exist
+  if (Array.isArray(product.variants) && product.variants.length > 0) {
+    const totalVariantStock = product.variants.reduce((sum, v) => {
+      const q = Number(v?.stock ?? v?.quantity ?? 0);
+      return sum + (Number.isFinite(q) && q > 0 ? q : 0);
+    }, 0);
+    return totalVariantStock > 0;
+  }
 
-export default function Minimart({ user }) {
+  // 3. Explicit numeric stock
+  const rawStock = product.stock ?? product.quantity;
+  if (rawStock !== null && rawStock !== undefined) {
+    const parsed = Number(rawStock);
+    if (Number.isFinite(parsed)) {
+      return parsed > 0;
+    }
+  }
+
+  // 4. Default for simple active products
+  return true;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+══════════════════════════════════════════════════════════════ */
+export default function Minimart() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isFirstMount = useRef(true);
+  const searchInputRef = useRef(null);
 
-  // URL States
-  const [activeCategory, setActiveCategory] = useState(searchParams.get("category") ?? "all");
-  const [activeSort, setActiveSort] = useState(searchParams.get("sort") ?? "newest");
-  const [minPrice, setMinPrice] = useState(searchParams.get("minPrice") ?? "");
-  const [maxPrice, setMaxPrice] = useState(searchParams.get("maxPrice") ?? "");
-
-  // UI States
-  const [showFilters, setShowFilters] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  // Main Catalog States
+  /* ── State ── */
   const [products, setProducts] = useState([]);
-  const [pagination, setPagination] = useState(null);
+  const [recentlyViewed, setRecentlyViewed] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState(null);
 
-  // Marketing Rails States
-  const [deals, setDeals] = useState([]);
-  const [hot, setHot] = useState([]);
-  const [trending, setTrending] = useState([]);
-  const [newArrivals, setNewArrivals] = useState([]);
-  const [campaignTitle, setCampaignTitle] = useState(null);
-  const [campaignProducts, setCampaignProducts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") || "");
+  const [selectedCategory, setSelectedCategory] = useState(searchParams.get("category") || "");
+  const [sortOption, setSortOption] = useState(searchParams.get("sort") || "newest");
+  const [quickFilter, setQuickFilter] = useState(searchParams.get("filter") || "");
 
-  // Cart & Wishlist Data
-  const [cartMap, setCartMap] = useState({});
-  const [cartCount, setCartCount] = useState(0);
-  
-  const [wishlist] = useState(() => {
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [wishlist, setWishlist] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem(WISH_KEY) || "[]");
+      return JSON.parse(localStorage.getItem("lm_wishlist") || "[]");
     } catch {
       return [];
     }
   });
 
-  /* ── CART SYNC ENGINE ── */
-  const syncCart = useCallback(async () => {
-    const token = localStorage.getItem("marketplace_token");
-    let map = {};
-    let total = 0;
-
-    const extractId = (item) => String(item?.product_id || item?.productId || item?.id || "").trim();
-
-    if (user && token) {
-      try {
-        const res = await axios.get(CART_URL, { headers: { Authorization: `Bearer ${token}` } });
-        const items = res.data?.data?.items || res.data?.items || [];
-        total = res.data?.data?.total_qty || res.data?.total_qty || 0;
-
-        items.forEach((i) => {
-          const pid = extractId(i);
-          if (pid) {
-            map[pid] = { itemId: String(i.id), qty: Number(i.qty) || 1 };
-          }
-        });
-      } catch (err) {
-        if (err.response?.status === 401 || err.response?.status === 403) {
-          localStorage.removeItem("marketplace_token");
-        }
-      }
-    } else {
-      try {
-        const guestCart = JSON.parse(localStorage.getItem("mm_cart") || "[]");
-        guestCart.forEach((i) => {
-          const rawKey = String(i.productId || i.product_id || i.id || "");
-          const pid = rawKey.split("__")[0].trim();
-          const qty = Number(i.qty) || 1;
-          total += qty;
-          if (pid) {
-            map[pid] = { itemId: i.id || `${pid}__default`, qty };
-          }
-        });
-      } catch {
-        /* ignore fallback errors */
-      }
-    }
-
-    setCartMap(map);
-    setCartCount(total);
-  }, [user]);
-
+  /* ── 1. Recently Viewed Auto-Pruning Sync ── */
   useEffect(() => {
-    syncCart();
-    window.addEventListener("cart-updated", syncCart);
-    window.addEventListener("storage", syncCart);
-    return () => {
-      window.removeEventListener("cart-updated", syncCart);
-      window.removeEventListener("storage", syncCart);
-    };
-  }, [syncCart]);
+    // Fast initial load from localStorage
+    const local = getRecentlyViewed();
+    setRecentlyViewed(local);
 
-  /* ── DATA FETCHING (Marketing Rails - 1 Fast Call) ── */
-  useEffect(() => {
-    axios.get(`${API}/products/home`, { params: { limit: 10 } })
-      .then(({ data }) => {
-        const d = data?.data || {};
-        setDeals((d.deals || []).filter(isInStock));
-        setHot((d.hot || []).filter(isInStock));
-        setTrending((d.trending || d.hot || []).filter(isInStock));
-        setNewArrivals((d.newArrivals || []).filter(isInStock));
-        setCampaignTitle(d.campaignTitle || null);
-        setCampaignProducts((d.campaignProducts || []).filter(isInStock));
+    // Live backend validation against deleted / inactive items
+    syncRecentlyViewed()
+      .then((prunedList) => {
+        setRecentlyViewed(prunedList);
       })
-      .catch((err) => {
-        console.error("Failed to load home rails", err);
-      });
+      .catch(() => {});
   }, []);
 
-  /* ── DATA FETCHING (Main Infinite Catalog) ── */
-  const fetchProducts = useCallback(async ({ 
-    cat = activeCategory, 
-    sort = activeSort, 
-    min = minPrice, 
-    max = maxPrice, 
-    newOffset = 0, 
-    append = false 
-  } = {}) => {
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-
-    try {
-      const params = { limit: DEFAULT_LIMIT, offset: newOffset, sort };
-      if (cat !== "all") params.category = cat;
-      if (min && Number(min) > 0) params.minPrice = min;
-      if (max && Number(max) > 0) params.maxPrice = max;
-
-      const { data } = await axios.get(`${API}/products`, { params });
-      const rawRows = data?.data?.products || [];
-      
-      // Filter out sold-out / out of stock items automatically
-      const rows = rawRows.filter(isInStock);
-      
-      setProducts(prev => (append ? [...prev, ...rows] : rows));
-      setPagination(data?.data?.pagination || null);
-      setOffset(newOffset);
-    } catch {
-      if (!append) toast.error("Failed to load catalog");
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [activeCategory, activeSort, minPrice, maxPrice]);
-
+  /* ── 2. Fetch Categories ── */
   useEffect(() => {
-    if (isFirstMount.current) { 
-      isFirstMount.current = false; 
-      fetchProducts({ newOffset: 0 }); 
-      return; 
-    }
-    fetchProducts({ newOffset: 0 });
-  }, [activeCategory, activeSort, fetchProducts]);
+    axios
+      .get(`${API}/categories`)
+      .then((res) => {
+        const catData = res.data?.data || res.data || [];
+        setCategories(Array.isArray(catData) ? catData : []);
+      })
+      .catch(() => setCategories([]));
+  }, []);
 
-  /* ── HANDLERS ── */
-  const clearAllFilters = () => {
-    setActiveCategory("all");
-    setActiveSort("newest");
-    setMinPrice("");
-    setMaxPrice("");
-    setSearchParams({});
-    fetchProducts({ cat: "all", sort: "newest", min: "", max: "", newOffset: 0 });
+  /* ── 3. Fetch Products Catalog ── */
+  const fetchProducts = useCallback(
+    async (isPageOne = true) => {
+      if (isPageOne) {
+        setLoading(true);
+        setError(null);
+      } else {
+        setLoadingMore(true);
+      }
+
+      try {
+        const targetPage = isPageOne ? 1 : page;
+        const params = new URLSearchParams();
+        params.set("page", String(targetPage));
+        params.set("limit", "24");
+        params.set("sort", sortOption);
+
+        if (selectedCategory) params.set("category", selectedCategory);
+        if (searchQuery.trim()) params.set("search", searchQuery.trim());
+
+        if (quickFilter === "is_new=true") params.set("is_new", "true");
+        if (quickFilter === "trending=true") params.set("trending", "true");
+        if (quickFilter === "isFlashDeal=true") params.set("featured", "true");
+
+        const res = await axios.get(`${API}/products?${params.toString()}`);
+        const responseData = res.data?.data || res.data || {};
+        const rawProducts = Array.isArray(responseData.products)
+          ? responseData.products
+          : Array.isArray(responseData)
+          ? responseData
+          : [];
+
+        // Strict soft-delete exclusion
+        const activeProducts = rawProducts.filter(
+          (p) => p && !p.deleted_at && p.status !== "deleted"
+        );
+
+        if (isPageOne) {
+          setProducts(activeProducts);
+          setPage(2);
+        } else {
+          setProducts((prev) => [...prev, ...activeProducts]);
+          setPage((p) => p + 1);
+        }
+
+        const pagination = responseData.pagination;
+        if (pagination) {
+          setHasMore(pagination.hasNext ?? targetPage < pagination.totalPages);
+        } else {
+          setHasMore(activeProducts.length >= 24);
+        }
+      } catch (err) {
+        console.error("Fetch products failed:", err);
+        setError("Failed to load catalog products. Please try again.");
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [selectedCategory, searchQuery, sortOption, quickFilter, page]
+  );
+
+  /* Trigger reload when main filters change */
+  useEffect(() => {
+    fetchProducts(true);
+    // eslint-disable-next-deps
+  }, [selectedCategory, searchQuery, sortOption, quickFilter]);
+
+  /* ── 4. Wishlist Handler ── */
+  const toggleWishlist = useCallback((productId) => {
+    setWishlist((prev) => {
+      const next = prev.includes(productId)
+        ? prev.filter((id) => id !== productId)
+        : [...prev, productId];
+      localStorage.setItem("lm_wishlist", JSON.stringify(next));
+      toast.success(
+        prev.includes(productId) ? "Removed from wishlist" : "Saved to wishlist",
+        { duration: 2000, icon: "❤️" }
+      );
+      return next;
+    });
+  }, []);
+
+  /* ── 5. Quick Nav Click Handler ── */
+  const handleQuickNav = (item) => {
+    if (item.action === "focus-search") {
+      searchInputRef.current?.focus();
+      return;
+    }
+    if (quickFilter === item.filter) {
+      setQuickFilter("");
+    } else {
+      setQuickFilter(item.filter);
+    }
   };
 
-  const hasMore = pagination ? (offset + DEFAULT_LIMIT) < pagination.total : false;
-  const hasFilters = !!(activeCategory !== "all" || minPrice || maxPrice);
+  /* ── 6. Category Select Handler ── */
+  const handleCategorySelect = (catName) => {
+    if (selectedCategory === catName) {
+      setSelectedCategory("");
+    } else {
+      setSelectedCategory(catName);
+    }
+  };
 
   return (
     <div className="mm-page">
-      
-      {/* 1. Top Bar */}
-      <MobileTopBar
-        searchQuery=""
-        onSearchOpen={() => navigate("/loemart/search")}
-        activeCategory={activeCategory}
-        onCategoryChange={(cat) => { 
-          setActiveCategory(cat); 
-          setSearchParams(cat === "all" ? {} : { category: cat }); 
-        }}
-        onFilterOpen={() => setShowFilters(true)}
-        onMenuOpen={() => setMenuOpen(true)}
-        hasFilters={hasFilters}
-        wishCount={wishlist.length}
-      />
-
-      {/* 2. Hero Banner */}
-      <div className="mm-hero-wrap">
-        <MobileHero user={user} />
-      </div>
-
-      {/* 3. Marketing Sections */}
-      <MobileSections 
-        deals={deals}
-        hot={hot}
-        trending={trending}
-        newArrivals={newArrivals}
-        campaignTitle={campaignTitle}
-        campaignProducts={campaignProducts}
-      />
-
-      {/* 4. Main Catalog (Masonry Grid) */}
-      <section className="mdp-psec mdp-psec--recommended">
-        
-        {/* Catalog Header & Filter Pill */}
-        <div className="mdp-psec__head mm-catalog-head">
-          <div>
-            <h3 className="mdp-psec__title">All Products</h3>
-            <p className="mm-catalog-sub">Explore the full catalog</p>
-          </div>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            {hasFilters && (
-              <button type="button" className="mdp-psec__all" onClick={clearAllFilters}>
-                Clear
-              </button>
-            )}
-            <button type="button" className="mm-btn-filter-pill" onClick={() => setShowFilters(true)}>
-              Sort & Filter
-            </button>
-          </div>
-        </div>
-
-        {/* Catalog States */}
-        {loading && products.length === 0 ? (
-          <div className="pr-masonry">
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="pr-masonry-skel" />
-            ))}
-          </div>
-        ) : products.length === 0 ? (
-          <div className="mm-error">
-            <p>No products available right now.</p>
-            <button 
-              type="button" 
-              className="pr-load-more-btn" 
-              onClick={clearAllFilters} 
-              style={{ marginTop: 10 }}
-            >
-              Clear Filters
-            </button>
-          </div>
-        ) : (
-          <div className="pr-masonry">
-            {products.map((item) => {
-              const pId = String(item?.id || item?.product_id || item?._id || "").trim();
-              return (
-                <MasonryCard 
-                  key={pId || item.slug} 
-                  product={item} 
-                  cartInfo={cartMap[pId]} 
-                  onCartUpdate={syncCart} 
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {/* Load More Button */}
-        {!loading && hasMore && (
-          <div className="pr-load-more-wrap">
-            <button 
+      {/* ── Search Bar Header ── */}
+      <header className="mm-header">
+        <div className="mm-search-bar">
+          <Search size={18} className="mm-search-icon" />
+          <input
+            ref={searchInputRef}
+            type="search"
+            className="mm-search-input"
+            placeholder="Search phones, fashion, electronics..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button
               type="button"
-              className="pr-load-more-btn" 
-              onClick={() => fetchProducts({ newOffset: offset + DEFAULT_LIMIT, append: true })}
-              disabled={loadingMore}
+              className="mm-search-clear"
+              onClick={() => setSearchQuery("")}
             >
-              {loadingMore ? "Loading..." : "Load More"}
+              <X size={16} />
             </button>
-          </div>
-        )}
+          )}
+        </div>
+      </header>
+
+      {/* ── Quick Nav Grid ── */}
+      <nav className="mm-quick-nav">
+        {QUICK_NAV.map((item) => {
+          const Icon = item.icon;
+          const isActive = quickFilter === item.filter;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`mm-qnav-btn${isActive ? " mm-qnav-btn--active" : ""}`}
+              onClick={() => handleQuickNav(item)}
+            >
+              <div
+                className="mm-qnav-icon-wrap"
+                style={{ backgroundColor: `${item.color}15`, color: item.color }}
+              >
+                <Icon size={20} />
+              </div>
+              <span className="mm-qnav-label">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* ── Guarantees Bar ── */}
+      <section className="mm-guarantees">
+        <div className="mm-guarantee-item">
+          <ShieldCheck size={14} className="mm-guarantee-icon" />
+          <span>BUYER PROTECTION</span>
+        </div>
+        <span className="mm-guarantee-divider">|</span>
+        <div className="mm-guarantee-item">
+          <Truck size={14} className="mm-guarantee-icon" />
+          <span>FAST DELIVERY</span>
+        </div>
+        <span className="mm-guarantee-divider">|</span>
+        <div className="mm-guarantee-item">
+          <Award size={14} className="mm-guarantee-icon" />
+          <span>VERIFIED QUALITY</span>
+        </div>
       </section>
 
-      {/* 5. Floating Cart FAB */}
-      {cartCount > 0 && (
-        <FloatingCartButton count={cartCount} onClick={() => navigate("/shop/cart")} />
+      {/* ── Category Strip ── */}
+      <section className="mm-categories-strip">
+        {PROMO_CATEGORIES.map((cat) => {
+          const Icon = cat.icon;
+          const isSelected = selectedCategory.toLowerCase() === cat.name.toLowerCase();
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              className={`mm-cat-card${isSelected ? " mm-cat-card--selected" : ""}`}
+              onClick={() => handleCategorySelect(cat.name)}
+            >
+              <div className="mm-cat-icon">
+                <Icon size={22} />
+              </div>
+              <span className="mm-cat-name">{cat.name}</span>
+            </button>
+          );
+        })}
+      </section>
+
+      {/* ── Promo Banners ── */}
+      <section className="mm-banners-grid">
+        <div
+          className="mm-banner mm-banner--hero"
+          onClick={() => handleCategorySelect("Electronics")}
+        >
+          <span className="mm-banner-tag">MUST HAVE</span>
+          <h2 className="mm-banner-title">
+            Tech
+            <br />
+            Clearance
+          </h2>
+          <p className="mm-banner-sub">Up to 50% Off</p>
+        </div>
+
+        <div className="mm-banner-stack">
+          <div
+            className="mm-banner mm-banner--sub"
+            onClick={() => setQuickFilter("is_new=true")}
+          >
+            <h3>New Drops</h3>
+            <p>Explore</p>
+          </div>
+          <div
+            className="mm-banner mm-banner--sub mm-banner--alt"
+            onClick={() => setQuickFilter("trending=true")}
+          >
+            <h3>Bestsellers</h3>
+            <p>Shop now</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Based on Your Views (Recently Viewed) ── */}
+      {recentlyViewed.length > 0 && (
+        <section className="mm-section">
+          <div className="mm-section-header">
+            <h2 className="mm-section-title">
+              <Gift size={20} className="mm-section-icon" />
+              Based on your views
+            </h2>
+          </div>
+
+          <div className="mm-recent-rail">
+            {recentlyViewed.map((prod) => (
+              <div key={prod.id || prod.product_id} className="mm-recent-item">
+                <MasonryCard
+                  product={prod}
+                  isWished={wishlist.includes(String(prod.id || prod.product_id))}
+                  onWishlist={() => toggleWishlist(String(prod.id || prod.product_id))}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
       )}
-      
-      {/* 6. Main Footer */}
-      <Footer />
 
-      {/* 7. Drawers & Sheets */}
-      <MenuDrawer 
-        open={menuOpen} 
-        onClose={() => setMenuOpen(false)} 
-        user={user} 
-      />
+      {/* ── Catalog Section Header & Sort ── */}
+      <section className="mm-catalog-header">
+        <div>
+          <h2 className="mm-catalog-title">All Products</h2>
+          <p className="mm-catalog-sub">Explore the full catalog</p>
+        </div>
 
-      <FilterSheet
-        open={showFilters} 
-        onClose={() => setShowFilters(false)}
-        minPrice={minPrice} 
-        setMinPrice={setMinPrice}
-        maxPrice={maxPrice} 
-        setMaxPrice={setMaxPrice}
-        activeSort={activeSort} 
-        setActiveSort={setActiveSort}
-        onReset={() => { 
-          setMinPrice(""); 
-          setMaxPrice(""); 
-          setActiveSort("newest"); 
-        }}
-        onApply={() => { 
-          setShowFilters(false); 
-          fetchProducts({ newOffset: 0 }); 
-        }}
-      />
+        <div className="mm-sort-wrap">
+          <SlidersHorizontal size={14} />
+          <select
+            className="mm-sort-select"
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value)}
+          >
+            <option value="newest">Sort & Filter</option>
+            <option value="newest">Newest First</option>
+            <option value="price_asc">Price: Low to High</option>
+            <option value="price_desc">Price: High to Low</option>
+            <option value="trending">Trending</option>
+          </select>
+        </div>
+      </section>
+
+      {/* ── Active Filter Badges ── */}
+      {(selectedCategory || searchQuery || quickFilter) && (
+        <div className="mm-active-filters">
+          {selectedCategory && (
+            <span className="mm-filter-badge">
+              Category: {selectedCategory}
+              <X size={12} onClick={() => setSelectedCategory("")} />
+            </span>
+          )}
+          {searchQuery && (
+            <span className="mm-filter-badge">
+              Search: "{searchQuery}"
+              <X size={12} onClick={() => setSearchQuery("")} />
+            </span>
+          )}
+          {quickFilter && (
+            <span className="mm-filter-badge">
+              Filter Active
+              <X size={12} onClick={() => setQuickFilter("")} />
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Product Grid ── */}
+      {loading ? (
+        <div className="mm-loading-state">
+          <Loader2 size={32} className="mm-spinner" />
+          <p>Loading catalog...</p>
+        </div>
+      ) : error ? (
+        <div className="mm-error-state">
+          <AlertCircle size={32} />
+          <p>{error}</p>
+          <button type="button" onClick={() => fetchProducts(true)}>
+            Retry
+          </button>
+        </div>
+      ) : products.length === 0 ? (
+        <div className="mm-empty-state">
+          <p>No products match your criteria.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedCategory("");
+              setSearchQuery("");
+              setQuickFilter("");
+            }}
+          >
+            Clear Filters
+          </button>
+        </div>
+      ) : (
+        <div className="mm-grid">
+          {products.map((prod) => (
+            <MasonryCard
+              key={prod.id || prod.product_id}
+              product={prod}
+              isWished={wishlist.includes(String(prod.id || prod.product_id))}
+              onWishlist={() => toggleWishlist(String(prod.id || prod.product_id))}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Infinite Scroll / Load More ── */}
+      {!loading && hasMore && products.length > 0 && (
+        <div className="mm-load-more">
+          <button
+            type="button"
+            className="mm-load-btn"
+            onClick={() => fetchProducts(false)}
+            disabled={loadingMore}
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 size={16} className="mm-spinner" /> Loading...
+              </>
+            ) : (
+              <>
+                Load More Products <ChevronRight size={16} />
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
