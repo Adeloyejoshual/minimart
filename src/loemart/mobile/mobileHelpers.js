@@ -1,7 +1,7 @@
 /**
  * src/loemart/mobile/mobileHelpers.js
  * Mobile helper utilities, API routes, image resolvers, search history, haptic feedback,
- * constants, and recently viewed auto-pruning.
+ * price/discount formatting, constants, and recently viewed auto-pruning.
  */
 
 export const API =
@@ -43,6 +43,40 @@ export const parseNum = (val) => {
 
 export const formatPrice = (val) =>
   val > 0 ? `₦${Number(val).toLocaleString("en-NG")}` : "₦0";
+
+export const fmtPrice = formatPrice;
+
+/**
+ * Calculates discount percentage from a product object or (price, originalPrice) pair.
+ */
+export function calcDiscount(productOrPrice, originalPriceVal) {
+  if (typeof productOrPrice === "object" && productOrPrice !== null) {
+    const p = productOrPrice;
+    if (p.discount && Number(p.discount) > 0) return Math.round(Number(p.discount));
+    const price = parseNum(p.selling_price || p.price || p.sale_price);
+    const oldPrice = parseNum(
+      p.originalPrice ??
+        p.original_price ??
+        p.old_price ??
+        p.compare_at_price ??
+        p.compare_price ??
+        p.regular_price ??
+        p.slashed_price ??
+        p.market_price
+    );
+    if (oldPrice > price && price > 0) {
+      return Math.round(((oldPrice - price) / oldPrice) * 100);
+    }
+    return 0;
+  }
+
+  const price = parseNum(productOrPrice);
+  const oldPrice = parseNum(originalPriceVal);
+  if (oldPrice > price && price > 0) {
+    return Math.round(((oldPrice - price) / oldPrice) * 100);
+  }
+  return 0;
+}
 
 /**
  * Mobile Haptic Vibration Feedback
