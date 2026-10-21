@@ -9,13 +9,12 @@
  * Step 4 — Pricing
  * Step 5 — Review & Submit
  *
- * v2.1 — Hierarchical category support + larger description
- * ──────────────────────────────────────────────────────────
- * ✓ Replaces flat local categories array with DB tree picker
- * ✓ Sends category_id (UUID) + category (name) to backend
- * ✓ Draft saves/restores full category node { id, name, path }
- * ✓ Description expanded to 2500 chars + taller textarea
- * ✓ Backward compatible: backend still accepts plain text fallback
+ * v2.2 — Post Another Ad reset handler + 2500-char description
+ * ─────────────────────────────────────────────────────────────
+ * ✓ Added "Post Another Ad" button on success screen to reset form
+ * ✓ Description expanded to 2500 chars with 10-row textarea
+ * ✓ Full CategoryPicker tree support (category_id UUID + text fallback)
+ * ✓ Draft auto-saves and restores clean state
  *
  * Auth: seller token (market.users JWT)
  *       Posts to POST /api/products (routes/market/addproduct.js)
@@ -57,8 +56,8 @@ const MAX_SPECS       = 12;
 const MAX_BOX_ITEMS   = 12;
 const MAX_TAGS        = 8;
 const MAX_TAG_LEN     = 24;
-const MAX_DESC_LEN    = 2500;      // ← NEW: description cap
-const DESC_WARN_AT    = 2300;      // ← NEW: show warn color after this
+const MAX_DESC_LEN    = 2500;
+const DESC_WARN_AT    = 2300;
 const TOTAL_STEPS     = 5;
 
 /* ══════════════════════════════════════════════════════════════
@@ -185,6 +184,15 @@ const IconPlusSmall = () => (
     aria-hidden="true">
     <line x1="12" y1="5"  x2="12" y2="19" />
     <line x1="5"  y1="12" x2="19" y2="12" />
+  </svg>
+);
+const IconPlusCircle = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="8" x2="12" y2="16" />
+    <line x1="8" y1="12" x2="16" y2="12" />
   </svg>
 );
 
@@ -543,6 +551,7 @@ export default function PostAds() {
 
   /* ── Auto-save draft ── */
   useEffect(() => {
+    if (posted) return; // Don't auto-save if already submitted
     localStorage.setItem(DRAFT_KEY, JSON.stringify({
       step,
       completedSteps,
@@ -563,7 +572,7 @@ export default function PostAds() {
     step, completedSteps, title, brand, tags, description,
     selectedCategory,
     keyFeatures, specifications, whatsInBox, variants,
-    basePrice, originalPrice,
+    basePrice, originalPrice, posted,
   ]);
 
   /* ── Prohibited content scan ── */
@@ -586,6 +595,47 @@ export default function PostAds() {
     window.addEventListener("pa-edit-step", handler);
     return () => window.removeEventListener("pa-edit-step", handler);
   }, []);
+
+  /* ════════════════════════════════════════════════════════════
+     RESET FORM (POST ANOTHER AD)
+  ════════════════════════════════════════════════════════════ */
+  const handlePostAnother = useCallback(() => {
+    // Revoke any created image preview URLs to avoid memory leaks
+    images.forEach((img) => {
+      if (img?.preview) URL.revokeObjectURL(img.preview);
+    });
+
+    // Clear saved draft from localStorage
+    localStorage.removeItem(DRAFT_KEY);
+
+    // Reset all state fields
+    setImages(Array(MAX_IMAGES).fill(null));
+    setImageHashes({});
+    setSlotStatuses({});
+    setTitle("");
+    setBrand("");
+    setTags([]);
+    setTagInput("");
+    setDescription("");
+    setSelectedCategory(null);
+    setKeyFeatures([""]);
+    setSpecifications([{ key: "", value: "" }]);
+    setWhatsInBox([""]);
+    setVariants([BLANK_VARIANT()]);
+    setBasePrice("");
+    setOriginalPrice("");
+    setTouched({});
+    setScanResult(null);
+    setScanDone(false);
+    setCompletedSteps([]);
+    setAttemptedNext(false);
+    setUploadPct(0);
+
+    // Go back to Step 1 & exit success view
+    setStep(1);
+    setPosted(false);
+    toast.success("Ready to post another ad!");
+  }, [images]);
 
   /* ════════════════════════════════════════════════════════════
      IMAGE HANDLERS
@@ -1019,8 +1069,8 @@ export default function PostAds() {
           <div className="pa-topbar-center">
             <h1 className="pa-topbar-title">Post an Ad</h1>
             <p className="pa-topbar-sub">
-              Step {step} of {TOTAL_STEPS}
-              {activeCategory ? ` — ${activeCategory.name}` : ""}
+              {posted ? "Success" : `Step ${step} of ${TOTAL_STEPS}`}
+              {!posted && activeCategory ? ` — ${activeCategory.name}` : ""}
             </p>
           </div>
           <div style={{ width: 36 }} aria-hidden="true" />
@@ -1035,14 +1085,34 @@ export default function PostAds() {
               Your listing has been submitted for review.
               You will be notified once it is approved.
             </p>
+
             <div className="pa-success-btns">
-              <button type="button" className="pa-success-primary"
-                onClick={() => navigate("/minimart")}>
-                Browse Marketplace
+              {/* ✅ PRIMARY: Post Another Ad (resets form to step 1) */}
+              <button
+                type="button"
+                className="pa-success-primary"
+                onClick={handlePostAnother}
+              >
+                <IconPlusCircle size={18} />
+                <span>Post Another Ad</span>
               </button>
-              <button type="button" className="pa-success-secondary"
-                onClick={() => navigate("/seller/dashboard")}>
+
+              {/* SECONDARY: View My Listings */}
+              <button
+                type="button"
+                className="pa-success-secondary"
+                onClick={() => navigate("/seller/dashboard")}
+              >
                 View My Listings
+              </button>
+
+              {/* GHOST / LINK: Browse Marketplace */}
+              <button
+                type="button"
+                className="pa-success-ghost"
+                onClick={() => navigate("/minimart")}
+              >
+                Browse Marketplace
               </button>
             </div>
           </div>
@@ -1188,7 +1258,7 @@ export default function PostAds() {
                     </div>
                   </div>
 
-                  {/* ✅ Description — 2500 chars + taller textarea */}
+                  {/* Description — 2500 chars limit */}
                   <div className="pa-field">
                     <label className="pa-label" htmlFor="pa-desc">
                       Description
@@ -1207,7 +1277,7 @@ export default function PostAds() {
                     />
                     <div className="pa-field-footer">
                       <span className="pa-field-hint">
-                        Tip: longer, detailed descriptions get up to 3× more views.
+                        Tip: detailed descriptions get up to 3× more buyer inquiries.
                       </span>
                       <span className={`pa-char-count${description.length > DESC_WARN_AT ? " pa-char-count--warn" : ""}`}>
                         {description.length}/{MAX_DESC_LEN}
