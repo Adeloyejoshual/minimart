@@ -1,6 +1,9 @@
 /**
  * src/pages/Minimart.jsx (Homepage)
  * 10/10 Production Ready: Menu Drawer, Fullscreen Search Routing, Masonry Grid, Type-Safe Cart Sync
+ *
+ * v2.1 Fix:
+ * ✓ Fixed isInStock filter so newly posted products with variant stock or default stock aren't hidden
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -34,11 +37,23 @@ const CART_URL = `${API}/cart`;
 /* ── HELPER: FILTER OUT SOLD OUT / OUT OF STOCK PRODUCTS ── */
 const isInStock = (item) => {
   if (!item) return false;
+  
+  // Explicitly marked sold out or deleted
   if (item.is_sold_out || item.sold_out) return false;
-  if (item.status === "out_of_stock" || item.status === "sold_out") return false;
+  if (item.status === "out_of_stock" || item.status === "sold_out" || item.status === "deleted") return false;
   if (item.in_stock === false) return false;
-  if (item.stock !== undefined && item.stock !== null && Number(item.stock) <= 0) return false;
-  if (item.quantity !== undefined && item.quantity !== null && Number(item.quantity) <= 0) return false;
+
+  // Check numeric stock if explicitly defined
+  const numStock = Number(item.stock);
+  if (item.stock !== undefined && item.stock !== null && !isNaN(numStock) && numStock <= 0) {
+    // If main stock is 0, check if variants have stock before hiding
+    if (Array.isArray(item.variants) && item.variants.length > 0) {
+      const totalVariantStock = item.variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+      if (totalVariantStock > 0) return true;
+    }
+    return false;
+  }
+
   return true;
 };
 
@@ -64,7 +79,7 @@ export default function Minimart({ user }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
 
-  // Marketing Rails States (Powered by the /home bundle endpoint)
+  // Marketing Rails States
   const [deals, setDeals] = useState([]);
   const [hot, setHot] = useState([]);
   const [trending, setTrending] = useState([]);
@@ -145,8 +160,6 @@ export default function Minimart({ user }) {
     axios.get(`${API}/products/home`, { params: { limit: 10 } })
       .then(({ data }) => {
         const d = data?.data || {};
-        // The backend /home route already filters out out-of-stock items, 
-        // but we can apply it here as a double-safety check
         setDeals((d.deals || []).filter(isInStock));
         setHot((d.hot || []).filter(isInStock));
         setTrending((d.trending || d.hot || []).filter(isInStock));
@@ -234,12 +247,12 @@ export default function Minimart({ user }) {
         wishCount={wishlist.length}
       />
 
-      {/* 2. Hero Banner (Page visual start) */}
+      {/* 2. Hero Banner */}
       <div className="mm-hero-wrap">
         <MobileHero user={user} />
       </div>
 
-      {/* 3. Marketing Sections (Bento, Deals, Campaigns, Trending) */}
+      {/* 3. Marketing Sections */}
       <MobileSections 
         deals={deals}
         hot={hot}
