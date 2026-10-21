@@ -37,7 +37,7 @@ import {
   isProductAvailable,
 } from "./mobile/mobileHelpers";
 
-import "../styles/Loemartnmobile.css";
+import "../styles/LoemartMobile.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS & STATIC DATA
