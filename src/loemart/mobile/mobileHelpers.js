@@ -1,6 +1,6 @@
 /**
  * src/loemart/mobile/mobileHelpers.js
- * Mobile helper utilities, API routes, image resolvers, search history, and recently viewed auto-pruning.
+ * Mobile helper utilities, API routes, image resolvers, search history, haptic feedback, and recently viewed auto-pruning.
  */
 
 export const API =
@@ -28,10 +28,32 @@ export const TRENDING_SEARCHES = [
 ];
 
 /* ════════════════════════════════════════════════════════════
-   STRING & DATA UTILS
+   STRING & UTILITY HELPERS
 ════════════════════════════════════════════════════════════ */
 export const normalize = (str) =>
   typeof str === "string" ? str.toLowerCase().trim() : "";
+
+export const parseNum = (val) => {
+  if (val === null || val === undefined || val === "") return 0;
+  const n = Number(String(val).replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
+
+export const formatPrice = (val) =>
+  val > 0 ? `₦${Number(val).toLocaleString("en-NG")}` : "₦0";
+
+/**
+ * Mobile Haptic Vibration Feedback
+ */
+export const haptic = (pattern = 10) => {
+  try {
+    if (typeof window !== "undefined" && "vibrate" in navigator) {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    /* ignore haptic errors on unsupported devices */
+  }
+};
 
 /* ════════════════════════════════════════════════════════════
    IMAGE RESOLVER
