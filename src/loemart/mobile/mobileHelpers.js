@@ -1,8 +1,10 @@
 /**
  * src/loemart/mobile/mobileHelpers.js
  * Mobile helper utilities, API routes, image resolvers, search history, haptic feedback,
- * price/discount formatting, constants, and recently viewed auto-pruning.
+ * price/discount formatting, flash sale countdown hook, constants, and recently viewed auto-pruning.
  */
+
+import { useState, useEffect } from "react";
 
 export const API =
   import.meta.env.VITE_API_URL || "https://loemart.com/api";
@@ -90,6 +92,32 @@ export const haptic = (pattern = 10) => {
     /* ignore haptic errors on unsupported devices */
   }
 };
+
+/* ════════════════════════════════════════════════════════════
+   COUNTDOWN TIMER HOOK FOR FLASH SALES & DEALS
+════════════════════════════════════════════════════════════ */
+export function useCountdown(initialHours = 12) {
+  const [secondsLeft, setSecondsLeft] = useState(() => {
+    const now = new Date();
+    const midnight = new Date();
+    midnight.setHours(23, 59, 59, 999);
+    const diff = Math.max(0, Math.floor((midnight - now) / 1000));
+    return diff > 0 ? diff : initialHours * 3600;
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => (prev > 0 ? prev - 1 : 86400));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const hours = String(Math.floor(secondsLeft / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((secondsLeft % 3600) / 60)).padStart(2, "0");
+  const seconds = String(secondsLeft % 60).padStart(2, "0");
+
+  return { hours, minutes, seconds, totalSeconds: secondsLeft };
+}
 
 /* ════════════════════════════════════════════════════════════
    IMAGE RESOLVER
