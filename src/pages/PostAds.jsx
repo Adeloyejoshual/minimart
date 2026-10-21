@@ -9,11 +9,12 @@
  * Step 4 — Pricing
  * Step 5 — Review & Submit
  *
- * v2 — Hierarchical category support
- * ────────────────────────────────────
+ * v2.1 — Hierarchical category support + larger description
+ * ──────────────────────────────────────────────────────────
  * ✓ Replaces flat local categories array with DB tree picker
  * ✓ Sends category_id (UUID) + category (name) to backend
  * ✓ Draft saves/restores full category node { id, name, path }
+ * ✓ Description expanded to 2500 chars + taller textarea
  * ✓ Backward compatible: backend still accepts plain text fallback
  *
  * Auth: seller token (market.users JWT)
@@ -29,8 +30,7 @@ import axios            from "axios";
 import toast            from "react-hot-toast";
 import imageCompression from "browser-image-compression";
 
-// ✅ REMOVED: import categories from "../config/categories";
-import CategoryPicker from "./PostAds/CategoryPicker";  // ← NEW
+import CategoryPicker from "./PostAds/CategoryPicker";
 import ImageGrid      from "./PostAds/ImageGrid";
 import VariantEditor  from "./PostAds/VariantEditor";
 import ReviewStep     from "./PostAds/ReviewStep";
@@ -47,7 +47,7 @@ const SUBMIT_URL = `${API}/api/products`;
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
 ══════════════════════════════════════════════════════════════ */
-const DRAFT_KEY       = "post-ad-draft-v10"; // ← bumped (category shape changed)
+const DRAFT_KEY       = "post-ad-draft-v10";
 const MAX_IMAGES      = 8;
 const MAX_FILE_MB     = 5;
 const MAX_VARIANTS    = 20;
@@ -57,10 +57,12 @@ const MAX_SPECS       = 12;
 const MAX_BOX_ITEMS   = 12;
 const MAX_TAGS        = 8;
 const MAX_TAG_LEN     = 24;
+const MAX_DESC_LEN    = 2500;      // ← NEW: description cap
+const DESC_WARN_AT    = 2300;      // ← NEW: show warn color after this
 const TOTAL_STEPS     = 5;
 
 /* ══════════════════════════════════════════════════════════════
-   SVG ICONS  (unchanged — keeping all originals)
+   SVG ICONS
 ══════════════════════════════════════════════════════════════ */
 const IconArrowLeft = ({ size = 18 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -187,7 +189,7 @@ const IconPlusSmall = () => (
 );
 
 /* ══════════════════════════════════════════════════════════════
-   PROHIBITED CONTENT PATTERNS  (unchanged)
+   PROHIBITED CONTENT PATTERNS
 ══════════════════════════════════════════════════════════════ */
 const PROHIBITED_PATTERNS = [
   { pattern: /\b(gun|pistol|rifle|shotgun|firearm|weapon|ammo|ammunition|explosive|bomb|grenade|machete)\b/i, category: "Weapons & Dangerous Items" },
@@ -227,7 +229,7 @@ const BLANK_VARIANT = () => ({
 });
 
 /* ══════════════════════════════════════════════════════════════
-   GET SELLER TOKEN  (unchanged)
+   GET SELLER TOKEN
 ══════════════════════════════════════════════════════════════ */
 function getSellerToken() {
   const KEYS = [
@@ -370,7 +372,7 @@ const STEP_META = [
 ];
 
 /* ══════════════════════════════════════════════════════════════
-   PROHIBITED BANNER  (unchanged)
+   PROHIBITED BANNER
 ══════════════════════════════════════════════════════════════ */
 const ProhibitedBanner = memo(function ProhibitedBanner({ result, scanDone }) {
   if (!scanDone || !result) return null;
@@ -450,21 +452,6 @@ export default function PostAds() {
   const [tags,           setTags]           = useState([]);
   const [tagInput,       setTagInput]       = useState("");
   const [description,    setDescription]    = useState("");
-
-  /*
-   * ✅ CHANGED: was `const [category, setCategory] = useState("")`
-   *
-   * selectedCategory holds the full node chosen from the tree:
-   * {
-   *   id   : "uuid-from-db",     // sent as category_id
-   *   name : "Smartphones",      // sent as category (text fallback)
-   *   slug : "smartphones",
-   *   level: 2,                  // 1=root, 2=mid, 3=leaf
-   *   path : ["Electronics", "Phones & Tablets", "Smartphones"],
-   * }
-   *
-   * null = nothing selected yet
-   */
   const [selectedCategory, setSelectedCategory] = useState(null);
 
   const [keyFeatures,    setKeyFeatures]    = useState([""]);
@@ -486,14 +473,7 @@ export default function PostAds() {
   const [scanDone,   setScanDone]   = useState(false);
 
   /* ── Derived ── */
-  const filledImages = useMemo(() => images.filter(Boolean), [images]);
-
-  /*
-   * ✅ CHANGED: was `categories.find(c => c.id === category)`
-   * Now just uses selectedCategory directly — no local lookup needed.
-   * Keep the name `activeCategory` so ReviewStep/VariantEditor
-   * props stay the same (they only use .name).
-   */
+  const filledImages   = useMemo(() => images.filter(Boolean), [images]);
   const activeCategory = selectedCategory;
 
   const discountPct = useMemo(() =>
@@ -548,10 +528,6 @@ export default function PostAds() {
       if (Array.isArray(d.tags))           setTags(d.tags);
       if (d.description)                   setDescription(d.description);
 
-      /*
-       * ✅ CHANGED: restore full category node, not just a string ID.
-       * Guard: must have id + name to be valid.
-       */
       if (d.selectedCategory?.id && d.selectedCategory?.name) {
         setSelectedCategory(d.selectedCategory);
       }
@@ -574,7 +550,7 @@ export default function PostAds() {
       brand,
       tags,
       description,
-      selectedCategory,   // ✅ save full node, not just string
+      selectedCategory,
       keyFeatures,
       specifications,
       whatsInBox,
@@ -585,7 +561,7 @@ export default function PostAds() {
     setLastSaved(Date.now());
   }, [
     step, completedSteps, title, brand, tags, description,
-    selectedCategory,             // ✅ was: category
+    selectedCategory,
     keyFeatures, specifications, whatsInBox, variants,
     basePrice, originalPrice,
   ]);
@@ -612,7 +588,7 @@ export default function PostAds() {
   }, []);
 
   /* ════════════════════════════════════════════════════════════
-     IMAGE HANDLERS  (unchanged)
+     IMAGE HANDLERS
   ════════════════════════════════════════════════════════════ */
   const handleAddImage = useCallback(async (index, file, extraFiles = []) => {
     if (!file.type.startsWith("image/")) {
@@ -702,7 +678,7 @@ export default function PostAds() {
   }, []);
 
   /* ════════════════════════════════════════════════════════════
-     LIST HELPERS  (unchanged)
+     LIST HELPERS
   ════════════════════════════════════════════════════════════ */
   const updateList = useCallback((setter, i, val) =>
     setter((p) => p.map((x, idx) => (idx === i ? val : x))), []);
@@ -713,7 +689,7 @@ export default function PostAds() {
     setter((p) => p.length <= 1 ? p : p.filter((_, idx) => idx !== i)), []);
 
   /* ════════════════════════════════════════════════════════════
-     VARIANT HELPERS  (unchanged)
+     VARIANT HELPERS
   ════════════════════════════════════════════════════════════ */
   const updateVariant = useCallback((i, field, val) =>
     setVariants((p) =>
@@ -746,7 +722,7 @@ export default function PostAds() {
   }, []);
 
   /* ════════════════════════════════════════════════════════════
-     TAGS  (unchanged)
+     TAGS
   ════════════════════════════════════════════════════════════ */
   const commitTag = useCallback(() => {
     const t = normalize(tagInput).toLowerCase();
@@ -760,7 +736,7 @@ export default function PostAds() {
     setTags((p) => p.filter((x) => x !== t)), []);
 
   /* ════════════════════════════════════════════════════════════
-     SMART FEATURE GENERATOR  (unchanged — uses activeCategory.name)
+     SMART FEATURE GENERATOR
   ════════════════════════════════════════════════════════════ */
   const generateKeyFeatures = useCallback(() => {
     const gen = guessFeatures({
@@ -791,7 +767,6 @@ export default function PostAds() {
     if (touched.title && title.trim().length > 80)
       e.title = "Title is too long";
 
-    // ✅ CHANGED: validate selectedCategory instead of category string
     if (touched.category && !selectedCategory)
       e.category = "Select a category";
 
@@ -813,13 +788,13 @@ export default function PostAds() {
     });
     return e;
   }, [
-    touched, title, selectedCategory,   // ✅ was: category
+    touched, title, selectedCategory,
     filledImages.length, variants, basePrice, originalPrice,
   ]);
 
   const stepValid = useMemo(() => {
     if (step === 1) return filledImages.length > 0;
-    if (step === 2) return title.trim().length >= 3 && !!selectedCategory; // ✅
+    if (step === 2) return title.trim().length >= 3 && !!selectedCategory;
     if (step === 3) return (
       variants.every((v) => v.sku.trim() && v.name.trim() && Number(v.price) >= 0) &&
       !duplicateSkuExists
@@ -838,7 +813,7 @@ export default function PostAds() {
       return "Add at least one photo";
     if (step === 2 && title.trim().length < 3)
       return "Title needs at least 3 characters";
-    if (step === 2 && !selectedCategory)          // ✅
+    if (step === 2 && !selectedCategory)
       return "Pick a category";
     if (step === 3 && duplicateSkuExists)
       return "Two or more variants share the same SKU — each SKU must be unique";
@@ -850,7 +825,7 @@ export default function PostAds() {
   }, [step, filledImages.length, title, selectedCategory, variants, basePrice, duplicateSkuExists]);
 
   /* ════════════════════════════════════════════════════════════
-     NAVIGATION  (unchanged)
+     NAVIGATION
   ════════════════════════════════════════════════════════════ */
   const goNext = useCallback(() => {
     setAttemptedNext(true);
@@ -890,7 +865,6 @@ export default function PostAds() {
     if (submittingRef.current) return;
     submittingRef.current = true;
 
-    /* ── Debug ── */
     if (import.meta.env.DEV) {
       console.group("🔍 PostAds Submit Debug");
       console.log("SUBMIT_URL       :", SUBMIT_URL);
@@ -923,7 +897,6 @@ export default function PostAds() {
       toast.error("Fix duplicate variant SKUs before submitting");
       return;
     }
-    /* ✅ Guard: category must be selected */
     if (!selectedCategory) {
       submittingRef.current = false;
       toast.error("Please select a category");
@@ -938,11 +911,6 @@ export default function PostAds() {
       fd.append("name",        title.trim());
       fd.append("description", description.trim());
 
-      /*
-       * ✅ CHANGED: send BOTH fields
-       *   category_id → backend links to tree, validates, auto-fills name
-       *   category    → text fallback (backward compat if category_id col missing)
-       */
       fd.append("category_id", selectedCategory.id);
       fd.append("category",    selectedCategory.name);
 
@@ -1052,7 +1020,6 @@ export default function PostAds() {
             <h1 className="pa-topbar-title">Post an Ad</h1>
             <p className="pa-topbar-sub">
               Step {step} of {TOTAL_STEPS}
-              {/* ✅ CHANGED: was activeCategory?.name, still works */}
               {activeCategory ? ` — ${activeCategory.name}` : ""}
             </p>
           </div>
@@ -1221,16 +1188,31 @@ export default function PostAds() {
                     </div>
                   </div>
 
-                  {/* Description */}
+                  {/* ✅ Description — 2500 chars + taller textarea */}
                   <div className="pa-field">
-                    <label className="pa-label" htmlFor="pa-desc">Description</label>
-                    <textarea id="pa-desc" className="pa-textarea"
-                      placeholder="Describe your product — condition, features, usage history..."
-                      value={description} maxLength={700}
-                      onChange={(e) => setDescription(e.target.value)} />
-                    <span className={`pa-char-count${description.length > 640 ? " pa-char-count--warn" : ""}`}>
-                      {description.length}/700
-                    </span>
+                    <label className="pa-label" htmlFor="pa-desc">
+                      Description
+                      <span className="pa-label-hint">
+                        {description.length}/{MAX_DESC_LEN}
+                      </span>
+                    </label>
+                    <textarea
+                      id="pa-desc"
+                      className="pa-textarea pa-textarea--large"
+                      rows={10}
+                      placeholder="Describe your product in detail — condition, features, usage history, included accessories, reason for selling, and anything else buyers should know..."
+                      value={description}
+                      maxLength={MAX_DESC_LEN}
+                      onChange={(e) => setDescription(e.target.value)}
+                    />
+                    <div className="pa-field-footer">
+                      <span className="pa-field-hint">
+                        Tip: longer, detailed descriptions get up to 3× more views.
+                      </span>
+                      <span className={`pa-char-count${description.length > DESC_WARN_AT ? " pa-char-count--warn" : ""}`}>
+                        {description.length}/{MAX_DESC_LEN}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Key Features */}
@@ -1356,7 +1338,7 @@ export default function PostAds() {
                     </div>
                   </div>
 
-                  {/* ✅ CHANGED: replaced flat category grid with CategoryPicker */}
+                  {/* Category Picker */}
                   <div className="pa-field">
                     <label className="pa-label" id="pa-cat-label">
                       Category <span aria-hidden="true">*</span>
@@ -1367,11 +1349,6 @@ export default function PostAds() {
                       </span>
                     )}
 
-                    {/*
-                     * CategoryPicker fetches the tree from GET /api/categories,
-                     * lets the seller drill down L1 → L2 → L3,
-                     * and calls onSelect with the full node object.
-                     */}
                     <CategoryPicker
                       value={selectedCategory}
                       onSelect={(node) => {
@@ -1381,7 +1358,6 @@ export default function PostAds() {
                       error={!!fieldErrors.category}
                     />
 
-                    {/* Breadcrumb preview of what's selected */}
                     {selectedCategory?.path?.length > 0 && (
                       <p className="pa-cat-breadcrumb" aria-live="polite">
                         {selectedCategory.path.join(" › ")}
@@ -1392,7 +1368,7 @@ export default function PostAds() {
                 </section>
               )}
 
-              {/* ── STEP 3 — VARIANTS ── (unchanged) */}
+              {/* ── STEP 3 — VARIANTS ── */}
               {step === 3 && (
                 <section aria-labelledby="pa-step3-heading">
                   <div className="pa-section-head">
@@ -1421,7 +1397,7 @@ export default function PostAds() {
                 </section>
               )}
 
-              {/* ── STEP 4 — PRICING ── (unchanged) */}
+              {/* ── STEP 4 — PRICING ── */}
               {step === 4 && (
                 <section aria-labelledby="pa-step4-heading">
                   <div className="pa-section-head">
@@ -1467,12 +1443,6 @@ export default function PostAds() {
                     originalPrice={originalPrice}
                     discountPct={discountPct}
                     description={description}
-                    /*
-                     * ✅ CHANGED: was `category={category}` (string ID)
-                     * Now pass the resolved name + full node for breadcrumb display.
-                     * ReviewStep uses activeCategory.name — no change needed there
-                     * as long as it reads from activeCategory prop.
-                     */
                     category={selectedCategory?.name ?? ""}
                     activeCategory={activeCategory}
                     variants={variants}
