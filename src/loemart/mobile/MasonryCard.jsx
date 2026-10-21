@@ -1,7 +1,8 @@
 /**
  * src/loemart/mobile/MasonryCard.jsx
- * Product card — SVG ratings, rotating promo badges, type-safe cart, no fake data
+ * Product card — SVG ratings, rotating promo badges, type-safe cart, variant & fallback stock support
  */
+
 import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -224,7 +225,40 @@ function MasonryCard({
   );
 
   const displaySold = Number(sold ?? sold_count ?? 0) || 0;
-  const maxStock = Number(stock ?? quantity ?? 99);
+
+  /* ── Variant & Fallback Stock Evaluation ── */
+  const variantStockSum = useMemo(() => {
+    if (!Array.isArray(variants) || variants.length === 0) return 0;
+    return variants.reduce((sum, v) => {
+      const vQty = Number(v?.stock ?? v?.quantity ?? 0);
+      return sum + (Number.isFinite(vQty) && vQty > 0 ? vQty : 0);
+    }, 0);
+  }, [variants]);
+
+  const maxStock = useMemo(() => {
+    // 1. If product has variants, use total variant stock sum
+    if (Array.isArray(variants) && variants.length > 0) {
+      return variantStockSum;
+    }
+
+    // 2. Check base stock values
+    const rawStock = stock ?? quantity;
+
+    if (rawStock !== null && rawStock !== undefined) {
+      const parsed = Number(rawStock);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+      // Explicit out-of-stock flag
+      if (parsed === 0 && (product?.is_out_of_stock || product?.out_of_stock)) {
+        return 0;
+      }
+    }
+
+    // 3. Simple active product with unpopulated or default stock -> treat as in stock (99)
+    return 99;
+  }, [stock, quantity, variants, variantStockSum, product]);
+
   const inStock = maxStock > 0;
   const lowStock = inStock && maxStock <= 5;
 
@@ -247,12 +281,12 @@ function MasonryCard({
   const hasRealDiscount = displayOldPrice > realPrice && realPrice > 0;
   const savingsAmt = hasRealDiscount ? displayOldPrice - realPrice : 0;
 
-  /* Genuine rating only — require a value and ideally some reviews */
+  /* Genuine rating only */
   const reviewCount = Number(review_count ?? reviews_count ?? 0);
   const hasGenuineRating =
     Number(rating) > 0 && (reviewCount > 0 || Number(rating) >= 1);
 
-  /* ── Promo messages (real data only) ── */
+  /* ── Promo messages ── */
   const promoMessages = useMemo(() => {
     const list = [];
 
@@ -318,7 +352,6 @@ function MasonryCard({
     return () => clearInterval(t);
   }, [promoMessages.length]);
 
-  /* Reset index if list shrinks */
   useEffect(() => {
     setPromoIdx(0);
   }, [realId]);
@@ -571,7 +604,7 @@ function MasonryCard({
           }}
         />
 
-        {/* Top-left structural badges only */}
+        {/* Structural badges */}
         <div className="mcard__badges">
           {discountPct > 0 && (
             <span className="mcard__badge mcard__badge--discount">
@@ -627,7 +660,7 @@ function MasonryCard({
           )}
         </div>
 
-        {/* Fixed-height rotating promo strip — prevents layout jump */}
+        {/* Promo strip */}
         <div
           className={`mcard__promo-rotator${
             promoMessages.length === 0 ? " mcard__promo-rotator--empty" : ""
@@ -655,9 +688,7 @@ function MasonryCard({
           )}
         </div>
 
-        {location && (
-          <p className="mcard__location">📍 {location}</p>
-        )}
+        {location && <p className="mcard__location">📍 {location}</p>}
 
         {seller_verified && (
           <p className="mcard__verified">
@@ -666,10 +697,7 @@ function MasonryCard({
         )}
 
         {/* CTA */}
-        <div
-          className="mcard__cta-wrap"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="mcard__cta-wrap" onClick={(e) => e.stopPropagation()}>
           {localQty === 0 ? (
             <button
               type="button"
