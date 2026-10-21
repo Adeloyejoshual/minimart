@@ -1,400 +1,229 @@
 /**
  * src/loemart/mobile/mobileHelpers.js
- *
- * Production Mobile Helpers, Hooks, and Constants.
- * Engineered for absolute responsiveness and zero simulated data layers.
- * Auto-prunes deleted and sold-out products from local browser storage.
+ * Mobile helper utilities, API routes, image resolvers, and recently viewed auto-pruning.
  */
 
-import { useState, useEffect, useRef } from "react";
-import {
-  FiHome, FiGrid, FiShoppingCart, FiHeart, FiUser,
-} from "react-icons/fi";
-import { Flame, Sparkles, ShieldCheck } from "lucide-react";
+export const API =
+  import.meta.env.VITE_API_URL || "https://loemart.com/api";
 
-/* ═══════════════════════════════════════════════════════════════
-   ENVIRONMENT VARIABLES & STORAGE KEYS
-═══════════════════════════════════════════════════════════════ */
-const RAW = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
-export const API = RAW ? (RAW.endsWith("/api") ? RAW : `${RAW}/api`) : "/api";
+export const RECENT_KEY = "lm-recently-viewed";
+const LEGACY_KEYS = ["lm_recently_viewed", "recently_viewed", "loemart_recently_viewed"];
 
-export const CART_KEY           = "mm_cart";
-export const RECENT_KEY         = "lm-recently-viewed";
-export const SEARCH_HISTORY_KEY = "lm-search-history";
-export const WISH_KEY           = "loemart-wishlist";
-
-export const DEFAULT_LIMIT  = 40;
-export const SLIDE_INTERVAL = 6000;
-
-/* ═══════════════════════════════════════════════════════════════
-   CORE CONFIGURATIONS
-═══════════════════════════════════════════════════════════════ */
-export const SORT_OPTIONS = [
-  { value: "newest",     label: "Newest"    },
-  { value: "price_asc",  label: "Price ↑"   },
-  { value: "price_desc", label: "Price ↓"   },
-  { value: "trending",   label: "Trending"  },
-  { value: "views",      label: "Popular"   },
-  { value: "saves",      label: "Loved"     },
-];
-
-export const HERO_SLIDES = [
-  {
-    id     : "slide-flash",
-    eyebrow: "Flash Sale",
-    title  : "Up to 70% Off",
-    sub    : "Exclusive deals from verified sellers",
-    cta    : "Shop Now",
-    bg     : "linear-gradient(135deg, #0f0c29 0%, #302b63 100%)",
-    accent : "#ff5722",
-    Icon   : Flame,
-  },
-  {
-    id     : "slide-arrivals",
-    eyebrow: "New Arrivals",
-    title  : "Fresh Picks",
-    sub    : "Latest products from top sellers near you",
-    cta    : "Explore",
-    bg     : "linear-gradient(135deg, #134e5e 0%, #71b280 100%)",
-    accent : "#10b981",
-    Icon   : Sparkles,
-  },
-  {
-    id     : "slide-safety",
-    eyebrow: "Verified Safe",
-    title  : "Shop Trusted",
-    sub    : "Buyer protection on every order",
-    cta    : "Browse",
-    bg     : "linear-gradient(135deg, #1a0533 0%, #11998e 100%)",
-    accent : "#6366f1",
-    Icon   : ShieldCheck,
-  },
-];
-
-export const TRENDING_SEARCHES = [
-  "iPhone", "Laptop", "Sneakers", "PlayStation",
-  "Fashion", "TV", "Watch", "Camera",
-];
-
-export const BOTTOM_NAV = [
-  { icon: FiHome,         label: "Home",    path: "/loemart"   },
-  { icon: FiGrid,         label: "Browse",  path: "/catalog"   },
-  { icon: FiShoppingCart, label: "Cart",    path: "/shop/cart" },
-  { icon: FiHeart,        label: "Saved",   path: "/saved"     },
-  { icon: FiUser,         label: "Account", path: "/profile"   },
-];
-
-/* ═══════════════════════════════════════════════════════════════
-   BASIC HELPERS
-═══════════════════════════════════════════════════════════════ */
-export const normalize = (s = "") => String(s).replace(/\s+/g, " ").trim();
-
-export const fmtPrice = (n) => {
-  const amount = Number(n || 0);
-  return `₦${amount.toLocaleString("en-NG")}`;
-};
-
-export const calcDiscount = (p) => {
-  const base = Number(p.price || p.selling_price || p.sale_price || 0);
-  const orig = Number(p.original_price ?? p.compare_price ?? 0);
-  return !orig || orig <= base ? 0 : Math.round(((orig - base) / orig) * 100);
-};
-
-/* ── BULLETPROOF IMAGE RESOLVER ── */
-export const primaryImg = (images, product = null) => {
-  if (product) {
-    const direct =
-      product.thumbnail ||
-      product.image ||
-      product.image_url ||
-      product.cover_image ||
-      product.primary_image;
-    if (typeof direct === "string" && direct.length > 4) return direct;
-  }
-
-  if (!images) return null;
-
-  if (typeof images === "string") {
-    const s = images.trim();
-    if (s.startsWith("http") || s.startsWith("/")) return s;
-    if (s.startsWith("[")) {
-      try {
-        return primaryImg(JSON.parse(s), null);
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-
+/* ════════════════════════════════════════════════════════════
+   IMAGE RESOLVER
+════════════════════════════════════════════════════════════ */
+export function primaryImg(images, product) {
   if (Array.isArray(images) && images.length > 0) {
-    const first = images.find((i) => i && i.is_primary) ?? images[0];
-    if (typeof first === "string") return first;
-    return (
-      first?.url ||
-      first?.src ||
-      first?.secure_url ||
-      first?.path ||
-      first?.large ||
-      null
-    );
+    const primary = images.find((i) => i?.is_primary) || images[0];
+    if (primary?.url) return primary.url;
+    if (typeof primary === "string") return primary;
+  }
+  if (product?.image) return product.image;
+  if (product?.primary_image) return product.primary_image;
+  if (product?.cover_image) return product.cover_image;
+  return "/placeholder.png";
+}
+
+/* ════════════════════════════════════════════════════════════
+   PRODUCT AVAILABILITY & STOCK CHECK
+════════════════════════════════════════════════════════════ */
+/**
+ * Strict evaluator for catalog items:
+ * Returns false if the product is soft-deleted, inactive, hidden, paused, OR out of stock.
+ */
+export function isProductAvailable(product) {
+  if (!product) return false;
+
+  // 1. Soft-deleted / Inactive / Hidden / Paused checks
+  if (
+    product.deleted_at ||
+    product.status === "deleted" ||
+    product.is_active === false ||
+    product.is_hidden === true ||
+    product.is_paused === true
+  ) {
+    return false;
   }
 
-  return null;
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   SECURE LOCAL GUEST CART PIPELINE
-═══════════════════════════════════════════════════════════════ */
-export const loadCart = () => {
-  try {
-    return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-  } catch (err) {
-    console.error("[Helper] LocalStorage Cart load failed:", err);
-    return [];
+  if (product.status && !["active", "approved"].includes(product.status)) {
+    return false;
   }
-};
 
-export const saveCart = (cart) => {
-  try {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    window.dispatchEvent(new Event("cart-updated"));
-  } catch (err) {
-    console.error("[Helper] LocalStorage Cart save failed:", err);
+  // 2. Out of Stock checks
+  if (
+    product.is_out_of_stock === true ||
+    product.out_of_stock === true ||
+    product.stock_status === "out_of_stock" ||
+    product.status === "out_of_stock"
+  ) {
+    return false;
   }
-};
 
-export const addToCart = (product) => {
-  const cart = loadCart();
-  const existing = cart.find((i) => i.productId === product.id && !i.variant);
-
-  if (existing) {
-    existing.qty = (existing.qty ?? 1) + 1;
-  } else {
-    cart.push({
-      id: `${product.id}__default`,
-      productId: product.id,
-      name: product.name || product.title,
-      price: Number(product.price || product.selling_price || 0),
-      image: primaryImg(product.images, product),
-      qty: 1,
-      variant: null,
-      slug: product.slug ?? product.id,
-      addedAt: Date.now(),
-    });
+  // Check variants if present
+  if (Array.isArray(product.variants) && product.variants.length > 0) {
+    const totalVariantStock = product.variants.reduce((sum, v) => {
+      const q = Number(v?.stock ?? v?.quantity ?? 0);
+      return sum + (Number.isFinite(q) && q > 0 ? q : 0);
+    }, 0);
+    if (totalVariantStock <= 0) return false;
+    return true;
   }
-  saveCart(cart);
-};
 
-export const getCartCount = () => {
-  return loadCart().reduce((sum, item) => sum + (item.qty ?? 1), 0);
-};
+  // Base stock check
+  const rawStock = product.stock ?? product.quantity;
+  if (rawStock !== null && rawStock !== undefined) {
+    const parsed = Number(rawStock);
+    if (Number.isFinite(parsed) && parsed <= 0) {
+      return false;
+    }
+  }
 
-/* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED ENGINE (Auto-Filters Deleted & Out-Of-Stock)
-═══════════════════════════════════════════════════════════════ */
+  return true;
+}
+
+/* ════════════════════════════════════════════════════════════
+   RECENTLY VIEWED (BASED ON YOUR VIEWS) HELPERS
+════════════════════════════════════════════════════════════ */
+
+/**
+ * Get recently viewed products cached in localStorage.
+ * Automatically migrates legacy keys and filters out deleted or out-of-stock items.
+ */
 export const getRecentlyViewed = () => {
   try {
-    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
-    return raw.filter((p) => {
-      if (!p) return false;
-      // Filter out deleted, sold out, or out of stock items
-      if (p.deleted || p.status === "deleted" || p.status === "out_of_stock" || p.status === "sold_out") return false;
-      if (p.is_sold_out || p.sold_out) return false;
-      if (p.stock !== undefined && p.stock !== null && Number(p.stock) <= 0) return false;
-      return true;
-    });
+    let raw = localStorage.getItem(RECENT_KEY);
+
+    // Legacy key migration
+    if (!raw) {
+      for (const k of LEGACY_KEYS) {
+        const legacyVal = localStorage.getItem(k);
+        if (legacyVal) {
+          raw = legacyVal;
+          localStorage.setItem(RECENT_KEY, legacyVal);
+          localStorage.removeItem(k);
+          break;
+        }
+      }
+    }
+
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    // Filter using strict availability evaluator
+    return parsed.filter(isProductAvailable);
   } catch {
     return [];
   }
 };
 
+/**
+ * Add or update a product in the recently viewed localStorage list.
+ * Only adds if the product is active, undeleted, and IN STOCK.
+ */
 export const addToRecentlyViewed = (product) => {
-  if (!product?.id) return;
-  
-  // Do NOT save deleted or out of stock items
-  if (product.status === "deleted" || product.status === "out_of_stock" || product.status === "sold_out") return;
-  if (product.stock !== undefined && product.stock !== null && Number(product.stock) <= 0) return;
-  if (product.is_sold_out || product.sold_out) return;
+  if (!product) return;
+  const realId = String(
+    product.id || product.product_id || product._id || ""
+  );
+  if (!realId) return;
+
+  // Do not store deleted, inactive, or out-of-stock products
+  if (!isProductAvailable(product)) return;
 
   try {
-    const list = getRecentlyViewed().filter((p) => p.id !== product.id);
-    list.unshift({
-      id: product.id,
-      name: product.name || product.title,
-      price: product.price || product.selling_price,
+    const list = getRecentlyViewed();
+    const filtered = list.filter(
+      (p) => String(p.id || p.product_id || p._id) !== realId
+    );
+
+    const newItem = {
+      id: realId,
+      product_id: realId,
+      title: product.title || product.name || "Untitled Product",
+      price: product.selling_price || product.price || 0,
+      originalPrice: product.originalPrice || product.original_price || null,
       image: primaryImg(product.images, product),
-      slug: product.slug ?? product.id,
-      stock: product.stock ?? 1,
-      status: product.status ?? "active",
-      is_sold_out: false,
-    });
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
-  } catch (err) {
-    console.warn("[Helper] Failed to update recently viewed:", err);
+      slug: product.slug || realId,
+      status: product.status || "active",
+      stock: product.stock ?? 1000,
+      is_active: product.is_active ?? true,
+      variants: product.variants || [],
+      updatedAt: Date.now(),
+    };
+
+    filtered.unshift(newItem);
+    // Retain top 12 items max
+    localStorage.setItem(RECENT_KEY, JSON.stringify(filtered.slice(0, 12)));
+  } catch (e) {
+    console.error("addToRecentlyViewed error:", e);
   }
 };
 
-export const clearRecentlyViewed = () => {
-  try {
-    localStorage.removeItem(RECENT_KEY);
-  } catch {}
-};
-
 /**
- * Validates locally stored recently viewed items against the live backend API.
- * Any item that no longer exists (404), is deleted, or is out of stock (stock <= 0)
- * is automatically pruned from browser localStorage.
+ * Validates cached recently viewed items against the live backend API.
+ * Automatically purges soft-deleted, unapproved, hidden, removed, OR OUT OF STOCK products.
  */
 export const syncRecentlyViewed = async () => {
   try {
     const list = getRecentlyViewed();
-    if (!list.length) return [];
+    if (!Array.isArray(list) || list.length === 0) {
+      localStorage.setItem(RECENT_KEY, "[]");
+      return [];
+    }
 
+    const itemsToVerify = list.filter(
+      (item) => item && (item.id || item.product_id || item._id)
+    );
+
+    if (!itemsToVerify.length) {
+      localStorage.setItem(RECENT_KEY, "[]");
+      return [];
+    }
+
+    // Verify all items in parallel against live API
     const checks = await Promise.allSettled(
-      list.map((item) =>
-        fetch(`${API}/products/${item.id}`)
-          .then((res) => (res.ok ? res.json() : null))
-          .catch(() => null)
-      )
+      itemsToVerify.map(async (item) => {
+        const id = item.id || item.product_id || item._id;
+        const res = await fetch(`${API}/products/${id}`);
+        if (!res.ok) return null; // 404/500 -> Purge item
+        const json = await res.json();
+        return json?.data || null;
+      })
     );
 
     const validList = [];
-    checks.forEach((res, idx) => {
-      if (res.status === "fulfilled" && res.value?.data) {
-        const live = res.value.data;
-        const isLiveActive = live.status === "active" && !live.deleted_at;
-        const isLiveInStock = Number(live.stock ?? 1) > 0 && !live.is_sold_out;
 
-        if (isLiveActive && isLiveInStock) {
-          validList.push(list[idx]);
+    checks.forEach((result, idx) => {
+      if (result.status === "fulfilled" && result.value) {
+        const live = result.value;
+
+        // Strict live check for deletion, status, and stock availability
+        if (isProductAvailable(live)) {
+          const original = itemsToVerify[idx];
+          validList.push({
+            ...original,
+            id: live.id,
+            product_id: live.id,
+            title: live.title || live.name || original.title,
+            price: live.selling_price || live.price || original.price,
+            originalPrice:
+              live.originalPrice || live.original_price || original.originalPrice,
+            image: primaryImg(live.images, live) || original.image,
+            slug: live.slug || original.slug,
+            status: live.status,
+            stock: live.stock ?? 1000,
+            is_active: live.is_active,
+            variants: live.variants || original.variants || [],
+          });
         }
       }
     });
 
     localStorage.setItem(RECENT_KEY, JSON.stringify(validList));
     return validList;
-  } catch {
+  } catch (err) {
+    console.error("syncRecentlyViewed error:", err);
     return getRecentlyViewed();
   }
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   SEARCH HISTORY
-═══════════════════════════════════════════════════════════════ */
-export const getSearchHistory = () => {
-  try {
-    return JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || "[]");
-  } catch {
-    return [];
-  }
-};
-
-export const addToSearchHistory = (q) => {
-  const query = q?.trim();
-  if (!query) return;
-  try {
-    const list = getSearchHistory().filter((s) => s !== query);
-    list.unshift(query);
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(list.slice(0, 6)));
-  } catch (err) {
-    console.warn("[Helper] Failed to update search history:", err);
-  }
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   REAL-TIME COUNTDOWN HOOK
-═══════════════════════════════════════════════════════════════ */
-export function useCountdown(targetDate) {
-  const [timeLeft, setTimeLeft] = useState({
-    h: "00",
-    m: "00",
-    s: "00",
-    expired: true,
-  });
-
-  useEffect(() => {
-    if (!targetDate) return;
-
-    const target = new Date(targetDate).getTime();
-    if (isNaN(target)) return;
-
-    let intervalId;
-
-    const calculateTime = () => {
-      const now = Date.now();
-      const diff = target - now;
-
-      if (diff <= 0) {
-        setTimeLeft({ h: "00", m: "00", s: "00", expired: true });
-        clearInterval(intervalId);
-      } else {
-        const hours = Math.floor(diff / 3600000);
-        const minutes = Math.floor((diff % 3600000) / 60000);
-        const seconds = Math.floor((diff % 60000) / 1000);
-
-        setTimeLeft({
-          h: String(hours).padStart(2, "0"),
-          m: String(minutes).padStart(2, "0"),
-          s: String(seconds).padStart(2, "0"),
-          expired: false,
-        });
-      }
-    };
-
-    calculateTime();
-    intervalId = setInterval(calculateTime, 1000);
-
-    return () => clearInterval(intervalId);
-  }, [targetDate]);
-
-  return timeLeft;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   FADE-IN INTERSECTION OBSERVER
-═══════════════════════════════════════════════════════════════ */
-export function useFadeIn() {
-  const ref = useRef(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.05 }
-    );
-    observer.observe(el);
-
-    return () => observer.disconnect();
-  }, []);
-
-  return { ref, visible };
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   TACTILE HAPTIC TRIGGER (No-op)
-═══════════════════════════════════════════════════════════════ */
-export const haptic = () => {};
-
-/* ═══════════════════════════════════════════════════════════════
-   REAL DELIVERY ESTIMATES
-═══════════════════════════════════════════════════════════════ */
-export const getDeliveryEstimate = () => {
-  const now = new Date();
-  const minDelivery = new Date(now);
-  minDelivery.setDate(minDelivery.getDate() + 2);
-
-  return minDelivery.toLocaleDateString("en-NG", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
 };
