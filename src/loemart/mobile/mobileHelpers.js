@@ -1,6 +1,7 @@
 /**
  * src/loemart/mobile/mobileHelpers.js
- * Mobile helper utilities, API routes, image resolvers, search history, haptic feedback, and recently viewed auto-pruning.
+ * Mobile helper utilities, API routes, image resolvers, search history, haptic feedback,
+ * constants, and recently viewed auto-pruning.
  */
 
 export const API =
@@ -8,6 +9,7 @@ export const API =
 
 export const RECENT_KEY = "lm-recently-viewed";
 export const SEARCH_KEY = "lm-search-history";
+export const WISH_KEY = "loemart-wishlist";
 export const DEFAULT_LIMIT = 24;
 
 const LEGACY_KEYS = [
