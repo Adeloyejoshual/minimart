@@ -1,15 +1,37 @@
 /**
  * src/loemart/mobile/mobileHelpers.js
- * Mobile helper utilities, API routes, image resolvers, and recently viewed auto-pruning.
+ * Mobile helper utilities, API routes, image resolvers, search history, and recently viewed auto-pruning.
  */
 
 export const API =
   import.meta.env.VITE_API_URL || "https://loemart.com/api";
 
 export const RECENT_KEY = "lm-recently-viewed";
+export const SEARCH_KEY = "lm-search-history";
 export const DEFAULT_LIMIT = 24;
 
-const LEGACY_KEYS = ["lm_recently_viewed", "recently_viewed", "loemart_recently_viewed"];
+const LEGACY_KEYS = [
+  "lm_recently_viewed",
+  "recently_viewed",
+  "loemart_recently_viewed",
+];
+
+export const TRENDING_SEARCHES = [
+  "iPhone 15",
+  "Samsung Galaxy",
+  "Wireless Earbuds",
+  "Smart Watch",
+  "Power Bank",
+  "Designer Perfume",
+  "Sneakers",
+  "Laptops",
+];
+
+/* ════════════════════════════════════════════════════════════
+   STRING & DATA UTILS
+════════════════════════════════════════════════════════════ */
+export const normalize = (str) =>
+  typeof str === "string" ? str.toLowerCase().trim() : "";
 
 /* ════════════════════════════════════════════════════════════
    IMAGE RESOLVER
@@ -82,6 +104,45 @@ export function isProductAvailable(product) {
 
   return true;
 }
+
+/* ════════════════════════════════════════════════════════════
+   SEARCH HISTORY HELPERS
+════════════════════════════════════════════════════════════ */
+export const getSearchHistory = () => {
+  try {
+    const raw = localStorage.getItem(SEARCH_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+export const addToSearchHistory = (term) => {
+  if (!term || typeof term !== "string") return;
+  const cleaned = term.trim();
+  if (!cleaned) return;
+
+  try {
+    const list = getSearchHistory();
+    const filtered = list.filter(
+      (item) => item.toLowerCase() !== cleaned.toLowerCase()
+    );
+    filtered.unshift(cleaned);
+    localStorage.setItem(SEARCH_KEY, JSON.stringify(filtered.slice(0, 10)));
+  } catch (e) {
+    console.error("addToSearchHistory error:", e);
+  }
+};
+
+export const clearSearchHistory = () => {
+  try {
+    localStorage.removeItem(SEARCH_KEY);
+  } catch (e) {
+    console.error("clearSearchHistory error:", e);
+  }
+};
 
 /* ════════════════════════════════════════════════════════════
    RECENTLY VIEWED (BASED ON YOUR VIEWS) HELPERS
