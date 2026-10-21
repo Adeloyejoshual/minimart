@@ -1,13 +1,13 @@
 /**
  * routes/market/helpers.js
- * Shared helpers for all market routes.
+ * Shared helpers and constants for all market API routes.
  */
 
 import { pool }                          from "../../config/db.js";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 /* ══════════════════════════════════════════════════════════════
-   R2 CLIENT
+   R2 STORAGE CLIENT
 ══════════════════════════════════════════════════════════════ */
 const r2 = new S3Client({
   region     : process.env.R2_REGION ?? "auto",
@@ -21,7 +21,7 @@ const r2 = new S3Client({
 const R2_BUCKET = process.env.R2_BUCKET_NAME;
 
 /* ══════════════════════════════════════════════════════════════
-   CONSTANTS
+   CONSTANTS & MAPS
 ══════════════════════════════════════════════════════════════ */
 export const MAX_IMAGES    = 8;
 export const DEFAULT_LIMIT = 24;
@@ -39,11 +39,10 @@ export const SORT_MAP = {
 
 /* ══════════════════════════════════════════════════════════════
    FULL PRODUCT SELECT
-   Cockroach-safe:
-   - NO GROUP BY
-   - correlated subqueries for child collections
-   - uses "name" column on market.users (not "full_name")
-   - uses "status" column on market.users (not "is_active")
+   CockroachDB safe:
+   - NO GROUP BY clause
+   - Correlated subqueries for arrays & collections
+   - References market.users: name (not full_name), status (not is_active)
 ══════════════════════════════════════════════════════════════ */
 export const FULL_PRODUCT_SELECT = `
   SELECT
@@ -135,7 +134,7 @@ export const FULL_PRODUCT_SELECT = `
 
 export const GROUP_BY = "";
 
-/* ── Public visibility conditions ── */
+/* ── Public Visibility Rules ── */
 export const PUBLIC_CONDITIONS = [
   "p.status IN ('approved', 'active')",
   "p.is_active = true",
@@ -145,17 +144,19 @@ export const PUBLIC_CONDITIONS = [
 ];
 
 export function isPublicProduct(product) {
+  if (!product) return false;
+  const validStatus = product.status === "approved" || product.status === "active";
   return (
-    (product.status === "approved" || product.status === "active") &&
-    product.is_active  === true  &&
+    validStatus &&
+    product.is_active  === true &&
     product.is_hidden  === false &&
     product.is_paused  === false &&
-    product.deleted_at === null
+    (product.deleted_at === null || product.deleted_at === undefined)
   );
 }
 
 /* ══════════════════════════════════════════════════════════════
-   PAGINATION
+   PAGINATION HELPERS
 ══════════════════════════════════════════════════════════════ */
 export function paginate(query) {
   const limit  = Math.min(parseInt(query.limit,  10) || DEFAULT_LIMIT, MAX_LIMIT);
@@ -175,9 +176,14 @@ export function safeSort(sort) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   STRING HELPERS
+   STRING & DATA SANITIZERS
 ══════════════════════════════════════════════════════════════ */
-export function safeStr(val, max = 500) {
+
+/**
+ * Clean & truncate text input.
+ * Default max character limit is set to 2500 to support long product descriptions.
+ */
+export function safeStr(val, max = 2500) {
   if (typeof val !== "string") return null;
   const t = val.trim();
   return t.length ? t.slice(0, max) : null;
@@ -192,7 +198,7 @@ export function parseJSON(raw, fallback = []) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   RESPONSE HELPERS
+   HTTP RESPONSE FORMATTERS
 ══════════════════════════════════════════════════════════════ */
 export const ok = (res, data = {}, status = 200) =>
   res.status(status).json({ success: true, ...data });
@@ -204,14 +210,13 @@ export const fail = (res, status, message) =>
    CHILD TABLE HELPERS
    ─────────────────────────────────────────────────────────────
    insertList / replaceList try with "position" column first.
-   If the column does not exist (42703) they retry without it.
-   This makes them resilient to schema variations across envs.
+   If the column does not exist (error 42703) they fallback safely.
 ══════════════════════════════════════════════════════════════ */
 export async function insertList(client, table, column, productId, items) {
   if (!Array.isArray(items)) return;
 
   for (let i = 0; i < items.length; i++) {
-    const val = safeStr(String(items[i] ?? ""));
+    const val = safeStr(String(items[i] ?? ""), 2500);
     if (!val) continue;
 
     try {
@@ -223,7 +228,7 @@ export async function insertList(client, table, column, productId, items) {
       );
     } catch (err) {
       if (err.code === "42703") {
-        /* position column does not exist — insert without it */
+        /* position column missing — insert without it */
         await client.query(
           `INSERT INTO market.${table} (product_id, ${column})
            VALUES ($1, $2)`,
@@ -247,9 +252,8 @@ export async function replaceList(client, table, column, productId, items) {
 /* ══════════════════════════════════════════════════════════════
    REPLACE SPECS
    ─────────────────────────────────────────────────────────────
-   Tries spec_key / spec_value columns first (your current schema).
-   Falls back to label / value if those don't exist.
-   Also tries with / without position column.
+   Supports spec_key/spec_value or label/value columns, with or
+   without position column.
 ══════════════════════════════════════════════════════════════ */
 export async function replaceSpecs(client, productId, specs) {
   await client.query(
@@ -260,12 +264,11 @@ export async function replaceSpecs(client, productId, specs) {
   if (!Array.isArray(specs) || !specs.length) return;
 
   for (let i = 0; i < specs.length; i++) {
-    /* Support both { key, value } and { label, value } shapes */
-    const k = safeStr(specs[i]?.key   ?? specs[i]?.label);
-    const v = safeStr(specs[i]?.value);
+    const k = safeStr(specs[i]?.key   ?? specs[i]?.label, 250);
+    const v = safeStr(specs[i]?.value, 1000);
     if (!k || !v) continue;
 
-    /* Try spec_key / spec_value with position */
+    /* 1. Try spec_key / spec_value with position */
     try {
       await client.query(
         `INSERT INTO market.product_specifications
@@ -276,10 +279,9 @@ export async function replaceSpecs(client, productId, specs) {
       continue;
     } catch (err) {
       if (err.code !== "42703") throw err;
-      /* column name mismatch — try alternatives below */
     }
 
-    /* Try spec_key / spec_value without position */
+    /* 2. Try spec_key / spec_value without position */
     try {
       await client.query(
         `INSERT INTO market.product_specifications
@@ -292,7 +294,7 @@ export async function replaceSpecs(client, productId, specs) {
       if (err.code !== "42703") throw err;
     }
 
-    /* Try label / value with position */
+    /* 3. Try label / value with position */
     try {
       await client.query(
         `INSERT INTO market.product_specifications
@@ -305,7 +307,7 @@ export async function replaceSpecs(client, productId, specs) {
       if (err.code !== "42703") throw err;
     }
 
-    /* Try label / value without position */
+    /* 4. Try label / value without position */
     await client.query(
       `INSERT INTO market.product_specifications
          (product_id, label, value)
@@ -333,8 +335,8 @@ export async function replaceVariants(client, productId, rawVariants) {
   const seen = new Set();
 
   for (const v of variants) {
-    const sku  = safeStr(String(v?.sku ?? ""))?.toUpperCase();
-    const name = safeStr(v?.name);
+    const sku  = safeStr(String(v?.sku ?? ""), 100)?.toUpperCase();
+    const name = safeStr(v?.name, 250);
 
     if (!sku || !name) continue;
 
