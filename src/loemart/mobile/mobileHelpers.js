@@ -3,7 +3,7 @@
  *
  * Production Mobile Helpers, Hooks, and Constants.
  * Engineered for absolute responsiveness and zero simulated data layers.
- * Haptic / vibration is intentionally disabled.
+ * Auto-prunes deleted and sold-out products from local browser storage.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -15,7 +15,6 @@ import { Flame, Sparkles, ShieldCheck } from "lucide-react";
 /* ═══════════════════════════════════════════════════════════════
    ENVIRONMENT VARIABLES & STORAGE KEYS
 ═══════════════════════════════════════════════════════════════ */
-// Safe API URL resolution (prevents double slashes)
 const RAW = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 export const API = RAW ? (RAW.endsWith("/api") ? RAW : `${RAW}/api`) : "/api";
 
@@ -103,7 +102,6 @@ export const calcDiscount = (p) => {
 
 /* ── BULLETPROOF IMAGE RESOLVER ── */
 export const primaryImg = (images, product = null) => {
-  // 1. Try product-level direct properties first
   if (product) {
     const direct =
       product.thumbnail ||
@@ -116,7 +114,6 @@ export const primaryImg = (images, product = null) => {
 
   if (!images) return null;
 
-  // 2. Handle Stringified JSON arrays (common in some APIs)
   if (typeof images === "string") {
     const s = images.trim();
     if (s.startsWith("http") || s.startsWith("/")) return s;
@@ -130,7 +127,6 @@ export const primaryImg = (images, product = null) => {
     return null;
   }
 
-  // 3. Handle actual Arrays
   if (Array.isArray(images) && images.length > 0) {
     const first = images.find((i) => i && i.is_primary) ?? images[0];
     if (typeof first === "string") return first;
@@ -162,7 +158,6 @@ export const loadCart = () => {
 export const saveCart = (cart) => {
   try {
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    // Immediately notify other components listening to storage/updates
     window.dispatchEvent(new Event("cart-updated"));
   } catch (err) {
     console.error("[Helper] LocalStorage Cart save failed:", err);
@@ -196,11 +191,19 @@ export const getCartCount = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED
+   RECENTLY VIEWED ENGINE (Auto-Filters Deleted & Out-Of-Stock)
 ═══════════════════════════════════════════════════════════════ */
 export const getRecentlyViewed = () => {
   try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    return raw.filter((p) => {
+      if (!p) return false;
+      // Filter out deleted, sold out, or out of stock items
+      if (p.deleted || p.status === "deleted" || p.status === "out_of_stock" || p.status === "sold_out") return false;
+      if (p.is_sold_out || p.sold_out) return false;
+      if (p.stock !== undefined && p.stock !== null && Number(p.stock) <= 0) return false;
+      return true;
+    });
   } catch {
     return [];
   }
@@ -208,6 +211,12 @@ export const getRecentlyViewed = () => {
 
 export const addToRecentlyViewed = (product) => {
   if (!product?.id) return;
+  
+  // Do NOT save deleted or out of stock items
+  if (product.status === "deleted" || product.status === "out_of_stock" || product.status === "sold_out") return;
+  if (product.stock !== undefined && product.stock !== null && Number(product.stock) <= 0) return;
+  if (product.is_sold_out || product.sold_out) return;
+
   try {
     const list = getRecentlyViewed().filter((p) => p.id !== product.id);
     list.unshift({
@@ -216,10 +225,57 @@ export const addToRecentlyViewed = (product) => {
       price: product.price || product.selling_price,
       image: primaryImg(product.images, product),
       slug: product.slug ?? product.id,
+      stock: product.stock ?? 1,
+      status: product.status ?? "active",
+      is_sold_out: false,
     });
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
   } catch (err) {
     console.warn("[Helper] Failed to update recently viewed:", err);
+  }
+};
+
+export const clearRecentlyViewed = () => {
+  try {
+    localStorage.removeItem(RECENT_KEY);
+  } catch {}
+};
+
+/**
+ * Validates locally stored recently viewed items against the live backend API.
+ * Any item that no longer exists (404), is deleted, or is out of stock (stock <= 0)
+ * is automatically pruned from browser localStorage.
+ */
+export const syncRecentlyViewed = async () => {
+  try {
+    const list = getRecentlyViewed();
+    if (!list.length) return [];
+
+    const checks = await Promise.allSettled(
+      list.map((item) =>
+        fetch(`${API}/products/${item.id}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .catch(() => null)
+      )
+    );
+
+    const validList = [];
+    checks.forEach((res, idx) => {
+      if (res.status === "fulfilled" && res.value?.data) {
+        const live = res.value.data;
+        const isLiveActive = live.status === "active" && !live.deleted_at;
+        const isLiveInStock = Number(live.stock ?? 1) > 0 && !live.is_sold_out;
+
+        if (isLiveActive && isLiveInStock) {
+          validList.push(list[idx]);
+        }
+      }
+    });
+
+    localStorage.setItem(RECENT_KEY, JSON.stringify(validList));
+    return validList;
+  } catch {
+    return getRecentlyViewed();
   }
 };
 
@@ -247,7 +303,7 @@ export const addToSearchHistory = (q) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   REAL-TIME COUNTDOWN HOOK (Consumes target event dates)
+   REAL-TIME COUNTDOWN HOOK
 ═══════════════════════════════════════════════════════════════ */
 export function useCountdown(targetDate) {
   const [timeLeft, setTimeLeft] = useState({
@@ -324,8 +380,7 @@ export function useFadeIn() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   TACTILE HAPTIC TRIGGER — DISABLED (no vibrate)
-   Kept as a no-op so existing haptic() calls never crash.
+   TACTILE HAPTIC TRIGGER (No-op)
 ═══════════════════════════════════════════════════════════════ */
 export const haptic = () => {};
 
@@ -335,8 +390,6 @@ export const haptic = () => {};
 export const getDeliveryEstimate = () => {
   const now = new Date();
   const minDelivery = new Date(now);
-
-  // Standard delivery: 2-3 business days
   minDelivery.setDate(minDelivery.getDate() + 2);
 
   return minDelivery.toLocaleDateString("en-NG", {
