@@ -5,7 +5,7 @@
  * variant-aware stock checks, and infinite scrolling.
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -34,6 +34,7 @@ import {
   API,
   getRecentlyViewed,
   syncRecentlyViewed,
+  isProductAvailable,
 } from "./mobileHelpers";
 import "./styles/Minimart.css";
 
@@ -55,49 +56,11 @@ const PROMO_CATEGORIES = [
 ];
 
 /* ══════════════════════════════════════════════════════════════
-   STOCK EVALUATOR
-══════════════════════════════════════════════════════════════ */
-function isInStock(product) {
-  if (!product) return false;
-
-  // 1. Explicit out-of-stock markers
-  if (
-    product.is_out_of_stock === true ||
-    product.out_of_stock === true ||
-    product.stock_status === "out_of_stock" ||
-    product.status === "out_of_stock"
-  ) {
-    return false;
-  }
-
-  // 2. Check variant stock sum if variants exist
-  if (Array.isArray(product.variants) && product.variants.length > 0) {
-    const totalVariantStock = product.variants.reduce((sum, v) => {
-      const q = Number(v?.stock ?? v?.quantity ?? 0);
-      return sum + (Number.isFinite(q) && q > 0 ? q : 0);
-    }, 0);
-    return totalVariantStock > 0;
-  }
-
-  // 3. Explicit numeric stock
-  const rawStock = product.stock ?? product.quantity;
-  if (rawStock !== null && rawStock !== undefined) {
-    const parsed = Number(rawStock);
-    if (Number.isFinite(parsed)) {
-      return parsed > 0;
-    }
-  }
-
-  // 4. Default for simple active products
-  return true;
-}
-
-/* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════ */
 export default function Minimart() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const searchInputRef = useRef(null);
 
   /* ── State ── */
@@ -125,11 +88,11 @@ export default function Minimart() {
 
   /* ── 1. Recently Viewed Auto-Pruning Sync ── */
   useEffect(() => {
-    // Fast initial load from localStorage
+    // Immediate local filter against deleted / out of stock items
     const local = getRecentlyViewed();
     setRecentlyViewed(local);
 
-    // Live backend validation against deleted / inactive items
+    // Live API sync to verify deletion or stock status
     syncRecentlyViewed()
       .then((prunedList) => {
         setRecentlyViewed(prunedList);
@@ -180,10 +143,8 @@ export default function Minimart() {
           ? responseData
           : [];
 
-        // Strict soft-delete exclusion
-        const activeProducts = rawProducts.filter(
-          (p) => p && !p.deleted_at && p.status !== "deleted"
-        );
+        // Strict soft-delete & stock exclusion
+        const activeProducts = rawProducts.filter(isProductAvailable);
 
         if (isPageOne) {
           setProducts(activeProducts);
