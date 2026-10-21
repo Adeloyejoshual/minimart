@@ -1,8 +1,8 @@
 /**
- * src/loemart/mobile/Minimart.jsx
- * Loemart Mobile Homepage & Marketplace Catalog
- * Features: Auto-pruned Recently Viewed ("Based on your views"), live category filter,
- * variant-aware stock checks, and infinite scrolling.
+ * src/loemart/HomePageMobile.jsx
+ * Loemart Mobile Homepage
+ * Features: Auto-pruned Recently Viewed ("Based on your views"), live search & filter,
+ * variant-aware catalog, and smooth infinite scroll.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -29,14 +29,15 @@ import {
   AlertCircle,
 } from "lucide-react";
 
-import MasonryCard from "./MasonryCard";
+import MasonryCard from "./mobile/MasonryCard";
 import {
   API,
   getRecentlyViewed,
   syncRecentlyViewed,
   isProductAvailable,
-} from "./mobileHelpers";
-import "./styles/Minimart.css";
+} from "./mobile/mobileHelpers";
+
+import "./mobile/styles/Minimart.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS & STATIC DATA
@@ -58,7 +59,7 @@ const PROMO_CATEGORIES = [
 /* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════ */
-export default function Minimart() {
+export default function HomePageMobile() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const searchInputRef = useRef(null);
