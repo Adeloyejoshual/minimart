@@ -1,5 +1,5 @@
 /**
- * routes/market/public.js
+ * routes/market/getproducts.js
  *
  * GET /api/products         → Public product listing (with filters)
  * GET /api/products/:idOrSlug → Single product detail
