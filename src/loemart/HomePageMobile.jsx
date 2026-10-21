@@ -37,7 +37,7 @@ import {
   isProductAvailable,
 } from "./mobile/mobileHelpers";
 
-import "./mobile/styles/Minimart.css";
+import "../styles/Minimart.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS & STATIC DATA
