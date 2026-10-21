@@ -5,6 +5,7 @@
  * - Fixes Render deployment crash (No external helper imports)
  * - Bulk Campaign / Badge support
  * - Add/Edit full capabilities for Admins
+ * - Fixed soft-delete consistency (syncs status='deleted' with deleted_at timestamp)
  */
 
 import express from "express";
@@ -61,7 +62,7 @@ function logAdmin(adminId, action, targetId, details, meta = null) {
 function statusSideEffects(status, sets) {
   switch (status) {
     case "active":
-      sets.push("is_active = true", "is_paused = false", "is_flagged = false", "rejection_reason = NULL");
+      sets.push("is_active = true", "is_paused = false", "is_flagged = false", "rejection_reason = NULL", "deleted_at = NULL");
       break;
     case "rejected":
       sets.push("is_active = false", "is_paused = false");
@@ -70,8 +71,10 @@ function statusSideEffects(status, sets) {
       sets.push("is_active = false", "is_paused = true");
       break;
     case "sold":
-    case "deleted":
       sets.push("is_active = false", "is_paused = false");
+      break;
+    case "deleted":
+      sets.push("is_active = false", "is_paused = false", "deleted_at = NOW()");
       break;
     case "flagged":
       sets.push("is_flagged = true");
@@ -100,13 +103,12 @@ router.post("/", async (req, res) => {
       return bad(res, 400, "Name, price, and category are required");
     }
 
-    // Default to the Admin's own ID as the seller
     const sellerId = req.admin.id; 
 
     const { rows } = await pool.query(
       `INSERT INTO market.products 
-       (user_id, name, price, original_price, category, description, stock, status, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', true)
+       (user_id, name, price, original_price, category, description, stock, status, is_active, deleted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', true, NULL)
        RETURNING id, name`,
       [
         sellerId, 
@@ -173,7 +175,7 @@ router.get("/", async (req, res) => {
              p.condition, p.brand, p.status, p.is_active, p.is_flagged, p.is_featured, p.is_trending, 
              p.is_sponsored, p.is_hidden, p.is_paused, p.has_delivery, p.fraud_score, p.rejection_reason, 
              p.admin_notes, p.removed_reason, p.campaign_tag, p.badge, p.phone, p.created_at, 
-             p.updated_at, p.reviewed_by, p.reviewed_at,
+             p.updated_at, p.reviewed_by, p.reviewed_at, p.deleted_at,
              u.name AS seller_name, u.email AS seller_email, u.phone_number AS seller_phone
       FROM market.products p
       LEFT JOIN market.users u ON u.id = p.user_id
@@ -185,13 +187,13 @@ router.get("/", async (req, res) => {
     const countSql = `SELECT COUNT(*)::INT AS total FROM market.products p LEFT JOIN market.users u ON u.id = p.user_id ${where}`;
     const countsSql = `
       SELECT COUNT(*)::INT AS total,
-        COUNT(*) FILTER (WHERE status = 'pending')  ::INT AS pending,
-        COUNT(*) FILTER (WHERE status = 'active')   ::INT AS active,
-        COUNT(*) FILTER (WHERE status = 'rejected') ::INT AS rejected,
-        COUNT(*) FILTER (WHERE status = 'flagged')  ::INT AS flagged,
-        COUNT(*) FILTER (WHERE status = 'paused')   ::INT AS paused,
-        COUNT(*) FILTER (WHERE status = 'sold')     ::INT AS sold,
-        COUNT(*) FILTER (WHERE status = 'deleted')  ::INT AS deleted
+        COUNT(*) FILTER (WHERE status = 'pending')                      ::INT AS pending,
+        COUNT(*) FILTER (WHERE status = 'active' AND deleted_at IS NULL)::INT AS active,
+        COUNT(*) FILTER (WHERE status = 'rejected')                     ::INT AS rejected,
+        COUNT(*) FILTER (WHERE status = 'flagged')                      ::INT AS flagged,
+        COUNT(*) FILTER (WHERE status = 'paused')                       ::INT AS paused,
+        COUNT(*) FILTER (WHERE status = 'sold')                         ::INT AS sold,
+        COUNT(*) FILTER (WHERE status = 'deleted' OR deleted_at IS NOT NULL)::INT AS deleted
       FROM market.products
     `;
 
@@ -279,7 +281,7 @@ router.post("/:id/approve", async (req, res) => {
     if (!existing) return bad(res, 404, "Product not found");
 
     await pool.query(
-      `UPDATE market.products SET status = 'active', is_active = true, is_flagged = false, is_paused = false, rejection_reason = NULL, reviewed_by = $2, reviewed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      `UPDATE market.products SET status = 'active', is_active = true, is_flagged = false, is_paused = false, rejection_reason = NULL, deleted_at = NULL, reviewed_by = $2, reviewed_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [id, req.admin.id]
     );
 
@@ -487,7 +489,19 @@ router.post("/:id/remove", async (req, res) => {
     if (!reason) return bad(res, 400, "Reason required");
 
     await pool.query(
-      `UPDATE market.products SET status = 'deleted', is_active = false, is_paused = false, is_featured = false, is_trending = false, is_sponsored = false, removed_reason = $1, reviewed_by = $2, reviewed_at = NOW(), updated_at = NOW() WHERE id = $3`,
+      `UPDATE market.products 
+       SET status = 'deleted', 
+           deleted_at = NOW(), 
+           is_active = false, 
+           is_paused = false, 
+           is_featured = false, 
+           is_trending = false, 
+           is_sponsored = false, 
+           removed_reason = $1, 
+           reviewed_by = $2, 
+           reviewed_at = NOW(), 
+           updated_at = NOW() 
+       WHERE id = $3`,
       [reason, req.admin.id, id]
     );
 
