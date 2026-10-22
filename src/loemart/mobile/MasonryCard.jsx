@@ -1,6 +1,6 @@
 /**
  * src/loemart/mobile/MasonryCard.jsx
- * Product card — SVG ratings, rotating promo badges, type-safe cart, full high-stock (>1000) support
+ * Product card — SVG ratings, rotating promo badges, type-safe cart, multi-variant awareness.
  */
 
 import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -17,14 +17,14 @@ import {
   Sliders,
 } from "lucide-react";
 
-import { API, primaryImg } from "./mobileHelpers";
+import { API, primaryImg, formatPrice, parseNum } from "./mobileHelpers";
 import "./styles/MasonryCard.css";
 
 const CART_ITEMS_URL = `${API}/cart/items`;
 const CART_KEY = "mm_cart";
 
 /* ════════════════════════════════════════════════════════════
-   UTILS
+   AUTH & GUEST CART UTILS
 ════════════════════════════════════════════════════════════ */
 const isLoggedIn = () => {
   const t = localStorage.getItem("marketplace_token");
@@ -51,15 +51,6 @@ function writeGuestCart(cart) {
   window.dispatchEvent(new Event("cart-updated"));
 }
 
-const parseNum = (val) => {
-  if (val === null || val === undefined || val === "") return 0;
-  const n = Number(String(val).replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-};
-
-const formatPrice = (val) =>
-  val > 0 ? `₦${Number(val).toLocaleString("en-NG")}` : "₦0";
-
 /* ════════════════════════════════════════════════════════════
    TRANSPARENT SVG STARS  →  ★★★★☆ 4.2
 ════════════════════════════════════════════════════════════ */
@@ -84,7 +75,7 @@ const StarIcon = memo(function StarIcon({ filled = false, half = false }) {
         </defs>
       )}
 
-      {/* Empty / outline */}
+      {/* Outline */}
       <path
         d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
         stroke="currentColor"
@@ -121,7 +112,7 @@ const StarIcon = memo(function StarIcon({ filled = false, half = false }) {
 });
 
 const StarRating = memo(function StarRating({ rating }) {
-  const r = Number(rating);
+  const r = parseNum(rating);
   if (!Number.isFinite(r) || r <= 0) return null;
 
   const clamped = Math.min(Math.max(r, 0), 5);
@@ -152,7 +143,7 @@ const StarRating = memo(function StarRating({ rating }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   COMPONENT
+   MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 function MasonryCard({
   product,
@@ -201,16 +192,17 @@ function MasonryCard({
     free_delivery,
     seller_verified,
     variants,
-    has_variants,
     created_at,
     createdAt,
   } = product || {};
 
-  /* ── Core derived values ── */
-  const realId = String(id || product_id || _id || "");
+  /* ── Core Derived Values ── */
+  const realId = String(id || product_id || _id || "").trim();
   const displayTitle = title || name || "Untitled Product";
-  const displayImage =
-    primaryImg(product?.images, product) || "/placeholder.png";
+
+  const displayImage = useMemo(() => {
+    return primaryImg(product?.images, product) || "/placeholder.png";
+  }, [product]);
 
   const realPrice = parseNum(selling_price || price || sale_price);
   const displayOldPrice = parseNum(
@@ -224,61 +216,66 @@ function MasonryCard({
       market_price
   );
 
-  const displaySold = Number(sold ?? sold_count ?? 0) || 0;
+  const displaySold = parseNum(sold ?? sold_count);
 
-  /* ── Robust Stock Calculation (Supports High Stock > 1000) ── */
+  /* ── Real Multi-Variant Detection ── */
+  // If product has > 1 variant OR 1 variant with actual selection attributes, mark as hasVariants
+  const hasVariants = useMemo(() => {
+    if (!Array.isArray(variants) || variants.length === 0) return false;
+    if (variants.length > 1) return true;
+
+    const singleVariant = variants[0];
+    if (singleVariant?.attributes && typeof singleVariant.attributes === "object") {
+      const nonAttrValues = Object.values(singleVariant.attributes).filter(
+        (v) => v && String(v).trim() !== ""
+      );
+      if (nonAttrValues.length > 0) return true;
+    }
+    return false;
+  }, [variants]);
+
+  /* ── Stock Calculation ── */
   const variantStockSum = useMemo(() => {
     if (!Array.isArray(variants) || variants.length === 0) return 0;
     return variants.reduce((sum, v) => {
-      const vQty = Number(v?.stock ?? v?.quantity ?? 0);
-      return sum + (Number.isFinite(vQty) && vQty > 0 ? vQty : 0);
+      const vQty = parseNum(v?.stock ?? v?.quantity);
+      return sum + (vQty > 0 ? vQty : 0);
     }, 0);
   }, [variants]);
 
   const maxStock = useMemo(() => {
-    // 1. Explicit out-of-stock flags from API / database
+    // Explicit out-of-stock status check
     if (
       product?.is_out_of_stock === true ||
       product?.out_of_stock === true ||
       product?.stock_status === "out_of_stock" ||
-      product?.status === "out_of_stock"
+      product?.status === "out_of_stock" ||
+      product?.is_sold_out === true ||
+      product?.sold_out === true
     ) {
       return 0;
     }
 
-    // 2. If product has variants, use total variant stock sum
     if (Array.isArray(variants) && variants.length > 0) {
       return variantStockSum;
     }
 
-    // 3. Check explicit positive stock numbers (e.g., 500, 1500, 10000)
     const rawStock = stock ?? quantity;
     if (rawStock !== null && rawStock !== undefined) {
-      const parsed = Number(rawStock);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        return parsed;
-      }
+      const parsed = parseNum(rawStock);
+      if (parsed > 0) return parsed;
     }
 
-    // 4. Default for active simple products where stock isn't strictly capped in DB -> 1000 available
-    return 1000;
+    return 10; // Default stock assumption for active items
   }, [stock, quantity, variants, variantStockSum, product]);
 
   const inStock = maxStock > 0;
   const lowStock = inStock && maxStock <= 5;
 
-  const hasVariants = Boolean(
-    (Array.isArray(variants) && variants.length > 0) ||
-      has_variants ||
-      (Array.isArray(product?.options) && product.options.length > 0)
-  );
-
   const discountPct = useMemo(() => {
-    if (discount && Number(discount) > 0) return Math.round(Number(discount));
+    if (discount && parseNum(discount) > 0) return Math.round(parseNum(discount));
     if (displayOldPrice > realPrice && realPrice > 0) {
-      return Math.round(
-        ((displayOldPrice - realPrice) / displayOldPrice) * 100
-      );
+      return Math.round(((displayOldPrice - realPrice) / displayOldPrice) * 100);
     }
     return 0;
   }, [discount, displayOldPrice, realPrice]);
@@ -287,11 +284,10 @@ function MasonryCard({
   const savingsAmt = hasRealDiscount ? displayOldPrice - realPrice : 0;
 
   /* Genuine rating only */
-  const reviewCount = Number(review_count ?? reviews_count ?? 0);
-  const hasGenuineRating =
-    Number(rating) > 0 && (reviewCount > 0 || Number(rating) >= 1);
+  const reviewCount = parseNum(review_count ?? reviews_count);
+  const hasGenuineRating = parseNum(rating) > 0 && (reviewCount > 0 || parseNum(rating) >= 1);
 
-  /* ── Promo messages ── */
+  /* ── Promo Messages Rotator ── */
   const promoMessages = useMemo(() => {
     const list = [];
 
@@ -319,8 +315,7 @@ function MasonryCard({
       is_new ||
       (badge && String(badge).toLowerCase() === "new") ||
       (created_at || createdAt
-        ? Date.now() - new Date(created_at || createdAt).getTime() <
-          1000 * 60 * 60 * 24 * 14
+        ? Date.now() - new Date(created_at || createdAt).getTime() < 1000 * 60 * 60 * 24 * 14
         : false)
     ) {
       list.push({ id: "new", text: "✨ New", tone: "new" });
@@ -346,7 +341,6 @@ function MasonryCard({
     displaySold,
   ]);
 
-  /* ── Rotate promos ── */
   const [promoIdx, setPromoIdx] = useState(0);
 
   useEffect(() => {
@@ -361,7 +355,7 @@ function MasonryCard({
     setPromoIdx(0);
   }, [realId]);
 
-  /* ── Cart local state ── */
+  /* ── Cart Local State ── */
   const [localQty, setLocalQty] = useState(cartInfo?.qty ?? 0);
   const [localItemId, setLocalItemId] = useState(cartInfo?.itemId ?? null);
   const [busy, setBusy] = useState(false);
@@ -372,7 +366,7 @@ function MasonryCard({
     setLocalItemId(cartInfo?.itemId ?? null);
   }, [cartInfo?.qty, cartInfo?.itemId]);
 
-  /* ── Navigation ── */
+  /* ── Navigation Handlers ── */
   const handleOpen = useCallback(() => {
     if (realId || slug) navigate(`/shop/${slug || realId}`);
   }, [navigate, slug, realId]);
@@ -385,7 +379,7 @@ function MasonryCard({
     [onWishlist]
   );
 
-  /* ── Add to cart ── */
+  /* ── Add To Cart Handler ── */
   const handleAdd = useCallback(
     async (e) => {
       e.stopPropagation();
@@ -408,7 +402,7 @@ function MasonryCard({
         );
 
         if (idx >= 0) {
-          cart[idx].qty = (Number(cart[idx].qty) || 1) + 1;
+          cart[idx].qty = (parseNum(cart[idx].qty) || 1) + 1;
           setLocalQty(cart[idx].qty);
         } else {
           cart.push({
@@ -476,7 +470,7 @@ function MasonryCard({
     ]
   );
 
-  /* ── Qty + ── */
+  /* ── Qty + Handler ── */
   const handleIncrease = useCallback(() => {
     if (busy) return;
     if (localQty >= maxStock) {
@@ -520,7 +514,7 @@ function MasonryCard({
     }, 280);
   }, [busy, localQty, maxStock, localItemId, realId, onCartUpdate]);
 
-  /* ── Qty − ── */
+  /* ── Qty − Handler ── */
   const handleDecrease = useCallback(async () => {
     if (busy) return;
 
@@ -597,7 +591,7 @@ function MasonryCard({
 
   return (
     <article className="mcard" onClick={handleOpen}>
-      {/* ── Media ── */}
+      {/* ── Media Header ── */}
       <div className="mcard__media">
         <img
           src={displayImage}
@@ -681,7 +675,7 @@ function MasonryCard({
           )}
         </div>
 
-        {/* Rating + sold */}
+        {/* Rating + Sold Count */}
         <div className="mcard__meta">
           {hasGenuineRating && <StarRating rating={rating} />}
           {displaySold > 0 && (
@@ -701,7 +695,7 @@ function MasonryCard({
           </p>
         )}
 
-        {/* CTA */}
+        {/* Call to Action Button */}
         <div className="mcard__cta-wrap" onClick={(e) => e.stopPropagation()}>
           {localQty === 0 ? (
             <button
