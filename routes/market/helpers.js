@@ -135,11 +135,12 @@ export const FULL_PRODUCT_SELECT = `
 export const GROUP_BY = "";
 
 /* ── Public Visibility Rules ── */
+// FIX: Wrapped is_hidden and is_paused in COALESCE to prevent SQL from hiding rows where these are NULL
 export const PUBLIC_CONDITIONS = [
   "p.status IN ('approved', 'active')",
   "p.is_active = true",
-  "p.is_hidden = false",
-  "p.is_paused = false",
+  "COALESCE(p.is_hidden, false) = false",
+  "COALESCE(p.is_paused, false) = false",
   "p.deleted_at IS NULL",
 ];
 
@@ -148,9 +149,9 @@ export function isPublicProduct(product) {
   const validStatus = product.status === "approved" || product.status === "active";
   return (
     validStatus &&
-    product.is_active  === true &&
-    product.is_hidden  === false &&
-    product.is_paused  === false &&
+    product.is_active === true &&
+    (product.is_hidden === false || product.is_hidden == null) &&
+    (product.is_paused === false || product.is_paused == null) &&
     (product.deleted_at === null || product.deleted_at === undefined)
   );
 }
