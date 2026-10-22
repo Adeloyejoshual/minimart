@@ -2,8 +2,8 @@
  * src/pages/Minimart.jsx (Homepage)
  * 10/10 Production Ready: Menu Drawer, Fullscreen Search Routing, Masonry Grid, Type-Safe Cart Sync
  *
- * v2.2 Update:
- * ✓ Strict soft-delete & variant-aware stock availability evaluator (`isInStock`)
+ * v2.1 Fix:
+ * ✓ Fixed isInStock filter so newly posted products with variant stock or default stock aren't hidden
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -34,35 +34,21 @@ import {
 
 const CART_URL = `${API}/cart`;
 
-/* ── HELPER: FILTER OUT DELETED / SOLD OUT / OUT OF STOCK PRODUCTS ── */
+/* ── HELPER: FILTER OUT SOLD OUT / OUT OF STOCK PRODUCTS ── */
 const isInStock = (item) => {
   if (!item) return false;
-
-  // 1. Soft-deleted / Inactive / Hidden / Paused checks
-  if (
-    item.deleted_at ||
-    item.status === "deleted" ||
-    item.is_active === false ||
-    item.is_hidden === true ||
-    item.is_paused === true
-  ) {
-    return false;
-  }
-
-  // 2. Explicitly marked sold out or out of stock
+  
+  // Explicitly marked sold out or deleted
   if (item.is_sold_out || item.sold_out) return false;
-  if (item.status === "out_of_stock" || item.status === "sold_out") return false;
+  if (item.status === "out_of_stock" || item.status === "sold_out" || item.status === "deleted") return false;
   if (item.in_stock === false) return false;
 
-  // 3. Numeric stock evaluation with variant fallback
+  // Check numeric stock if explicitly defined
   const numStock = Number(item.stock);
   if (item.stock !== undefined && item.stock !== null && !isNaN(numStock) && numStock <= 0) {
-    // If main stock is 0, check if variants have available stock
+    // If main stock is 0, check if variants have stock before hiding
     if (Array.isArray(item.variants) && item.variants.length > 0) {
-      const totalVariantStock = item.variants.reduce(
-        (sum, v) => sum + (Number(v.stock ?? v.quantity ?? 0) || 0),
-        0
-      );
+      const totalVariantStock = item.variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
       if (totalVariantStock > 0) return true;
     }
     return false;
@@ -207,7 +193,7 @@ export default function Minimart({ user }) {
       const { data } = await axios.get(`${API}/products`, { params });
       const rawRows = data?.data?.products || [];
       
-      // Filter out deleted / sold-out / out of stock items automatically
+      // Filter out sold-out / out of stock items automatically
       const rows = rawRows.filter(isInStock);
       
       setProducts(prev => (append ? [...prev, ...rows] : rows));
