@@ -1,9 +1,5 @@
 /**
  * src/pages/Minimart.jsx (Homepage)
- * 10/10 Production Ready: Menu Drawer, Fullscreen Search Routing, Masonry Grid, Type-Safe Cart Sync
- *
- * v2.1 Fix:
- * ✓ Fixed isInStock filter so newly posted products with variant stock or default stock aren't hidden
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -34,26 +30,12 @@ import {
 
 const CART_URL = `${API}/cart`;
 
-/* ── HELPER: FILTER OUT SOLD OUT / OUT OF STOCK PRODUCTS ── */
-const isInStock = (item) => {
+/* ── HELPER: FILTER OUT ONLY DEAD / DELETED PRODUCTS ── */
+const isSellable = (item) => {
   if (!item) return false;
-  
-  // Explicitly marked sold out or deleted
-  if (item.is_sold_out || item.sold_out) return false;
-  if (item.status === "out_of_stock" || item.status === "sold_out" || item.status === "deleted") return false;
-  if (item.in_stock === false) return false;
-
-  // Check numeric stock if explicitly defined
-  const numStock = Number(item.stock);
-  if (item.stock !== undefined && item.stock !== null && !isNaN(numStock) && numStock <= 0) {
-    // If main stock is 0, check if variants have stock before hiding
-    if (Array.isArray(item.variants) && item.variants.length > 0) {
-      const totalVariantStock = item.variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
-      if (totalVariantStock > 0) return true;
-    }
-    return false;
-  }
-
+  if (["deleted", "rejected", "sold", "paused", "out_of_stock"].includes(item.status)) return false;
+  if (item.is_hidden === true || item.is_paused === true) return false;
+  if (item.is_sold_out || item.sold_out || item.in_stock === false) return false;
   return true;
 };
 
@@ -137,7 +119,7 @@ export default function Minimart({ user }) {
           }
         });
       } catch {
-        /* ignore fallback errors */
+        /* ignore guest cart errors */
       }
     }
 
@@ -155,17 +137,17 @@ export default function Minimart({ user }) {
     };
   }, [syncCart]);
 
-  /* ── DATA FETCHING (Marketing Rails - 1 Fast Call) ── */
+  /* ── DATA FETCHING (Marketing Rails) ── */
   useEffect(() => {
     axios.get(`${API}/products/home`, { params: { limit: 10 } })
       .then(({ data }) => {
         const d = data?.data || {};
-        setDeals((d.deals || []).filter(isInStock));
-        setHot((d.hot || []).filter(isInStock));
-        setTrending((d.trending || d.hot || []).filter(isInStock));
-        setNewArrivals((d.newArrivals || []).filter(isInStock));
+        setDeals((d.deals || []).filter(isSellable));
+        setHot((d.hot || []).filter(isSellable));
+        setTrending((d.trending || d.hot || []).filter(isSellable));
+        setNewArrivals((d.newArrivals || []).filter(isSellable));
         setCampaignTitle(d.campaignTitle || null);
-        setCampaignProducts((d.campaignProducts || []).filter(isInStock));
+        setCampaignProducts((d.campaignProducts || []).filter(isSellable));
       })
       .catch((err) => {
         console.error("Failed to load home rails", err);
@@ -191,10 +173,9 @@ export default function Minimart({ user }) {
       if (max && Number(max) > 0) params.maxPrice = max;
 
       const { data } = await axios.get(`${API}/products`, { params });
-      const rawRows = data?.data?.products || [];
+      const rawRows = data?.data?.products || data?.products || (Array.isArray(data) ? data : []);
       
-      // Filter out sold-out / out of stock items automatically
-      const rows = rawRows.filter(isInStock);
+      const rows = rawRows.filter(isSellable);
       
       setProducts(prev => (append ? [...prev, ...rows] : rows));
       setPagination(data?.data?.pagination || null);
