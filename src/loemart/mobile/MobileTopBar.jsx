@@ -1,283 +1,151 @@
-/**
- * src/loemart/mobile/MobileTopBar.jsx
- * Production-ready mobile marketplace top navigation
- */
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getWishlist, CART_KEY, haptic } from './mobileHelpers';
+import './styles/MobileTopBar.css';
 
-import { memo, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  FiSearch,
-  FiSliders,
-  FiX,
-  FiUser,
-  FiMenu,
-} from "react-icons/fi";
-
-import { TOP_CATEGORIES } from "../../config/topCategories";
-import { haptic } from "./mobileHelpers";
-import "./styles/MobileTopBar.css";
-
-const MobileTopBar = memo(function MobileTopBar({
-  searchQuery = "",
-  onSearchOpen,
-  onClearSearch,
-  activeCategory = "all",
-  onCategoryChange,
-  hasFilters = false,
-  onFilterOpen,
-  showFilters = false,
-  onMenuOpen,
+export default function MobileTopBar({
+  categories = [],
+  activeCategory = 'All',
+  onSelectCategory,
+  onOpenDrawer
 }) {
   const navigate = useNavigate();
-  const [scrolled, setScrolled] = useState(false);
+  const [cartCount, setCartCount] = useState(0);
+  const [wishCount, setWishCount] = useState(getWishlist().length);
 
-  /* ---------------------------------------------
-     Detect page scroll
-  --------------------------------------------- */
+  // Sync cart and wishlist counts from local storage events
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 8);
+    const updateCounts = () => {
+      try {
+        const cartRaw = localStorage.getItem(CART_KEY);
+        const cartItems = cartRaw ? JSON.parse(cartRaw) : [];
+        setCartCount(Array.isArray(cartItems) ? cartItems.length : 0);
+        setWishCount(getWishlist().length);
+      } catch (e) {
+        // ignore storage errors
+      }
     };
 
-    handleScroll();
-
-    window.addEventListener("scroll", handleScroll, {
-      passive: true,
-    });
+    updateCounts();
+    window.addEventListener('storage', updateCounts);
+    window.addEventListener('wishlist-updated', updateCounts);
+    window.addEventListener('loemart_cart_updated', updateCounts);
 
     return () => {
-      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener('storage', updateCounts);
+      window.removeEventListener('wishlist-updated', updateCounts);
+      window.removeEventListener('loemart_cart_updated', updateCounts);
     };
   }, []);
 
-  /* ---------------------------------------------
-     Search
-  --------------------------------------------- */
   const handleSearchClick = () => {
-    haptic(8);
-
-    if (onSearchOpen) {
-      onSearchOpen();
-      return;
-    }
-
-    navigate("/loemart/search");
+    haptic(10);
+    navigate('/search');
   };
 
-  /* ---------------------------------------------
-     Menu
-  --------------------------------------------- */
-  const handleMenuClick = () => {
-    haptic(8);
-    onMenuOpen?.();
-  };
-
-  /* ---------------------------------------------
-     Profile
-  --------------------------------------------- */
-  const handleProfileClick = () => {
-    haptic(8);
-    navigate("/profile");
-  };
-
-  /* ---------------------------------------------
-     Filter
-  --------------------------------------------- */
-  const handleFilterClick = () => {
-    haptic(8);
-    onFilterOpen?.();
-  };
-
-  /* ---------------------------------------------
-     Category Change
-  --------------------------------------------- */
-  const handleCategoryChange = (categoryId) => {
-    haptic(8);
-    onCategoryChange?.(categoryId);
-  };
+  const defaultCategories = ['All', 'Phones', 'Fashion', 'Beauty', 'Electronics', 'Computers', 'Watches'];
+  const displayCats = categories.length > 0 ? ['All', ...categories] : defaultCategories;
 
   return (
-    <header
-      className={`lmm-topbar ${
-        scrolled ? "lmm-topbar--scrolled" : ""
-      }`}
-    >
-      {/* =================================================
-          MAIN NAVIGATION
-      ================================================= */}
-      <div className="lmm-topbar__row">
-
-        {/* Menu */}
+    <header className="mtb-header-sticky">
+      {/* ROW 1: BRAND LOGO & ACTION ICONS */}
+      <div className="mtb-row-top">
         <button
-          type="button"
-          className="lmm-topbar__icon-btn"
-          onClick={handleMenuClick}
-          aria-label="Open menu"
+          className="mtb-menu-btn"
+          onClick={() => { haptic(12); onOpenDrawer && onOpenDrawer(); }}
+          aria-label="Open Menu"
         >
-          <FiMenu
-            size={22}
-            strokeWidth={2.2}
-          />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
         </button>
 
-        {/* Loemart Logo */}
-        <button
-          type="button"
-          className="lmm-topbar__logo"
-          onClick={() => navigate("/loemart")}
-          aria-label="Loemart Home"
-        >
-          <span
-            className="lmm-topbar__logo-icon"
-            aria-hidden="true"
-          >
-            🛍️
-          </span>
+        <div className="mtb-brand-logo" onClick={() => { haptic(10); navigate('/'); }}>
+          <span className="mtb-logo-icon">🛍️</span>
+          <span className="mtb-logo-text">Loemart</span>
+        </div>
 
-          <span className="lmm-topbar__logo-text">
-            Loemart
-          </span>
-        </button>
-
-        {/* Search */}
-        <button
-          type="button"
-          className="lmm-topbar__search-btn"
-          onClick={handleSearchClick}
-          aria-label="Search products"
-        >
-          <FiSearch
-            className="lmm-topbar__search-icon"
-            size={17}
-            strokeWidth={2.4}
-            aria-hidden="true"
-          />
-
-          <span className="lmm-topbar__search-placeholder">
-            {searchQuery || "Search products..."}
-          </span>
-
-          {searchQuery && (
-            <span
-              className="lmm-topbar__search-x"
-              onClick={(event) => {
-                event.stopPropagation();
-                haptic(6);
-                onClearSearch?.();
-              }}
-              role="button"
-              tabIndex={0}
-              aria-label="Clear search"
-              onKeyDown={(event) => {
-                if (
-                  event.key === "Enter" ||
-                  event.key === " "
-                ) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onClearSearch?.();
-                }
-              }}
-            >
-              <FiX
-                size={13}
-                strokeWidth={3}
-                aria-hidden="true"
-              />
-            </span>
-          )}
-        </button>
-
-        {/* Right-side actions */}
-        <div className="lmm-topbar__actions">
-
-          {/* Profile */}
+        <div className="mtb-actions-right">
           <button
-            type="button"
-            className="lmm-topbar__icon-btn"
-            onClick={handleProfileClick}
-            aria-label="My Profile"
+            className="mtb-icon-btn"
+            onClick={() => { haptic(10); navigate('/wishlist'); }}
+            aria-label="Wishlist"
           >
-            <FiUser
-              size={21}
-              strokeWidth={2.2}
-            />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+            </svg>
+            {wishCount > 0 && <span className="mtb-badge">{wishCount}</span>}
           </button>
 
-          {/* Filters */}
           <button
-            type="button"
-            className={`lmm-topbar__icon-btn ${
-              showFilters
-                ? "lmm-topbar__icon-btn--active"
-                : ""
-            }`}
-            onClick={handleFilterClick}
-            aria-label="Filter products"
-            aria-expanded={showFilters}
+            className="mtb-icon-btn"
+            onClick={() => { haptic(10); navigate('/cart'); }}
+            aria-label="Cart"
           >
-            <FiSliders
-              size={21}
-              strokeWidth={2.2}
-            />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+            </svg>
+            {cartCount > 0 && <span className="mtb-badge">{cartCount}</span>}
+          </button>
 
-            {hasFilters && (
-              <span
-                className="lmm-topbar__filter-dot"
-                aria-label="Filters active"
-              />
-            )}
+          <button
+            className="mtb-icon-btn"
+            onClick={() => { haptic(10); navigate('/profile'); }}
+            aria-label="Profile"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
           </button>
         </div>
       </div>
 
-      {/* =================================================
-          CATEGORY NAVIGATION (CURATED STRIP WITH ICONS)
-      ================================================= */}
-      <nav
-        className="lmm-topbar__cats"
-        aria-label="Product categories"
-      >
-        <div className="lmm-topbar__cats-inner">
-          {TOP_CATEGORIES.map((category) => {
-            const isActive =
-              activeCategory === category.id ||
-              activeCategory === category.slug ||
-              (activeCategory && activeCategory.toLowerCase() === category.name.toLowerCase());
+      {/* ROW 2: SEARCH BAR INPUT TARGET */}
+      <div className="mtb-row-search">
+        <div className="mtb-search-box" onClick={handleSearchClick}>
+          <svg className="mtb-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <span className="mtb-search-placeholder">Search products, brands, campaigns...</span>
+          <button className="mtb-filter-trigger" aria-label="Filters">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="4" y1="21" x2="4" y2="14" />
+              <line x1="4" y1="10" x2="4" y2="3" />
+              <line x1="12" y1="21" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12" y2="3" />
+              <line x1="20" y1="21" x2="20" y2="16" />
+              <line x1="20" y1="12" x2="20" y2="3" />
+              <line x1="1" y1="14" x2="7" y2="14" />
+              <line x1="9" y1="8" x2="15" y2="8" />
+              <line x1="17" y1="16" x2="23" y2="16" />
+            </svg>
+          </button>
+        </div>
+      </div>
 
-            const Icon = category.Icon;
-
+      {/* ROW 3: HORIZONTAL TOUCH CATEGORY STRIP */}
+      <div className="mtb-row-categories">
+        <div className="mtb-cat-scroll">
+          {displayCats.map((cat) => {
+            const isSelected = String(cat).toLowerCase() === String(activeCategory).toLowerCase();
             return (
               <button
-                key={category.id}
-                type="button"
-                className={`lmm-cat ${
-                  isActive ? "lmm-cat--on" : ""
-                }`}
-                onClick={() =>
-                  handleCategoryChange(category.id)
-                }
-                aria-pressed={isActive}
+                key={cat}
+                className={`mtb-cat-pill ${isSelected ? 'active' : ''}`}
+                onClick={() => onSelectCategory && onSelectCategory(cat)}
               >
-                {Icon && (
-                  <span
-                    className="lmm-cat__icon"
-                    aria-hidden="true"
-                  >
-                    <Icon size={16} strokeWidth={2} />
-                  </span>
-                )}
-
-                <span className="lmm-cat__label">
-                  {category.name}
-                </span>
+                {cat}
               </button>
             );
           })}
         </div>
-      </nav>
+      </div>
     </header>
   );
-});
-
-export default MobileTopBar;
+}
