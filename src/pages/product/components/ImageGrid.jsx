@@ -1,492 +1,124 @@
-/**
- * src/pages/product/components/ImageGrid.jsx
- *
- * v3.1 — INSTANT PREVIEW TILES
- *   • Previews render immediately using local Object URLs
- *   • Never-blank guarantees: minimum tile aspect-ratio
- *   • Skeleton shimmer while image is loading
- *   • Broken image placeholder when preview URL is invalid/revoked
- *   • Error overlay banner for validation errors
- */
+import React from 'react';
+import { X, AlertTriangle, AlertCircle, Plus, Image as ImageIcon } from 'lucide-react';
 
-import {
-  memo, useRef, useEffect, useCallback, useState,
-} from "react";
-import { WarningIcon, ImageIcon } from "./icons/index.jsx";
-import "./styles/ImageGrid.css";
-
-/* ═══════════════════════════════════════════════════════════════
-   CONSTANTS
-═══════════════════════════════════════════════════════════════ */
-const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_BYTES     = 5 * 1024 * 1024;   // 5 MB
-
-/* ═══════════════════════════════════════════════════════════════
-   SVG ICONS
-═══════════════════════════════════════════════════════════════ */
-const CheckIcon = ({ size = 11 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={3} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <polyline points="20 6 9 17 4 12" />
-  </svg>
-);
-
-const XIcon = ({ size = 11 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={3} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-);
-
-const RemoveIcon = () => (
-  <svg viewBox="0 0 14 14" width="10" height="10" fill="none"
-       stroke="currentColor" strokeWidth="2.2"
-       strokeLinecap="round" aria-hidden="true">
-    <line x1="1" y1="1" x2="13" y2="13" />
-    <line x1="13" y1="1" x2="1" y2="13" />
-  </svg>
-);
-
-const DragHandleIcon = () => (
-  <svg viewBox="0 0 20 20" width="14" height="14" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" aria-hidden="true">
-    <line x1="4" y1="6"  x2="16" y2="6" />
-    <line x1="4" y1="10" x2="16" y2="10" />
-    <line x1="4" y1="14" x2="16" y2="14" />
-  </svg>
-);
-
-const ArrowLeftIcon = ({ size = 12 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M19 12H5" />
-    <polyline points="12 19 5 12 12 5" />
-  </svg>
-);
-
-const ArrowRightIcon = ({ size = 12 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M5 12h14" />
-    <polyline points="12 5 19 12 12 19" />
-  </svg>
-);
-
-const InfoIcon = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="12" y1="8" x2="12" y2="12" />
-    <line x1="12" y1="16" x2="12.01" y2="16" strokeWidth={2.5} />
-  </svg>
-);
-
-const BrokenImageIcon = ({ size = 32 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-    <circle cx="8.5" cy="8.5" r="1.5" />
-    <path d="M21 15l-5-5L5 21" />
-    <line x1="3" y1="3" x2="21" y2="21" strokeWidth={2} />
-  </svg>
-);
-
-const RULES = [
-  { ok: true,  label: "JPEG / PNG / WebP"       },
-  { ok: true,  label: "Max 5 MB per image"      },
-  { ok: false, label: "No GIF or HEIC formats"  },
-];
-
-function ImageUploadRules() {
-  return (
-    <div className="image-upload-rules" aria-label="Upload requirements">
-      {RULES.map(({ ok, label }) => (
-        <span
-          key={label}
-          className={`image-rule image-rule--${ok ? "ok" : "no"}`}
-        >
-          {ok ? <CheckIcon size={11} /> : <XIcon size={11} />}
-          <span>{label}</span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SINGLE IMAGE THUMB
-═══════════════════════════════════════════════════════════════ */
-const ImageThumb = memo(function ImageThumb({
-  img,
-  index,
-  total,
-  error,
+export default function ImageGrid({
+  images = [],
   onRemove,
-  onMove,
-  onDragStart,
-  onDragEnter,
-  onDragEnd,
-  onTouchStart,
-  onTouchMove,
-  onTouchEnd,
+  onFileSelect,
+  maxImages = 8,
+  error = null,
+  warning = null,
 }) {
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [loaded,     setLoaded]     = useState(false);
-
-  useEffect(() => {
-    setLoadFailed(false);
-    setLoaded(false);
-  }, [img.preview, img.url]);
-
-  /* Fallback to preview or url directly */
-  const previewSrc = img.preview || img.url || "";
-  const hasValidPreview = typeof previewSrc === "string" && previewSrc.length > 0;
-  const showBroken      = !hasValidPreview || loadFailed;
-  const showError       = !!error || showBroken;
-  const errorMessage    = error || (showBroken ? "Preview unavailable" : "");
-  const draggable       = !showError;
+  const canAddMore = images.length < maxImages;
 
   return (
-    <div
-      className={`preview-thumb${showError ? " preview-thumb--error" : ""}`}
-      data-image-index={index}
-      draggable={draggable}
-      onDragStart={() => draggable && onDragStart(index)}
-      onDragEnter={() => onDragEnter(index)}
-      onDragEnd={onDragEnd}
-      onDragOver={(e) => e.preventDefault()}
-      onTouchStart={(e) => draggable && onTouchStart(e, index)}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      aria-label={[
-        `Image ${index + 1} of ${total}`,
-        index === 0 ? "— main photo" : "",
-        showError    ? `— ${errorMessage}` : "",
-      ].filter(Boolean).join(" ")}
-      style={{
-        cursor      : draggable ? "grab" : "default",
-        touchAction : "none",
-      }}
-    >
-      {!loaded && !showBroken && (
-        <div className="preview-skeleton" aria-hidden="true" />
-      )}
+    <div className="w-full space-y-3">
+      {/* Images Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        {images.map((img, index) => {
+          // Supports blob URLs, base64 strings, or uploaded URLs
+          const previewUrl = typeof img === 'string' ? img : (img.preview || img.url);
+          const hasError = !!img.error;
+          const hasWarning = !!img.warning;
 
-      {showBroken ? (
-        <div className="preview-broken-placeholder" aria-hidden="true">
-          <BrokenImageIcon size={32} />
-          <small>Image unavailable</small>
-        </div>
-      ) : (
-        <img
-          src={previewSrc}
-          alt={`Product image ${index + 1}`}
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-          className={
-            error ? "preview-img preview-img--error" : "preview-img"
-          }
-          onLoad={() => setLoaded(true)}
-          onError={() => setLoadFailed(true)}
-        />
-      )}
-
-      {showError && errorMessage && (
-        <div className="preview-error-overlay" role="alert">
-          <WarningIcon />
-          <span>{errorMessage}</span>
-        </div>
-      )}
-
-      <button
-        type="button"
-        className="preview-remove-btn"
-        aria-label={`Remove image ${index + 1}`}
-        onClick={() => onRemove(img.id)}
-      >
-        <RemoveIcon />
-      </button>
-
-      {!showError && (
-        <span className="preview-drag-handle" aria-hidden="true">
-          <DragHandleIcon />
-        </span>
-      )}
-
-      {index === 0 && !showError && (
-        <span className="preview-primary-badge">Main</span>
-      )}
-
-      {!showError && (
-        <div className="preview-reorder">
-          {index > 0 && (
-            <button
-              type="button"
-              aria-label="Move image left"
-              onClick={() => onMove(index, index - 1)}
+          return (
+            <div
+              key={img.id || index}
+              className={`relative group rounded-xl overflow-hidden aspect-square border-2 bg-slate-900/5 transition-all duration-150 ${
+                hasError
+                  ? 'border-red-500 ring-2 ring-red-500/20'
+                  : hasWarning
+                  ? 'border-amber-500 ring-2 ring-amber-500/20'
+                  : 'border-slate-200 hover:border-orange-400'
+              }`}
             >
-              <ArrowLeftIcon size={12} />
-            </button>
-          )}
-          {index < total - 1 && (
-            <button
-              type="button"
-              aria-label="Move image right"
-              onClick={() => onMove(index, index + 1)}
-            >
-              <ArrowRightIcon size={12} />
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-});
+              {/* Instant Image Thumbnail */}
+              <img
+                src={previewUrl}
+                alt={`Product detail ${index + 1}`}
+                className="w-full h-full object-cover"
+                loading="eager"
+                decoding="sync"
+              />
 
-/* ═══════════════════════════════════════════════════════════════
-   ADD IMAGE TILE
-═══════════════════════════════════════════════════════════════ */
-const AddImageTile = memo(function AddImageTile({
-  isDragging, onAdd, currentCount, maxImages,
-}) {
-  return (
-    <label
-      className={[
-        "add-image-box add-image-btn",
-        isDragging ? "add-image-btn--dragging" : "",
-      ].filter(Boolean).join(" ")}
-    >
-      <input
-        hidden
-        multiple
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        onChange={(e) => {
-          onAdd(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      <ImageIcon />
-      <span>{isDragging ? "Drop here" : "Add more"}</span>
-      <small>{currentCount}/{maxImages}</small>
-    </label>
-  );
-});
+              {/* First Image Indicator */}
+              {index === 0 && (
+                <span className="absolute top-2 left-2 bg-orange-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-md shadow-sm z-10">
+                  Cover Photo
+                </span>
+              )}
 
-/* ═══════════════════════════════════════════════════════════════
-   EMPTY STATE
-═══════════════════════════════════════════════════════════════ */
-const EmptyState = memo(function EmptyState({
-  isDragging, onAdd, maxImages,
-}) {
-  return (
-    <label className={[
-      "image-empty-state",
-      isDragging ? "image-empty-state--dragging" : "",
-    ].filter(Boolean).join(" ")}>
-      <input
-        hidden
-        multiple
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        onChange={(e) => {
-          onAdd(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      <span className="image-empty-icon" aria-hidden="true">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
-             strokeLinejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-          <circle cx="8.5" cy="8.5" r="1.5" />
-          <polyline points="21 15 16 10 5 21" />
-        </svg>
-      </span>
-      <span className="image-empty-title">
-        {isDragging ? "Drop images here" : "Tap to add photos"}
-      </span>
-      <span className="image-empty-sub">
-        Up to {maxImages} images · JPG, PNG, WebP · max 5 MB each
-      </span>
-    </label>
-  );
-});
+              {/* Delete Button */}
+              <button
+                type="button"
+                onClick={() => onRemove(index)}
+                className="absolute top-2 right-2 bg-black/70 hover:bg-red-600 text-white p-1.5 rounded-full backdrop-blur-sm transition-all z-20 hover:scale-105 active:scale-95"
+                title="Remove photo"
+              >
+                <X className="w-4 h-4" />
+              </button>
 
-/* ═══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
-═══════════════════════════════════════════════════════════════ */
-const ImageGrid = memo(function ImageGrid({
-  images,
-  imageErrors = {},
-  MAX_IMAGES  = 8,
-  canAddMore  = true,
-  isDragging,
-  dropZoneRef,
-  onDragEnter,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onRemove,
-  onMove,
-  onAdd,
-}) {
-  const dragItem      = useRef(null);
-  const dragOver      = useRef(null);
-  const touchItem     = useRef(null);
-  const touchCloneRef = useRef(null);
+              {/* Per-Image Warning / Error Banner (Displayed directly over the affected thumbnail) */}
+              {(hasError || hasWarning) && (
+                <div
+                  className={`absolute bottom-0 inset-x-0 p-1.5 text-xs font-medium backdrop-blur-md flex items-center gap-1.5 z-10 ${
+                    hasError ? 'bg-red-900/90 text-red-100' : 'bg-amber-900/90 text-amber-100'
+                  }`}
+                >
+                  {hasError ? (
+                    <AlertCircle className="w-3.5 h-3.5 text-red-300 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  )}
+                  <span className="truncate text-[11px] leading-tight">
+                    {img.error || img.warning}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
 
-  useEffect(() => () => {
-    touchCloneRef.current?.remove();
-    touchCloneRef.current = null;
-  }, []);
-
-  const handleSortStart = (i) => { dragItem.current = i; };
-  const handleSortEnter = (i) => { dragOver.current = i; };
-  const handleSortEnd   = () => {
-    const from = dragItem.current;
-    const to   = dragOver.current;
-    if (from !== null && to !== null && from !== to) onMove(from, to);
-    dragItem.current = null;
-    dragOver.current = null;
-  };
-
-  const handleTouchStart = useCallback((e, index) => {
-    touchCloneRef.current?.remove();
-    touchCloneRef.current = null;
-
-    touchItem.current = index;
-    const rect  = e.currentTarget.getBoundingClientRect();
-    const clone = e.currentTarget.cloneNode(true);
-
-    Object.assign(clone.style, {
-      position     : "fixed",
-      top          : `${rect.top}px`,
-      left         : `${rect.left}px`,
-      width        : `${rect.width}px`,
-      height       : `${rect.height}px`,
-      opacity      : "0.85",
-      zIndex       : "9999",
-      pointerEvents: "none",
-      borderRadius : "12px",
-      boxShadow    : "0 8px 24px rgba(0,0,0,.3)",
-      transform    : "scale(1.05)",
-      transition   : "none",
-    });
-
-    document.body.appendChild(clone);
-    touchCloneRef.current = clone;
-  }, []);
-
-  const handleTouchMove = useCallback((e) => {
-    e.preventDefault();
-    if (!touchCloneRef.current) return;
-
-    const touch = e.touches[0];
-    const rect  = touchCloneRef.current.getBoundingClientRect();
-
-    touchCloneRef.current.style.top  = `${touch.clientY - rect.height / 2}px`;
-    touchCloneRef.current.style.left = `${touch.clientX - rect.width  / 2}px`;
-
-    touchCloneRef.current.style.display = "none";
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    touchCloneRef.current.style.display = "";
-
-    const thumb = el?.closest("[data-image-index]");
-    if (thumb) {
-      const idx = parseInt(thumb.dataset.imageIndex, 10);
-      if (!Number.isNaN(idx)) dragOver.current = idx;
-    }
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    touchCloneRef.current?.remove();
-    touchCloneRef.current = null;
-
-    const from = touchItem.current;
-    const to   = dragOver.current;
-    if (from !== null && to !== null && from !== to) onMove(from, to);
-
-    touchItem.current = null;
-    dragOver.current  = null;
-  }, [onMove]);
-
-  const hasImages = images.length > 0;
-
-  return (
-    <div className="image-grid-wrapper">
-      <ImageUploadRules />
-
-      <div
-        ref={dropZoneRef}
-        className={[
-          "preview-grid-modern image-upload-box ap-image-box",
-          isDragging ? "ap-image-box--dragging" : "",
-        ].filter(Boolean).join(" ")}
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        aria-label={isDragging ? "Drop images here" : "Image upload area"}
-      >
-        {hasImages && images.map((img, index) => (
-          <ImageThumb
-            key={img.id}
-            img={img}
-            index={index}
-            total={images.length}
-            error={imageErrors[img.id]}
-            onRemove={onRemove}
-            onMove={onMove}
-            onDragStart={handleSortStart}
-            onDragEnter={handleSortEnter}
-            onDragEnd={handleSortEnd}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          />
-        ))}
-
-        {hasImages && canAddMore && (
-          <AddImageTile
-            isDragging={isDragging}
-            onAdd={onAdd}
-            currentCount={images.length}
-            maxImages={MAX_IMAGES}
-          />
-        )}
-
-        {!hasImages && canAddMore && (
-          <EmptyState
-            isDragging={isDragging}
-            onAdd={onAdd}
-            maxImages={MAX_IMAGES}
-          />
+        {/* Tap to Add Photos Dropzone Box */}
+        {canAddMore && (
+          <label className="relative flex flex-col items-center justify-center border-2 border-dashed border-orange-300 hover:border-orange-500 bg-orange-50/50 hover:bg-orange-50 rounded-xl aspect-square cursor-pointer transition-colors p-3 text-center group">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              onChange={onFileSelect}
+            />
+            <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              {images.length === 0 ? <ImageIcon className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+            </div>
+            <span className="text-xs font-semibold text-orange-700">
+              {images.length === 0 ? 'Tap to add photos' : 'Add More'}
+            </span>
+            <span className="text-[10px] text-slate-500 mt-0.5">
+              {images.length}/{maxImages} images
+            </span>
+          </label>
         )}
       </div>
 
-      {!canAddMore && (
-        <div className="image-limit-notice" role="status" aria-live="polite">
-          <span className="image-limit-notice-icon" aria-hidden="true">
-            <InfoIcon size={14} />
-          </span>
-          <span>
-            Maximum {MAX_IMAGES} images reached — remove one to add another.
-          </span>
+      {/* DIRECT INLINE FEEDBACK: Rendered directly beneath the affected photo grid */}
+      {(error || warning) && (
+        <div className="space-y-1.5 pt-1">
+          {error && (
+            <div className="flex items-start gap-2 text-xs font-medium text-red-700 bg-red-50 border border-red-200 p-2.5 rounded-lg animate-fadeIn">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+              <span>{error}</span>
+            </div>
+          )}
+          {warning && (
+            <div className="flex items-start gap-2 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 p-2.5 rounded-lg animate-fadeIn">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+              <span>{warning}</span>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
-});
-
-export default ImageGrid;
-export { ALLOWED_TYPES, MAX_BYTES };
+}
