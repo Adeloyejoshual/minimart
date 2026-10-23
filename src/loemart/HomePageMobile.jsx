@@ -1,140 +1,69 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
-import { 
-  FiSearch, FiHeart, FiShoppingCart, 
-  FiPackage, FiSliders, FiCheckCircle 
-} from "react-icons/fi";
+import { Search, ShoppingCart, Sliders } from "lucide-react";
 import categories from "../config/categories";
+
+// Import your advanced MasonryCard component
+import MasonryCard from "../loemart/mobile/MasonryCard";
 
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const DEFAULT_LIMIT = 20;
+const CART_KEY = "mm_cart";
 
-/* ═══════════════════════════════════════════════════════════════
-   RESILIENT PARSERS (Fixes the blank screen bugs)
-═══════════════════════════════════════════════════════════════ */
-const primaryImg = (images) => {
-  if (!images) return null;
-  let arr = images;
-  if (typeof images === "string") {
-    try { arr = JSON.parse(images); } catch { arr = [images]; }
-  }
-  if (!Array.isArray(arr) || !arr.length) return null;
-  const first = arr.find(i => i?.is_primary) || arr[0];
-  return typeof first === "string" ? first : (first?.url || first?.image_url || null);
-};
-
-const fmtPrice = (n) => `₦${Number(n || 0).toLocaleString("en-NG")}`;
-
-/* ═══════════════════════════════════════════════════════════════
-   CLEAN MOBILE CARD (Matches your brand & masonry grid)
-═══════════════════════════════════════════════════════════════ */
-function CleanMobileCard({ product }) {
-  const navigate = useNavigate();
-  const [added, setAdded] = useState(false);
-  const imgSrc = primaryImg(product.images);
-  
-  const handleAdd = (e) => {
-    e.stopPropagation();
-    setAdded(true);
-    // Add cart logic here
-    setTimeout(() => setAdded(false), 1500);
-  };
-
-  return (
-    <article 
-      onClick={() => navigate(`/shop/${product.slug ?? product.id}`)}
-      style={{
-        background: "var(--wh)",
-        borderRadius: "var(--r2)",
-        overflow: "hidden",
-        boxShadow: "var(--s1)",
-        display: "flex",
-        flexDirection: "column",
-        cursor: "pointer",
-        position: "relative"
-      }}
-    >
-      {/* Image Area */}
-      <div style={{ width: "100%", aspectRatio: "1", backgroundColor: "var(--bg)", position: "relative" }}>
-        {imgSrc ? (
-          <img 
-            src={imgSrc} 
-            alt={product.name} 
-            style={{ width: "100%", height: "100%", objectFit: "cover" }} 
-            loading="lazy" 
-          />
-        ) : (
-          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--bd2)" }}>
-            <FiPackage size={32} />
-          </div>
-        )}
-        
-        {/* Wishlist Button Overlay */}
-        <button 
-          style={{
-            position: "absolute", top: 8, right: 8,
-            background: "var(--wh)", border: "none",
-            width: 28, height: 28, borderRadius: "50%",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "var(--s1)", color: "var(--ink2)"
-          }}
-        >
-          <FiHeart size={14} />
-        </button>
-      </div>
-
-      {/* Info Area */}
-      <div style={{ padding: "10px 12px 14px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-        <h3 style={{ 
-          fontSize: 13, margin: 0, color: "var(--ink)", 
-          fontWeight: 600, display: "-webkit-box", 
-          WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" 
-        }}>
-          {product.name}
-        </h3>
-        
-        <div style={{ marginTop: "auto", paddingTop: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--ink)" }}>
-            {fmtPrice(product.price)}
-          </span>
-        </div>
-
-        {/* Brand Orange Cart Button */}
-        <button 
-          onClick={handleAdd}
-          style={{
-            marginTop: 8,
-            width: "100%", padding: "8px 0",
-            background: added ? "var(--gn)" : "var(--o-bg)",
-            color: added ? "var(--wh)" : "var(--o)",
-            border: "none", borderRadius: "var(--r1)",
-            fontSize: 12, fontWeight: 700,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            transition: "all 0.2s"
-          }}
-        >
-          {added ? <><FiCheckCircle size={14} /> Added</> : <><FiShoppingCart size={14} /> Add</>}
-        </button>
-      </div>
-    </article>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   MAIN PAGE
-═══════════════════════════════════════════════════════════════ */
 export default function HomePageMobile() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  /* ── State ── */
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [activeCat, setActiveCat] = useState("all");
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
+  
+  const [wishlist, setWishlist] = useState([]);
+  const [cartItems, setCartItems] = useState([]);
 
   const categoryList = useMemo(() => [{ id: "all", name: "All Items" }, ...categories], []);
 
+  /* ── Cart Sync (For Header Badge & Card Steppers) ── */
+  const syncCart = useCallback(() => {
+    try {
+      setCartItems(JSON.parse(localStorage.getItem(CART_KEY) || "[]"));
+    } catch {
+      setCartItems([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    syncCart();
+    window.addEventListener("cart-updated", syncCart);
+    return () => window.removeEventListener("cart-updated", syncCart);
+  }, [syncCart]);
+
+  // Map cart items for the MasonryCard to read its own quantity
+  const cartMap = useMemo(() => {
+    const map = {};
+    cartItems.forEach(i => {
+      map[i.productId || i.product_id] = { qty: i.qty, itemId: i.id };
+    });
+    return map;
+  }, [cartItems]);
+
+  const totalCartQty = useMemo(() => {
+    return cartItems.reduce((sum, item) => sum + (Number(item.qty) || 1), 0);
+  }, [cartItems]);
+
+  /* ── Wishlist Sync ── */
+  const toggleWishlist = (id) => {
+    setWishlist(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  /* ── Product Fetching ── */
   const fetchProducts = useCallback(async (newOffset = 0, cat = activeCat, q = searchQuery) => {
     setLoading(true);
     try {
@@ -156,6 +85,7 @@ export default function HomePageMobile() {
     }
   }, [activeCat, searchQuery]);
 
+  // Initial load & category changes
   useEffect(() => {
     fetchProducts(0);
   }, [fetchProducts]);
@@ -165,43 +95,65 @@ export default function HomePageMobile() {
       
       {/* ── BRAND ORANGE HEADER ── */}
       <header style={{ 
-        background: "var(--o)", /* Brand Orange */
+        background: "#ff6000", /* Loemart Brand Orange */
         padding: "env(safe-area-inset-top) 16px 16px",
         position: "sticky", top: 0, zIndex: 100,
-        boxShadow: "var(--s2)"
+        boxShadow: "0 4px 16px rgba(255, 96, 0, 0.15)"
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingTop: 12 }}>
-          {/* Logo Title (White on Orange) */}
-          <h1 style={{ margin: 0, color: "var(--wh)", fontSize: 22, fontWeight: 900, letterSpacing: "-0.03em" }}>
+          
+          {/* Logo Title */}
+          <h1 
+            onClick={() => { setActiveCat("all"); setSearchQuery(""); fetchProducts(0, "all", ""); }}
+            style={{ margin: 0, color: "#ffffff", fontSize: 24, fontWeight: 900, letterSpacing: "-0.03em", cursor: "pointer" }}
+          >
             Loemart
           </h1>
-          <button style={{ background: "transparent", border: "none", color: "var(--wh)", position: "relative" }}>
-            <FiShoppingCart size={24} />
+
+          {/* Cart Icon with Badge */}
+          <button 
+            onClick={() => navigate("/shop/cart")}
+            style={{ background: "transparent", border: "none", color: "#ffffff", position: "relative" }}
+          >
+            <ShoppingCart size={24} strokeWidth={2.2} />
+            {totalCartQty > 0 && (
+              <span style={{
+                position: "absolute", top: -6, right: -8,
+                background: "#ffffff", color: "#ff6000",
+                fontSize: 11, fontWeight: 800,
+                width: 18, height: 18, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+              }}>
+                {totalCartQty > 9 ? "9+" : totalCartQty}
+              </span>
+            )}
           </button>
         </div>
 
-        {/* Clean White Search Bar */}
+        {/* Clean Search Bar */}
         <div style={{ 
-          background: "var(--wh)", borderRadius: "var(--r-full)",
+          background: "#ffffff", borderRadius: "9999px",
           display: "flex", alignItems: "center", padding: "10px 16px",
           boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
         }}>
-          <FiSearch size={18} color="var(--ink3)" />
+          <Search size={18} color="#999999" />
           <input 
             type="search"
-            placeholder="Search for anything..."
+            placeholder="Search products, brands..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && fetchProducts(0)}
             style={{ 
               border: "none", background: "transparent", outline: "none",
-              width: "100%", marginLeft: 10, fontSize: 15, color: "var(--ink)"
+              width: "100%", marginLeft: 10, fontSize: 15, color: "#111111",
+              fontFamily: "inherit"
             }}
           />
         </div>
       </header>
 
-      {/* ── CATEGORY SCROLL ── */}
+      {/* ── CATEGORY PILL SCROLL ── */}
       <div style={{ 
         display: "flex", overflowX: "auto", gap: 8, padding: "16px",
         scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch"
@@ -212,11 +164,11 @@ export default function HomePageMobile() {
             onClick={() => setActiveCat(c.id)}
             style={{
               padding: "8px 16px", whiteSpace: "nowrap",
-              borderRadius: "var(--r-full)", border: "1px solid",
-              fontSize: 13, fontWeight: 700, transition: "all 0.2s",
-              background: activeCat === c.id ? "var(--o)" : "var(--wh)",
-              color: activeCat === c.id ? "var(--wh)" : "var(--ink)",
-              borderColor: activeCat === c.id ? "var(--o)" : "var(--bd)",
+              borderRadius: "9999px", border: "1px solid",
+              fontSize: 13, fontWeight: 700, transition: "all 0.2s ease",
+              background: activeCat === c.id ? "#ff6000" : "#ffffff",
+              color: activeCat === c.id ? "#ffffff" : "#111111",
+              borderColor: activeCat === c.id ? "#ff6000" : "#e9ecef",
             }}
           >
             {c.name}
@@ -224,7 +176,7 @@ export default function HomePageMobile() {
         ))}
       </div>
 
-      {/* ── CATALOG SECTION (Using your exact CSS classes) ── */}
+      {/* ── CATALOG SECTION ── */}
       <section className="mdp-psec mdp-psec--recommended">
         <div className="mm-catalog-head">
           <div>
@@ -234,25 +186,46 @@ export default function HomePageMobile() {
             <p className="mm-catalog-sub">Explore the marketplace</p>
           </div>
           <button className="mm-btn-filter-pill">
-            <FiSliders size={12} /> Filters
+            <Sliders size={12} /> Filters
           </button>
         </div>
 
-        {/* Exactly matching your grid class */}
+        {/* ── MASONRY GRID ── */}
         <div className="pr-masonry">
           {loading && offset === 0 
             ? Array.from({ length: 6 }).map((_, i) => <div key={i} className="pr-masonry-skel" />)
-            : products.map((product) => <CleanMobileCard key={product.id} product={product} />)
+            : products.map((product) => (
+                <MasonryCard 
+                  key={product.id || product.product_id}
+                  product={product} 
+                  isWished={wishlist.includes(product.id || product.product_id)}
+                  onWishlist={() => toggleWishlist(product.id || product.product_id)}
+                  cartInfo={cartMap[product.id || product.product_id] || null}
+                  onCartUpdate={syncCart}
+                />
+              ))
           }
         </div>
 
+        {/* ── EMPTY STATE ── */}
         {!loading && products.length === 0 && (
           <div className="mm-error">
-            <FiSearch size={40} color="var(--ink3)" />
+            <Search size={40} color="#999999" />
             <p style={{ marginTop: 16 }}>No items found.</p>
+            <button 
+              onClick={() => { setSearchQuery(""); setActiveCat("all"); fetchProducts(0, "all", ""); }}
+              style={{
+                marginTop: 8, background: "#ff6000", color: "#fff",
+                border: "none", padding: "10px 20px", borderRadius: 999,
+                fontWeight: "bold"
+              }}
+            >
+              Clear Search
+            </button>
           </div>
         )}
 
+        {/* ── LOAD MORE ── */}
         {hasMore && (
           <div className="pr-load-more-wrap">
             <button 
@@ -260,7 +233,7 @@ export default function HomePageMobile() {
               onClick={() => fetchProducts(offset + DEFAULT_LIMIT)}
               disabled={loading}
             >
-              {loading ? "Loading..." : "Load More"}
+              {loading ? "Loading..." : "Load More Products"}
             </button>
           </div>
         )}
