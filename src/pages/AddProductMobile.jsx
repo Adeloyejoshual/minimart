@@ -3,12 +3,13 @@
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
  *
- * v9 — COMPLETE REWRITE
+ * v9.1 — SILENT BACKGROUND COMPRESSION
  * ─────────────────────────────────────────────────────────────
  *  - MAX_IMAGES updated to 8
+ *  - Compression progress text banner removed (silent background processing)
+ *  - Instant previews rendered on selection
  *  - Phone number is optional
  *  - Clean separation of concerns
- *  - All v8 features maintained
  */
 
 import {
@@ -35,7 +36,7 @@ import "../styles/AddProduct.css";
 const API_BASE        = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const STORAGE_PAYMENT = "payment_retry";
 const DRAFT_VERSION   = 4;
-const MAX_IMAGES      = 8;           /* ✅ updated from 6 → 8 */
+const MAX_IMAGES      = 8;
 const UPLOAD_TIMEOUT  = 120_000;
 const PAYMENT_MAX_AGE = 30 * 60 * 1_000;
 const DRAFT_DELAY_MS  = 1_200;
@@ -61,7 +62,6 @@ const isValidPhone  = (v) =>
 
 /* ═══════════════════════════════════════════════════════════════
    ERROR → SELECTOR MAP
-   Used to scroll to the relevant field on error.
 ═══════════════════════════════════════════════════════════════ */
 const ERROR_SELECTOR_MAP = [
   { match: "Title",           sel: "#ap-title"               },
@@ -69,7 +69,6 @@ const ERROR_SELECTOR_MAP = [
   { match: "price",           sel: "#ap-price"               },
   { match: "Price",           sel: "#ap-price"               },
   { match: "Category",        sel: ".section:nth-of-type(2)" },
-  /* ✅ More specific — won't fire on missing/empty phone */
   { match: "Phone number",    sel: "#ap-phone"               },
   { match: "WhatsApp number", sel: "#ap-wa"                  },
   { match: "image",           sel: ".ap-image-box"           },
@@ -82,7 +81,6 @@ const ERROR_SELECTOR_MAP = [
 
 /* ═══════════════════════════════════════════════════════════════
    ERROR → FIELD KEY MAP
-   Used for inline field-level error highlighting.
 ═══════════════════════════════════════════════════════════════ */
 const ERROR_FIELD_MAP = [
   { match: "Title",           field: "title"         },
@@ -90,7 +88,6 @@ const ERROR_FIELD_MAP = [
   { match: "price",           field: "price"         },
   { match: "Price",           field: "price"         },
   { match: "Category",        field: "category"      },
-  /* ✅ More specific — only triggers on format error, not missing */
   { match: "Phone number",    field: "phone"         },
   { match: "WhatsApp number", field: "whatsapp"      },
   { match: "image",           field: "images"        },
@@ -129,9 +126,6 @@ const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token");
 
-/* ═══════════════════════════════════════════════════════════════
-   AUTH HELPER
-═══════════════════════════════════════════════════════════════ */
 const getTokenOrRedirect = (navigate, returnPath) => {
   const token = getToken();
   if (!token) {
@@ -145,9 +139,6 @@ const getTokenOrRedirect = (navigate, returnPath) => {
   return token;
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   PAYMENT URL SAFETY
-═══════════════════════════════════════════════════════════════ */
 const safeOpenPayment = (url, onError) => {
   try {
     const parsed = new URL(url);
@@ -175,9 +166,6 @@ const isValidPaymentSession = (obj) =>
   obj.authUrl.startsWith("https://") &&
   typeof obj.createdAt === "number";
 
-/* ═══════════════════════════════════════════════════════════════
-   IDEMPOTENCY HELPERS
-═══════════════════════════════════════════════════════════════ */
 const getOrCreateIdempotencyKey = (storageKey) => {
   const existing = sessionStorage.getItem(storageKey);
   if (existing) return existing;
@@ -189,9 +177,6 @@ const getOrCreateIdempotencyKey = (storageKey) => {
 const clearIdempotencyKey = (storageKey) =>
   sessionStorage.removeItem(storageKey);
 
-/* ═══════════════════════════════════════════════════════════════
-   NETWORK HELPER
-═══════════════════════════════════════════════════════════════ */
 const multipartRequest = async (
   url,
   method = "POST",
@@ -231,9 +216,6 @@ const multipartRequest = async (
   return data;
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   SCROLL HELPERS
-═══════════════════════════════════════════════════════════════ */
 const scrollToError = (msg) => {
   if (!msg) return;
   const entry = ERROR_SELECTOR_MAP.find((e) => msg.includes(e.match));
@@ -379,9 +361,8 @@ export default function AddProduct({ user }) {
 
   const {
     images, existingImages, removedImageKeys, totalImageCount,
-    compressingCount, compressingTotal,
     loadExistingImages, handleImages, removeImage,
-    removeExistingImage, moveImage, moveAllImages, resetImages,
+    removeExistingImage, moveAllImages, resetImages,
   } = useImageManager({
     showError  : (msg) => showErrorRef.current(msg),
     showSuccess: (msg) => showSuccessRef.current(msg),
@@ -442,9 +423,6 @@ export default function AddProduct({ user }) {
     message: "",
   });
 
-  /* ═══════════════════════════════════════════════════════════
-     FIELD ERROR HELPERS
-  ═══════════════════════════════════════════════════════════ */
   const clearFieldError = useCallback((field) => {
     setFieldError((prev) =>
       prev.field === field || !field
@@ -457,9 +435,6 @@ export default function AddProduct({ user }) {
     setFieldError({ field: null, message: "" });
   }, []);
 
-  /* ═══════════════════════════════════════════════════════════
-     FEEDBACK HELPERS
-  ═══════════════════════════════════════════════════════════ */
   const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
     setError(msg);
@@ -514,9 +489,6 @@ export default function AddProduct({ user }) {
     setWatermarkNotice("");
   }, []);
 
-  /* ═══════════════════════════════════════════════════════════
-     WRAPPED UPDATERS — clear field error on user edit
-  ═══════════════════════════════════════════════════════════ */
   const updateFormWithClear = useCallback((key, value) => {
     updateForm(key, value);
     const map = {
@@ -561,7 +533,6 @@ export default function AddProduct({ user }) {
     if (key === "to")   clearFieldError("delivery_to");
   }, [updateDeliveryDuration, clearFieldError]);
 
-  /* ─── Derived ─── */
   const selectedCategory = useMemo(
     () =>
       categories.find(
@@ -589,16 +560,10 @@ export default function AddProduct({ user }) {
   const isSelectedPlanPaid =
     !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
-  /* ═══════════════════════════════════════════════════════════
-     AUTO-SET EMAIL FROM REGISTRATION
-  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (user?.email) updateContact("email", user.email);
-  }, [user?.email]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.email]);
 
-  /* ═══════════════════════════════════════════════════════════
-     LOAD CATEGORIES
-  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     apiFetch(`${API_BASE}/addproduct/categories`)
       .then((data) => {
@@ -614,9 +579,6 @@ export default function AddProduct({ user }) {
       });
   }, [showError]);
 
-  /* ═══════════════════════════════════════════════════════════
-     LOAD PROMOTION PLANS
-  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) { setPlansLoading(false); return; }
     setPlansLoading(true);
@@ -637,9 +599,6 @@ export default function AddProduct({ user }) {
       });
   }, [isEditMode]);
 
-  /* ═══════════════════════════════════════════════════════════
-     LOAD PRODUCT FOR EDIT
-  ═══════════════════════════════════════════════════════════ */
   const loadProductForEdit = useCallback(async () => {
     if (!editId) return;
     const token = getTokenOrRedirect(
@@ -677,7 +636,6 @@ export default function AddProduct({ user }) {
         });
       }
 
-      /* Load existing images */
       if (p.product_images?.length > 0) {
         loadExistingImages(
           p.product_images.map((img) => ({
@@ -726,9 +684,6 @@ export default function AddProduct({ user }) {
     if (isEditMode && categoriesLoaded) loadProductForEdit();
   }, [isEditMode, categoriesLoaded, loadProductForEdit]);
 
-  /* ═══════════════════════════════════════════════════════════
-     RESUME STALE PAYMENT
-  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
     const check = async () => {
@@ -757,7 +712,6 @@ export default function AddProduct({ user }) {
           return;
         }
 
-        /* Stale — try to verify */
         if (session.reference) {
           const token = getToken();
           if (token) {
@@ -798,9 +752,6 @@ export default function AddProduct({ user }) {
     check();
   }, [isEditMode, showSuccess, safeRedirect]);
 
-  /* ═══════════════════════════════════════════════════════════
-     RESTORE DRAFT
-  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
     if (!categoriesLoaded || plansLoading) return;
@@ -838,9 +789,6 @@ export default function AddProduct({ user }) {
     STORAGE_DRAFT, loadForm, promotionPlans, user?.email,
   ]);
 
-  /* ═══════════════════════════════════════════════════════════
-     AUTO-SAVE DRAFT
-  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -848,7 +796,6 @@ export default function AddProduct({ user }) {
       if (!mountedRef.current) return;
       try {
         const { contact, ...restForm } = form;
-        /* Don't persist email in draft */
         const { email: _e, ...contactWithoutEmail } = contact ?? {};
 
         localStorage.setItem(
@@ -872,9 +819,6 @@ export default function AddProduct({ user }) {
     };
   }, [isEditMode, form, locationState, city, selectedPlan, STORAGE_DRAFT]);
 
-  /* ═══════════════════════════════════════════════════════════
-     GPS LOCATION DETECTION
-  ═══════════════════════════════════════════════════════════ */
   const detectLocation = useCallback(async () => {
     if (mountedRef.current) setDetectingLocation(true);
     try {
@@ -951,61 +895,46 @@ export default function AddProduct({ user }) {
     }
   }, [showError, showSuccess, clearFieldError]);
 
-  /* ═══════════════════════════════════════════════════════════
-     FORM VALIDATION
-     ✅ Phone is OPTIONAL — only validate format if provided
-  ═══════════════════════════════════════════════════════════ */
   const validateForm = useCallback(() => {
-    /* Title */
     const t = form.title?.trim() ?? "";
     if (!t)             return "Title required.";
     if (t.length > 120) return "Title must be at most 120 characters.";
 
-    /* Description */
     const d = form.description?.trim() ?? "";
     if (d.length < DESCRIPTION_MIN)
       return `Description must be at least ${DESCRIPTION_MIN} characters.`;
     if (d.length > 2_000)
       return "Description must be at most 2000 characters.";
 
-    /* Price */
     if (!form.price || Number(form.price) <= 0)
       return "Enter a valid price.";
     if (Number(form.price) > 1_000_000_000)
       return "Price exceeds maximum.";
 
-    /* Category */
     if (!form.category_id)
       return "Category required.";
 
-    /* ✅ Phone — OPTIONAL
-       Only validate format if user typed something */
     const rawPhone = form.contact?.phone;
     if (rawPhone && String(rawPhone).trim() !== "") {
       if (!isValidPhone(rawPhone))
         return "Phone number must be 7–15 digits (e.g. 08012345678).";
     }
 
-    /* ✅ WhatsApp — always optional */
     if (
       form.contact?.whatsapp &&
       !isValidPhone(form.contact.whatsapp)
     )
       return "WhatsApp number must be 7–15 digits.";
 
-    /* Images */
     if (totalImageCount === 0)
       return "At least one image is required.";
 
-    /* Location */
     if (!locationState || !city)
       return "Select your state and city.";
 
-    /* Terms */
     if (!isEditMode && !agreedToTerms)
       return "Please accept the Terms & Conditions.";
 
-    /* Delivery */
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
@@ -1025,11 +954,6 @@ export default function AddProduct({ user }) {
     city, agreedToTerms, isEditMode,
   ]);
 
-  /* ═══════════════════════════════════════════════════════════
-     BUILD FORM DATA
-     ✅ Phone/WhatsApp only appended if non-empty
-     ✅ Email never sent — fetched server-side from users table
-  ═══════════════════════════════════════════════════════════ */
   const buildBaseFormData = useCallback(() => {
     const fd = new FormData();
 
@@ -1048,29 +972,22 @@ export default function AddProduct({ user }) {
       user?.store_name || user?.name || BRAND_NAME
     );
 
-    /* ✅ Phone optional — only send if user filled it in */
     const cleanedPhone = sanitizePhone(form.contact?.phone ?? "");
     if (cleanedPhone) fd.append("phone", cleanedPhone);
 
-    /* ✅ WhatsApp always optional */
     const cleanedWa = sanitizePhone(form.contact?.whatsapp ?? "");
     if (cleanedWa) fd.append("whatsapp", cleanedWa);
 
-    /* WhatsApp link optional */
     const waLink = form.contact?.whatsapp_link ?? "";
     if (waLink) fd.append("whatsapp_link", waLink);
 
-    /* Attributes */
     fd.append("attributes", JSON.stringify({
       ...attributes,
       features: toArray(attributes.features),
     }));
 
-    /* Delivery */
     fd.append("delivery", JSON.stringify(form.delivery));
 
-    /* Contact — strip email + phone fields
-       (email lives in users table; phone sent separately above) */
     const {
       email       : _email,
       phone       : _phone,
@@ -1080,7 +997,6 @@ export default function AddProduct({ user }) {
     } = form.contact ?? {};
     fd.append("contact", JSON.stringify(restContact));
 
-    /* GPS coords */
     if (detectedCoords) {
       fd.append("latitude",  String(detectedCoords.latitude));
       fd.append("longitude", String(detectedCoords.longitude));
@@ -1124,9 +1040,6 @@ export default function AddProduct({ user }) {
     return fd;
   }, [buildBaseFormData, existingImages, removedImageKeys, images]);
 
-  /* ═══════════════════════════════════════════════════════════
-     PAYMENT ACTIONS
-  ═══════════════════════════════════════════════════════════ */
   const resumePayment = useCallback(() => {
     if (!paymentData?.authUrl) return;
     safeOpenPayment(paymentData.authUrl, showError);
@@ -1158,9 +1071,6 @@ export default function AddProduct({ user }) {
     }
   }, [paymentData, showSuccess]);
 
-  /* ═══════════════════════════════════════════════════════════
-     CLEAR DRAFT
-  ═══════════════════════════════════════════════════════════ */
   const clearDraft = useCallback(() => {
     if (!mountedRef.current) return;
     resetForm();
@@ -1190,9 +1100,6 @@ export default function AddProduct({ user }) {
     user?.email, updateContact, clearAllFieldErrors,
   ]);
 
-  /* ═══════════════════════════════════════════════════════════
-     POST SUCCESS HANDLER
-  ═══════════════════════════════════════════════════════════ */
   const handlePostSuccess = useCallback(
     (responseData) => {
       if (!mountedRef.current) return;
@@ -1205,7 +1112,6 @@ export default function AddProduct({ user }) {
       const respIsSubscriber =
         responseData?.is_subscriber ?? isSubscriber;
 
-      /* Watermark warnings */
       const warnings = Array.isArray(
         responseData?.watermark_warnings
       )
@@ -1217,7 +1123,6 @@ export default function AddProduct({ user }) {
         setWatermarkNotice(notice);
       }
 
-      /* Subscribe upsell */
       const upgradeMessage = responseData?.upgrade_message ?? null;
       const upgradeToNext  = responseData?.upgrade_to      ?? null;
       const upgradeUrlNext = responseData?.upgrade_url     ?? "/subscribe";
@@ -1281,9 +1186,6 @@ export default function AddProduct({ user }) {
     ]
   );
 
-  /* ═══════════════════════════════════════════════════════════
-     EDIT SUBMIT
-  ═══════════════════════════════════════════════════════════ */
   const handleEditSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
     if (!navigator.onLine) {
@@ -1358,9 +1260,6 @@ export default function AddProduct({ user }) {
     safeRedirect, clearAllFieldErrors,
   ]);
 
-  /* ═══════════════════════════════════════════════════════════
-     CREATE SUBMIT — CORE
-  ═══════════════════════════════════════════════════════════ */
   const runCreateSubmit = useCallback(
     async (forcedPlan = null) => {
       if (!navigator.onLine) {
@@ -1414,7 +1313,6 @@ export default function AddProduct({ user }) {
         await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
         if (!mountedRef.current) return;
 
-        /* ── Upload product ── */
         setProgressStep("uploading");
         const fd         = buildCreateFormData(isFreePlan);
         const uploadData = await multipartRequest(
@@ -1430,7 +1328,6 @@ export default function AddProduct({ user }) {
 
         fetchLimits();
 
-        /* ── Free plan — activate directly ── */
         if (isFreePlan) {
           setProgressStep("activating");
           const activateRes = await apiFetch(
@@ -1458,7 +1355,6 @@ export default function AddProduct({ user }) {
           return;
         }
 
-        /* ── Paid plan — initiate payment ── */
         setProgressStep("payment");
         const rawPrice     = Number(finalPlan.price);
         const discount     = Number(finalPlan.discount_percent ?? 0);
@@ -1480,7 +1376,6 @@ export default function AddProduct({ user }) {
               product_id     : product.id,
               idempotency_key:
                 getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
-              /* ✅ Email NOT sent — fetched server-side */
             }),
           }
         );
@@ -1520,7 +1415,6 @@ export default function AddProduct({ user }) {
         console.error("[AddProduct] create submit:", err);
         if (mountedRef.current) setProgressVisible(false);
 
-        /* ── Watermark policy error ── */
         if (
           err?.status === 400 &&
           err?.data?.reason === "watermark_policy"
@@ -1549,10 +1443,8 @@ export default function AddProduct({ user }) {
             "Please replace the flagged photo(s) with " +
             "original images and try again."
           );
-          /* Scroll to banner — no duplicate showError */
           scrollToTop();
 
-        /* ── Policy / limit errors ── */
         } else if (
           err?.status === 403 &&
           err?.data?.upgrade_required === true
@@ -1587,14 +1479,12 @@ export default function AddProduct({ user }) {
           }
           showError(err.message ?? "Posting limit reached.");
 
-        /* ── All other errors ── */
         } else {
           showError(
             err.message ?? "Submission failed — please try again"
           );
         }
 
-        /* Clean up orphaned product */
         if (product?.id && !paymentInitiated) {
           const token = getToken();
           if (token) {
@@ -1625,10 +1515,6 @@ export default function AddProduct({ user }) {
     ]
   );
 
-  /* ═══════════════════════════════════════════════════════════
-     CREATE SUBMIT — ENTRY POINT
-     Checks if paid plan requires verification first.
-  ═══════════════════════════════════════════════════════════ */
   const handleCreateSubmit = useCallback(() => {
     if (isSubmittingRef.current) return;
 
@@ -1640,7 +1526,6 @@ export default function AddProduct({ user }) {
     const isPaidPlan =
       !!finalPlan && Number(finalPlan.price) > 0;
 
-    /* Unverified seller trying to buy paid plan */
     if (isPaidPlan && !isVerifiedSeller) {
       setShowVerifyBeforePay(true);
       return;
@@ -1650,7 +1535,6 @@ export default function AddProduct({ user }) {
     runCreateSubmit();
   }, [selectedPlan, promotionPlans, isVerifiedSeller, runCreateSubmit]);
 
-  /* ─── Verify Before Pay modal handlers ─── */
   const handleVerifyBeforePayVerify = useCallback(() => {
     setShowVerifyBeforePay(false);
     navigate("/verification");
@@ -1669,16 +1553,12 @@ export default function AddProduct({ user }) {
     runCreateSubmit(freePlan);
   }, [promotionPlans, runCreateSubmit]);
 
-  /* ─── Unified submit handler ─── */
   const handleSubmit = useCallback(
     () =>
       isEditMode ? handleEditSubmit() : handleCreateSubmit(),
     [isEditMode, handleEditSubmit, handleCreateSubmit]
   );
 
-  /* ═══════════════════════════════════════════════════════════
-     TERMS CHECKBOX (memoised)
-  ═══════════════════════════════════════════════════════════ */
   const termsCheckboxEl = useMemo(
     () => (
       <TermsCheckbox
@@ -1689,9 +1569,6 @@ export default function AddProduct({ user }) {
     [agreedToTerms, setAgreedToTermsWithClear]
   );
 
-  /* ═══════════════════════════════════════════════════════════
-     EDIT LOADING / ERROR SCREENS
-  ═══════════════════════════════════════════════════════════ */
   if (isEditMode && editLoading) {
     return (
       <div className="apd-page">
@@ -1718,9 +1595,6 @@ export default function AddProduct({ user }) {
     );
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     RENDER
-  ═══════════════════════════════════════════════════════════ */
   return (
     <div className="apd-page">
 
@@ -1739,19 +1613,6 @@ export default function AddProduct({ user }) {
         step={progressStep}
         isPaid={isSelectedPlanPaid}
       />
-
-      {/* ── Image compression indicator ── */}
-      {compressingTotal > 0 && (
-        <div
-          className="compression-progress"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="btn-spin-svg" aria-hidden="true" />
-          Compressing image{" "}
-          {compressingCount + 1} of {compressingTotal}…
-        </div>
-      )}
 
       {/* ── Watermark warning banner ── */}
       {watermarkWarnings.length > 0 && (
@@ -1790,7 +1651,7 @@ export default function AddProduct({ user }) {
         TermsCheckbox={termsCheckboxEl}
         promotionPlans={promotionPlans}
         plansLoading={plansLoading}
-        MAX_IMAGES={MAX_IMAGES}          /* ✅ passes 8 */
+        MAX_IMAGES={MAX_IMAGES}
 
         /* ─ edit mode ─ */
         isEditMode={isEditMode}
