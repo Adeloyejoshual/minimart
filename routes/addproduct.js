@@ -3,21 +3,14 @@
  *
  * Targets CockroachDB (serverless / dedicated).
  *
- * v8.1 — Phone Number Optional
+ * v8.1 — Phone Number Optional & LENIENT IMAGE UPLOADS
  * ─────────────────────────────────────────────────────────────
- *  - Phone number is now OPTIONAL
+ *  - Image constraints heavily relaxed (15MB max, 100px min)
+ *  - Phone number is OPTIONAL
  *  - Email is NEVER stored in products table
  *  - Email lives only in users table (registration email)
- *  - 3-TIER SYSTEM:
- *      unverified  → 3 lifetime trial listings   (7-day expiry)
- *      verified    → 500 lifetime listings       (30-day expiry)
- *      subscriber  → Unlimited                   (90-day expiry)
- *  - PROMOTION FLOW:
- *      GET  /products/promotion-plans
- *      POST /products/:id/promote        (free + paid)
- *      GET  /products/promotion/callback (Paystack redirect)
- *      POST /products/promotion/webhook  (Paystack webhook)
- *      GET  /products/:id/promotion-status
+ *  - 3-TIER SYSTEM
+ *  - PROMOTION FLOW
  *  - CockroachDB compatible
  */
 
@@ -207,15 +200,15 @@ const POLICY = Object.freeze({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   IMAGE CONFIG
+   IMAGE CONFIG (HEAVILY RELAXED)
 ═══════════════════════════════════════════════════════════════ */
 const IMAGE_CONFIG = Object.freeze({
-  maxInputBytes  : 5 * 1_048_576,
-  maxOutputBytes : 500_000,
-  maxDimension   : 1_200,
-  minDimension   : 300,
-  webpQualityInit: 82,
-  webpQualityMin : 55,
+  maxInputBytes  : 15 * 1_048_576, // 15MB — Allow large camera photos
+  maxOutputBytes : 800_000,        // 800KB max output size
+  maxDimension   : 1_600,          // Sharp output size
+  minDimension   : 100,            // Low 100px floor so custom images aren't rejected
+  webpQualityInit: 85,
+  webpQualityMin : 50,
   webpQualityStep: 8,
   watermark: Object.freeze({
     enabled      : true,
@@ -594,11 +587,7 @@ const getIp = (req) =>
 
 /*
  * ─────────────────────────────────────────────────────────────
- * validatePhone — UPDATED: phone is now OPTIONAL
- *
- * Returns null if value is empty (field skipped).
- * Returns an error string only if a value was provided but is
- * in an invalid format.
+ * validatePhone — OPTIONAL: phone is skipped when empty
  * ─────────────────────────────────────────────────────────────
  */
 const validatePhone = (value, label) => {
@@ -1147,8 +1136,6 @@ const buildTrialInfo = (ctx) => {
 
 /* ═══════════════════════════════════════════════════════════════
    INSERT PRODUCT
-   ✅ NO email column — email lives in users table only
-   ✅ phone is nullable — phone number is optional
 ═══════════════════════════════════════════════════════════════ */
 const runProductInsert = async (client, p) => {
   const { rows } = await client.query(
@@ -1179,7 +1166,7 @@ const runProductInsert = async (client, p) => {
       p.isFirstProduct, p.idempotencyKey  ?? null,
       p.locationState,  p.locationCity,
       p.latitude        ?? null,          p.longitude      ?? null,
-      p.sellerName,     p.phone           ?? null,  // ← nullable phone
+      p.sellerName,     p.phone           ?? null, 
       p.whatsapp        ?? null,          p.whatsappLink   ?? null,
       JSON.stringify(p.attributes),
       JSON.stringify(p.delivery),
@@ -1519,8 +1506,6 @@ router.get("/products/:id/status", authenticate, readLimiter, async (req, res) =
 
 /* ═══════════════════════════════════════════════════════════════
    POST /products — Create listing
-   ✅ No email in products table
-   ✅ Phone number is OPTIONAL
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
@@ -1576,18 +1561,13 @@ router.post(
     if (!locationState || !locationCity)
       return fail(res, 400, `State and city required.`);
 
-    /*
-     * ── Phone validation — OPTIONAL ──
-     * Only validate format if a value was actually provided.
-     */
+    /* Phone validation — OPTIONAL */
     if (phone) {
       const phoneErr = validatePhone(phone, "Phone number");
       if (phoneErr) return fail(res, 400, phoneErr);
     }
 
-    /*
-     * ── WhatsApp validation — still optional ──
-     */
+    /* WhatsApp validation — OPTIONAL */
     if (whatsapp) {
       const waErr = validatePhone(whatsapp, "WhatsApp number");
       if (waErr) return fail(res, 400, waErr);
@@ -1642,6 +1622,8 @@ router.post(
     let wmAnalysis = null;
     try {
       wmAnalysis = await analyzeImageBatch(files.map((f) => f.buffer));
+      
+      // Look for a strict block specifically
       if (wmAnalysis.overallVerdict === "block") {
         const first = wmAnalysis.results.find((r) => r.verdict === "block");
         return fail(res, 400, first?.message ?? "One or more images were rejected.", {
@@ -1901,7 +1883,6 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /products/:id — Edit listing
-   ✅ Phone number is OPTIONAL
 ═══════════════════════════════════════════════════════════════ */
 router.patch(
   "/products/:id",
@@ -1955,18 +1936,13 @@ router.patch(
     if (!locationState || !locationCity)
       return fail(res, 400, "State and city are required.");
 
-    /*
-     * ── Phone validation — OPTIONAL ──
-     * Only validate format if a value was actually provided.
-     */
+    /* Phone validation — OPTIONAL */
     if (phone) {
       const phoneErr = validatePhone(phone, "Phone number");
       if (phoneErr) return fail(res, 400, phoneErr);
     }
 
-    /*
-     * ── WhatsApp validation — still optional ──
-     */
+    /* WhatsApp validation — OPTIONAL */
     if (whatsapp) {
       const waErr = validatePhone(whatsapp, "WhatsApp number");
       if (waErr) return fail(res, 400, waErr);
