@@ -267,13 +267,8 @@ export function toggleWishlistStorage(productId) {
 
 /* ═══════════════════════════════════════════════════════════════
    ADMIN CAMPAIGN HELPERS
-   Supports products/campaigns shaped by admin routes:
-   is_featured, is_trending, is_sponsored, campaign tags, etc.
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * True when a product is tied to any admin campaign field
- */
 export function isCampaignProduct(product) {
   if (!product || typeof product !== "object") return false;
   if (
@@ -293,9 +288,6 @@ export function isCampaignProduct(product) {
   return false;
 }
 
-/**
- * Human-readable campaign label from product or campaign record
- */
 export function getCampaignTag(productOrCampaign) {
   if (!productOrCampaign || typeof productOrCampaign !== "object") return null;
 
@@ -333,9 +325,6 @@ export function getCampaignTag(productOrCampaign) {
   return null;
 }
 
-/**
- * Stable campaign id/slug used in links: /search?campaign=...
- */
 export function getCampaignKey(productOrCampaign) {
   if (!productOrCampaign || typeof productOrCampaign !== "object") return "";
 
@@ -352,9 +341,6 @@ export function getCampaignKey(productOrCampaign) {
   return String(key).trim();
 }
 
-/**
- * Banner image for a campaign record (string / JSON / object safe)
- */
 export function getCampaignBanner(campaign, fallback = "/placeholder.png") {
   if (!campaign) return fallback;
 
@@ -377,9 +363,6 @@ export function getCampaignBanner(campaign, fallback = "/placeholder.png") {
   return primaryImg(raw) || fallback;
 }
 
-/**
- * Normalize a campaign API record into a consistent mobile shape
- */
 export function normalizeCampaign(raw) {
   if (!raw || typeof raw !== "object") return null;
 
@@ -417,27 +400,14 @@ export function normalizeCampaign(raw) {
   };
 }
 
-/**
- * Filter + normalize campaigns list from /api/campaigns (or nested payloads)
- */
 export function filterActiveCampaigns(input) {
-  const list = Array.isArray(input)
-    ? input
-    : Array.isArray(input?.campaigns)
-    ? input.campaigns
-    : Array.isArray(input?.data)
-    ? input.data
-    : [];
-
+  const list = extractProductsArray(input);
   return list
     .map(normalizeCampaign)
     .filter(Boolean)
     .filter((c) => c.isActive);
 }
 
-/**
- * Products belonging to a campaign (by id, slug, or name)
- */
 export function filterProductsByCampaign(products, campaignQuery) {
   if (!Array.isArray(products) || !products.length) return [];
   const q = normalize(String(campaignQuery || "")).toLowerCase();
@@ -479,14 +449,14 @@ export function filterProductsByCampaign(products, campaignQuery) {
 }
 
 /**
- * Split live catalog into admin-driven buckets.
- * Empty buckets should be hidden by the UI.
+ * Split live catalog into admin-driven buckets without over-filtering items.
  */
 export function partitionAdminProductSections(products = []) {
   const list = Array.isArray(products) ? products : [];
 
   const visible = list.filter((p) => {
     if (!p) return false;
+    // Hide ONLY if explicitly hidden by admin
     if (p.is_hidden === true || p.is_hidden === 1 || p.is_hidden === "true")
       return false;
     if (p.status && String(p.status).toLowerCase() === "hidden") return false;
@@ -523,8 +493,7 @@ export function partitionAdminProductSections(products = []) {
 }
 
 /**
- * Midnight (23:59:59) WAT countdown parts for flash sale timers
- * WAT = West Africa Time = UTC+1
+ * Midnight (23:59:59) WAT countdown
  */
 export function getMidnightWATTimeLeft(now = new Date()) {
   const WAT_OFFSET_MS = 60 * 60 * 1000; // UTC+1
@@ -550,7 +519,24 @@ export function getMidnightWATTimeLeft(now = new Date()) {
 }
 
 /**
- * Fetch JSON helper — always hits live API, never mocks
+ * Helper to safely extract products array from any API envelope shape
+ */
+export function extractProductsArray(data) {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.products)) return data.products;
+  if (Array.isArray(data.data)) return data.data;
+  if (data.data && Array.isArray(data.data.products)) return data.data.products;
+  if (data.data && Array.isArray(data.data.items)) return data.data.items;
+  if (Array.isArray(data.items)) return data.items;
+  if (Array.isArray(data.rows)) return data.rows;
+  if (Array.isArray(data.results)) return data.results;
+  if (Array.isArray(data.market_products)) return data.market_products;
+  return [];
+}
+
+/**
+ * Fetch JSON helper
  */
 export async function fetchJson(path, options) {
   const url = path.startsWith("http")
@@ -572,31 +558,48 @@ export async function fetchJson(path, options) {
 }
 
 /**
- * Load products from live API (array or { products|data } envelope)
+ * Ultra-resilient loader that tries multiple endpoints to fetch live products
  */
 export async function fetchProducts(query = "") {
   const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
-  const data = await fetchJson(`/products${q}`);
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.products)) return data.products;
-  if (Array.isArray(data?.data)) return data.data;
+  const endpoints = [
+    `/products${q}`,
+    `/market/products${q}`,
+    `/marketplace/products${q}`,
+    `/marketproducts${q}`
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const data = await fetchJson(endpoint);
+      const items = extractProductsArray(data);
+      if (items && items.length > 0) {
+        return items;
+      }
+    } catch {
+      // try next endpoint
+    }
+  }
+
   return [];
 }
 
 /**
- * Load campaigns from live admin/campaign API
+ * Load campaigns from live API
  */
 export async function fetchCampaigns(query = "") {
   const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
-  try {
-    const data = await fetchJson(`/campaigns${q}`);
-    return filterActiveCampaigns(data);
-  } catch {
+  const endpoints = [`/campaigns${q}`, `/admin/campaigns${q}`];
+
+  for (const endpoint of endpoints) {
     try {
-      const data = await fetchJson(`/admin/campaigns${q}`);
-      return filterActiveCampaigns(data);
+      const data = await fetchJson(endpoint);
+      const list = filterActiveCampaigns(data);
+      if (list && list.length > 0) return list;
     } catch {
-      return [];
+      // try next
     }
   }
+
+  return [];
 }
