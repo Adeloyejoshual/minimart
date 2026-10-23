@@ -1,0 +1,197 @@
+/**
+ * Loemart Mobile Campaign Styles
+ * Brand: #ff6000
+ */
+
+.mc-spotlight-wrapper {
+  width: 100%;
+  padding: 0 12px;
+  margin: 14px 0;
+  box-sizing: border-box;
+}
+
+.mc-spotlight-banner {
+  width: 100%;
+  border-radius: 14px;
+  padding: 18px 16px;
+  box-sizing: border-box;
+  background-size: cover;
+  background-position: center;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(255, 96, 0, 0.28);
+  cursor: pointer;
+  transition: transform 0.18s ease;
+}
+
+.mc-spotlight-banner:active {
+  transform: scale(0.985);
+}
+
+.mc-spotlight-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.mc-badge-pulse {
+  width: 7px;
+  height: 7px;
+  background-color: #00ff88;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #00ff88;
+  animation: mc-pulse-anim 1.6s infinite;
+}
+
+@keyframes mc-pulse-anim {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.35); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.mc-spotlight-title {
+  font-size: 1.35rem;
+  font-weight: 900;
+  margin: 0 0 4px 0;
+  line-height: 1.25;
+  letter-spacing: -0.3px;
+}
+
+.mc-spotlight-subtitle {
+  font-size: 0.82rem;
+  margin: 0 0 14px 0;
+  opacity: 0.92;
+  line-height: 1.35;
+  max-width: 90%;
+}
+
+.mc-spotlight-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  color: #ff6000;
+  font-weight: 800;
+  font-size: 0.78rem;
+  padding: 7px 14px;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.mc-spotlight-cta svg {
+  width: 14px;
+  height: 14px;
+}
+
+.mc-products-scroll-wrapper {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.mc-products-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+
+.mc-products-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.mc-product-card {
+  flex: 0 0 135px;
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-card-img-wrapper {
+  width: 100%;
+  height: 110px;
+  position: relative;
+  background: #f8f8f8;
+}
+
+.mc-card-img-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mc-card-discount-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: #ff6000;
+  color: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 900;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.mc-card-campaign-tag {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+  font-size: 0.58rem;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
+.mc-card-details {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  justify: space-between;
+  flex: 1;
+}
+
+.mc-card-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #111111;
+  margin: 0 0 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-card-prices {
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-card-price {
+  font-size: 0.82rem;
+  font-weight: 900;
+  color: #ff6000;
+}
+
+.mc-card-old-price {
+  font-size: 0.65rem;
+  color: #8e8e93;
+  text-decoration: line-through;
+}
