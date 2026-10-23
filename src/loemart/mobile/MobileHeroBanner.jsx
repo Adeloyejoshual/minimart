@@ -1,151 +1,188 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getWishlist, CART_KEY, haptic } from './mobileHelpers';
-import './styles/MobileTopBar.css';
+import { haptic, fetchCampaigns, primaryImg } from './mobileHelpers';
+import './styles/MobileHeroBanner.css';
 
-export default function MobileTopBar({
-  categories = [],
-  activeCategory = 'All',
-  onSelectCategory,
-  onOpenDrawer
-}) {
+const DEFAULT_SLIDES = [
+  {
+    id: 'flash-sale',
+    badge: '🔥 LIMITED TIME',
+    title: 'Flash Sale Deals',
+    subtitle: 'Up to 70% off verified tech, phones & fashion',
+    ctaText: 'Shop Deals',
+    ctaLink: '/search?filter=flash',
+    bgGradient: 'linear-gradient(135deg, #ff6000 0%, #d83b00 100%)',
+    image: '/assets/banner-flash.png'
+  },
+  {
+    id: 'campaign-verified',
+    badge: '⭐ OFFICIAL MART',
+    title: '100% Genuine Brands',
+    subtitle: 'Direct warranty on all laptops, phones & appliances',
+    ctaText: 'Explore Brand',
+    ctaLink: '/search?q=official',
+    bgGradient: 'linear-gradient(135deg, #111111 0%, #333333 100%)',
+    image: '/assets/banner-brand.png'
+  },
+  {
+    id: 'campaign-express',
+    badge: '🚀 FAST DELIVERY',
+    title: 'Loemart Express',
+    subtitle: 'Same-day delivery available across major cities',
+    ctaText: 'Order Now',
+    ctaLink: '/search',
+    bgGradient: 'linear-gradient(135deg, #2b1055 0%, #7597de 100%)',
+    image: '/assets/banner-express.png'
+  }
+];
+
+export default function MobileHeroBanner({ customSlides = null }) {
   const navigate = useNavigate();
-  const [cartCount, setCartCount] = useState(0);
-  const [wishCount, setWishCount] = useState(getWishlist().length);
+  const [slides, setSlides] = useState(customSlides || DEFAULT_SLIDES);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
-  // Sync cart and wishlist counts from local storage events
+  // Touch gesture refs
+  const touchStartX = useRef(0);
+  const touchEndX = useRef(0);
+  const autoPlayTimerRef = useRef(null);
+
+  // 1. Fetch live campaign banners if no custom slides provided
   useEffect(() => {
-    const updateCounts = () => {
-      try {
-        const cartRaw = localStorage.getItem(CART_KEY);
-        const cartItems = cartRaw ? JSON.parse(cartRaw) : [];
-        setCartCount(Array.isArray(cartItems) ? cartItems.length : 0);
-        setWishCount(getWishlist().length);
-      } catch (e) {
-        // ignore storage errors
-      }
-    };
+    if (customSlides && customSlides.length > 0) {
+      setSlides(customSlides);
+      return;
+    }
 
-    updateCounts();
-    window.addEventListener('storage', updateCounts);
-    window.addEventListener('wishlist-updated', updateCounts);
-    window.addEventListener('loemart_cart_updated', updateCounts);
+    let isMounted = true;
+    async function loadCampaignSlides() {
+      try {
+        const liveCampaigns = await fetchCampaigns();
+        if (isMounted && liveCampaigns && liveCampaigns.length > 0) {
+          const campaignSlides = liveCampaigns.map((c) => ({
+            id: c.id || c.slug,
+            badge: '🎯 ACTIVE CAMPAIGN',
+            title: c.title || 'Special Campaign',
+            subtitle: c.subtitle || 'Exclusive hand-picked admin offers',
+            ctaText: 'Shop Campaign',
+            ctaLink: `/search?campaign=${encodeURIComponent(c.key || c.slug || c.title)}`,
+            bgGradient: 'linear-gradient(135deg, #ff6000 0%, #b82200 100%)',
+            image: c.banner || '/assets/banner-campaign.png'
+          }));
+
+          // Merge live campaigns ahead of default slides
+          setSlides([...campaignSlides, ...DEFAULT_SLIDES]);
+        }
+      } catch (e) {
+        // Fallback to default slides
+      }
+    }
+
+    loadCampaignSlides();
+    return () => { isMounted = false; };
+  }, [customSlides]);
+
+  // 2. Autoplay timer
+  useEffect(() => {
+    if (isPaused || slides.length <= 1) return;
+
+    autoPlayTimerRef.current = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % slides.length);
+    }, 4500);
 
     return () => {
-      window.removeEventListener('storage', updateCounts);
-      window.removeEventListener('wishlist-updated', updateCounts);
-      window.removeEventListener('loemart_cart_updated', updateCounts);
+      if (autoPlayTimerRef.current) {
+        clearInterval(autoPlayTimerRef.current);
+      }
     };
-  }, []);
+  }, [isPaused, slides.length]);
 
-  const handleSearchClick = () => {
-    haptic(10);
-    navigate('/search');
+  // Touch Handlers for mobile swipe gestures
+  const handleTouchStart = (e) => {
+    setIsPaused(true);
+    touchStartX.current = e.touches[0].clientX;
+    touchEndX.current = e.touches[0].clientX;
   };
 
-  const defaultCategories = ['All', 'Phones', 'Fashion', 'Beauty', 'Electronics', 'Computers', 'Watches'];
-  const displayCats = categories.length > 0 ? ['All', ...categories] : defaultCategories;
+  const handleTouchMove = (e) => {
+    touchEndX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    const diff = touchStartX.current - touchEndX.current;
+    const swipeThreshold = 40;
+
+    if (diff > swipeThreshold) {
+      // Swiped Left -> Next
+      haptic(10);
+      setCurrentIndex((prev) => (prev + 1) % slides.length);
+    } else if (diff < -swipeThreshold) {
+      // Swiped Right -> Previous
+      haptic(10);
+      setCurrentIndex((prev) => (prev - 1 + slides.length) % slides.length);
+    }
+
+    setIsPaused(false);
+  };
+
+  const handleSlideClick = (slide) => {
+    haptic(12);
+    if (slide.ctaLink) {
+      navigate(slide.ctaLink);
+    }
+  };
+
+  const currentSlide = slides[currentIndex] || slides[0];
 
   return (
-    <header className="mtb-header-sticky">
-      {/* ROW 1: BRAND LOGO & ACTION ICONS */}
-      <div className="mtb-row-top">
-        <button
-          className="mtb-menu-btn"
-          onClick={() => { haptic(12); onOpenDrawer && onOpenDrawer(); }}
-          aria-label="Open Menu"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
-        </button>
+    <div className="mhb-container">
+      <div
+        className="mhb-slide"
+        style={{
+          background: currentSlide.bgGradient,
+          backgroundImage: currentSlide.image && currentSlide.image !== '/placeholder.png'
+            ? `linear-gradient(135deg, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.3) 100%), url(${primaryImg(currentSlide.image)})`
+            : currentSlide.bgGradient
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={() => handleSlideClick(currentSlide)}
+      >
+        <div className="mhb-content">
+          {currentSlide.badge && (
+            <span className="mhb-badge">{currentSlide.badge}</span>
+          )}
 
-        <div className="mtb-brand-logo" onClick={() => { haptic(10); navigate('/'); }}>
-          <span className="mtb-logo-icon">🛍️</span>
-          <span className="mtb-logo-text">Loemart</span>
+          <h2 className="mhb-title">{currentSlide.title}</h2>
+          <p className="mhb-subtitle">{currentSlide.subtitle}</p>
+
+          <div className="mhb-cta-btn">
+            <span>{currentSlide.ctaText || 'Shop Now'}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </div>
         </div>
 
-        <div className="mtb-actions-right">
-          <button
-            className="mtb-icon-btn"
-            onClick={() => { haptic(10); navigate('/wishlist'); }}
-            aria-label="Wishlist"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-            </svg>
-            {wishCount > 0 && <span className="mtb-badge">{wishCount}</span>}
-          </button>
-
-          <button
-            className="mtb-icon-btn"
-            onClick={() => { haptic(10); navigate('/cart'); }}
-            aria-label="Cart"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="9" cy="21" r="1" />
-              <circle cx="20" cy="21" r="1" />
-              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-            </svg>
-            {cartCount > 0 && <span className="mtb-badge">{cartCount}</span>}
-          </button>
-
-          <button
-            className="mtb-icon-btn"
-            onClick={() => { haptic(10); navigate('/profile'); }}
-            aria-label="Profile"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          </button>
-        </div>
+        {/* Dots Pagination Indicator */}
+        {slides.length > 1 && (
+          <div className="mhb-dots">
+            {slides.map((s, idx) => (
+              <span
+                key={s.id || idx}
+                className={`mhb-dot ${idx === currentIndex ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  haptic(8);
+                  setCurrentIndex(idx);
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
-
-      {/* ROW 2: SEARCH BAR INPUT TARGET */}
-      <div className="mtb-row-search">
-        <div className="mtb-search-box" onClick={handleSearchClick}>
-          <svg className="mtb-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <span className="mtb-search-placeholder">Search products, brands, campaigns...</span>
-          <button className="mtb-filter-trigger" aria-label="Filters">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="4" y1="21" x2="4" y2="14" />
-              <line x1="4" y1="10" x2="4" y2="3" />
-              <line x1="12" y1="21" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12" y2="3" />
-              <line x1="20" y1="21" x2="20" y2="16" />
-              <line x1="20" y1="12" x2="20" y2="3" />
-              <line x1="1" y1="14" x2="7" y2="14" />
-              <line x1="9" y1="8" x2="15" y2="8" />
-              <line x1="17" y1="16" x2="23" y2="16" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* ROW 3: HORIZONTAL TOUCH CATEGORY STRIP */}
-      <div className="mtb-row-categories">
-        <div className="mtb-cat-scroll">
-          {displayCats.map((cat) => {
-            const isSelected = String(cat).toLowerCase() === String(activeCategory).toLowerCase();
-            return (
-              <button
-                key={cat}
-                className={`mtb-cat-pill ${isSelected ? 'active' : ''}`}
-                onClick={() => onSelectCategory && onSelectCategory(cat)}
-              >
-                {cat}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </header>
+    </div>
   );
 }
