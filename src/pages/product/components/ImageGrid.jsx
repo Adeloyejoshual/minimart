@@ -1,16 +1,12 @@
 /**
  * src/pages/product/components/ImageGrid.jsx
  *
- * v3 — NEVER-BLANK IMAGE TILES
- *   • Every tile has guaranteed min-height + aspect-ratio (no collapse)
+ * v3.1 — INSTANT PREVIEW TILES
+ *   • Previews render immediately using local Object URLs
+ *   • Never-blank guarantees: minimum tile aspect-ratio
  *   • Skeleton shimmer while image is loading
  *   • Broken image placeholder when preview URL is invalid/revoked
  *   • Error overlay banner for validation errors
- *   • Auto-regenerates preview URLs if they're missing (draft restore)
- *   • Drag/reorder disabled on broken tiles
- *
- * v2 — image previews now render whenever there are images
- * v1 — initial
  */
 
 import {
@@ -23,10 +19,10 @@ import "./styles/ImageGrid.css";
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_BYTES     = 5 * 1024 * 1024;   // 5 MB — matches backend
+const MAX_BYTES     = 5 * 1024 * 1024;   // 5 MB
 
 /* ═══════════════════════════════════════════════════════════════
-   SVG ICONS  (inline — no emoji ✓/✗)
+   SVG ICONS
 ═══════════════════════════════════════════════════════════════ */
 const CheckIcon = ({ size = 11 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -103,9 +99,6 @@ const BrokenImageIcon = ({ size = 32 }) => (
   </svg>
 );
 
-/* ═══════════════════════════════════════════════════════════════
-   UPLOAD RULES  (SVG icons, not emoji)
-═══════════════════════════════════════════════════════════════ */
 const RULES = [
   { ok: true,  label: "JPEG / PNG / WebP"       },
   { ok: true,  label: "Max 5 MB per image"      },
@@ -129,7 +122,7 @@ function ImageUploadRules() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SINGLE IMAGE THUMB — never-blank version
+   SINGLE IMAGE THUMB
 ═══════════════════════════════════════════════════════════════ */
 const ImageThumb = memo(function ImageThumb({
   img,
@@ -148,13 +141,14 @@ const ImageThumb = memo(function ImageThumb({
   const [loadFailed, setLoadFailed] = useState(false);
   const [loaded,     setLoaded]     = useState(false);
 
-  /* Reset when preview URL changes (e.g. regenerated after draft restore) */
   useEffect(() => {
     setLoadFailed(false);
     setLoaded(false);
-  }, [img.preview]);
+  }, [img.preview, img.url]);
 
-  const hasValidPreview = typeof img.preview === "string" && img.preview.length > 0;
+  /* Fallback to preview or url directly */
+  const previewSrc = img.preview || img.url || "";
+  const hasValidPreview = typeof previewSrc === "string" && previewSrc.length > 0;
   const showBroken      = !hasValidPreview || loadFailed;
   const showError       = !!error || showBroken;
   const errorMessage    = error || (showBroken ? "Preview unavailable" : "");
@@ -182,12 +176,10 @@ const ImageThumb = memo(function ImageThumb({
         touchAction : "none",
       }}
     >
-      {/* Skeleton shimmer while image is loading */}
       {!loaded && !showBroken && (
         <div className="preview-skeleton" aria-hidden="true" />
       )}
 
-      {/* Broken image placeholder — shown when preview is invalid or img fails */}
       {showBroken ? (
         <div className="preview-broken-placeholder" aria-hidden="true">
           <BrokenImageIcon size={32} />
@@ -195,7 +187,7 @@ const ImageThumb = memo(function ImageThumb({
         </div>
       ) : (
         <img
-          src={img.preview}
+          src={previewSrc}
           alt={`Product image ${index + 1}`}
           loading="lazy"
           decoding="async"
@@ -208,7 +200,6 @@ const ImageThumb = memo(function ImageThumb({
         />
       )}
 
-      {/* Error banner overlay — shown on top of image or placeholder */}
       {showError && errorMessage && (
         <div className="preview-error-overlay" role="alert">
           <WarningIcon />
@@ -216,7 +207,6 @@ const ImageThumb = memo(function ImageThumb({
         </div>
       )}
 
-      {/* Remove button — always available so user can delete broken images */}
       <button
         type="button"
         className="preview-remove-btn"
@@ -226,19 +216,16 @@ const ImageThumb = memo(function ImageThumb({
         <RemoveIcon />
       </button>
 
-      {/* Drag handle — only for valid images */}
       {!showError && (
         <span className="preview-drag-handle" aria-hidden="true">
           <DragHandleIcon />
         </span>
       )}
 
-      {/* Main badge — only if this is the first valid image */}
       {index === 0 && !showError && (
         <span className="preview-primary-badge">Main</span>
       )}
 
-      {/* Reorder buttons — only for valid images */}
       {!showError && (
         <div className="preview-reorder">
           {index > 0 && (
@@ -266,7 +253,7 @@ const ImageThumb = memo(function ImageThumb({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   ADD IMAGE TILE  (inside the grid — smaller than empty state)
+   ADD IMAGE TILE
 ═══════════════════════════════════════════════════════════════ */
 const AddImageTile = memo(function AddImageTile({
   isDragging, onAdd, currentCount, maxImages,
@@ -296,7 +283,7 @@ const AddImageTile = memo(function AddImageTile({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   EMPTY STATE  (shown when no images yet)
+   EMPTY STATE
 ═══════════════════════════════════════════════════════════════ */
 const EmptyState = memo(function EmptyState({
   isDragging, onAdd, maxImages,
@@ -341,7 +328,7 @@ const EmptyState = memo(function EmptyState({
 const ImageGrid = memo(function ImageGrid({
   images,
   imageErrors = {},
-  MAX_IMAGES  = 6,
+  MAX_IMAGES  = 8,
   canAddMore  = true,
   isDragging,
   dropZoneRef,
@@ -358,13 +345,11 @@ const ImageGrid = memo(function ImageGrid({
   const touchItem     = useRef(null);
   const touchCloneRef = useRef(null);
 
-  /* Cleanup clone on unmount */
   useEffect(() => () => {
     touchCloneRef.current?.remove();
     touchCloneRef.current = null;
   }, []);
 
-  /* Mouse drag */
   const handleSortStart = (i) => { dragItem.current = i; };
   const handleSortEnter = (i) => { dragOver.current = i; };
   const handleSortEnd   = () => {
@@ -375,7 +360,6 @@ const ImageGrid = memo(function ImageGrid({
     dragOver.current = null;
   };
 
-  /* Touch drag */
   const handleTouchStart = useCallback((e, index) => {
     touchCloneRef.current?.remove();
     touchCloneRef.current = null;
@@ -438,9 +422,6 @@ const ImageGrid = memo(function ImageGrid({
 
   const hasImages = images.length > 0;
 
-  /* ═══════════════════════════════════════════════════════
-     RENDER
-  ═══════════════════════════════════════════════════════ */
   return (
     <div className="image-grid-wrapper">
       <ImageUploadRules />
@@ -457,7 +438,6 @@ const ImageGrid = memo(function ImageGrid({
         onDrop={onDrop}
         aria-label={isDragging ? "Drop images here" : "Image upload area"}
       >
-        {/* Image previews — always mounted when there are images */}
         {hasImages && images.map((img, index) => (
           <ImageThumb
             key={img.id}
@@ -476,7 +456,6 @@ const ImageGrid = memo(function ImageGrid({
           />
         ))}
 
-        {/* Add tile — inside the grid when there's room */}
         {hasImages && canAddMore && (
           <AddImageTile
             isDragging={isDragging}
@@ -486,7 +465,6 @@ const ImageGrid = memo(function ImageGrid({
           />
         )}
 
-        {/* Empty state — only when there are no images yet */}
         {!hasImages && canAddMore && (
           <EmptyState
             isDragging={isDragging}
@@ -496,7 +474,6 @@ const ImageGrid = memo(function ImageGrid({
         )}
       </div>
 
-      {/* Limit notice — shown below the grid when max is reached */}
       {!canAddMore && (
         <div className="image-limit-notice" role="status" aria-live="polite">
           <span className="image-limit-notice-icon" aria-hidden="true">
