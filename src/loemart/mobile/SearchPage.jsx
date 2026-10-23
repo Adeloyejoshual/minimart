@@ -8,7 +8,9 @@ import {
   clearSearchHistory,
   TRENDING_SEARCHES,
   haptic,
-  normalize
+  normalize,
+  fetchProducts,
+  filterProductsByCampaign
 } from './mobileHelpers';
 import './styles/SearchPage.css';
 
@@ -19,6 +21,7 @@ export default function SearchPage() {
   const queryFromUrl = searchParams.get('q') || '';
   const categoryFromUrl = searchParams.get('category') || '';
   const campaignFromUrl = searchParams.get('campaign') || '';
+  const filterFromUrl = searchParams.get('filter') || '';
 
   const [searchTerm, setSearchTerm] = useState(queryFromUrl);
   const [activeCategory, setActiveCategory] = useState(categoryFromUrl);
@@ -29,93 +32,90 @@ export default function SearchPage() {
   const [allProducts, setAllProducts] = useState([]);
   const [filteredProducts, setFilteredProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [categories, setCategories] = useState([]);
 
-  // Fetch product catalog on mount
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        const res = await fetch('/api/products');
-        if (res.ok) {
-          const data = await res.json();
-          const items = Array.isArray(data) ? data : (data.products || data.data || []);
-          setAllProducts(items);
-
-          const uniqueCats = Array.from(
-            new Set(items.map(i => i.category || i.category_name).filter(Boolean))
-          );
-          setCategories(uniqueCats);
-        }
-      } catch (err) {
-        console.error('Failed to fetch search catalog:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadData();
-  }, []);
-
-  // Update filters when URL parameters change
+  // Sync state with URL params
   useEffect(() => {
     setSearchTerm(queryFromUrl);
     setActiveCategory(categoryFromUrl);
     setActiveCampaign(campaignFromUrl);
   }, [queryFromUrl, categoryFromUrl, campaignFromUrl]);
 
-  // Execute filtering & sorting logic
+  // Load catalog on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCatalog() {
+      setLoading(true);
+      try {
+        const items = await fetchProducts();
+        if (isMounted) setAllProducts(items);
+      } catch (err) {
+        console.error('Failed to load search catalog:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+    loadCatalog();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Filter & Sort Logic
   useEffect(() => {
     let result = [...allProducts];
 
     // 1. Search term filter
     if (searchTerm.trim()) {
-      const term = normalize(searchTerm);
+      const term = normalize(searchTerm).toLowerCase();
       result = result.filter(item => {
-        const title = normalize(item.title || item.name);
-        const desc = normalize(item.description);
-        const cat = normalize(item.category || item.category_name);
-        const tags = Array.isArray(item.tags) ? item.tags.map(normalize).join(' ') : normalize(item.tags);
-        return title.includes(term) || desc.includes(term) || cat.includes(term) || tags.includes(term);
+        const title = normalize(item.title || item.name).toLowerCase();
+        const desc = normalize(item.description).toLowerCase();
+        const cat = normalize(item.category || item.category_name).toLowerCase();
+        return title.includes(term) || desc.includes(term) || cat.includes(term);
       });
     }
 
     // 2. Category filter
     if (activeCategory && activeCategory !== 'All') {
-      result = result.filter(item => normalize(item.category || item.category_name) === normalize(activeCategory));
+      const cat = normalize(activeCategory).toLowerCase();
+      result = result.filter(item => normalize(item.category || item.category_name).toLowerCase() === cat);
     }
 
     // 3. Campaign filter
     if (activeCampaign) {
-      const campTerm = normalize(activeCampaign);
+      result = filterProductsByCampaign(result, activeCampaign);
+    }
+
+    // 4. Flash sale filter tag
+    if (filterFromUrl === 'flash') {
       result = result.filter(item => {
-        const itemCamp = normalize(item.campaign || item.campaign_name || item.campaign_tag || '');
-        return itemCamp.includes(campTerm) || item.is_campaign;
+        const p = Number(item.price || item.selling_price || item.sale_price || 0);
+        const op = Number(item.old_price || item.original_price || item.regular_price || 0);
+        return op > p && p > 0;
       });
     }
 
-    // 4. Sorting logic
+    // 5. Sorting
     if (sortBy === 'price_asc') {
-      result.sort((a, b) => (a.price || a.sale_price || 0) - (b.price || b.sale_price || 0));
+      result.sort((a, b) => Number(a.price || a.selling_price || 0) - Number(b.price || b.selling_price || 0));
     } else if (sortBy === 'price_desc') {
-      result.sort((a, b) => (b.price || b.sale_price || 0) - (a.price || a.sale_price || 0));
+      result.sort((a, b) => Number(b.price || b.selling_price || 0) - Number(a.price || a.selling_price || 0));
     } else if (sortBy === 'trending') {
       result = result.filter(i => i.is_trending || i.trending);
     }
 
     setFilteredProducts(result);
-  }, [allProducts, searchTerm, activeCategory, activeCampaign, sortBy]);
+  }, [allProducts, searchTerm, activeCategory, activeCampaign, filterFromUrl, sortBy]);
 
   const handleSearchSubmit = (e) => {
     if (e) e.preventDefault();
     if (!searchTerm.trim()) return;
-    haptic('medium');
+    haptic(15);
     addToSearchHistory(searchTerm.trim());
     setHistory(getSearchHistory());
     setSearchParams({ q: searchTerm.trim() });
   };
 
   const handleClearAllFilters = () => {
-    haptic('light');
+    haptic(10);
     setSearchTerm('');
     setActiveCategory('');
     setActiveCampaign('');
@@ -124,18 +124,18 @@ export default function SearchPage() {
 
   return (
     <div className="sp-page-container">
-      {/* Sticky Top Bar */}
+      {/* Search Bar Header */}
       <div className="sp-header">
-        <button className="sp-back-btn" onClick={() => navigate(-1)} aria-label="Go Back">
+        <button className="sp-back-btn" onClick={() => navigate(-1)} aria-label="Go back">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <polyline points="15 18 9 12 15 6"></polyline>
+            <polyline points="15 18 9 12 15 6" />
           </svg>
         </button>
 
         <form className="sp-search-form" onSubmit={handleSearchSubmit}>
           <svg className="sp-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <input
             type="text"
@@ -153,10 +153,10 @@ export default function SearchPage() {
         </form>
       </div>
 
-      {/* Active Filter Chips Bar */}
-      {(searchTerm || activeCategory || activeCampaign) && (
+      {/* Active Filter Chips */}
+      {(searchTerm || activeCategory || activeCampaign || filterFromUrl) && (
         <div className="sp-active-filters-bar">
-          <span className="sp-filter-label">Active Filters:</span>
+          <span className="sp-filter-label">Active:</span>
           {searchTerm && (
             <span className="sp-filter-chip">
               "{searchTerm}"
@@ -175,14 +175,20 @@ export default function SearchPage() {
               <button onClick={() => { setActiveCampaign(''); setSearchParams({}); }}>&times;</button>
             </span>
           )}
+          {filterFromUrl === 'flash' && (
+            <span className="sp-filter-chip">
+              ⚡ Flash Sale
+              <button onClick={() => setSearchParams({})}>&times;</button>
+            </span>
+          )}
           <button className="sp-reset-all" onClick={handleClearAllFilters}>
             Clear All
           </button>
         </div>
       )}
 
-      {/* Recent & Trending Searches (Only when search input is focused / no term active) */}
-      {!searchTerm && !activeCategory && !activeCampaign && (
+      {/* Search History & Trending Chips when empty */}
+      {!searchTerm && !activeCategory && !activeCampaign && !filterFromUrl && (
         <div className="sp-suggestions-body">
           {history.length > 0 && (
             <div className="sp-section">
@@ -215,13 +221,13 @@ export default function SearchPage() {
         </div>
       )}
 
-      {/* Product Results Grid */}
+      {/* Search Results */}
       <div className="sp-results-area">
         <div className="sp-results-header">
-          <span className="sp-count">{filteredProducts.length} Products Found</span>
-          <select 
-            className="sp-sort-select" 
-            value={sortBy} 
+          <span className="sp-count">{filteredProducts.length} Products</span>
+          <select
+            className="sp-sort-select"
+            value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
           >
             <option value="relevance">Sort: Relevant</option>
@@ -232,25 +238,21 @@ export default function SearchPage() {
         </div>
 
         {loading ? (
-          <div className="sp-masonry-grid">
+          <div className="sp-masonry-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
             {[1, 2, 3, 4].map((n) => (
-              <div key={n} className="sp-skeleton-card" />
+              <div key={n} style={{ height: '220px', background: '#e0e0e0', borderRadius: '12px', animation: 'pulse 1.5s infinite' }} />
             ))}
           </div>
         ) : filteredProducts.length === 0 ? (
           <div className="sp-empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="1.5">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <h3>No matching products found</h3>
-            <p>Try searching with different keywords or clear your active campaign and category filters.</p>
+            <h3>No matching products</h3>
+            <p>Try searching with different keywords or clear your active campaign filters.</p>
             <button className="sp-reset-btn" onClick={handleClearAllFilters}>Reset Filters</button>
           </div>
         ) : (
           <div className="pr-masonry" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
             {filteredProducts.map((product) => (
-              <MasonryCard key={product.id} product={product} />
+              <MasonryCard key={product.id || product.product_id} product={product} />
             ))}
           </div>
         )}
