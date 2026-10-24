@@ -20,17 +20,15 @@ import '../styles/Minimart.css';
 export default function HomePageMobile() {
   const navigate = useNavigate();
 
-  // Primary state driven strictly by live API / DB data
   const [products, setProducts] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [categories, setCategories] = useState([]);
   const [activeCategory, setActiveCategory] = useState('All');
   const [loading, setLoading] = useState(true);
 
-  // Midnight WAT Countdown Timer state
   const [timeLeft, setTimeLeft] = useState({ hours: '00', minutes: '00', seconds: '00' });
 
-  // 1. Live WAT Midnight Timer Interval
+  // 1. Midnight WAT Countdown Timer
   useEffect(() => {
     const updateTimer = () => {
       const remaining = getMidnightWATTimeLeft();
@@ -42,7 +40,7 @@ export default function HomePageMobile() {
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Fetch Live Products and Campaigns
+  // 2. Fetch Products & Campaigns
   useEffect(() => {
     let isMounted = true;
 
@@ -59,7 +57,6 @@ export default function HomePageMobile() {
         setProducts(rawProducts);
         setCampaigns(rawCampaigns);
 
-        // Derive category list from live products
         const uniqueCats = Array.from(
           new Set(
             rawProducts
@@ -79,10 +76,8 @@ export default function HomePageMobile() {
     return () => { isMounted = false; };
   }, []);
 
-  // Partition products using helper
   const sections = partitionAdminProductSections(products);
 
-  // Filter main catalog by selected category ("All" shows full catalog)
   const displayedCatalog = activeCategory === 'All'
     ? sections.all
     : sections.all.filter(p => (p.category || p.category_name) === activeCategory);
@@ -95,7 +90,7 @@ export default function HomePageMobile() {
   return (
     <div className="home-page-mobile-wrapper" style={{ minHeight: '100vh', backgroundColor: '#f5f5f7', paddingBottom: '75px' }}>
       
-      {/* Sticky Header Bar with Search & Nav */}
+      {/* Sticky Header */}
       <MobileTopBar
         categories={categories}
         activeCategory={activeCategory}
@@ -113,13 +108,13 @@ export default function HomePageMobile() {
         />
       )}
 
-      {/* 2. LIVE FLASH SALE SECTION (Auto-hides if empty) */}
+      {/* 2. FLASH SALE SECTION */}
       {sections.flash.length > 0 && (
         <div className="mdp-psec" style={{ margin: '12px', padding: '14px', background: '#ffffff', borderRadius: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ color: '#ff6000', fontWeight: '900', fontSize: '1.05rem', letterSpacing: '-0.3px' }}>⚡ FLASH SALE</span>
-              <div style={{ display: 'flex', gap: '3px', background: '#111111', color: '#ffffff', padding: '2px 7px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800' }}>
+              <div style={{ display: 'flex', gap: '3px', background: '#111111', color: '#ffffff', padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800' }}>
                 <span>{timeLeft.hours}</span>:<span>{timeLeft.minutes}</span>:<span>{timeLeft.seconds}</span>
               </div>
             </div>
@@ -144,21 +139,29 @@ export default function HomePageMobile() {
                 <div
                   key={id}
                   onClick={() => { haptic(10); navigate(`/product/${id}`); }}
-                  style={{ flex: '0 0 120px', cursor: 'pointer', background: '#fafafa', borderRadius: '10px', padding: '6px', border: '1px solid #eeeeee' }}
+                  style={{
+                    flex: '0 0 148px',
+                    cursor: 'pointer',
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    border: '1px solid #eef0f4',
+                    overflow: 'hidden',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+                  }}
                 >
-                  <div style={{ position: 'relative', width: '100%', height: '100px', borderRadius: '8px', overflow: 'hidden' }}>
-                    <img src={imgUrl} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <div style={{ width: '100%', aspectRatio: '1 / 1', background: '#f8f9fc', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', boxSizing: 'border-box' }}>
+                    <img src={imgUrl} alt={title} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
                     {discount > 0 && (
-                      <span style={{ position: 'absolute', top: '4px', left: '4px', background: '#ff6000', color: '#ffffff', fontSize: '0.6rem', fontWeight: '900', padding: '2px 4px', borderRadius: '4px' }}>
+                      <span style={{ position: 'absolute', top: '6px', left: '6px', background: '#ff6000', color: '#ffffff', fontSize: '0.62rem', fontWeight: '900', padding: '2px 5px', borderRadius: '4px' }}>
                         -{discount}%
                       </span>
                     )}
                   </div>
-                  <div style={{ marginTop: '6px' }}>
-                    <p style={{ fontSize: '0.75rem', fontWeight: '700', margin: '0 0 2px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#111' }}>
+                  <div style={{ padding: '8px 10px' }}>
+                    <p style={{ fontSize: '0.75rem', fontWeight: '600', margin: '0 0 4px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#111111' }}>
                       {title}
                     </p>
-                    <p style={{ fontSize: '0.82rem', fontWeight: '900', color: '#ff6000', margin: 0 }}>
+                    <p style={{ fontSize: '0.85rem', fontWeight: '900', color: '#ff6000', margin: 0 }}>
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -169,40 +172,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* 3. ADMIN SPONSORED PICKS (Auto-hides if empty) */}
-      {sections.sponsored.length > 0 && (
-        <div className="mdp-psec" style={{ margin: '12px', padding: '14px', background: '#ffffff', borderRadius: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <span style={{ fontSize: '0.95rem', fontWeight: '800', color: '#111111' }}>Sponsored Picks</span>
-            <span style={{ fontSize: '0.62rem', background: '#f0f0f0', padding: '2px 6px', borderRadius: '4px', color: '#666666', fontWeight: '700' }}>Promoted</span>
-          </div>
-          <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '4px' }}>
-            {sections.sponsored.map((item) => {
-              const id = item.id || item.product_id;
-              const imgUrl = primaryImg(item.images || item.image_url, item);
-              const price = item.price ?? item.selling_price ?? item.sale_price;
-
-              return (
-                <div
-                  key={id}
-                  onClick={() => { haptic(10); navigate(`/product/${id}`); }}
-                  style={{ flex: '0 0 130px', background: '#ffffff', borderRadius: '10px', border: '1px solid #eaeaea', padding: '8px', cursor: 'pointer' }}
-                >
-                  <img src={imgUrl} alt="" style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '8px' }} />
-                  <p style={{ fontSize: '0.75rem', fontWeight: '700', margin: '6px 0 2px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111' }}>
-                    {item.title || item.name}
-                  </p>
-                  <p style={{ fontSize: '0.82rem', fontWeight: '900', color: '#ff6000', margin: 0 }}>
-                    {formatPrice(price)}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 4. ADMIN TRENDING PRODUCTS (Auto-hides if empty) */}
+      {/* 3. TRENDING NOW SECTION */}
       {sections.trending.length > 0 && (
         <div className="mdp-psec" style={{ margin: '12px', padding: '14px', background: '#ffffff', borderRadius: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -224,15 +194,27 @@ export default function HomePageMobile() {
                 <div
                   key={id}
                   onClick={() => { haptic(10); navigate(`/product/${id}`); }}
-                  style={{ flex: '0 0 130px', background: '#ffffff', borderRadius: '10px', border: '1px solid #eaeaea', padding: '8px', cursor: 'pointer' }}
+                  style={{
+                    flex: '0 0 148px',
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    border: '1px solid #eef0f4',
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+                  }}
                 >
-                  <img src={imgUrl} alt="" style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '8px' }} />
-                  <p style={{ fontSize: '0.75rem', fontWeight: '700', margin: '6px 0 2px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111' }}>
-                    {item.title || item.name}
-                  </p>
-                  <p style={{ fontSize: '0.82rem', fontWeight: '900', color: '#ff6000', margin: 0 }}>
-                    {formatPrice(price)}
-                  </p>
+                  <div style={{ width: '100%', aspectRatio: '1 / 1', background: '#f8f9fc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', boxSizing: 'border-box' }}>
+                    <img src={imgUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                  </div>
+                  <div style={{ padding: '8px 10px' }}>
+                    <p style={{ fontSize: '0.75rem', fontWeight: '600', margin: '0 0 4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111111' }}>
+                      {item.title || item.name}
+                    </p>
+                    <p style={{ fontSize: '0.85rem', fontWeight: '900', color: '#ff6000', margin: 0 }}>
+                      {formatPrice(price)}
+                    </p>
+                  </div>
                 </div>
               );
             })}
@@ -240,7 +222,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* MAIN MASONRY CATALOG GRID */}
+      {/* MAIN CATALOG MASONRY GRID */}
       <div style={{ padding: '0 12px', marginTop: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ fontSize: '1rem', fontWeight: '900', margin: 0, color: '#111111' }}>
@@ -270,7 +252,6 @@ export default function HomePageMobile() {
         )}
       </div>
 
-      {/* Persistent Portal Bottom Navigation */}
       <BottomNav />
     </div>
   );
