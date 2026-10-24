@@ -396,6 +396,46 @@ export function filterActiveCampaigns(input) {
     .filter((c) => c.isActive);
 }
 
+export function filterProductsByCampaign(products, campaignQuery) {
+  if (!Array.isArray(products) || !products.length) return [];
+  const q = normalize(String(campaignQuery || "")).toLowerCase();
+  if (!q) {
+    return products.filter(isCampaignProduct);
+  }
+
+  return products.filter((p) => {
+    const tag = (getCampaignTag(p) || "").toLowerCase();
+    const key = (getCampaignKey(p) || "").toLowerCase();
+    const cid = String(p.campaign_id || p.campaignId || "").toLowerCase();
+    const cslug = String(p.campaign_slug || p.campaignSlug || "").toLowerCase();
+    const cname = String(p.campaign_name || p.campaignName || "").toLowerCase();
+    const nested =
+      p.campaign && typeof p.campaign === "object"
+        ? normalize(
+            String(
+              p.campaign.name ||
+                p.campaign.title ||
+                p.campaign.slug ||
+                p.campaign.id ||
+                ""
+            )
+          ).toLowerCase()
+        : "";
+
+    return (
+      tag === q ||
+      key === q ||
+      cid === q ||
+      cslug === q ||
+      cname === q ||
+      nested === q ||
+      tag.includes(q) ||
+      cname.includes(q) ||
+      nested.includes(q)
+    );
+  });
+}
+
 export function partitionAdminProductSections(products = []) {
   const list = Array.isArray(products) ? products : [];
 
