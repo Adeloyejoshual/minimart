@@ -3,8 +3,7 @@
  * Master utility suite for Loemart Mobile Frontend
  *
  * Brand Identity: Loemart Orange (#ff6000)
- * Handles CockroachDB backend shapes, price formatting, image extractors,
- * local storage handlers, admin campaigns, and mobile interaction utilities.
+ * Aligned with Backend Route: GET /api/products & GET /api/products/:idOrSlug
  */
 
 /* ═══════════════════════════════════════════════════════════════
@@ -35,22 +34,15 @@ export const TRENDING_SEARCHES = [
    NUMBER & PRICE PARSERS
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Safely parses string numbers, float values, or nulls into clean numbers
- */
 export function parseNum(val) {
   if (val === null || val === undefined || val === "") return 0;
   if (typeof val === "number") return Number.isFinite(val) ? val : 0;
 
-  // Clean string formatted numbers like "1,500.50"
   const cleaned = String(val).replace(/,/g, "").trim();
   const parsed = parseFloat(cleaned);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/**
- * Formats numeric values to Nigerian Naira (₦1,234.00 or ₦1,234)
- */
 export function formatPrice(amount, includeDecimals = false) {
   const num = parseNum(amount);
   return `₦${num.toLocaleString("en-NG", {
@@ -59,9 +51,6 @@ export function formatPrice(amount, includeDecimals = false) {
   })}`;
 }
 
-/**
- * Calculates discount percentage
- */
 export function calcDiscountPct(price, oldPrice) {
   const p = parseNum(price);
   const op = parseNum(oldPrice);
@@ -73,24 +62,18 @@ export function calcDiscountPct(price, oldPrice) {
    IMAGE PARSERS (Handles CockroachDB & JSON string variants)
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Safely extracts the primary image URL from product object or images array
- */
 export function primaryImg(imagesInput, productFallback = null) {
   let images = imagesInput;
 
-  // If passed stringified JSON from database
   if (typeof images === "string") {
     try {
       images = JSON.parse(images);
     } catch {
-      // If it's a raw image URL string
       if (images.startsWith("http") || images.startsWith("/")) return images;
       images = [];
     }
   }
 
-  // Handle direct product object fallback if passed as second parameter
   if (!Array.isArray(images) || images.length === 0) {
     if (productFallback) {
       if (productFallback.image_url) return productFallback.image_url;
@@ -100,13 +83,11 @@ export function primaryImg(imagesInput, productFallback = null) {
     return "/placeholder.png";
   }
 
-  // Find explicitly marked primary image or default to first
   const primary = images.find((img) => img?.is_primary === true) || images[0];
 
   if (!primary) return "/placeholder.png";
   if (typeof primary === "string") return primary;
 
-  // Extract from image object keys
   return (
     primary.url ||
     primary.image_url ||
@@ -116,9 +97,6 @@ export function primaryImg(imagesInput, productFallback = null) {
   );
 }
 
-/**
- * Extracts array of image URL strings from product
- */
 export function allImages(imagesInput) {
   let images = imagesInput;
   if (typeof images === "string") {
@@ -144,7 +122,7 @@ export function allImages(imagesInput) {
 
 /**
  * Resolves the correct route for product detail pages.
- * Prefers item.slug, falls back to item.id or item.product_id under /shop/
+ * Supports slug or UUID matching GET /api/products/:idOrSlug
  */
 export function getProductPath(item) {
   if (!item) return "/shop";
@@ -153,31 +131,36 @@ export function getProductPath(item) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DEVICE & UTILITY HELPERS
+   CATALOG MIXER & UTILITY HELPERS
 ═══════════════════════════════════════════════════════════════ */
 
 /**
- * Trims extra spaces and collapses multiple spaces
+ * Fisher-Yates array shuffle for a mixed product feed
  */
+export function mixProducts(items) {
+  if (!Array.isArray(items)) return [];
+  const list = [...items];
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
 export function normalize(str = "") {
   return String(str || "").replace(/\s+/g, " ").trim();
 }
 
-/**
- * Triggers subtle haptic feedback vibration on mobile devices
- */
 export function haptic(ms = 10) {
   try {
     if (typeof window !== "undefined" && window.navigator?.vibrate) {
       window.navigator.vibrate(ms);
     }
-  } catch {
-    /* ignore unsupported devices */
-  }
+  } catch {}
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SEARCH HISTORY STORAGE
+   SEARCH & RECENT STORAGE
 ═══════════════════════════════════════════════════════════════ */
 
 export function getSearchHistory() {
@@ -198,9 +181,7 @@ export function addToSearchHistory(term) {
     );
     current.unshift(clean);
     localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(current.slice(0, 10)));
-  } catch {
-    /* ignore storage errors */
-  }
+  } catch {}
 }
 
 export function clearSearchHistory() {
@@ -208,10 +189,6 @@ export function clearSearchHistory() {
     localStorage.removeItem(SEARCH_HISTORY_KEY);
   } catch {}
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   RECENTLY VIEWED STORAGE
-═══════════════════════════════════════════════════════════════ */
 
 export function getRecentlyViewed() {
   try {
@@ -237,13 +214,11 @@ export function addToRecentlyViewed(product) {
       viewedAt: Date.now(),
     });
     localStorage.setItem(RECENT_KEY, JSON.stringify(current.slice(0, 12)));
-  } catch {
-    /* ignore */
-  }
+  } catch {}
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   WISHLIST STORAGE UTILS
+   WISHLIST STORAGE
 ═══════════════════════════════════════════════════════════════ */
 
 export function getWishlist() {
@@ -272,8 +247,7 @@ export function toggleWishlistStorage(productId) {
 
     localStorage.setItem(WISH_KEY, JSON.stringify(next));
     window.dispatchEvent(new Event("wishlist-updated"));
-    haptic(12);
-    return index < 0; // returns true if added, false if removed
+    return index < 0;
   } catch {
     return false;
   }
@@ -422,55 +396,11 @@ export function filterActiveCampaigns(input) {
     .filter((c) => c.isActive);
 }
 
-export function filterProductsByCampaign(products, campaignQuery) {
-  if (!Array.isArray(products) || !products.length) return [];
-  const q = normalize(String(campaignQuery || "")).toLowerCase();
-  if (!q) {
-    return products.filter(isCampaignProduct);
-  }
-
-  return products.filter((p) => {
-    const tag = (getCampaignTag(p) || "").toLowerCase();
-    const key = (getCampaignKey(p) || "").toLowerCase();
-    const cid = String(p.campaign_id || p.campaignId || "").toLowerCase();
-    const cslug = String(p.campaign_slug || p.campaignSlug || "").toLowerCase();
-    const cname = String(p.campaign_name || p.campaignName || "").toLowerCase();
-    const nested =
-      p.campaign && typeof p.campaign === "object"
-        ? normalize(
-            String(
-              p.campaign.name ||
-                p.campaign.title ||
-                p.campaign.slug ||
-                p.campaign.id ||
-                ""
-            )
-          ).toLowerCase()
-        : "";
-
-    return (
-      tag === q ||
-      key === q ||
-      cid === q ||
-      cslug === q ||
-      cname === q ||
-      nested === q ||
-      tag.includes(q) ||
-      cname.includes(q) ||
-      nested.includes(q)
-    );
-  });
-}
-
-/**
- * Split live catalog into admin-driven buckets without over-filtering items.
- */
 export function partitionAdminProductSections(products = []) {
   const list = Array.isArray(products) ? products : [];
 
   const visible = list.filter((p) => {
     if (!p) return false;
-    // Hide ONLY if explicitly hidden by admin
     if (p.is_hidden === true || p.is_hidden === 1 || p.is_hidden === "true")
       return false;
     if (p.status && String(p.status).toLowerCase() === "hidden") return false;
@@ -533,19 +463,19 @@ export function getMidnightWATTimeLeft(now = new Date()) {
 }
 
 /**
- * Helper to safely extract products array from any API envelope shape
+ * Extracts product arrays from any nested response envelope shape
+ * Matches Backend Response: ok(res, { data: { products: rows, pagination: ... } })
  */
 export function extractProductsArray(data) {
   if (!data) return [];
   if (Array.isArray(data)) return data;
-  if (Array.isArray(data.products)) return data.products;
-  if (Array.isArray(data.data)) return data.data;
   if (data.data && Array.isArray(data.data.products)) return data.data.products;
+  if (Array.isArray(data.products)) return data.products;
   if (data.data && Array.isArray(data.data.items)) return data.data.items;
+  if (data.data && Array.isArray(data.data)) return data.data;
   if (Array.isArray(data.items)) return data.items;
   if (Array.isArray(data.rows)) return data.rows;
   if (Array.isArray(data.results)) return data.results;
-  if (Array.isArray(data.market_products)) return data.market_products;
   return [];
 }
 
@@ -572,15 +502,14 @@ export async function fetchJson(path, options) {
 }
 
 /**
- * Ultra-resilient loader that tries multiple endpoints to fetch live products
+ * Ultra-resilient loader that calls GET /api/products
  */
 export async function fetchProducts(query = "") {
   const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
   const endpoints = [
     `/products${q}`,
     `/market/products${q}`,
-    `/marketplace/products${q}`,
-    `/marketproducts${q}`
+    `/marketplace/products${q}`
   ];
 
   for (const endpoint of endpoints) {
@@ -591,7 +520,7 @@ export async function fetchProducts(query = "") {
         return items;
       }
     } catch {
-      // try next endpoint
+      // try next fallback endpoint
     }
   }
 
