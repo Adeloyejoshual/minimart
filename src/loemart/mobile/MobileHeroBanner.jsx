@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { haptic, fetchCampaigns, primaryImg } from './mobileHelpers';
+import { fetchCampaigns, primaryImg } from './mobileHelpers';
 import './styles/MobileHeroBanner.css';
 
 const DEFAULT_SLIDES = [
@@ -10,7 +10,7 @@ const DEFAULT_SLIDES = [
     title: 'Flash Sale Deals',
     subtitle: 'Up to 70% off verified tech, phones & fashion',
     ctaText: 'Shop Deals',
-    ctaLink: '/search?filter=flash',
+    ctaLink: '/m/search?filter=flash',
     bgGradient: 'linear-gradient(135deg, #ff6000 0%, #d83b00 100%)',
     image: '/assets/banner-flash.png'
   },
@@ -20,7 +20,7 @@ const DEFAULT_SLIDES = [
     title: '100% Genuine Brands',
     subtitle: 'Direct warranty on all laptops, phones & appliances',
     ctaText: 'Explore Brand',
-    ctaLink: '/search?q=official',
+    ctaLink: '/m/search?q=official',
     bgGradient: 'linear-gradient(135deg, #111111 0%, #333333 100%)',
     image: '/assets/banner-brand.png'
   },
@@ -30,7 +30,7 @@ const DEFAULT_SLIDES = [
     title: 'Loemart Express',
     subtitle: 'Same-day delivery available across major cities',
     ctaText: 'Order Now',
-    ctaLink: '/search',
+    ctaLink: '/m/search',
     bgGradient: 'linear-gradient(135deg, #2b1055 0%, #7597de 100%)',
     image: '/assets/banner-express.png'
   }
@@ -61,12 +61,12 @@ export default function MobileHeroBanner({ customSlides = null }) {
           const campaignSlides = liveCampaigns.map((c) => ({
             id: c.id || c.slug,
             badge: '🎯 ACTIVE CAMPAIGN',
-            title: c.title || 'Special Campaign',
-            subtitle: c.subtitle || 'Exclusive hand-picked admin offers',
+            title: c.title || c.name || 'Special Campaign',
+            subtitle: c.subtitle || c.description || 'Exclusive hand-picked admin offers',
             ctaText: 'Shop Campaign',
-            ctaLink: `/search?campaign=${encodeURIComponent(c.key || c.slug || c.title)}`,
+            ctaLink: `/m/search?campaign=${encodeURIComponent(c.key || c.slug || c.title || c.name)}`,
             bgGradient: 'linear-gradient(135deg, #ff6000 0%, #b82200 100%)',
-            image: c.banner || '/assets/banner-campaign.png'
+            image: c.banner || c.banner_url || c.image || '/assets/banner-campaign.png'
           }));
 
           setSlides([...campaignSlides, ...DEFAULT_SLIDES]);
@@ -110,10 +110,8 @@ export default function MobileHeroBanner({ customSlides = null }) {
     const swipeThreshold = 40;
 
     if (diff > swipeThreshold) {
-      haptic(10);
       setCurrentIndex((prev) => (prev + 1) % slides.length);
     } else if (diff < -swipeThreshold) {
-      haptic(10);
       setCurrentIndex((prev) => (prev - 1 + slides.length) % slides.length);
     }
 
@@ -121,7 +119,6 @@ export default function MobileHeroBanner({ customSlides = null }) {
   };
 
   const handleSlideClick = (slide) => {
-    haptic(12);
     if (slide.ctaLink) {
       navigate(slide.ctaLink);
     }
@@ -189,7 +186,6 @@ export default function MobileHeroBanner({ customSlides = null }) {
                 className={`mhb-dot ${idx === currentIndex ? 'active' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  haptic(8);
                   setCurrentIndex(idx);
                 }}
               />
