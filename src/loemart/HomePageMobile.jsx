@@ -11,6 +11,7 @@ import {
   calcDiscountPct,
   primaryImg,
   getProductPath,
+  mixProducts,
   getMidnightWATTimeLeft,
   partitionAdminProductSections,
   fetchProducts,
@@ -39,7 +40,7 @@ export default function HomePageMobile() {
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Fetch Live Products and Campaigns
+  // 2. Fetch Live Products & Campaigns
   useEffect(() => {
     let isMounted = true;
 
@@ -53,14 +54,14 @@ export default function HomePageMobile() {
 
         if (!isMounted) return;
 
-        const productList = Array.isArray(rawProducts) ? rawProducts : [];
-        setProducts(productList);
+        // Shuffle / mix so new additions do not stack strictly in linear order
+        const mixedProducts = mixProducts(Array.isArray(rawProducts) ? rawProducts : []);
+        setProducts(mixedProducts);
         setCampaigns(Array.isArray(rawCampaigns) ? rawCampaigns : []);
 
-        // Extract unique category names dynamically from live catalog
         const uniqueCats = Array.from(
           new Set(
-            productList
+            mixedProducts
               .map((p) => p.category || p.category_name)
               .filter(Boolean)
           )
@@ -81,7 +82,6 @@ export default function HomePageMobile() {
 
   const sections = partitionAdminProductSections(products);
 
-  // Filter catalog based on active category pill
   const displayedCatalog =
     activeCategory === 'All'
       ? sections.all
@@ -99,10 +99,10 @@ export default function HomePageMobile() {
       style={{
         minHeight: '100vh',
         backgroundColor: '#f5f5f7',
-        paddingBottom: '80px' // Clear space for fixed BottomNav portal
+        paddingBottom: '80px'
       }}
     >
-      {/* 3-Row Sticky Navigation Header */}
+      {/* Sticky Top Header */}
       <MobileTopBar
         categories={categories}
         activeCategory={activeCategory}
@@ -112,7 +112,7 @@ export default function HomePageMobile() {
       {/* Hero Touch Carousel Banner */}
       <MobileHeroBanner />
 
-      {/* ADMIN CAMPAIGN SPOTLIGHT (Auto-hides if empty) */}
+      {/* Admin Campaign Spotlight */}
       {(campaigns.length > 0 || sections.campaign.length > 0) && (
         <MobileCampaignSpotlight
           campaign={campaigns[0] || null}
@@ -120,7 +120,7 @@ export default function HomePageMobile() {
         />
       )}
 
-      {/* 1. FLASH SALE SECTION */}
+      {/* Flash Sale Section */}
       {sections.flash.length > 0 && (
         <div
           className="mdp-psec"
@@ -308,7 +308,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* 2. SPONSORED SECTION */}
+      {/* Sponsored Section */}
       {sections.sponsored?.length > 0 && (
         <div
           className="mdp-psec"
@@ -433,7 +433,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* 3. TRENDING SECTION */}
+      {/* Trending Section */}
       {sections.trending.length > 0 && (
         <div
           className="mdp-psec"
@@ -559,7 +559,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* 4. MAIN CATALOG MASONRY GRID */}
+      {/* Main Catalog Masonry Grid */}
       <div style={{ padding: '0 12px', marginTop: 16 }}>
         <div
           style={{
@@ -653,10 +653,10 @@ export default function HomePageMobile() {
         )}
       </div>
 
-      {/* FOOTER */}
+      {/* Footer */}
       <Footer />
 
-      {/* FIXED BOTTOM NAVIGATION BAR */}
+      {/* Fixed Bottom Navigation Bar */}
       <BottomNav />
     </div>
   );
