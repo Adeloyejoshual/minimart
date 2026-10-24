@@ -1,222 +1,193 @@
-/* src/loemart/mobile/styles/MobileTopBar.css */
+/**
+ * Loemart Mobile Top Bar Styles
+ * Brand: #ff6000
+ */
 
-.lmm-topbar {
+.mtb-header-sticky {
   position: sticky;
   top: 0;
-  z-index: 200;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: #ffffff;
+  border-bottom: 1px solid #eaeaea;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
   width: 100%;
-  max-width: 640px;
-  margin: 0 auto;
-  padding-left: 16px;
-  padding-right: 16px;
-  padding-bottom: 12px;
-  transition: box-shadow 0.2s ease, background 0.2s ease;
+  box-sizing: border-box;
 }
 
-.lmm-topbar--elevated {
-  box-shadow: 0 4px 20px rgba(255, 96, 0, 0.18);
+/* Force strict SVG limits so global CSS resets cannot blow up icons */
+.mtb-header-sticky svg {
+  max-width: 24px !important;
+  max-height: 24px !important;
+  flex-shrink: 0 !important;
+  display: inline-block !important;
 }
 
-.lmm-topbar--focused {
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
-}
-
-.lmm-topbar__row {
+/* ROW 1: BRAND LOGO & ACTIONS */
+.mtb-row-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 48px;
-  padding-top: 8px;
-  gap: 12px;
+  padding: 8px 12px;
+  height: 48px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
-.lmm-topbar__left {
+.mtb-menu-btn {
+  background: none;
+  border: none;
+  padding: 4px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
+  justify-content: center;
+  color: #111111;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
-.lmm-topbar__actions {
+.mtb-brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mtb-logo-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.mtb-logo-text {
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: #ff6000;
+  letter-spacing: -0.5px;
+}
+
+.mtb-actions-right {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
 }
 
-.lmm-topbar__brand {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.mtb-icon-btn {
   background: none;
   border: none;
-  padding: 0;
+  position: relative;
+  padding: 6px;
+  color: #222222;
   cursor: pointer;
-  color: inherit;
-  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.lmm-topbar__brand-mark {
-  font-size: 22px;
+.mtb-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #ff6000;
+  color: #ffffff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  min-width: 15px;
+  height: 15px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
   line-height: 1;
 }
 
-.lmm-topbar__brand-name {
-  font-size: 22px;
-  font-weight: 900;
-  letter-spacing: -0.03em;
-  line-height: 1;
+/* ROW 2: SEARCH BAR */
+.mtb-row-search {
+  padding: 0 12px 8px 12px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
-.lmm-topbar__title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
+.mtb-search-box {
+  display: flex;
+  align-items: center;
+  background: #f2f2f7;
+  border-radius: 20px;
+  padding: 8px 14px;
+  gap: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  width: 100%;
+  box-sizing: border-box;
+  height: 40px;
+}
+
+.mtb-search-placeholder {
+  flex: 1;
+  font-size: 0.82rem;
+  color: #8e8e93;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: inherit;
+  text-align: left;
 }
 
-.lmm-topbar__icon-btn {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
+.mtb-filter-trigger {
+  background: none;
   border: none;
-  background: transparent;
-  border-radius: 50%;
-  cursor: pointer;
-  color: inherit;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.lmm-topbar__icon-btn:active {
-  background: rgba(0, 0, 0, 0.08);
-}
-
-.lmm-topbar__badge {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #ff6000;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 16px;
-  text-align: center;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-  pointer-events: none;
-}
-
-.lmm-topbar__badge--cart {
-  background: #ffffff;
-  color: #ff6000;
-}
-
-.lmm-topbar__badge--notif {
-  background: #ef4444;
-  color: #ffffff;
-}
-
-.lmm-topbar__search-form {
-  margin-top: 4px;
-}
-
-.lmm-topbar__search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 0 6px 0 12px;
-  height: 42px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.lmm-topbar__search--focused {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-}
-
-.lmm-topbar__search-icon {
-  flex-shrink: 0;
-  color: #999999;
-}
-
-.lmm-topbar__search-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 15px;
-  font-weight: 500;
-  color: #111111;
-  font-family: inherit;
-  height: 100%;
   padding: 0;
-}
-
-.lmm-topbar__search-input::placeholder {
-  color: #999999;
-  font-weight: 400;
-}
-
-.lmm-topbar__search-input::-webkit-search-cancel-button,
-.lmm-topbar__search-input::-webkit-search-decoration {
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.lmm-topbar__search-clear {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 50%;
-  background: #f0f0f0;
-  color: #666;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.lmm-topbar__filter-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 8px;
-  background: #fff4eb;
   color: #ff6000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.lmm-topbar__filter-btn:active {
-  background: #ffe0cc;
+/* ROW 3: CATEGORIES HORIZONTAL STRIP */
+.mtb-row-categories {
+  width: 100%;
+  border-top: 1px solid #f0f0f0;
+  background: #fafafa;
+  overflow: hidden;
 }
 
-.lmm-topbar__dim {
-  position: fixed;
-  inset: 0;
-  z-index: 150;
-  background: rgba(0, 0, 0, 0.25);
+.mtb-cat-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 12px;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .lmm-topbar,
-  .lmm-topbar__search {
-    transition: none;
-  }
+.mtb-cat-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.mtb-cat-pill {
+  flex: 0 0 auto;
+  background: #ffffff;
+  border: 1px solid #e2e2e8;
+  color: #444444;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 14px;
+  border-radius: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mtb-cat-pill.active {
+  background: #ff6000;
+  color: #ffffff;
+  border-color: #ff6000;
+  box-shadow: 0 2px 6px rgba(255, 96, 0, 0.25);
 }
