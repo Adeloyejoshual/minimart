@@ -139,6 +139,20 @@ export function allImages(imagesInput) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   PRODUCT ROUTE RESOLVER
+═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Resolves the correct route for product detail pages.
+ * Prefers item.slug, falls back to item.id or item.product_id under /shop/
+ */
+export function getProductPath(item) {
+  if (!item) return "/shop";
+  const target = item.slug || item.id || item.product_id;
+  return target ? `/shop/${target}` : "/shop";
+}
+
+/* ═══════════════════════════════════════════════════════════════
    DEVICE & UTILITY HELPERS
 ═══════════════════════════════════════════════════════════════ */
 
