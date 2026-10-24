@@ -1,6 +1,5 @@
 /**
- * Loemart Mobile Campaign Styles
- * Brand: #ff6000
+ * Loemart Mobile Campaign Overhaul Styles
  */
 
 .mc-spotlight-wrapper {
@@ -13,35 +12,42 @@
 .mc-spotlight-banner {
   width: 100%;
   border-radius: 14px;
-  padding: 18px 16px;
-  box-sizing: border-box;
-  background-size: cover;
-  background-position: center;
-  color: #ffffff;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 6px 18px rgba(255, 96, 0, 0.28);
+  box-shadow: 0 4px 14px rgba(255, 96, 0, 0.22);
   cursor: pointer;
-  transition: transform 0.18s ease;
 }
 
-.mc-spotlight-banner:active {
-  transform: scale(0.985);
+.mc-banner-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-size: cover;
+  background-position: center;
+  z-index: 1;
+}
+
+.mc-banner-content {
+  position: relative;
+  z-index: 2;
+  padding: 18px 16px;
+  color: #ffffff;
 }
 
 .mc-spotlight-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(6px);
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 800;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.5px;
   margin-bottom: 8px;
-  text-transform: uppercase;
 }
 
 .mc-badge-pulse {
@@ -50,29 +56,19 @@
   background-color: #00ff88;
   border-radius: 50%;
   box-shadow: 0 0 8px #00ff88;
-  animation: mc-pulse-anim 1.6s infinite;
-}
-
-@keyframes mc-pulse-anim {
-  0% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.35); }
-  100% { opacity: 1; transform: scale(1); }
 }
 
 .mc-spotlight-title {
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   font-weight: 900;
   margin: 0 0 4px 0;
   line-height: 1.25;
-  letter-spacing: -0.3px;
 }
 
 .mc-spotlight-subtitle {
-  font-size: 0.82rem;
-  margin: 0 0 14px 0;
-  opacity: 0.92;
-  line-height: 1.35;
-  max-width: 90%;
+  font-size: 0.8rem;
+  margin: 0 0 12px 0;
+  opacity: 0.9;
 }
 
 .mc-spotlight-cta {
@@ -82,17 +78,17 @@
   background: #ffffff;
   color: #ff6000;
   font-weight: 800;
-  font-size: 0.78rem;
-  padding: 7px 14px;
+  font-size: 0.75rem;
+  padding: 6px 14px;
   border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .mc-spotlight-cta svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
+/* Horizontal Scroll Tile Row */
 .mc-products-scroll-wrapper {
   margin-top: 10px;
   width: 100%;
@@ -102,76 +98,61 @@
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  scroll-behavior: smooth;
-  -webkit-overflow-scrolling: touch;
   padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .mc-products-scroll::-webkit-scrollbar {
   display: none;
 }
 
-.mc-product-card {
-  flex: 0 0 135px;
+.mc-product-tile {
+  flex: 0 0 148px; /* Room for 6-digit Naira prices */
   background: #ffffff;
   border-radius: 12px;
+  border: 1px solid #eaeaea;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
 }
 
-.mc-card-img-wrapper {
+.mc-tile-img-box {
   width: 100%;
-  height: 110px;
+  aspect-ratio: 1 / 1;
+  background: #f8f9fc;
   position: relative;
-  background: #f8f8f8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  box-sizing: border-box;
 }
 
-.mc-card-img-wrapper img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.mc-tile-img-box img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 
-.mc-card-discount-badge {
+.mc-tile-discount {
   position: absolute;
   top: 6px;
   left: 6px;
   background: #ff6000;
   color: #ffffff;
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   font-weight: 900;
   padding: 2px 5px;
   border-radius: 4px;
 }
 
-.mc-card-campaign-tag {
-  position: absolute;
-  bottom: 6px;
-  right: 6px;
-  background: rgba(0, 0, 0, 0.7);
-  color: #ffffff;
-  font-size: 0.58rem;
-  font-weight: 800;
-  padding: 2px 5px;
-  border-radius: 4px;
-  letter-spacing: 0.3px;
+.mc-tile-details {
+  padding: 8px 10px;
 }
 
-.mc-card-details {
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  justify: space-between;
-  flex: 1;
-}
-
-.mc-card-name {
+.mc-tile-title {
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 600;
   color: #111111;
   margin: 0 0 4px 0;
   white-space: nowrap;
@@ -179,18 +160,13 @@
   text-overflow: ellipsis;
 }
 
-.mc-card-prices {
-  display: flex;
-  flex-direction: column;
-}
-
-.mc-card-price {
-  font-size: 0.82rem;
+.mc-tile-price {
+  font-size: 0.85rem;
   font-weight: 900;
   color: #ff6000;
 }
 
-.mc-card-old-price {
+.mc-tile-old-price {
   font-size: 0.65rem;
   color: #8e8e93;
   text-decoration: line-through;
