@@ -1,5 +1,5 @@
 /**
- * Loemart Mobile Top Bar Styles
+ * Loemart Mobile Top Bar
  * Brand: #ff6000
  */
 
@@ -18,15 +18,14 @@
   box-sizing: border-box;
 }
 
-/* Force strict SVG limits so global CSS resets cannot blow up icons */
+/* Enforce hard SVG limits against CSS reset leakage */
 .mtb-header-sticky svg {
-  max-width: 24px !important;
-  max-height: 24px !important;
+  max-width: 22px !important;
+  max-height: 22px !important;
   flex-shrink: 0 !important;
   display: inline-block !important;
 }
 
-/* ROW 1: BRAND LOGO & ACTIONS */
 .mtb-row-top {
   display: flex;
   align-items: center;
@@ -106,7 +105,6 @@
   line-height: 1;
 }
 
-/* ROW 2: SEARCH BAR */
 .mtb-row-search {
   padding: 0 12px 8px 12px;
   box-sizing: border-box;
@@ -149,7 +147,6 @@
   flex-shrink: 0;
 }
 
-/* ROW 3: CATEGORIES HORIZONTAL STRIP */
 .mtb-row-categories {
   width: 100%;
   border-top: 1px solid #f0f0f0;
