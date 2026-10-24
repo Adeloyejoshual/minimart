@@ -42,12 +42,11 @@ export default function MobileHeroBanner({ customSlides = null }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
 
-  // Touch gesture refs
   const touchStartX = useRef(0);
   const touchEndX = useRef(0);
   const autoPlayTimerRef = useRef(null);
 
-  // 1. Fetch live campaign banners if no custom slides provided
+  // Fetch live campaign banners if available
   useEffect(() => {
     if (customSlides && customSlides.length > 0) {
       setSlides(customSlides);
@@ -70,11 +69,10 @@ export default function MobileHeroBanner({ customSlides = null }) {
             image: c.banner || '/assets/banner-campaign.png'
           }));
 
-          // Merge live campaigns ahead of default slides
           setSlides([...campaignSlides, ...DEFAULT_SLIDES]);
         }
       } catch (e) {
-        // Fallback to default slides
+        // Keep defaults on network error
       }
     }
 
@@ -82,7 +80,7 @@ export default function MobileHeroBanner({ customSlides = null }) {
     return () => { isMounted = false; };
   }, [customSlides]);
 
-  // 2. Autoplay timer
+  // Autoplay cycle
   useEffect(() => {
     if (isPaused || slides.length <= 1) return;
 
@@ -97,7 +95,6 @@ export default function MobileHeroBanner({ customSlides = null }) {
     };
   }, [isPaused, slides.length]);
 
-  // Touch Handlers for mobile swipe gestures
   const handleTouchStart = (e) => {
     setIsPaused(true);
     touchStartX.current = e.touches[0].clientX;
@@ -113,11 +110,9 @@ export default function MobileHeroBanner({ customSlides = null }) {
     const swipeThreshold = 40;
 
     if (diff > swipeThreshold) {
-      // Swiped Left -> Next
       haptic(10);
       setCurrentIndex((prev) => (prev + 1) % slides.length);
     } else if (diff < -swipeThreshold) {
-      // Swiped Right -> Previous
       haptic(10);
       setCurrentIndex((prev) => (prev - 1 + slides.length) % slides.length);
     }
@@ -141,7 +136,7 @@ export default function MobileHeroBanner({ customSlides = null }) {
         style={{
           background: currentSlide.bgGradient,
           backgroundImage: currentSlide.image && currentSlide.image !== '/placeholder.png'
-            ? `linear-gradient(135deg, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.3) 100%), url(${primaryImg(currentSlide.image)})`
+            ? `linear-gradient(135deg, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.25) 100%), url(${primaryImg(currentSlide.image)})`
             : currentSlide.bgGradient
         }}
         onTouchStart={handleTouchStart}
@@ -159,14 +154,33 @@ export default function MobileHeroBanner({ customSlides = null }) {
 
           <div className="mhb-cta-btn">
             <span>{currentSlide.ctaText || 'Shop Now'}</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                width: '12px',
+                height: '12px',
+                minWidth: '12px',
+                minHeight: '12px',
+                maxWidth: '12px',
+                maxHeight: '12px',
+                flexShrink: 0,
+                display: 'inline-block'
+              }}
+            >
               <line x1="5" y1="12" x2="19" y2="12" />
               <polyline points="12 5 19 12 12 19" />
             </svg>
           </div>
         </div>
 
-        {/* Dots Pagination Indicator */}
+        {/* Pagination Dots */}
         {slides.length > 1 && (
           <div className="mhb-dots">
             {slides.map((s, idx) => (
