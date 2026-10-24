@@ -1872,6 +1872,21 @@ function AppInner() {
           }
         />
 
+        {/* ── NEW LOEMART MOBILE SEARCH ALIASES ── */}
+        <Route
+          path="/m/search"
+          element={
+            <LoemartSearchPage user={user} />
+          }
+        />
+
+        <Route
+          path="/mobile/search"
+          element={
+            <LoemartSearchPage user={user} />
+          }
+        />
+
         <Route
           path="/trending"
           element={
