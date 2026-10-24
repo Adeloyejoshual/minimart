@@ -28,7 +28,7 @@ export default function HomePageMobile() {
   const [loading, setLoading] = useState(true);
   const [timeLeft, setTimeLeft] = useState({ hours: '00', minutes: '00', seconds: '00' });
 
-  // 1. Midnight WAT countdown
+  // 1. Midnight WAT Countdown Timer
   useEffect(() => {
     const updateTimer = () => {
       const remaining = getMidnightWATTimeLeft();
@@ -39,7 +39,7 @@ export default function HomePageMobile() {
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Fetch Live products + campaigns in natural mixed order
+  // 2. Fetch Live Products and Campaigns
   useEffect(() => {
     let isMounted = true;
 
@@ -57,6 +57,7 @@ export default function HomePageMobile() {
         setProducts(productList);
         setCampaigns(Array.isArray(rawCampaigns) ? rawCampaigns : []);
 
+        // Extract unique category names dynamically from live catalog
         const uniqueCats = Array.from(
           new Set(
             productList
@@ -80,7 +81,7 @@ export default function HomePageMobile() {
 
   const sections = partitionAdminProductSections(products);
 
-  // Main catalog filtered by active category in natural mixed order
+  // Filter catalog based on active category pill
   const displayedCatalog =
     activeCategory === 'All'
       ? sections.all
@@ -98,20 +99,20 @@ export default function HomePageMobile() {
       style={{
         minHeight: '100vh',
         backgroundColor: '#f5f5f7',
-        paddingBottom: '80px' // spacing for BottomNav portal
+        paddingBottom: '80px' // Clear space for fixed BottomNav portal
       }}
     >
-      {/* Sticky Header */}
+      {/* 3-Row Sticky Navigation Header */}
       <MobileTopBar
         categories={categories}
         activeCategory={activeCategory}
         onSelectCategory={handleCategorySelect}
       />
 
-      {/* Hero Banner */}
+      {/* Hero Touch Carousel Banner */}
       <MobileHeroBanner />
 
-      {/* Admin Campaign Spotlight — auto-hides when empty */}
+      {/* ADMIN CAMPAIGN SPOTLIGHT (Auto-hides if empty) */}
       {(campaigns.length > 0 || sections.campaign.length > 0) && (
         <MobileCampaignSpotlight
           campaign={campaigns[0] || null}
