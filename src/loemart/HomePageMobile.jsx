@@ -4,11 +4,13 @@ import MobileTopBar from '../loemart/mobile/MobileTopBar';
 import MobileHeroBanner from '../loemart/mobile/MobileHeroBanner';
 import MobileCampaignSpotlight from '../loemart/mobile/MobileCampaignSpotlight';
 import MasonryCard from '../loemart/mobile/MasonryCard';
+import Footer from '../components/Footer';
 import BottomNav from '../components/BottomNav';
 import {
   formatPrice,
   calcDiscountPct,
   primaryImg,
+  getProductPath,
   getMidnightWATTimeLeft,
   partitionAdminProductSections,
   fetchProducts,
@@ -37,7 +39,7 @@ export default function HomePageMobile() {
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Live products + campaigns
+  // 2. Fetch Live products + campaigns in natural mixed order
   useEffect(() => {
     let isMounted = true;
 
@@ -51,12 +53,13 @@ export default function HomePageMobile() {
 
         if (!isMounted) return;
 
-        setProducts(Array.isArray(rawProducts) ? rawProducts : []);
+        const productList = Array.isArray(rawProducts) ? rawProducts : [];
+        setProducts(productList);
         setCampaigns(Array.isArray(rawCampaigns) ? rawCampaigns : []);
 
         const uniqueCats = Array.from(
           new Set(
-            (rawProducts || [])
+            productList
               .map((p) => p.category || p.category_name)
               .filter(Boolean)
           )
@@ -77,6 +80,7 @@ export default function HomePageMobile() {
 
   const sections = partitionAdminProductSections(products);
 
+  // Main catalog filtered by active category in natural mixed order
   const displayedCatalog =
     activeCategory === 'All'
       ? sections.all
@@ -94,20 +98,20 @@ export default function HomePageMobile() {
       style={{
         minHeight: '100vh',
         backgroundColor: '#f5f5f7',
-        paddingBottom: '80px' // space for fixed BottomNav
+        paddingBottom: '80px' // spacing for BottomNav portal
       }}
     >
-      {/* Sticky 3-row header */}
+      {/* Sticky Header */}
       <MobileTopBar
         categories={categories}
         activeCategory={activeCategory}
         onSelectCategory={handleCategorySelect}
       />
 
-      {/* Live campaign / default hero carousel */}
+      {/* Hero Banner */}
       <MobileHeroBanner />
 
-      {/* Admin campaign spotlight — auto-hides when empty */}
+      {/* Admin Campaign Spotlight — auto-hides when empty */}
       {(campaigns.length > 0 || sections.campaign.length > 0) && (
         <MobileCampaignSpotlight
           campaign={campaigns[0] || null}
@@ -115,7 +119,7 @@ export default function HomePageMobile() {
         />
       )}
 
-      {/* Flash Sale */}
+      {/* 1. FLASH SALE SECTION */}
       {sections.flash.length > 0 && (
         <div
           className="mdp-psec"
@@ -195,20 +199,16 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
               const oldPrice =
-                item.oldPrice ??
-                item.old_price ??
-                item.original_price ??
-                item.regular_price;
+                item.oldPrice ?? item.old_price ?? item.original_price ?? item.regular_price;
               const discount = calcDiscountPct(price, oldPrice);
               const title = item.title || item.name || 'Flash Deal';
 
               return (
                 <div
                   key={id}
-                  onClick={() => navigate(`/product/${id}`)}
+                  onClick={() => navigate(getProductPath(item))}
                   style={{
                     flex: '0 0 148px',
                     width: 148,
@@ -307,7 +307,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* Sponsored (admin-flagged) — auto-hide if empty */}
+      {/* 2. SPONSORED SECTION */}
       {sections.sponsored?.length > 0 && (
         <div
           className="mdp-psec"
@@ -328,7 +328,7 @@ export default function HomePageMobile() {
             }}
           >
             <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
-              ⭐ Sponsored
+              ⭐ Sponsored Deals
             </span>
             <button
               type="button"
@@ -361,13 +361,12 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
                   key={id}
-                  onClick={() => navigate(`/product/${id}`)}
+                  onClick={() => navigate(getProductPath(item))}
                   style={{
                     flex: '0 0 148px',
                     width: 148,
@@ -433,7 +432,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* Trending */}
+      {/* 3. TRENDING SECTION */}
       {sections.trending.length > 0 && (
         <div
           className="mdp-psec"
@@ -487,13 +486,12 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
                   key={id}
-                  onClick={() => navigate(`/product/${id}`)}
+                  onClick={() => navigate(getProductPath(item))}
                   style={{
                     flex: '0 0 148px',
                     width: 148,
@@ -560,7 +558,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* Main catalog masonry */}
+      {/* 4. MAIN CATALOG MASONRY GRID */}
       <div style={{ padding: '0 12px', marginTop: 16 }}>
         <div
           style={{
@@ -654,7 +652,10 @@ export default function HomePageMobile() {
         )}
       </div>
 
-      {/* Fixed bottom tab bar (portaled to body) */}
+      {/* FOOTER */}
+      <Footer />
+
+      {/* FIXED BOTTOM NAVIGATION BAR */}
       <BottomNav />
     </div>
   );
