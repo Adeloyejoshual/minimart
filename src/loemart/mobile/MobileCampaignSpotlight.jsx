@@ -1,104 +1,91 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  formatPrice,
-  calcDiscountPct,
-  primaryImg,
-  haptic,
-  getCampaignTag,
-  getCampaignKey,
-  getCampaignBanner,
-  normalizeCampaign
-} from './mobileHelpers';
-import './styles/MobileCampaign.css';
+import { formatPrice, primaryImg, haptic } from './mobileHelpers';
+import './MobileCampaign.css';
 
-export default function MobileCampaignSpotlight({ campaign, products = [] }) {
+const MobileCampaignSpotlight = ({ 
+  title = "Flash Sale", 
+  products = [], 
+  type = "flash", // flash, sponsored, trending
+  endTime = null 
+}) => {
   const navigate = useNavigate();
+  const [timeLeft, setTimeLeft] = useState("");
 
-  const normalized = normalizeCampaign(campaign);
-  const hasProducts = Array.isArray(products) && products.length > 0;
+  // WAT (UTC+1) Midnight Timer Logic
+  useEffect(() => {
+    if (type !== 'flash') return;
 
-  if (!normalized && !hasProducts) {
-    return null;
-  }
+    const timer = setInterval(() => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setHours(24, 0, 0, 0); // Midnight
+      
+      const diff = tomorrow - now;
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const mins = Math.floor((diff / (1000 * 60)) % 60);
+      const secs = Math.floor((diff / 1000) % 60);
+      
+      setTimeLeft(`${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+    }, 1000);
 
-  const campaignTitle = normalized?.title || getCampaignTag(products[0]) || 'Featured Campaign';
-  const campaignSub = normalized?.subtitle || 'Verified admin promotions';
-  const campaignBanner = normalized?.banner || getCampaignBanner(campaign);
-  const campaignKey = normalized?.key || getCampaignKey(products[0]) || campaignTitle;
+    return () => clearInterval(timer);
+  }, [type]);
 
-  const handleCampaignClick = () => {
-    haptic(15);
-    navigate(`/search?campaign=${encodeURIComponent(campaignKey)}`);
-  };
+  if (!products || products.length === 0) return null;
 
   return (
-    <div className="mc-spotlight-wrapper">
-      {/* Sleek Campaign Header Banner */}
-      <div className="mc-spotlight-banner" onClick={handleCampaignClick}>
-        <div
-          className="mc-banner-bg"
-          style={{
-            backgroundImage: `linear-gradient(135deg, rgba(255, 96, 0, 0.92) 0%, rgba(180, 20, 0, 0.88) 100%), url(${campaignBanner})`
-          }}
-        />
-        <div className="mc-banner-content">
-          <div className="mc-spotlight-badge">
-            <span className="mc-badge-pulse" />
-            <span>OFFICIAL CAMPAIGN</span>
-          </div>
-
-          <h2 className="mc-spotlight-title">{campaignTitle}</h2>
-          {campaignSub && <p className="mc-spotlight-subtitle">{campaignSub}</p>}
-
-          <div className="mc-spotlight-cta">
-            <span>Explore Deals</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="5" y1="12" x2="19" y2="12" />
-              <polyline points="12 5 19 12 12 19" />
-            </svg>
-          </div>
+    <section className={`campaign-spotlight ${type}`}>
+      <div className="spotlight-header">
+        <div className="header-left">
+          <h2 className="spotlight-title">{title}</h2>
+          {type === 'flash' && (
+            <div className="flash-timer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{marginRight: '4px'}}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>{timeLeft}</span>
+            </div>
+          )}
         </div>
+        <button 
+          className="see-all-btn" 
+          onClick={() => navigate(`/m/search?filter=${type}`)}
+        >
+          See All
+        </button>
       </div>
 
-      {/* Horizontal Carousel with Clean Square Tiles */}
-      {hasProducts && (
-        <div className="mc-products-scroll-wrapper">
-          <div className="mc-products-scroll">
-            {products.map((item) => {
-              const id = item.id || item.product_id;
-              const imgUrl = primaryImg(item.images || item.image_url, item);
-              const price = item.price ?? item.selling_price ?? item.sale_price;
-              const oldPrice = item.old_price ?? item.original_price ?? item.regular_price;
-              const discount = calcDiscountPct(price, oldPrice);
-              const title = item.title || item.name || 'Product';
-
-              return (
-                <div
-                  key={id}
-                  className="mc-product-tile"
-                  onClick={() => { haptic(10); navigate(`/product/${id}`); }}
-                >
-                  <div className="mc-tile-img-box">
-                    <img src={imgUrl} alt={title} loading="lazy" />
-                    {discount > 0 && (
-                      <span className="mc-tile-discount">-{discount}%</span>
-                    )}
-                  </div>
-
-                  <div className="mc-tile-details">
-                    <h4 className="mc-tile-title">{title}</h4>
-                    <div className="mc-tile-price">{formatPrice(price)}</div>
-                    {discount > 0 && (
-                      <div className="mc-tile-old-price">{formatPrice(oldPrice)}</div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+      <div className="horizontal-scroll-container">
+        {products.map((prod) => (
+          <div 
+            key={prod.id} 
+            className="horizontal-product-card"
+            onClick={() => { haptic('light'); navigate(`/product/${prod.slug || prod.id}`); }}
+          >
+            <div className="card-image-wrapper">
+              <img 
+                src={primaryImg(prod.primaryImg)} 
+                alt={prod.name} 
+                className="card-img" 
+                loading="lazy"
+              />
+              {prod.discount > 0 && (
+                <span className="discount-tag">-{prod.discount}%</span>
+              )}
+            </div>
+            <div className="card-info">
+              <h4 className="card-name">{prod.name}</h4>
+              <div className="price-row">
+                <span className="current-price">{formatPrice(prod.price)}</span>
+                {prod.oldPrice > prod.price && (
+                  <span className="old-price">{formatPrice(prod.oldPrice)}</span>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        ))}
+      </div>
+    </section>
   );
-}
+};
+
+export default MobileCampaignSpotlight;
