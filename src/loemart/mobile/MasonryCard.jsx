@@ -17,7 +17,8 @@ import {
   Sliders,
 } from "lucide-react";
 
-import { API, primaryImg, formatPrice, parseNum } from "./mobileHelpers";
+import { API, primaryImg, formatPrice, parseNum, getProductPath } from "./mobileHelpers";
+import VariantBottomSheet from "./VariantBottomSheet";
 import "./styles/MasonryCard.css";
 
 const CART_ITEMS_URL = `${API}/cart/items`;
@@ -62,6 +63,7 @@ const StarIcon = memo(function StarIcon({ filled = false, half = false }) {
       className="mcard__star"
       width="12"
       height="12"
+      style={{ minWidth: 12, minHeight: 12, flexShrink: 0 }}
       viewBox="0 0 24 24"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
@@ -124,10 +126,7 @@ const StarRating = memo(function StarRating({ rating }) {
   const emptyCount = Math.max(0, 5 - filledCount - (hasHalf ? 1 : 0));
 
   return (
-    <span
-      className="mcard__rating-stars"
-      title={`${clamped.toFixed(1)} out of 5`}
-    >
+    <span className="mcard__rating-stars" title={`${clamped.toFixed(1)} out of 5`}>
       <span className="mcard__stars-row">
         {Array.from({ length: filledCount }, (_, i) => (
           <StarIcon key={`f${i}`} filled />
@@ -145,14 +144,9 @@ const StarRating = memo(function StarRating({ rating }) {
 /* ════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
-function MasonryCard({
-  product,
-  isWished = false,
-  onWishlist,
-  cartInfo,
-  onCartUpdate,
-}) {
+function MasonryCard({ product, isWished = false, onWishlist, cartInfo, onCartUpdate }) {
   const navigate = useNavigate();
+  const [showVariants, setShowVariants] = useState(false);
 
   const {
     id,
@@ -219,7 +213,6 @@ function MasonryCard({
   const displaySold = parseNum(sold ?? sold_count);
 
   /* ── Real Multi-Variant Detection ── */
-  // If product has > 1 variant OR 1 variant with actual selection attributes, mark as hasVariants
   const hasVariants = useMemo(() => {
     if (!Array.isArray(variants) || variants.length === 0) return false;
     if (variants.length > 1) return true;
@@ -244,7 +237,6 @@ function MasonryCard({
   }, [variants]);
 
   const maxStock = useMemo(() => {
-    // Explicit out-of-stock status check
     if (
       product?.is_out_of_stock === true ||
       product?.out_of_stock === true ||
@@ -266,7 +258,7 @@ function MasonryCard({
       if (parsed > 0) return parsed;
     }
 
-    return 10; // Default stock assumption for active items
+    return 10; 
   }, [stock, quantity, variants, variantStockSum, product]);
 
   const inStock = maxStock > 0;
@@ -283,77 +275,36 @@ function MasonryCard({
   const hasRealDiscount = displayOldPrice > realPrice && realPrice > 0;
   const savingsAmt = hasRealDiscount ? displayOldPrice - realPrice : 0;
 
-  /* Genuine rating only */
   const reviewCount = parseNum(review_count ?? reviews_count);
   const hasGenuineRating = parseNum(rating) > 0 && (reviewCount > 0 || parseNum(rating) >= 1);
 
   /* ── Promo Messages Rotator ── */
   const promoMessages = useMemo(() => {
     const list = [];
-
-    if (is_trending) {
-      list.push({ id: "trend", text: "🔥 Trending", tone: "trend" });
-    }
-    if (hasRealDiscount) {
-      list.push({
-        id: "save",
-        text: `You save ${formatPrice(savingsAmt)}`,
-        tone: "save",
-      });
-    }
-    if (lowStock) {
-      list.push({
-        id: "stock",
-        text: `⚡ ${maxStock} left`,
-        tone: "stock",
-      });
-    }
-    if (isFlashDeal || is_flash) {
-      list.push({ id: "deal", text: "🏷️ Deal", tone: "deal" });
-    }
+    if (is_trending) list.push({ id: "trend", text: "🔥 Trending", tone: "trend" });
+    if (hasRealDiscount) list.push({ id: "save", text: `You save ${formatPrice(savingsAmt)}`, tone: "save" });
+    if (lowStock) list.push({ id: "stock", text: `⚡ ${maxStock} left`, tone: "stock" });
+    if (isFlashDeal || is_flash) list.push({ id: "deal", text: "🏷️ Deal", tone: "deal" });
     if (
       is_new ||
       (badge && String(badge).toLowerCase() === "new") ||
-      (created_at || createdAt
-        ? Date.now() - new Date(created_at || createdAt).getTime() < 1000 * 60 * 60 * 24 * 14
-        : false)
+      (created_at || createdAt ? Date.now() - new Date(created_at || createdAt).getTime() < 1000 * 60 * 60 * 24 * 14 : false)
     ) {
       list.push({ id: "new", text: "✨ New", tone: "new" });
     }
-    if (is_popular || displaySold >= 50) {
-      list.push({ id: "pop", text: "👀 Popular", tone: "pop" });
-    }
-
+    if (is_popular || displaySold >= 50) list.push({ id: "pop", text: "👀 Popular", tone: "pop" });
     return list;
-  }, [
-    is_trending,
-    hasRealDiscount,
-    savingsAmt,
-    lowStock,
-    maxStock,
-    isFlashDeal,
-    is_flash,
-    is_new,
-    badge,
-    created_at,
-    createdAt,
-    is_popular,
-    displaySold,
-  ]);
+  }, [is_trending, hasRealDiscount, savingsAmt, lowStock, maxStock, isFlashDeal, is_flash, is_new, badge, created_at, createdAt, is_popular, displaySold]);
 
   const [promoIdx, setPromoIdx] = useState(0);
 
   useEffect(() => {
     if (promoMessages.length <= 1) return undefined;
-    const t = setInterval(() => {
-      setPromoIdx((i) => (i + 1) % promoMessages.length);
-    }, 3200);
+    const t = setInterval(() => setPromoIdx((i) => (i + 1) % promoMessages.length), 3200);
     return () => clearInterval(t);
   }, [promoMessages.length]);
 
-  useEffect(() => {
-    setPromoIdx(0);
-  }, [realId]);
+  useEffect(() => setPromoIdx(0), [realId]);
 
   /* ── Cart Local State ── */
   const [localQty, setLocalQty] = useState(cartInfo?.qty ?? 0);
@@ -368,16 +319,14 @@ function MasonryCard({
 
   /* ── Navigation Handlers ── */
   const handleOpen = useCallback(() => {
-    if (realId || slug) navigate(`/shop/${slug || realId}`);
-  }, [navigate, slug, realId]);
+    if (!product) return;
+    navigate(getProductPath(product));
+  }, [navigate, product]);
 
-  const handleWish = useCallback(
-    (e) => {
-      e.stopPropagation();
-      onWishlist?.();
-    },
-    [onWishlist]
-  );
+  const handleWish = useCallback((e) => {
+    e.stopPropagation();
+    onWishlist?.();
+  }, [onWishlist]);
 
   /* ── Add To Cart Handler ── */
   const handleAdd = useCallback(
@@ -386,8 +335,7 @@ function MasonryCard({
       if (busy || !inStock) return;
 
       if (hasVariants) {
-        toast("Please select an option", { icon: "⚙️", duration: 2500 });
-        navigate(`/shop/${slug || realId}`);
+        setShowVariants(true);
         return;
       }
 
@@ -397,9 +345,7 @@ function MasonryCard({
       const addGuestItem = () => {
         const cart = readGuestCart();
         const itemKey = `${realId}__default`;
-        const idx = cart.findIndex(
-          (c) => String(c.productId || c.product_id) === realId
-        );
+        const idx = cart.findIndex((c) => String(c.productId || c.product_id) === realId);
 
         if (idx >= 0) {
           cart[idx].qty = (parseNum(cart[idx].qty) || 1) + 1;
@@ -454,24 +400,14 @@ function MasonryCard({
       }
     },
     [
-      busy,
-      inStock,
-      hasVariants,
-      navigate,
-      slug,
-      realId,
-      displayTitle,
-      displayImage,
-      realPrice,
-      hasRealDiscount,
-      displayOldPrice,
-      maxStock,
-      onCartUpdate,
+      busy, inStock, hasVariants, realId, displayTitle, displayImage, realPrice,
+      hasRealDiscount, displayOldPrice, slug, maxStock, onCartUpdate,
     ]
   );
 
   /* ── Qty + Handler ── */
-  const handleIncrease = useCallback(() => {
+  const handleIncrease = useCallback((e) => {
+    e.stopPropagation();
     if (busy) return;
     if (localQty >= maxStock) {
       toast.error(`Only ${maxStock} available`, { duration: 2000 });
@@ -495,9 +431,7 @@ function MasonryCard({
         } else {
           const cart = readGuestCart();
           const idx = cart.findIndex(
-            (c) =>
-              String(c.id) === String(localItemId) ||
-              String(c.productId) === realId
+            (c) => String(c.id) === String(localItemId) || String(c.productId) === realId
           );
           if (idx >= 0) {
             cart[idx].qty = newQty;
@@ -515,7 +449,8 @@ function MasonryCard({
   }, [busy, localQty, maxStock, localItemId, realId, onCartUpdate]);
 
   /* ── Qty − Handler ── */
-  const handleDecrease = useCallback(async () => {
+  const handleDecrease = useCallback(async (e) => {
+    e.stopPropagation();
     if (busy) return;
 
     if (localQty <= 1) {
@@ -533,9 +468,7 @@ function MasonryCard({
           onCartUpdate?.();
         } else {
           const cart = readGuestCart().filter(
-            (c) =>
-              String(c.id) !== String(prevItemId) &&
-              String(c.productId) !== realId
+            (c) => String(c.id) !== String(prevItemId) && String(c.productId) !== realId
           );
           writeGuestCart(cart);
           onCartUpdate?.();
@@ -568,9 +501,7 @@ function MasonryCard({
         } else {
           const cart = readGuestCart();
           const idx = cart.findIndex(
-            (c) =>
-              String(c.id) === String(localItemId) ||
-              String(c.productId) === realId
+            (c) => String(c.id) === String(localItemId) || String(c.productId) === realId
           );
           if (idx >= 0) {
             cart[idx].qty = newQty;
@@ -590,178 +521,157 @@ function MasonryCard({
   const activePromo = promoMessages[promoIdx] || null;
 
   return (
-    <article className="mcard" onClick={handleOpen}>
-      {/* ── Media Header ── */}
-      <div className="mcard__media">
-        <img
-          src={displayImage}
-          alt={displayTitle}
-          className="mcard__img"
-          loading="lazy"
-          onError={(e) => {
-            e.currentTarget.src = "/placeholder.png";
-          }}
-        />
-
-        {/* Structural badges */}
-        <div className="mcard__badges">
-          {discountPct > 0 && (
-            <span className="mcard__badge mcard__badge--discount">
-              -{discountPct}%
-            </span>
-          )}
-          {is_featured && !isFlashDeal && !is_flash && (
-            <span className="mcard__badge mcard__badge--feat">⭐</span>
-          )}
-        </div>
-
-        <button
-          type="button"
-          className={`mcard__wish${isWished ? " mcard__wish--active" : ""}`}
-          onClick={handleWish}
-          aria-label={isWished ? "Remove from wishlist" : "Add to wishlist"}
-        >
-          <Heart
-            size={16}
-            strokeWidth={2.2}
-            fill={isWished ? "currentColor" : "none"}
+    <>
+      <article className="mcard" onClick={handleOpen}>
+        {/* ── Media Header ── */}
+        <div className="mcard__media">
+          <img
+            src={displayImage}
+            alt={displayTitle}
+            className="mcard__img"
+            loading="lazy"
+            style={{ aspectRatio: "1/1", objectFit: "contain", backgroundColor: "#f8f9fc" }}
+            onError={(e) => {
+              e.currentTarget.src = "/placeholder.png";
+            }}
           />
-        </button>
 
-        {(has_delivery || free_delivery) && (
-          <div className="mcard__delivery">Free delivery</div>
-        )}
-
-        {!inStock && (
-          <div className="mcard__oos">
-            <span>Out of Stock</span>
+          <div className="mcard__badges">
+            {discountPct > 0 && <span className="mcard__badge mcard__badge--discount">-{discountPct}%</span>}
+            {is_featured && !isFlashDeal && !is_flash && <span className="mcard__badge mcard__badge--feat">⭐</span>}
           </div>
-        )}
 
-        {localQty > 0 && (
-          <div className="mcard__in-cart-badge">
-            <Check size={9} strokeWidth={3} />
-            {localQty} in cart
-          </div>
-        )}
-      </div>
+          <button
+            type="button"
+            className={`mcard__wish${isWished ? " mcard__wish--active" : ""}`}
+            onClick={handleWish}
+            aria-label={isWished ? "Remove from wishlist" : "Add to wishlist"}
+          >
+            <Heart size={16} style={{ minWidth: 16, minHeight: 16, flexShrink: 0 }} strokeWidth={2.2} fill={isWished ? "currentColor" : "none"} />
+          </button>
 
-      {/* ── Body ── */}
-      <div className="mcard__body">
-        <h3 className="mcard__title">{displayTitle}</h3>
+          {(has_delivery || free_delivery) && <div className="mcard__delivery">Free delivery</div>}
 
-        <div className="mcard__price-row">
-          <span className="mcard__price">{formatPrice(realPrice)}</span>
-          {hasRealDiscount && (
-            <span className="mcard__price-old">
-              {formatPrice(displayOldPrice)}
-            </span>
+          {!inStock && (
+            <div className="mcard__oos">
+              <span>Out of Stock</span>
+            </div>
           )}
-        </div>
 
-        {/* Promo strip */}
-        <div
-          className={`mcard__promo-rotator${
-            promoMessages.length === 0 ? " mcard__promo-rotator--empty" : ""
-          }`}
-        >
-          {activePromo && (
-            <span
-              key={activePromo.id + String(promoIdx)}
-              className={`mcard__promo-text mcard__promo-text--${activePromo.tone}`}
-            >
-              {activePromo.text}
-            </span>
-          )}
-        </div>
-
-        {/* Rating + Sold Count */}
-        <div className="mcard__meta">
-          {hasGenuineRating && <StarRating rating={rating} />}
-          {displaySold > 0 && (
-            <span className="mcard__sold">
-              {displaySold >= 1000
-                ? `${(displaySold / 1000).toFixed(1)}k sold`
-                : `${displaySold} sold`}
-            </span>
-          )}
-        </div>
-
-        {location && <p className="mcard__location">📍 {location}</p>}
-
-        {seller_verified && (
-          <p className="mcard__verified">
-            <Check size={9} strokeWidth={3} /> Verified Seller
-          </p>
-        )}
-
-        {/* Call to Action Button */}
-        <div className="mcard__cta-wrap" onClick={(e) => e.stopPropagation()}>
-          {localQty === 0 ? (
-            <button
-              type="button"
-              className={`mcard__cta${busy ? " mcard__cta--loading" : ""}`}
-              onClick={handleAdd}
-              disabled={busy || !inStock}
-              aria-label={`Add ${displayTitle} to cart`}
-            >
-              {busy ? (
-                <>
-                  <Loader2 size={13} className="mcard__spinner" />
-                  Adding…
-                </>
-              ) : !inStock ? (
-                "Sold Out"
-              ) : hasVariants ? (
-                <>
-                  <Sliders size={13} strokeWidth={2.2} />
-                  Select Options
-                </>
-              ) : (
-                <>
-                  <ShoppingBag size={13} strokeWidth={2.2} />
-                  Add to Cart
-                </>
-              )}
-            </button>
-          ) : (
-            <div className="mcard__stepper-wrap">
-              <div
-                className={`mcard__stepper${
-                  busy ? " mcard__stepper--busy" : ""
-                }`}
-              >
-                <button
-                  type="button"
-                  className="mcard__stepper-btn"
-                  onClick={handleDecrease}
-                  disabled={busy}
-                  aria-label={
-                    localQty === 1 ? "Remove from cart" : "Decrease quantity"
-                  }
-                >
-                  <Minus size={12} strokeWidth={2.5} />
-                </button>
-
-                <span className="mcard__stepper-val">
-                  {busy ? "…" : localQty}
-                </span>
-
-                <button
-                  type="button"
-                  className="mcard__stepper-btn mcard__stepper-btn--plus"
-                  onClick={handleIncrease}
-                  disabled={busy || localQty >= maxStock}
-                  aria-label="Increase quantity"
-                >
-                  <Plus size={12} strokeWidth={2.5} />
-                </button>
-              </div>
+          {localQty > 0 && (
+            <div className="mcard__in-cart-badge">
+              <Check size={9} style={{ minWidth: 9, minHeight: 9, flexShrink: 0 }} strokeWidth={3} />
+              {localQty} in cart
             </div>
           )}
         </div>
-      </div>
-    </article>
+
+        {/* ── Body ── */}
+        <div className="mcard__body">
+          <h3 className="mcard__title">{displayTitle}</h3>
+
+          <div className="mcard__price-row">
+            <span className="mcard__price">{formatPrice(realPrice)}</span>
+            {hasRealDiscount && <span className="mcard__price-old">{formatPrice(displayOldPrice)}</span>}
+          </div>
+
+          <div className={`mcard__promo-rotator${promoMessages.length === 0 ? " mcard__promo-rotator--empty" : ""}`}>
+            {activePromo && (
+              <span
+                key={activePromo.id + String(promoIdx)}
+                className={`mcard__promo-text mcard__promo-text--${activePromo.tone}`}
+              >
+                {activePromo.text}
+              </span>
+            )}
+          </div>
+
+          <div className="mcard__meta">
+            {hasGenuineRating && <StarRating rating={rating} />}
+            {displaySold > 0 && (
+              <span className="mcard__sold">
+                {displaySold >= 1000 ? `${(displaySold / 1000).toFixed(1)}k sold` : `${displaySold} sold`}
+              </span>
+            )}
+          </div>
+
+          {location && <p className="mcard__location">📍 {location}</p>}
+
+          {seller_verified && (
+            <p className="mcard__verified">
+              <Check size={9} style={{ minWidth: 9, minHeight: 9, flexShrink: 0 }} strokeWidth={3} /> Verified Seller
+            </p>
+          )}
+
+          {/* Call to Action Button */}
+          <div className="mcard__cta-wrap" onClick={(e) => e.stopPropagation()}>
+            {localQty === 0 ? (
+              <button
+                type="button"
+                className={`mcard__cta${busy ? " mcard__cta--loading" : ""}`}
+                onClick={handleAdd}
+                disabled={busy || !inStock}
+                aria-label={`Add ${displayTitle} to cart`}
+              >
+                {busy ? (
+                  <>
+                    <Loader2 size={13} style={{ minWidth: 13, minHeight: 13, flexShrink: 0 }} className="mcard__spinner" />
+                    Adding…
+                  </>
+                ) : !inStock ? (
+                  "Sold Out"
+                ) : hasVariants ? (
+                  <>
+                    <Sliders size={13} style={{ minWidth: 13, minHeight: 13, flexShrink: 0 }} strokeWidth={2.2} />
+                    Select Options
+                  </>
+                ) : (
+                  <>
+                    <ShoppingBag size={13} style={{ minWidth: 13, minHeight: 13, flexShrink: 0 }} strokeWidth={2.2} />
+                    Add to Cart
+                  </>
+                )}
+              </button>
+            ) : (
+              <div className="mcard__stepper-wrap">
+                <div className={`mcard__stepper${busy ? " mcard__stepper--busy" : ""}`}>
+                  <button
+                    type="button"
+                    className="mcard__stepper-btn"
+                    onClick={handleDecrease}
+                    disabled={busy}
+                    aria-label={localQty === 1 ? "Remove from cart" : "Decrease quantity"}
+                  >
+                    <Minus size={12} style={{ minWidth: 12, minHeight: 12, flexShrink: 0 }} strokeWidth={2.5} />
+                  </button>
+
+                  <span className="mcard__stepper-val">{busy ? "…" : localQty}</span>
+
+                  <button
+                    type="button"
+                    className="mcard__stepper-btn mcard__stepper-btn--plus"
+                    onClick={handleIncrease}
+                    disabled={busy || localQty >= maxStock}
+                    aria-label="Increase quantity"
+                  >
+                    <Plus size={12} style={{ minWidth: 12, minHeight: 12, flexShrink: 0 }} strokeWidth={2.5} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </article>
+
+      {/* Renders bottom sheet globally overlaid over context when options are selected */}
+      {showVariants && (
+        <VariantBottomSheet 
+          product={product} 
+          onClose={() => setShowVariants(false)} 
+          onCartUpdate={onCartUpdate} 
+        />
+      )}
+    </>
   );
 }
 
