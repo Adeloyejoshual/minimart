@@ -4,6 +4,7 @@ import MobileTopBar from '../loemart/mobile/MobileTopBar';
 import MobileHeroBanner from '../loemart/mobile/MobileHeroBanner';
 import MobileCampaignSpotlight from '../loemart/mobile/MobileCampaignSpotlight';
 import MasonryCard from '../loemart/mobile/MasonryCard';
+import VariantBottomSheet from '../loemart/mobile/VariantBottomSheet';
 import Footer from '../components/Footer';
 import BottomNav from '../components/BottomNav';
 import {
@@ -28,6 +29,10 @@ export default function HomePageMobile() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [loading, setLoading] = useState(true);
   const [timeLeft, setTimeLeft] = useState({ hours: '00', minutes: '00', seconds: '00' });
+
+  // Variant Bottom Sheet State
+  const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
+  const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
   // 1. Midnight WAT Countdown Timer
   useEffect(() => {
@@ -93,6 +98,28 @@ export default function HomePageMobile() {
     setActiveCategory(catName === 'All' ? 'All' : catName);
   };
 
+  /**
+   * Helper to handle product clicks on horizontal scrollers or cards
+   * Opens Variant Sheet if product has > 1 variants, else navigates to detail
+   */
+  const handleProductClick = (item) => {
+    let variants = item?.variants || [];
+    if (typeof variants === 'string') {
+      try {
+        variants = JSON.parse(variants);
+      } catch {
+        variants = [];
+      }
+    }
+
+    if (Array.isArray(variants) && variants.length > 1) {
+      setSelectedProductForVariant(item);
+      setIsVariantSheetOpen(true);
+    } else {
+      navigate(getProductPath(item));
+    }
+  };
+
   return (
     <div
       className="home-page-mobile-wrapper"
@@ -117,6 +144,7 @@ export default function HomePageMobile() {
         <MobileCampaignSpotlight
           campaign={campaigns[0] || null}
           products={sections.campaign}
+          onOpenVariantSheet={(p) => handleProductClick(p)}
         />
       )}
 
@@ -209,7 +237,7 @@ export default function HomePageMobile() {
               return (
                 <div
                   key={id}
-                  onClick={() => navigate(getProductPath(item))}
+                  onClick={() => handleProductClick(item)}
                   style={{
                     flex: '0 0 148px',
                     width: 148,
@@ -367,7 +395,7 @@ export default function HomePageMobile() {
               return (
                 <div
                   key={id}
-                  onClick={() => navigate(getProductPath(item))}
+                  onClick={() => handleProductClick(item)}
                   style={{
                     flex: '0 0 148px',
                     width: 148,
@@ -492,7 +520,7 @@ export default function HomePageMobile() {
               return (
                 <div
                   key={id}
-                  onClick={() => navigate(getProductPath(item))}
+                  onClick={() => handleProductClick(item)}
                   style={{
                     flex: '0 0 148px',
                     width: 148,
@@ -647,6 +675,7 @@ export default function HomePageMobile() {
               <MasonryCard
                 key={product.id || product.product_id}
                 product={product}
+                onOpenVariantSheet={(p) => handleProductClick(p)}
               />
             ))}
           </div>
@@ -658,6 +687,13 @@ export default function HomePageMobile() {
 
       {/* Fixed Bottom Navigation Bar */}
       <BottomNav />
+
+      {/* VARIANT BOTTOM SHEET */}
+      <VariantBottomSheet
+        isOpen={isVariantSheetOpen}
+        onClose={() => setIsVariantSheetOpen(false)}
+        product={selectedProductForVariant}
+      />
     </div>
   );
 }
