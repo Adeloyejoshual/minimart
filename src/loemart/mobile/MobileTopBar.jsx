@@ -11,30 +11,44 @@ export default function MobileTopBar({
 }) {
   const navigate = useNavigate();
   const [cartCount, setCartCount] = useState(0);
-  const [wishCount, setWishCount] = useState(() => (getWishlist ? getWishlist().length : 0));
+  const [wishCount, setWishCount] = useState(() => (typeof getWishlist === 'function' ? getWishlist().length : 0));
 
   useEffect(() => {
     const updateCounts = () => {
       try {
         const cartRaw = localStorage.getItem(CART_KEY);
         const cartItems = cartRaw ? JSON.parse(cartRaw) : [];
-        setCartCount(Array.isArray(cartItems) ? cartItems.length : 0);
+        
+        // Sum total quantity of items in cart
+        if (Array.isArray(cartItems)) {
+          const totalQty = cartItems.reduce((sum, item) => sum + (Number(item.qty) || 1), 0);
+          setCartCount(totalQty);
+        } else {
+          setCartCount(0);
+        }
+
         if (typeof getWishlist === 'function') {
           setWishCount(getWishlist().length);
         }
       } catch (e) {
         // Storage fallback
+        setCartCount(0);
       }
     };
 
+    // Initialize counts on mount
     updateCounts();
+
+    // Listeners for real-time updates across the app
     window.addEventListener('storage', updateCounts);
     window.addEventListener('wishlist-updated', updateCounts);
-    window.addEventListener('loemart_cart_updated', updateCounts);
+    window.addEventListener('cart-updated', updateCounts); // Event fired by MasonryCard/VariantBottomSheet
+    window.addEventListener('loemart_cart_updated', updateCounts); // Fallback
 
     return () => {
       window.removeEventListener('storage', updateCounts);
       window.removeEventListener('wishlist-updated', updateCounts);
+      window.removeEventListener('cart-updated', updateCounts);
       window.removeEventListener('loemart_cart_updated', updateCounts);
     };
   }, []);
@@ -94,8 +108,8 @@ export default function MobileTopBar({
         <div className="mtb-actions-right">
           <button
             className="mtb-icon-btn"
-            onClick={() => navigate('/wishlist')}
-            aria-label="Wishlist"
+            onClick={() => navigate('/saved')} 
+            aria-label="Saved Items"
           >
             <svg
               width="20"
@@ -108,7 +122,11 @@ export default function MobileTopBar({
             >
               <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
             </svg>
-            {wishCount > 0 && <span className="mtb-badge">{wishCount}</span>}
+            {wishCount > 0 && (
+              <span className="mtb-badge">
+                {wishCount > 99 ? '99+' : wishCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -129,7 +147,11 @@ export default function MobileTopBar({
               <circle cx="20" cy="21" r="1" />
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
             </svg>
-            {cartCount > 0 && <span className="mtb-badge">{cartCount}</span>}
+            {cartCount > 0 && (
+              <span className="mtb-badge">
+                {cartCount > 99 ? '99+' : cartCount}
+              </span>
+            )}
           </button>
 
           <button
