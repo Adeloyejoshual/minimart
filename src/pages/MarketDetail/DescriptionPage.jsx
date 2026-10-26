@@ -5,7 +5,7 @@
 import { useEffect, useMemo, memo } from "react";
 import useModalBack from "../../hooks/useModalBack";
 import SpecsSection from "./SpecsSection";
-import "./styles/DescriptionPage.css"; // Import the new CSS file
+import "./styles/DescriptionPage.css"; // CSS import maintained
 
 const MAX_DESC_CHARS = 1000;
 
@@ -101,7 +101,7 @@ function DescriptionPage({
     return toPlainText(product?.description);
   }, [descriptionText, product?.description]);
 
-  const { text: descDisplay, clipped } = useMemo(
+  const { text: descDisplay } = useMemo(
     () => clipReadable(plainFull, maxChars),
     [plainFull, maxChars]
   );
@@ -137,25 +137,19 @@ function DescriptionPage({
       {/* --- Scrollable body --- */}
       <div className="desc-content">
         
-        {/* Description Card (Product title moved inside here) */}
+        {/* Description Card */}
         {descDisplay && (
           <section className="desc-card">
             <h2 className="desc-card-title">Description</h2>
-            {/* Displaying product name cleanly inside the description block */}
             <h3 className="desc-product-name">{product.name}</h3>
             <p className="desc-text">{descDisplay}</p>
-            {clipped && (
-              <p className="desc-clipped-note">
-                Showing first ~{maxChars.toLocaleString()} characters for easy reading
-              </p>
-            )}
           </section>
         )}
 
-        {/* Features Card */}
+        {/* Key Features Card */}
         {hasFeatures && (
           <section className="desc-card">
-            <h2 className="desc-card-title">Features</h2>
+            <h2 className="desc-card-title">Key Features</h2>
             <ul className="desc-feature-list">
               {product.key_features.map((f, i) => (
                 <li key={i}>
@@ -170,7 +164,6 @@ function DescriptionPage({
         {hasSpecs && (
           <section className="desc-card">
             <h2 className="desc-card-title">Specifications</h2>
-            {/* Ensure your SpecsSection component is styled to look good inside a white card context */}
             <SpecsSection
               specs={
                 product.specifications || product.specs || product.attributes
