@@ -9,8 +9,9 @@
  * Step 4 — Pricing
  * Step 5 — Review & Submit
  *
- * v2.2 — Post Another Ad reset handler + 2500-char description
+ * v2.3 — Title limit raised to 255 chars (VARCHAR(255) industry standard)
  * ─────────────────────────────────────────────────────────────
+ * ✓ Title max length: 255 (was 80)
  * ✓ Added "Post Another Ad" button on success screen to reset form
  * ✓ Description expanded to 2500 chars with 10-row textarea
  * ✓ Full CategoryPicker tree support (category_id UUID + text fallback)
@@ -56,8 +57,16 @@ const MAX_SPECS       = 12;
 const MAX_BOX_ITEMS   = 12;
 const MAX_TAGS        = 8;
 const MAX_TAG_LEN     = 24;
+
+/* Title limits (synced with backend VARCHAR(255)) */
+const MAX_TITLE_LEN   = 255;
+const TITLE_WARN_AT   = 230;
+const MIN_TITLE_LEN   = 3;
+
+/* Description limits */
 const MAX_DESC_LEN    = 2500;
 const DESC_WARN_AT    = 2300;
+
 const TOTAL_STEPS     = 5;
 
 /* ══════════════════════════════════════════════════════════════
@@ -812,10 +821,11 @@ export default function PostAds() {
     const e = {};
     if (filledImages.length === 0)
       e.images = "Add at least 1 photo";
-    if (touched.title && title.trim().length < 3)
-      e.title = "Title must be at least 3 characters";
-    if (touched.title && title.trim().length > 80)
-      e.title = "Title is too long";
+
+    if (touched.title && title.trim().length < MIN_TITLE_LEN)
+      e.title = `Title must be at least ${MIN_TITLE_LEN} characters`;
+    if (touched.title && title.trim().length > MAX_TITLE_LEN)
+      e.title = `Title must be ${MAX_TITLE_LEN} characters or fewer`;
 
     if (touched.category && !selectedCategory)
       e.category = "Select a category";
@@ -844,7 +854,11 @@ export default function PostAds() {
 
   const stepValid = useMemo(() => {
     if (step === 1) return filledImages.length > 0;
-    if (step === 2) return title.trim().length >= 3 && !!selectedCategory;
+    if (step === 2) return (
+      title.trim().length >= MIN_TITLE_LEN &&
+      title.trim().length <= MAX_TITLE_LEN &&
+      !!selectedCategory
+    );
     if (step === 3) return (
       variants.every((v) => v.sku.trim() && v.name.trim() && Number(v.price) >= 0) &&
       !duplicateSkuExists
@@ -852,7 +866,8 @@ export default function PostAds() {
     if (step === 4) return !isNaN(Number(basePrice)) && Number(basePrice) > 0;
     if (step === 5) return (
       filledImages.length > 0 &&
-      title.trim().length >= 3 &&
+      title.trim().length >= MIN_TITLE_LEN &&
+      title.trim().length <= MAX_TITLE_LEN &&
       Number(basePrice) > 0
     );
     return true;
@@ -861,8 +876,10 @@ export default function PostAds() {
   const stepError = useMemo(() => {
     if (step === 1 && filledImages.length === 0)
       return "Add at least one photo";
-    if (step === 2 && title.trim().length < 3)
-      return "Title needs at least 3 characters";
+    if (step === 2 && title.trim().length < MIN_TITLE_LEN)
+      return `Title needs at least ${MIN_TITLE_LEN} characters`;
+    if (step === 2 && title.trim().length > MAX_TITLE_LEN)
+      return `Title must be ${MAX_TITLE_LEN} characters or fewer`;
     if (step === 2 && !selectedCategory)
       return "Pick a category";
     if (step === 3 && duplicateSkuExists)
@@ -919,6 +936,7 @@ export default function PostAds() {
       console.group("🔍 PostAds Submit Debug");
       console.log("SUBMIT_URL       :", SUBMIT_URL);
       console.log("selectedCategory :", selectedCategory);
+      console.log("title length     :", title.trim().length);
       console.log("All localStorage :", Object.keys(localStorage));
       console.groupEnd();
     }
@@ -950,6 +968,11 @@ export default function PostAds() {
     if (!selectedCategory) {
       submittingRef.current = false;
       toast.error("Please select a category");
+      return;
+    }
+    if (title.trim().length > MAX_TITLE_LEN) {
+      submittingRef.current = false;
+      toast.error(`Title must be ${MAX_TITLE_LEN} characters or fewer`);
       return;
     }
 
@@ -985,6 +1008,7 @@ export default function PostAds() {
       console.log(`[PostAds] POSTing to: ${SUBMIT_URL}`);
       console.log(`[PostAds] category_id: ${selectedCategory.id}`);
       console.log(`[PostAds] category:    ${selectedCategory.name}`);
+      console.log(`[PostAds] title_len:   ${title.trim().length}`);
 
       await axios.post(SUBMIT_URL, fd, {
         headers: {
@@ -1185,7 +1209,7 @@ export default function PostAds() {
                     Clear titles and detailed descriptions rank higher in search.
                   </p>
 
-                  {/* Title */}
+                  {/* Title — now up to 255 chars */}
                   <div className="pa-field">
                     <label className="pa-label" htmlFor="pa-title">
                       Title <span aria-hidden="true">*</span>
@@ -1193,8 +1217,9 @@ export default function PostAds() {
                     <input
                       id="pa-title" type="text"
                       className={`pa-input${fieldErrors.title ? " pa-input--error" : ""}`}
-                      placeholder='e.g. "iPhone 13 Pro Max 256 GB"'
-                      value={title} maxLength={80}
+                      placeholder='e.g. "iPhone 13 Pro Max 256 GB Sierra Blue — Unlocked, Original with Full Accessories"'
+                      value={title}
+                      maxLength={MAX_TITLE_LEN}
                       aria-required="true"
                       aria-invalid={!!fieldErrors.title}
                       aria-describedby={fieldErrors.title ? "pa-title-err" : undefined}
@@ -1207,8 +1232,8 @@ export default function PostAds() {
                           {fieldErrors.title}
                         </span>
                       )}
-                      <span className={`pa-char-count${title.length > 70 ? " pa-char-count--warn" : ""}`}>
-                        {title.length}/80
+                      <span className={`pa-char-count${title.length > TITLE_WARN_AT ? " pa-char-count--warn" : ""}`}>
+                        {title.length}/{MAX_TITLE_LEN}
                       </span>
                     </div>
                   </div>
