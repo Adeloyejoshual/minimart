@@ -5,7 +5,7 @@
 import { useEffect, useMemo, memo } from "react";
 import useModalBack from "../../hooks/useModalBack";
 import SpecsSection from "./SpecsSection";
-import "./DescriptionPage.css"; // Import the new CSS file
+import "./style/DescriptionPage.css"; // Import the new CSS file
 
 const MAX_DESC_CHARS = 1000;
 
