@@ -2,6 +2,7 @@
  * src/pages/MarketDetail/ImageGallery.jsx
  * Larger stage, prefers high-res URLs, sharper display
  * Single-image: no horizontal drag
+ * Zoom overlay: swipe DOWN (or left/right when scale≈1) to close
  */
 
 import React, {
@@ -25,6 +26,11 @@ const DOUBLE_TAP_MS = 300;
 const DOUBLE_TAP_MIN = 30;
 const ANIM_DURATION = 320;
 const MIN_DT = 16;
+
+/* Dismiss zoom by swipe */
+const DISMISS_DISTANCE = 100;   // px down/left/right to close
+const DISMISS_VELOCITY = 0.45;  // px/ms
+const DISMISS_OPACITY_START = 40; // start fading after this many px
 
 /* Prefer largest available image asset */
 function resolveImageUrl(img) {
@@ -151,7 +157,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     [images]
   );
   const total = urls.length;
-  const canSwipe = total > 1; // ← key flag
+  const canSwipe = total > 1;
 
   const urlKeys = useMemo(
     () => urls.map((url, i) => `${url}--${i}`),
@@ -167,6 +173,11 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   const [scale, setScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
 
+  /* Dismiss-drag visual state (zoom overlay) */
+  const [dismissY, setDismissY] = useState(0);
+  const [dismissX, setDismissX] = useState(0);
+  const [isDismissing, setIsDismissing] = useState(false);
+
   const mainRef = useRef(null);
   const zoomRef = useRef(null);
   const thumbTrack = useRef(null);
@@ -176,6 +187,10 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   const longPressTimer = useRef(null);
   const animTimer = useRef(null);
   const lastTap = useRef(0);
+
+  /* Zoom dismiss gesture */
+  const dismissStart = useRef(null);
+  const dismissMode = useRef(null); // 'down' | 'horizontal' | 'pan' | null
 
   const scaleRef = useRef(scale);
   useEffect(() => {
@@ -189,11 +204,16 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   const currentUrl = urls[current] ?? "";
   const currentHasErr = imgErrs[currentUrl] ?? false;
 
-  const zoomTransform = useMemo(
-    () =>
-      `scale(${scale}) translate(${panOffset.x / scale}px, ${panOffset.y / scale}px)`,
-    [scale, panOffset]
-  );
+  const zoomTransform = useMemo(() => {
+    const dx = panOffset.x + dismissX;
+    const dy = panOffset.y + dismissY;
+    return `translate(${dx}px, ${dy}px) scale(${scale})`;
+  }, [scale, panOffset, dismissX, dismissY]);
+
+  const dismissProgress = useMemo(() => {
+    const dist = Math.max(Math.abs(dismissY), Math.abs(dismissX));
+    return clamp(dist / (DISMISS_DISTANCE * 1.6), 0, 1);
+  }, [dismissY, dismissX]);
 
   useEffect(() => {
     return () => {
@@ -212,7 +232,14 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   }, [current, total]);
 
   useEffect(() => {
-    if (!zoomed) setDragOffset(0);
+    if (!zoomed) {
+      setDragOffset(0);
+      setDismissX(0);
+      setDismissY(0);
+      setIsDismissing(false);
+      dismissStart.current = null;
+      dismissMode.current = null;
+    }
   }, [zoomed]);
 
   useEffect(() => {
@@ -246,13 +273,13 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   }, [total, zoomed, canSwipe]);
 
   useEffect(() => {
-    if (!zoomed || !canSwipe) return;
+    if (!zoomed) return;
     const fn = (e) => {
-      if (e.key === "ArrowLeft") {
+      if (e.key === "ArrowLeft" && canSwipe) {
         resetZoom();
         setCurrent((c) => mod(c - 1, total));
       }
-      if (e.key === "ArrowRight") {
+      if (e.key === "ArrowRight" && canSwipe) {
         resetZoom();
         setCurrent((c) => mod(c + 1, total));
       }
@@ -289,6 +316,8 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   const resetZoom = useCallback(() => {
     setScale(1);
     setPanOffset({ x: 0, y: 0 });
+    setDismissX(0);
+    setDismissY(0);
   }, []);
 
   const openZoom = useCallback(() => {
@@ -305,25 +334,33 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     setImgErrs((p) => ({ ...p, [url]: true }));
   }, []);
 
-  /* ── Main stage swipe — DISABLED when only 1 image ── */
+  /* ── Main stage swipe ── */
   const onMainTouchStart = useCallback(
     (e) => {
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
 
-      // Long-press still opens zoom even with 1 image
       clearTimeout(longPressTimer.current);
       longPressTimer.current = setTimeout(() => {
         if (!currentHasErr) openZoom();
       }, LONG_PRESS_MS);
 
-      // No swipe tracking for single image
       if (!canSwipe) {
-        swipeStart.current = { x: t.clientX, y: t.clientY, time: Date.now(), locked: true };
+        swipeStart.current = {
+          x: t.clientX,
+          y: t.clientY,
+          time: Date.now(),
+          locked: true,
+        };
         return;
       }
 
-      swipeStart.current = { x: t.clientX, y: t.clientY, time: Date.now(), locked: false };
+      swipeStart.current = {
+        x: t.clientX,
+        y: t.clientY,
+        time: Date.now(),
+        locked: false,
+      };
       setIsDragging(false);
     },
     [currentHasErr, openZoom, canSwipe]
@@ -337,17 +374,12 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
       const dy = Math.abs(e.touches[0].clientY - swipeStart.current.y);
       const adx = Math.abs(dx);
 
-      // Cancel long-press if finger moved
       if (adx > LONG_PRESS_DRIFT || dy > LONG_PRESS_DRIFT) {
         clearTimeout(longPressTimer.current);
       }
 
-      // Single image: never apply horizontal drag offset
-      if (!canSwipe || swipeStart.current.locked) {
-        return;
-      }
+      if (!canSwipe || swipeStart.current.locked) return;
 
-      // Let vertical page scroll win
       if (!isDragging && dy > adx * 1.4) return;
 
       e.preventDefault();
@@ -360,14 +392,12 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
-    // Only attach non-passive move when multi-image swipe is possible
     if (!canSwipe) return;
     const handler = (e) => onMainTouchMove(e);
     el.addEventListener("touchmove", handler, { passive: false });
     return () => el.removeEventListener("touchmove", handler);
   }, [onMainTouchMove, canSwipe]);
 
-  // Single-image: still need move listener for long-press cancel (passive)
   useEffect(() => {
     const el = mainRef.current;
     if (!el || canSwipe) return;
@@ -381,7 +411,6 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
 
     if (!swipeStart.current) return;
 
-    // Single image: reset and exit — no slide change
     if (!canSwipe || swipeStart.current.locked) {
       swipeStart.current = null;
       setIsDragging(false);
@@ -401,28 +430,57 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     setIsDragging(false);
   }, [dragOffset, next, prev, canSwipe]);
 
+  /* ══════════════════════════════════════════════════
+     ZOOM OVERLAY — pinch / pan / swipe-down-to-close
+  ══════════════════════════════════════════════════ */
   const onZoomTouchStart = useCallback((e) => {
     if (e.touches.length === 2) {
+      // Pinch takes priority — cancel dismiss
+      dismissStart.current = null;
+      dismissMode.current = null;
+      setIsDismissing(false);
+      setDismissX(0);
+      setDismissY(0);
+
       pinchRef.current = {
         dist: touchDist(e.touches[0], e.touches[1]),
         startScale: scaleRef.current,
         startPanX: panOffsetRef.current.x,
         startPanY: panOffsetRef.current.y,
       };
-    } else if (e.touches.length === 1 && scaleRef.current > 1) {
+      return;
+    }
+
+    if (e.touches.length !== 1) return;
+
+    const t = e.touches[0];
+
+    // Always record potential dismiss start
+    dismissStart.current = {
+      x: t.clientX,
+      y: t.clientY,
+      time: Date.now(),
+    };
+    dismissMode.current = null; // decide on move
+
+    // If already zoomed in, also allow pan
+    if (scaleRef.current > 1.05) {
       panStart.current = {
-        touchX: e.touches[0].clientX,
-        touchY: e.touches[0].clientY,
+        touchX: t.clientX,
+        touchY: t.clientY,
         panX: panOffsetRef.current.x,
         panY: panOffsetRef.current.y,
       };
+    } else {
+      panStart.current = null;
     }
   }, []);
 
   const onZoomTouchMove = useCallback(
     (e) => {
-      e.preventDefault();
+      // Pinch zoom
       if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
         const newDist = touchDist(e.touches[0], e.touches[1]);
         const ratio = newDist / pinchRef.current.dist;
         const newScale = clamp(
@@ -431,23 +489,75 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
           PINCH_ZOOM_MAX
         );
         setScale(newScale);
-        if (newScale <= 1.05) requestAnimationFrame(resetZoom);
-      } else if (
-        e.touches.length === 1 &&
-        scaleRef.current > 1 &&
-        panStart.current
-      ) {
+        if (newScale <= 1.05) {
+          requestAnimationFrame(() => {
+            setScale(1);
+            setPanOffset({ x: 0, y: 0 });
+          });
+        }
+        return;
+      }
+
+      if (e.touches.length !== 1 || !dismissStart.current) return;
+
+      const t = e.touches[0];
+      const dx = t.clientX - dismissStart.current.x;
+      const dy = t.clientY - dismissStart.current.y;
+      const adx = Math.abs(dx);
+      const ady = Math.abs(dy);
+
+      // Decide gesture mode once finger moved enough
+      if (!dismissMode.current) {
+        if (adx < 8 && ady < 8) return;
+
+        if (scaleRef.current > 1.05) {
+          // Zoomed in → pan, unless strong downward swipe from top area
+          if (ady > adx * 1.2 && dy > 0 && panOffsetRef.current.y >= -10) {
+            dismissMode.current = "down";
+            panStart.current = null;
+          } else {
+            dismissMode.current = "pan";
+          }
+        } else {
+          // Scale ≈ 1 → swipe down OR horizontal to dismiss
+          if (ady > adx * 0.9 && dy > 0) {
+            dismissMode.current = "down";
+          } else if (adx > ady * 0.9) {
+            dismissMode.current = "horizontal";
+          } else if (dy > 0) {
+            dismissMode.current = "down";
+          } else {
+            dismissMode.current = "down"; // prefer down
+          }
+        }
+      }
+
+      if (dismissMode.current === "pan" && panStart.current) {
+        e.preventDefault();
         setPanOffset({
-          x:
-            panStart.current.panX +
-            (e.touches[0].clientX - panStart.current.touchX),
-          y:
-            panStart.current.panY +
-            (e.touches[0].clientY - panStart.current.touchY),
+          x: panStart.current.panX + (t.clientX - panStart.current.touchX),
+          y: panStart.current.panY + (t.clientY - panStart.current.touchY),
         });
+        return;
+      }
+
+      if (dismissMode.current === "down") {
+        e.preventDefault();
+        setIsDismissing(true);
+        // Only allow dragging downward (rubber-band upward slightly)
+        setDismissY(Math.max(dy * 0.15, dy));
+        setDismissX(dx * 0.35); // slight horizontal follow
+        return;
+      }
+
+      if (dismissMode.current === "horizontal") {
+        e.preventDefault();
+        setIsDismissing(true);
+        setDismissX(dx);
+        setDismissY(dy * 0.25);
       }
     },
-    [resetZoom]
+    []
   );
 
   useEffect(() => {
@@ -466,14 +576,49 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     (e) => {
       if (e.touches.length < 2) pinchRef.current = null;
       if (e.touches.length === 0) panStart.current = null;
-      if (scaleRef.current < 1.05) resetZoom();
+
+      if (scaleRef.current < 1.05 && !isDismissing) {
+        resetZoom();
+      }
+
+      // Evaluate dismiss
+      if (dismissStart.current && dismissMode.current) {
+        const dt = Math.max(Date.now() - dismissStart.current.time, MIN_DT);
+        const dy = dismissY;
+        const dx = dismissX;
+        const vY = Math.abs(dy) / dt;
+        const vX = Math.abs(dx) / dt;
+
+        const shouldClose =
+          dismissMode.current === "down"
+            ? dy > DISMISS_DISTANCE || (dy > 50 && vY > DISMISS_VELOCITY)
+            : dismissMode.current === "horizontal"
+            ? Math.abs(dx) > DISMISS_DISTANCE ||
+              (Math.abs(dx) > 50 && vX > DISMISS_VELOCITY)
+            : false;
+
+        if (shouldClose) {
+          closeZoom();
+        } else {
+          // Snap back
+          setDismissX(0);
+          setDismissY(0);
+        }
+      }
+
+      dismissStart.current = null;
+      dismissMode.current = null;
+      setIsDismissing(false);
     },
-    [resetZoom]
+    [dismissY, dismissX, isDismissing, resetZoom, closeZoom]
   );
 
   const onZoomTap = useCallback(
     (e) => {
       e.stopPropagation();
+      // Don't toggle zoom if we were dismissing
+      if (Math.abs(dismissY) > 12 || Math.abs(dismissX) > 12) return;
+
       const now = Date.now();
       const dt = now - lastTap.current;
       if (dt < DOUBLE_TAP_MS && dt > DOUBLE_TAP_MIN) {
@@ -485,7 +630,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
       }
       lastTap.current = now;
     },
-    [resetZoom]
+    [resetZoom, dismissY, dismissX]
   );
 
   if (!total) {
@@ -497,10 +642,12 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
     );
   }
 
-  // Track transform: never add dragOffset when single image
   const trackTransform = canSwipe
     ? `translateX(calc(${-current * 100}% + ${dragOffset}px))`
     : `translateX(0)`;
+
+  const overlayOpacity = 1 - dismissProgress * 0.85;
+  const imgFade = 1 - dismissProgress * 0.35;
 
   return (
     <>
@@ -523,8 +670,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
           onClick={() => !isDragging && !currentHasErr && openZoom()}
           style={{
             cursor: currentHasErr ? "default" : "zoom-in",
-            // Single image: allow normal vertical scroll only
-            touchAction: canSwipe ? "pan-y" : "pan-y",
+            touchAction: "pan-y",
           }}
           role="img"
           aria-label={
@@ -643,16 +789,23 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
         )}
       </div>
 
+      {/* ═══════════ ZOOM OVERLAY ═══════════ */}
       {zoomed && (
         <div
           ref={zoomRef}
           className="ig-zoom-overlay"
-          onClick={closeZoom}
+          onClick={() => {
+            if (Math.abs(dismissY) < 8 && Math.abs(dismissX) < 8) closeZoom();
+          }}
           role="dialog"
           aria-label={`${name} — full size, photo ${current + 1} of ${total}`}
           aria-modal="true"
           onTouchStart={onZoomTouchStart}
           onTouchEnd={onZoomTouchEnd}
+          style={{
+            background: `rgba(0,0,0,${0.92 * overlayOpacity})`,
+            transition: isDismissing ? "none" : "background 0.2s ease",
+          }}
         >
           <button
             type="button"
@@ -662,13 +815,35 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
               closeZoom();
             }}
             aria-label="Close zoom"
+            style={{ opacity: overlayOpacity }}
           >
             ✕
           </button>
 
-          {scale > 1.05 && (
+          {scale > 1.05 && !isDismissing && (
             <span className="ig-zoom-scale" aria-hidden="true">
               {scale.toFixed(1)}×
+            </span>
+          )}
+
+          {/* Hint when idle at scale 1 */}
+          {scale <= 1.05 && !isDismissing && dismissY === 0 && (
+            <span
+              className="ig-zoom-hint"
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: 64,
+                left: 0,
+                right: 0,
+                textAlign: "center",
+                color: "rgba(255,255,255,0.45)",
+                fontSize: 12,
+                pointerEvents: "none",
+                letterSpacing: "0.02em",
+              }}
+            >
+              Swipe down to close
             </span>
           )}
 
@@ -677,8 +852,12 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             onClick={onZoomTap}
             style={{
               transform: zoomTransform,
-              transition: pinchRef.current ? "none" : "transform 0.22s ease",
+              opacity: imgFade,
+              transition: isDismissing
+                ? "none"
+                : "transform 0.22s ease, opacity 0.22s ease",
               cursor: scale > 1 ? "grab" : "zoom-in",
+              willChange: "transform, opacity",
             }}
           >
             <img
@@ -689,10 +868,11 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             />
           </div>
 
-          {canSwipe && (
+          {canSwipe && !isDismissing && (
             <div
               className="ig-zoom-nav"
               onClick={(e) => e.stopPropagation()}
+              style={{ opacity: overlayOpacity }}
             >
               <button
                 type="button"
@@ -722,7 +902,7 @@ const ImageGallery = memo(function ImageGallery({ images, name }) {
             </div>
           )}
 
-          {scale > 1 && (
+          {scale > 1 && !isDismissing && (
             <button
               type="button"
               className="ig-zoom-reset"
