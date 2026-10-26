@@ -1,374 +1,169 @@
-/* ═══════════════════════════════════════════════════════════════
-   FILE: src/pages/MarketDetail/styles/ProductInfo.css
-   CSS CUSTOM PROPERTIES (Design Tokens)
-   Single source of truth for all sizing, spacing, color values.
-   Overridden per breakpoint below.
-═══════════════════════════════════════════════════════════════ */
-
-:root {
-  /* Typography */
-  --pi-font-title:       13px;
-  --pi-font-body:        12px;
-  --pi-font-bullet:      12px;
-  --pi-font-heading:     11px;
-  --pi-font-toggle:      11px;
-  --pi-font-empty:       11px;
-  --pi-font-link:        12px;
-
-  /* Spacing */
-  --pi-section-padding:  10px 8px;
-  --pi-title-mb:         8px;
-  --pi-title-pb:         6px;
-  --pi-heading-mt:       10px;
-  --pi-heading-mb:       4px;
-  --pi-bullet-indent:    6px;
-  --pi-text-mv:          3px;
-  --pi-toggle-mt:        8px;
-
-  /* Collapse */
-  --pi-collapsed-height: 120px;
-  --pi-overlay-height:   55px;
-
-  /* Colors */
-  --pi-color-title:      #111;
-  --pi-color-heading:    #111;
-  --pi-color-body:       #444;
-  --pi-color-bullet:     #333;
-  --pi-color-empty:      #aaa;
-  --pi-color-link:       #f68b1e;
-  --pi-color-link-hover: #d4720f;
-  --pi-color-toggle:     #f68b1e;
-  --pi-color-border:     #f0f0f0;
-  --pi-color-divider:    #f0f0f0;
-  --pi-color-shadow:     rgba(0, 0, 0, 0.06);
-  --pi-color-bg:         #ffffff;
-
-  /* Overlay gradient */
-  --pi-overlay-start:    rgba(255, 255, 255, 0);
-  --pi-overlay-mid:      rgba(255, 255, 255, 0.85);
-  --pi-overlay-end:      rgba(255, 255, 255, 1);
-
-  /* Border radius */
-  --pi-radius:           6px;
-
-  /* Line height */
-  --pi-line-height:      1.6;
+/* Card Container */
+.pi-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  border: 1px solid #f3f4f6;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-
-/* ═══════════════════════════════════════════════════════════════
-   BREAKPOINTS USED
-   ┌──────────────────────────────────────────────────┐
-   │  Small phone      →  max-width: 374px            │
-   │  Normal phone     →  375px  –  767px  (default)  │
-   │  Small desktop    →  768px  –  1199px            │
-   │  Big desktop      →  1200px +                    │
-   └──────────────────────────────────────────────────┘
-═══════════════════════════════════════════════════════════════ */
-
-
-/* ───────────────────────────────────────────────────────────────
-   SMALL PHONE  →  max-width: 374px
-─────────────────────────────────────────────────────────────── */
-@media (max-width: 374px) {
-  :root {
-    --pi-font-title:       12px;
-    --pi-font-body:        11.5px;
-    --pi-font-bullet:      11.5px;
-    --pi-font-heading:     10.5px;
-    --pi-font-toggle:      11px;
-    --pi-font-empty:       11px;
-    --pi-font-link:        11px;
-
-    --pi-section-padding:  8px 6px;
-    --pi-title-mb:         6px;
-    --pi-title-pb:         5px;
-    --pi-heading-mt:       8px;
-    --pi-heading-mb:       3px;
-    --pi-bullet-indent:    4px;
-    --pi-text-mv:          2px;
-    --pi-toggle-mt:        6px;
-
-    --pi-collapsed-height: 100px;
-    --pi-overlay-height:   45px;
-
-    --pi-line-height:      1.55;
-    --pi-radius:           5px;
-  }
+/* Header */
+.pi-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
 
-/* ───────────────────────────────────────────────────────────────
-   NORMAL PHONE  →  375px – 767px  (base / mobile-first default)
-─────────────────────────────────────────────────────────────── */
-@media (min-width: 375px) and (max-width: 767px) {
-  :root {
-    --pi-font-title:       14px;
-    --pi-font-body:        13.5px;
-    --pi-font-bullet:      13.5px;
-    --pi-font-heading:     12px;
-    --pi-font-toggle:      13px;
-    --pi-font-empty:       12.5px;
-    --pi-font-link:        13px;
-
-    --pi-section-padding:  14px 12px;
-    --pi-title-mb:         10px;
-    --pi-title-pb:         8px;
-    --pi-heading-mt:       12px;
-    --pi-heading-mb:       5px;
-    --pi-bullet-indent:    10px;
-    --pi-text-mv:          4px;
-    --pi-toggle-mt:        10px;
-
-    --pi-collapsed-height: 140px;
-    --pi-overlay-height:   60px;
-
-    --pi-line-height:      1.7;
-    --pi-radius:           8px;
-  }
+.pi-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-/* ───────────────────────────────────────────────────────────────
-   SMALL DESKTOP  →  768px – 1199px
-─────────────────────────────────────────────────────────────── */
-@media (min-width: 768px) and (max-width: 1199px) {
-  :root {
-    --pi-font-title:       15px;
-    --pi-font-body:        14px;
-    --pi-font-bullet:      14px;
-    --pi-font-heading:     13px;
-    --pi-font-toggle:      13.5px;
-    --pi-font-empty:       13px;
-    --pi-font-link:        14px;
-
-    --pi-section-padding:  20px 18px;
-    --pi-title-mb:         14px;
-    --pi-title-pb:         10px;
-    --pi-heading-mt:       16px;
-    --pi-heading-mb:       6px;
-    --pi-bullet-indent:    14px;
-    --pi-text-mv:          5px;
-    --pi-toggle-mt:        12px;
-
-    --pi-collapsed-height: 170px;
-    --pi-overlay-height:   70px;
-
-    --pi-line-height:      1.75;
-    --pi-radius:           10px;
-  }
+.pi-icon {
+  width: 18px;
+  height: 18px;
+  color: #9ca3af;
 }
 
-/* ───────────────────────────────────────────────────────────────
-   BIG DESKTOP  →  1200px +
-─────────────────────────────────────────────────────────────── */
-@media (min-width: 1200px) {
-  :root {
-    --pi-font-title:       16px;
-    --pi-font-body:        15px;
-    --pi-font-bullet:      15px;
-    --pi-font-heading:     13.5px;
-    --pi-font-toggle:      14px;
-    --pi-font-empty:       14px;
-    --pi-font-link:        15px;
-
-    --pi-section-padding:  28px 26px;
-    --pi-title-mb:         18px;
-    --pi-title-pb:         12px;
-    --pi-heading-mt:       20px;
-    --pi-heading-mb:       8px;
-    --pi-bullet-indent:    18px;
-    --pi-text-mv:          6px;
-    --pi-toggle-mt:        16px;
-
-    --pi-collapsed-height: 200px;
-    --pi-overlay-height:   80px;
-
-    --pi-line-height:      1.8;
-    --pi-radius:           12px;
-  }
+.pi-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
 }
 
-
-/* ═══════════════════════════════════════════════════════════════
-   COMPONENT STYLES
-═══════════════════════════════════════════════════════════════ */
-
-/* ── Section Wrapper ─────────────────────────────────────────── */
-.pi-section {
-  padding:          var(--pi-section-padding);
-  background:       var(--pi-color-bg);
-  border-radius:    var(--pi-radius);
-  box-shadow:       0 1px 5px var(--pi-color-shadow);
-  box-sizing:       border-box;
-  width:            100%;
+/* Edit Button */
+.pi-edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5563;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
 }
 
-.pi-section-title {
-  font-size:        var(--pi-font-title);
-  font-weight:      700;
-  color:            var(--pi-color-title);
-  margin:           0 0 var(--pi-title-mb) 0;
-  padding-bottom:   var(--pi-title-pb);
-  border-bottom:    1px solid var(--pi-color-border);
-  letter-spacing:   0.3px;
-  text-transform:   uppercase;
+.pi-edit-btn:active {
+  background-color: #f3f4f6;
 }
 
-/* ── Description Body ────────────────────────────────────────── */
-.pi-description {
-  position:         relative;
-  font-size:        var(--pi-font-body);
-  line-height:      var(--pi-line-height);
-  color:            var(--pi-color-body);
-  word-break:       break-word;
-  transition:       max-height 0.35s ease;
+/* Text Content */
+.pi-card-body {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4b5563;
 }
 
-.pi-description--collapsed {
-  max-height:       var(--pi-collapsed-height);
-  overflow:         hidden;
+/* Truncation (Replaces fade overlay with native modern CSS ellipsis) */
+.pi-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4; /* Number of lines before truncating */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ── Line Types ──────────────────────────────────────────────── */
-.pi-heading {
-  font-size:        var(--pi-font-heading);
-  font-weight:      700;
-  color:            var(--pi-color-heading);
-  text-transform:   uppercase;
-  letter-spacing:   0.5px;
-  margin:           var(--pi-heading-mt) 0 var(--pi-heading-mb) 0;
-  padding-bottom:   3px;
-  border-bottom:    1px dashed var(--pi-color-divider);
+.pi-read-more-btn {
+  background: transparent;
+  border: none;
+  color: #f97316; /* Brand orange color from your screenshot button */
+  font-weight: 600;
+  font-size: 14px;
+  padding: 8px 0 0 0;
+  cursor: pointer;
 }
 
-.pi-heading:first-child {
-  margin-top:       0;
+/* Text Formatting Elements */
+.pi-text, .pi-bullet {
+  margin: 0 0 6px 0;
 }
-
 .pi-bullet {
-  font-size:        var(--pi-font-bullet);
-  margin:           var(--pi-text-mv) 0 var(--pi-text-mv) var(--pi-bullet-indent);
-  color:            var(--pi-color-bullet);
+  padding-left: 14px;
+  position: relative;
 }
-
-.pi-text {
-  font-size:        var(--pi-font-body);
-  margin:           var(--pi-text-mv) 0;
-  color:            var(--pi-color-body);
+.pi-heading {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  margin: 12px 0 6px 0;
 }
-
-.pi-divider {
-  border:           none;
-  border-top:       1px solid var(--pi-color-divider);
-  margin:           10px 0;
-}
-
-.pi-empty {
-  font-size:        var(--pi-font-empty);
-  color:            var(--pi-color-empty);
-  font-style:       italic;
-}
-
-/* ── HTML Content (Rich Text Fallback) ───────────────────────── */
-.pi-html-body {
-  font-size:        var(--pi-font-body);
-  line-height:      var(--pi-line-height);
-  color:            var(--pi-color-body);
-  word-break:       break-word;
-}
-
-.pi-html-body img,
-.pi-html-body video {
-  max-width:        100%;
-  height:           auto;
-  border-radius:    var(--pi-radius);
-  margin:           8px 0;
-  display:          block;
-}
-
-.pi-html-body ul,
-.pi-html-body ol {
-  margin:           var(--pi-text-mv) 0 var(--pi-text-mv) var(--pi-bullet-indent);
-  padding-left:     16px;
-  color:            var(--pi-color-bullet);
-}
-
-.pi-html-body a {
-  color:            var(--pi-color-link);
-  text-decoration:  underline;
-}
-
-
-/* ── Links ───────────────────────────────────────────────────── */
 .pi-link {
-  color:            var(--pi-color-link);
-  font-size:        var(--pi-font-link);
-  font-weight:      500;
-  text-decoration:  none;
-  word-break:       break-all;
-  transition:       color 0.2s ease;
+  color: #3b82f6;
+  text-decoration: none;
 }
 
-.pi-link:hover {
-  color:            var(--pi-color-link-hover);
-  text-decoration:  underline;
+/* ========================================================= */
+/* Full Page Modal (Opens on Expand)                         */
+/* ========================================================= */
+
+.pi-fullpage-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ffffff;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.pi-link:focus-visible {
-  outline:          2px solid var(--pi-color-link);
-  outline-offset:   2px;
-  border-radius:    2px;
+.pi-fullpage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid #f3f4f6;
+  background: #ffffff;
 }
 
-
-/* ── Fade Overlay ────────────────────────────────────────────── */
-.pi-fade-overlay {
-  position:         absolute;
-  bottom:           0;
-  left:             0;
-  right:            0;
-  height:           var(--pi-overlay-height);
-  background:       linear-gradient(
-                      to bottom,
-                      var(--pi-overlay-start)   0%,
-                      var(--pi-overlay-mid)    55%,
-                      var(--pi-overlay-end)   100%
-                    );
-  pointer-events:   none;
+.pi-back-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-
-/* ── Toggle Button ───────────────────────────────────────────── */
-.pi-toggle-btn {
-  display:          inline-flex;
-  align-items:      center;
-  gap:              5px;
-  margin-top:       var(--pi-toggle-mt);
-  padding:          4px 0;
-  background:       none;
-  border:           none;
-  cursor:           pointer;
-  color:            var(--pi-color-toggle);
-  font-size:        var(--pi-font-toggle);
-  font-weight:      600;
-  transition:       color 0.2s ease, opacity 0.2s ease;
+.pi-icon-back {
+  width: 24px;
+  height: 24px;
+  color: #111827;
 }
 
-.pi-toggle-btn:hover {
-  color:            var(--pi-color-link-hover);
-  opacity:          0.9;
+.pi-fullpage-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
 }
 
-.pi-toggle-btn:focus-visible {
-  outline:          2px solid var(--pi-color-toggle);
-  outline-offset:   3px;
-  border-radius:    3px;
+.pi-spacer {
+  width: 32px; /* balances out the back button width to center the title */
 }
 
-.pi-toggle-btn:active {
-  opacity:          0.7;
+.pi-fullpage-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #374151;
 }
 
-.pi-toggle-icon {
-  font-size:        10px;
-  line-height:      1;
+@keyframes slideUp {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
 }
