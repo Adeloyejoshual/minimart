@@ -4,11 +4,10 @@
  * Step 3 — Variant Editor
  * - Manual variant cards (collapse / expand)
  * - Matrix generator modal
- * - Completeness score bar per variant
+ * - Completeness score bar per variant (Updated: Name is optional)
  * - Stock level badges
  * - Duplicate SKU detection
- * - Auto-SKU generator
- * - Bulk SKU regeneration
+ * - Auto-SKU generator (inline button & bulk)
  * - Live summary strip
  */
 
@@ -21,142 +20,49 @@ import {
    SVG ICONS
 ══════════════════════════════════════════════════════════════ */
 const IconTrash = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-    <path d="M10 11v6M14 11v6" />
-    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
 );
-
 const IconPlus = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-    aria-hidden="true">
-    <line x1="12" y1="5" x2="12" y2="19" />
-    <line x1="5"  y1="12" x2="19" y2="12" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
 );
-
 const IconCopy = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <rect x="9" y="9" width="13" height="13" rx="2" />
-    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
 );
-
 const IconChevronDown = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <polyline points="6 9 12 15 18 9" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
 );
-
 const IconChevronUp = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <polyline points="18 15 12 9 6 15" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15" /></svg>
 );
-
 const IconAlertCircle = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="12" y1="8"  x2="12" y2="12" />
-    <line x1="12" y1="16" x2="12.01" y2="16" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
 );
-
 const IconCheckCircle = ({ size = 11 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-    <polyline points="22 4 12 14.01 9 11.01" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
 );
-
 const IconZap = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
 );
-
 const IconGrid = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <rect x="3"  y="3"  width="7" height="7" />
-    <rect x="14" y="3"  width="7" height="7" />
-    <rect x="14" y="14" width="7" height="7" />
-    <rect x="3"  y="14" width="7" height="7" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
 );
-
 const IconEdit = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
 );
-
 const IconRefresh = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <polyline points="23 4 23 10 17 10" />
-    <polyline points="1 20 1 14 7 14" />
-    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
 );
-
 const IconX = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-    aria-hidden="true">
-    <line x1="18" y1="6"  x2="6"  y2="18" />
-    <line x1="6"  y1="6"  x2="18" y2="18" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
 );
-
 const IconPackage = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <line x1="16.5" y1="9.4" x2="7.5" y2="4.21" />
-    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-    <line x1="12" y1="22.08" x2="12" y2="12" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21" /><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
 );
-
 const IconWarehouse = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35z" />
-    <path d="M6 18h12M6 14h12M6 10h12" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35z" /><path d="M6 18h12M6 14h12M6 10h12" /></svg>
 );
-
 const IconCheck = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <polyline points="20 6 9 17 4 12" />
-  </svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
 );
 
 /* ══════════════════════════════════════════════════════════════
@@ -198,12 +104,18 @@ const getStock = (v) => Number(v.stock) || 0;
 
 function variantScore(v) {
   let s = 0;
-  if (v.name.trim().length  >= 2) s += 20;
-  if (v.sku.trim().length   >= 2) s += 25;
-  if (Number(v.price)       >  0) s += 25;
-  if (getStock(v)           >  0) s += 15;
+  const hasName = v.name.trim().length >= 2;
+  const hasAttrs = ATTRS.some((a) => (v.attributes[a] || "").trim());
+
+  // Name is optional — reward completion if either name OR attributes are present
+  if (hasName || hasAttrs) s += 20;
+  if (v.sku.trim().length >= 2) s += 25;
+  if (Number(v.price) > 0) s += 25;
+  if (getStock(v) > 0) s += 15;
+  
   const filled = ATTRS.filter((a) => (v.attributes[a] || "").trim()).length;
   s += Math.round((filled / ATTRS.length) * 15);
+  
   return Math.min(s, 100);
 }
 
@@ -228,11 +140,12 @@ function buildDuplicateSkuSet(variants) {
   return dupSet;
 }
 
-function generateSku(base, attrs, index) {
+// Used specifically for Matrix Generation
+function generateMatrixSku(base, attrs, index) {
   const clean = (val = "") =>
     val.replace(/\s+/g, "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 5);
   const parts = [
-    clean(base),
+    clean(base) || "PRD",
     clean(attrs.color),
     clean(attrs.size),
     clean(attrs.storage),
@@ -276,15 +189,11 @@ const StockBadge = memo(function StockBadge({ stock }) {
     n <= STOCK_CRITICAL ? { mod: "ve-stock--critical", label: `Critical — ${n}`,      dot: "#dc2626" } :
     n <= STOCK_LOW      ? { mod: "ve-stock--low",      label: `Low — ${n} left`,      dot: "#f59e0b" } :
     n <= STOCK_REORDER  ? { mod: "ve-stock--reorder",  label: `${n} — reorder soon`,  dot: "#f97316" } :
-                          { mod: "ve-stock--ok",        label: `${n} in stock`,        dot: "#10b981" };
+                          { mod: "ve-stock--ok",       label: `${n} in stock`,        dot: "#10b981" };
 
   return (
     <span className={`ve-stock ${cfg.mod}`} aria-live="polite">
-      <span
-        className="ve-stock-dot"
-        style={{ background: cfg.dot }}
-        aria-hidden="true"
-      />
+      <span className="ve-stock-dot" style={{ background: cfg.dot }} aria-hidden="true" />
       {cfg.label}
     </span>
   );
@@ -304,7 +213,7 @@ const FieldError = memo(function FieldError({ msg }) {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   PRICE INPUT — raw / formatted split + stable cursor
+   PRICE INPUT
 ══════════════════════════════════════════════════════════════ */
 const PriceInput = memo(function PriceInput({
   id, value, onChange, onBlur, error,
@@ -374,18 +283,16 @@ const MatrixModal = memo(function MatrixModal({
 
   const count = useMemo(() => generateVariantMatrix(options).length, [options]);
 
-  const updateOpt   = useCallback((attr, idx, val) =>
+  const updateOpt = useCallback((attr, idx, val) =>
     setOptions((p) => { const n = [...(p[attr] || [])]; n[idx] = val; return { ...p, [attr]: n }; }), []);
 
-  const addOpt      = useCallback((attr) =>
-    setOptions((p) => (
-      (p[attr] || []).length >= MAX_PER_ATTR ? p : { ...p, [attr]: [...(p[attr] || []), ""] }
-    )), []);
+  const addOpt = useCallback((attr) =>
+    setOptions((p) => ((p[attr] || []).length >= MAX_PER_ATTR ? p : { ...p, [attr]: [...(p[attr] || []), ""] })), []);
 
-  const removeOpt   = useCallback((attr, idx) =>
+  const removeOpt = useCallback((attr, idx) =>
     setOptions((p) => ({ ...p, [attr]: (p[attr] || []).filter((_, i) => i !== idx) })), []);
 
-  const toggleSugg  = useCallback((attr, val) =>
+  const toggleSugg = useCallback((attr, val) =>
     setOptions((p) => {
       const cur = p[attr] || [];
       return {
@@ -407,7 +314,7 @@ const MatrixModal = memo(function MatrixModal({
     onGenerate(combos.map((attrs, i) => ({
       id        : newId(),
       name      : Object.values(attrs).filter(Boolean).join(" / "),
-      sku       : generateSku(title, attrs, i),
+      sku       : generateMatrixSku(title, attrs, i),
       price     : "",
       stock     : "1",
       attributes: {
@@ -430,81 +337,39 @@ const MatrixModal = memo(function MatrixModal({
         <div className="ve-modal-attr-head">
           <label className="pa-label">{label}</label>
           <div className="ve-modal-attr-actions">
-            {count > MAX_VARIANTS && vals.length > 0 && (
-              <span className="ve-modal-toomany">Too many</span>
-            )}
+            {count > MAX_VARIANTS && vals.length > 0 && <span className="ve-modal-toomany">Too many</span>}
             {hasSug && (
-              <button
-                type="button"
-                className="ve-modal-allbtn"
-                onClick={() => applyAllSugg(attr)}
-                aria-label={`Use all suggested ${label.toLowerCase()} values`}
-              >
+              <button type="button" className="ve-modal-allbtn" onClick={() => applyAllSugg(attr)}>
                 <IconZap size={11} /> All
               </button>
             )}
           </div>
         </div>
 
-        {/* Suggestion chips */}
         {hasSug && (
-          <div
-            className="ve-modal-chips"
-            role="group"
-            aria-label={`Suggested ${label.toLowerCase()} options`}
-          >
+          <div className="ve-modal-chips" role="group">
             {(suggested[attr] || []).map((s) => {
               const active = vals.includes(s);
               return (
-                <button
-                  key={s}
-                  type="button"
-                  className={`ve-chip${active ? " ve-chip--active" : ""}`}
-                  onClick={() => toggleSugg(attr, s)}
-                  aria-pressed={active}
-                  aria-label={`${active ? "Remove" : "Add"} ${s}`}
-                >
-                  {active ? <IconCheck size={10} /> : <IconPlus size={10} />}
-                  {s}
+                <button key={s} type="button" className={`ve-chip${active ? " ve-chip--active" : ""}`} onClick={() => toggleSugg(attr, s)}>
+                  {active ? <IconCheck size={10} /> : <IconPlus size={10} />} {s}
                 </button>
               );
             })}
           </div>
         )}
 
-        {/* Custom inputs */}
         {vals.map((val, i) => (
           <div key={i} className="pa-list-row">
-            <input
-              className="pa-mini-input"
-              value={val}
-              placeholder={placeholder}
-              aria-label={`Custom ${label} option ${i + 1}`}
-              onChange={(e) => updateOpt(attr, i, e.target.value)}
-            />
-            <button
-              type="button"
-              className="pa-mini-btn pa-mini-btn--remove"
-              onClick={() => removeOpt(attr, i)}
-              aria-label={`Remove ${label} option ${i + 1}`}
-            >
-              <IconX size={12} />
-            </button>
+            <input className="pa-mini-input" value={val} placeholder={placeholder} onChange={(e) => updateOpt(attr, i, e.target.value)} />
+            <button type="button" className="pa-mini-btn pa-mini-btn--remove" onClick={() => removeOpt(attr, i)}><IconX size={12} /></button>
           </div>
         ))}
 
         {!atCap ? (
-          <button
-            type="button"
-            className="pa-add-btn"
-            onClick={() => addOpt(attr)}
-          >
-            <IconPlus size={13} /> Add {label}
-          </button>
+          <button type="button" className="pa-add-btn" onClick={() => addOpt(attr)}><IconPlus size={13} /> Add {label}</button>
         ) : (
-          <p className="ve-modal-cap-note">
-            Max {MAX_PER_ATTR} {label.toLowerCase()} options
-          </p>
+          <p className="ve-modal-cap-note">Max {MAX_PER_ATTR} {label.toLowerCase()} options</p>
         )}
       </div>
     );
@@ -514,78 +379,34 @@ const MatrixModal = memo(function MatrixModal({
   const isEmpty = count === 0;
 
   return (
-    <div
-      className="ve-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Variant Matrix Generator"
-      onClick={onClose}
-    >
+    <div className="ve-overlay" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="ve-modal" onClick={(e) => e.stopPropagation()}>
-
-        {/* Header */}
         <div className="ve-modal-header">
           <div className="ve-modal-header-inner">
             <div>
-              <h3
-                ref={firstRef}
-                tabIndex={-1}
-                className="ve-modal-title"
-              >
-                <IconGrid size={18} />
-                Variant Matrix Generator
-              </h3>
-              <p className="ve-modal-subtitle">
-                Select options then generate all SKU combinations at once.
-              </p>
+              <h3 ref={firstRef} tabIndex={-1} className="ve-modal-title"><IconGrid size={18} /> Variant Matrix Generator</h3>
+              <p className="ve-modal-subtitle">Select options then generate all SKU combinations at once.</p>
             </div>
-            <button
-              type="button"
-              className="ve-modal-close"
-              onClick={onClose}
-              aria-label="Close modal"
-            >
-              <IconX size={16} />
-            </button>
+            <button type="button" className="ve-modal-close" onClick={onClose}><IconX size={16} /></button>
           </div>
         </div>
 
-        {/* Body */}
         <div className="ve-modal-body">
           {ATTRS.filter((a) => a !== "material").map(renderAttr)}
-
-          {/* Live count pill */}
-          <div className={`ve-count-pill${tooMany ? " ve-count-pill--error" : isEmpty ? "" : " ve-count-pill--ok"}`}
-            aria-live="polite">
+          <div className={`ve-count-pill${tooMany ? " ve-count-pill--error" : isEmpty ? "" : " ve-count-pill--ok"}`} aria-live="polite">
             <IconGrid size={14} />
             <span>
-              {isEmpty
-                ? "Add values above to preview combination count"
-                : tooMany
-                  ? `${count} combinations exceeds maximum of ${MAX_VARIANTS}. Reduce options.`
-                  : `${count} variant${count !== 1 ? "s" : ""} will be generated`}
+              {isEmpty ? "Add values above to preview combination count" : tooMany ? `${count} combinations exceeds maximum of ${MAX_VARIANTS}. Reduce options.` : `${count} variant${count !== 1 ? "s" : ""} will be generated`}
             </span>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="ve-modal-footer">
-          <button type="button" className="pa-btn-back" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="pa-btn-next"
-            onClick={handleGenerate}
-            disabled={isEmpty || tooMany}
-            aria-disabled={isEmpty || tooMany}
-            style={{ flex: 1 }}
-          >
-            <IconZap size={15} />
-            Generate {count > 0 ? count : ""} Variant{count !== 1 ? "s" : ""}
+          <button type="button" className="pa-btn-back" onClick={onClose}>Cancel</button>
+          <button type="button" className="pa-btn-next" onClick={handleGenerate} disabled={isEmpty || tooMany} style={{ flex: 1 }}>
+            <IconZap size={15} /> Generate {count > 0 ? count : ""} Variant{count !== 1 ? "s" : ""}
           </button>
         </div>
-
       </div>
     </div>
   );
@@ -596,7 +417,7 @@ const MatrixModal = memo(function MatrixModal({
 ══════════════════════════════════════════════════════════════ */
 const VariantCard = memo(function VariantCard({
   v, index, total, isDuplicate,
-  onUpdate, onUpdateAttr, onRemove, onDuplicate, onAutoSku,
+  onUpdate, onUpdateAttr, onRemove, onDuplicate, onRegenerateSku,
   errors, onBlur,
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -608,86 +429,54 @@ const VariantCard = memo(function VariantCard({
   ]);
   const scoreCol = getScoreColor(score);
 
-  const handleUpdate  = useCallback((f, val) => onUpdate(index, f, val),     [index, onUpdate]);
-  const handleAttr    = useCallback((a, val) => onUpdateAttr(index, a, val), [index, onUpdateAttr]);
-  const handleRemove  = useCallback(() => onRemove(index),                    [index, onRemove]);
-  const handleDupe    = useCallback(() => onDuplicate(index),                 [index, onDuplicate]);
-  const handleAutoSku = useCallback(() => onAutoSku(index),                   [index, onAutoSku]);
-  const handleToggle  = useCallback(() => setCollapsed((x) => !x),            []);
+  const handleUpdate     = useCallback((f, val) => onUpdate(index, f, val),     [index, onUpdate]);
+  const handleAttr       = useCallback((a, val) => onUpdateAttr(index, a, val), [index, onUpdateAttr]);
+  const handleRemove     = useCallback(() => onRemove(index),                   [index, onRemove]);
+  const handleDupe       = useCallback(() => onDuplicate(index),                [index, onDuplicate]);
+  const handleRegenerate = useCallback(() => onRegenerateSku?.(index),          [index, onRegenerateSku]);
+  const handleToggle     = useCallback(() => setCollapsed((x) => !x),           []);
 
   const cardMod = [
     isDuplicate ? "ve-card--duplicate" : "",
     score >= 80 ? "ve-card--complete"  : "",
   ].filter(Boolean).join(" ");
 
+  const displayName = v.name.trim() || Object.values(v.attributes).filter(Boolean).join(" / ");
+
   return (
     <div className={`ve-card ${cardMod}`}>
 
       {/* Score bar */}
       <div className="ve-score-bar" aria-hidden="true">
-        <div
-          className="ve-score-fill"
-          style={{ width: `${score}%`, background: scoreCol }}
-        />
+        <div className="ve-score-fill" style={{ width: `${score}%`, background: scoreCol }} />
       </div>
 
       {/* Header row */}
       <div className="ve-card-header">
         <div className="ve-card-header-left">
-          <button
-            type="button"
-            className="ve-toggle-btn"
-            onClick={handleToggle}
-            aria-expanded={!collapsed}
-            aria-label={`${collapsed ? "Expand" : "Collapse"} variant ${index + 1}`}
-          >
+          <button type="button" className="ve-toggle-btn" onClick={handleToggle} aria-expanded={!collapsed}>
             {collapsed ? <IconChevronDown size={16} /> : <IconChevronUp size={16} />}
           </button>
 
           <div className="ve-card-title-group">
             <span className="ve-card-index">Variant {index + 1}</span>
-            {v.name.trim() && (
-              <span className="ve-card-name">{v.name}</span>
-            )}
-            {isDuplicate && (
-              <span className="ve-duplicate-tag" aria-live="polite">
-                <IconAlertCircle size={10} />
-                Duplicate SKU
-              </span>
-            )}
+            {displayName && <span className="ve-card-name">{displayName}</span>}
+            {isDuplicate && <span className="ve-duplicate-tag"><IconAlertCircle size={10} /> Duplicate SKU</span>}
           </div>
         </div>
 
         <div className="ve-card-actions">
-          <span
-            className="ve-score-pill"
-            style={{
-              background: `${scoreCol}18`,
-              color      : scoreCol,
-            }}
-          >
-            {score}%
-          </span>
+          <span className="ve-score-pill" style={{ background: `${scoreCol}18`, color: scoreCol }}>{score}%</span>
 
-          <button type="button" className="ve-action-btn ve-action-btn--amber"
-            onClick={handleAutoSku}
-            aria-label={`Auto-generate SKU for variant ${index + 1}`}
-            title="Auto-generate SKU">
+          <button type="button" className="ve-action-btn ve-action-btn--amber" onClick={handleRegenerate} aria-label={`Auto-generate SKU for variant ${index + 1}`} title="Auto-generate SKU">
             <IconZap size={12} />
           </button>
 
-          <button type="button" className="ve-action-btn ve-action-btn--indigo"
-            onClick={handleDupe}
-            aria-label={`Duplicate variant ${index + 1}`}
-            title="Duplicate">
+          <button type="button" className="ve-action-btn ve-action-btn--indigo" onClick={handleDupe} aria-label={`Duplicate variant ${index + 1}`} title="Duplicate">
             <IconCopy size={12} />
           </button>
 
-          <button type="button" className="ve-action-btn ve-action-btn--red"
-            onClick={handleRemove}
-            disabled={total <= 1}
-            aria-label={`Delete variant ${index + 1}`}
-            aria-disabled={total <= 1}>
+          <button type="button" className="ve-action-btn ve-action-btn--red" onClick={handleRemove} disabled={total <= 1}>
             <IconTrash size={12} />
           </button>
         </div>
@@ -696,14 +485,8 @@ const VariantCard = memo(function VariantCard({
       {/* Collapsed preview */}
       {collapsed && (
         <div className="ve-collapsed-preview">
-          {v.sku && (
-            <span className="ve-preview-sku">{v.sku}</span>
-          )}
-          {v.price && (
-            <span className="ve-preview-price">
-              ₦{Number(v.price).toLocaleString("en-NG")}
-            </span>
-          )}
+          {v.sku && <span className="ve-preview-sku">{v.sku}</span>}
+          {v.price && <span className="ve-preview-price">₦{Number(v.price).toLocaleString("en-NG")}</span>}
           <StockBadge stock={v.stock} />
           {ATTRS.filter((a) => (v.attributes[a] || "").trim()).map((a) => (
             <span key={a} className="ve-attr-pill">{v.attributes[a]}</span>
@@ -718,15 +501,13 @@ const VariantCard = memo(function VariantCard({
           {/* Core fields grid */}
           <div className="ve-fields-grid">
 
-            {/* Name */}
+            {/* Name - Now Optional */}
             <div className="ve-field ve-field--full">
               <label className="ve-label" htmlFor={`v-name-${index}`}>
                 Variant Name
-                <span className="ve-label-required" aria-hidden="true"> *</span>
+                <span className="ve-label-hint"> (Optional)</span>
                 {v.name.trim().length >= 2 && (
-                  <span className="ve-label-check">
-                    <IconCheckCircle size={11} />
-                  </span>
+                  <span className="ve-label-check"><IconCheckCircle size={11} /></span>
                 )}
               </label>
               <input
@@ -734,7 +515,6 @@ const VariantCard = memo(function VariantCard({
                 className={`ve-input${errors.name ? " ve-input--error" : ""}`}
                 placeholder='e.g. "Black 128 GB"'
                 value={v.name}
-                aria-required="true"
                 aria-invalid={!!errors.name}
                 onChange={(e) => handleUpdate("name", e.target.value)}
                 onBlur={() => onBlur?.(`v_name_${index}`)}
@@ -742,32 +522,41 @@ const VariantCard = memo(function VariantCard({
               <FieldError msg={errors.name} />
             </div>
 
-            {/* SKU */}
+            {/* SKU with Regenerate Button */}
             <div className="ve-field">
               <label className="ve-label" htmlFor={`v-sku-${index}`}>
                 SKU
                 <span className="ve-label-required" aria-hidden="true"> *</span>
                 {v.sku.trim() && !isDuplicate && (
-                  <span className="ve-label-check">
-                    <IconCheckCircle size={11} />
-                  </span>
+                  <span className="ve-label-check"><IconCheckCircle size={11} /></span>
                 )}
                 {isDuplicate && (
-                  <span className="ve-label-error-icon">
-                    <IconAlertCircle size={11} />
-                  </span>
+                  <span className="ve-label-error-icon"><IconAlertCircle size={11} /></span>
                 )}
               </label>
-              <input
-                id={`v-sku-${index}`}
-                className={`ve-input ve-input--mono${errors.sku || isDuplicate ? " ve-input--error" : ""}`}
-                placeholder="IP13-BLK-128"
-                value={v.sku}
-                aria-required="true"
-                aria-invalid={!!errors.sku || isDuplicate}
-                onChange={(e) => handleUpdate("sku", e.target.value.toUpperCase())}
-                onBlur={() => onBlur?.(`v_sku_${index}`)}
-              />
+              
+              <div className="ve-sku-row">
+                <input
+                  id={`v-sku-${index}`}
+                  className={`ve-input ve-input--mono${errors.sku || isDuplicate ? " ve-input--error" : ""}`}
+                  placeholder="IP13-BLK-128"
+                  value={v.sku}
+                  aria-required="true"
+                  aria-invalid={!!errors.sku || isDuplicate}
+                  onChange={(e) => handleUpdate("sku", e.target.value.toUpperCase())}
+                  onBlur={() => onBlur?.(`v_sku_${index}`)}
+                />
+                <button
+                  type="button"
+                  className="ve-sku-gen-btn"
+                  title="Auto-generate SKU"
+                  onClick={handleRegenerate}
+                  aria-label={`Regenerate SKU for variant ${index + 1}`}
+                >
+                  <IconRefresh size={14} />
+                </button>
+              </div>
+
               {isDuplicate
                 ? <FieldError msg="Duplicate SKU — must be unique" />
                 : <FieldError msg={errors.sku} />
@@ -779,37 +568,16 @@ const VariantCard = memo(function VariantCard({
               <label className="ve-label" htmlFor={`v-price-${index}`}>
                 Price (NGN)
                 <span className="ve-label-required" aria-hidden="true"> *</span>
-                {Number(v.price) > 0 && (
-                  <span className="ve-label-check">
-                    <IconCheckCircle size={11} />
-                  </span>
-                )}
+                {Number(v.price) > 0 && <span className="ve-label-check"><IconCheckCircle size={11} /></span>}
               </label>
-              <PriceInput
-                id={`v-price-${index}`}
-                value={v.price}
-                error={errors.price}
-                onChange={(raw) => handleUpdate("price", raw)}
-                onBlur={() => onBlur?.(`v_price_${index}`)}
-              />
+              <PriceInput id={`v-price-${index}`} value={v.price} error={errors.price} onChange={(raw) => handleUpdate("price", raw)} onBlur={() => onBlur?.(`v_price_${index}`)} />
               <FieldError msg={errors.price} />
             </div>
 
             {/* Stock */}
             <div className="ve-field">
-              <label className="ve-label" htmlFor={`v-stock-${index}`}>
-                Stock Quantity
-              </label>
-              <input
-                id={`v-stock-${index}`}
-                type="number"
-                min="0"
-                placeholder="1"
-                value={v.stock}
-                className="ve-input"
-                aria-label={`Stock quantity for variant ${index + 1}`}
-                onChange={(e) => handleUpdate("stock", e.target.value)}
-              />
+              <label className="ve-label" htmlFor={`v-stock-${index}`}>Stock Quantity</label>
+              <input id={`v-stock-${index}`} type="number" min="0" placeholder="1" value={v.stock} className="ve-input" onChange={(e) => handleUpdate("stock", e.target.value)} />
               <StockBadge stock={v.stock} />
             </div>
           </div>
@@ -823,16 +591,8 @@ const VariantCard = memo(function VariantCard({
                 const val = v.attributes[attr] || "";
                 return (
                   <div className="ve-field" key={attr}>
-                    <label className="ve-label" htmlFor={`v-${attr}-${index}`}>
-                      {cfg.label}
-                    </label>
-                    <input
-                      id={`v-${attr}-${index}`}
-                      className={`ve-input${val.trim() ? " ve-input--filled" : ""}`}
-                      placeholder={cfg.placeholder}
-                      value={val}
-                      onChange={(e) => handleAttr(attr, e.target.value)}
-                    />
+                    <label className="ve-label" htmlFor={`v-${attr}-${index}`}>{cfg.label}</label>
+                    <input id={`v-${attr}-${index}`} className={`ve-input${val.trim() ? " ve-input--filled" : ""}`} placeholder={cfg.placeholder} value={val} onChange={(e) => handleAttr(attr, e.target.value)} />
                   </div>
                 );
               })}
@@ -840,29 +600,12 @@ const VariantCard = memo(function VariantCard({
           </div>
 
           {/* Live summary */}
-          {(v.name || v.sku || v.price) && (
+          {(displayName || v.sku || v.price) && (
             <div className="ve-summary" aria-label="Variant summary">
-              {v.name.trim() && (
-                <span className="ve-summary-item">
-                  <IconPackage size={11} />
-                  {v.name}
-                </span>
-              )}
-              {v.sku.trim() && (
-                <span className="ve-summary-item ve-summary-item--sku">
-                  {v.sku}
-                </span>
-              )}
-              {Number(v.price) > 0 && (
-                <span className="ve-summary-item ve-summary-item--price">
-                  ₦{Number(v.price).toLocaleString("en-NG")}
-                </span>
-              )}
-              {ATTRS.filter((a) => (v.attributes[a] || "").trim()).map((a) => (
-                <span key={a} className="ve-attr-pill">
-                  {v.attributes[a]}
-                </span>
-              ))}
+              {displayName && <span className="ve-summary-item"><IconPackage size={11} />{displayName}</span>}
+              {v.sku.trim() && <span className="ve-summary-item ve-summary-item--sku">{v.sku}</span>}
+              {Number(v.price) > 0 && <span className="ve-summary-item ve-summary-item--price">₦{Number(v.price).toLocaleString("en-NG")}</span>}
+              {ATTRS.filter((a) => (v.attributes[a] || "").trim()).map((a) => <span key={a} className="ve-attr-pill">{v.attributes[a]}</span>)}
             </div>
           )}
 
@@ -899,6 +642,7 @@ export default function VariantEditor({
   onAdd,
   onRemove,
   onDuplicate,
+  onRegenerateSku, // Passed from parent (PostAds.jsx)
   onBulkReplace,
   errors       = {},
   onBlur,
@@ -908,20 +652,13 @@ export default function VariantEditor({
 }) {
   const [showMatrix, setShowMatrix] = useState(false);
 
-  const duplicateSkuSet = useMemo(
-    () => buildDuplicateSkuSet(variants),
-    [variants]
-  );
-
-  const scores = useMemo(
-    () => variants.map((v) => variantScore(v)),
-    [variants]
-  );
+  const duplicateSkuSet = useMemo(() => buildDuplicateSkuSet(variants), [variants]);
+  const scores          = useMemo(() => variants.map((v) => variantScore(v)), [variants]);
 
   const totalStock    = useMemo(() => variants.reduce((s, v) => s + getStock(v), 0), [variants]);
-  const criticalCount = useMemo(() => variants.filter((v) => v.name && getStock(v) > 0 && getStock(v) <= STOCK_CRITICAL).length, [variants]);
-  const lowStockCount = useMemo(() => variants.filter((v) => v.name && getStock(v) > 0 && getStock(v) < STOCK_LOW).length, [variants]);
-  const outOfStock    = useMemo(() => variants.filter((v) => v.name && getStock(v) === 0).length, [variants]);
+  const criticalCount = useMemo(() => variants.filter((v) => getStock(v) > 0 && getStock(v) <= STOCK_CRITICAL).length, [variants]);
+  const lowStockCount = useMemo(() => variants.filter((v) => getStock(v) > 0 && getStock(v) < STOCK_LOW).length, [variants]);
+  const outOfStock    = useMemo(() => variants.filter((v) => getStock(v) === 0).length, [variants]);
   const completeCount = useMemo(() => scores.filter((s) => s >= 80).length, [scores]);
   const dupCount      = useMemo(() => duplicateSkuSet.size, [duplicateSkuSet]);
 
@@ -931,19 +668,11 @@ export default function VariantEditor({
     price: errors[`v_price_${i}`] || "",
   }), [errors]);
 
-  const handleAutoSku = useCallback((i) => {
-    const sku = generateSku(title, variants[i].attributes, i);
-    onUpdate(i, "sku", sku);
-  }, [variants, title, onUpdate]);
-
   const handleBulkAutoSku = useCallback(() => {
-    variants.forEach((v, i) => {
-      onUpdate(i, "sku", generateSku(title, v.attributes, i));
-    });
-  }, [variants, title, onUpdate]);
+    variants.forEach((_, i) => onRegenerateSku?.(i));
+  }, [variants, onRegenerateSku]);
 
-  const checkDuplicate = useCallback((v) =>
-    duplicateSkuSet.has(v.sku?.trim().toUpperCase()), [duplicateSkuSet]);
+  const checkDuplicate = useCallback((v) => duplicateSkuSet.has(v.sku?.trim().toUpperCase()), [duplicateSkuSet]);
 
   const atMax = variants.length >= maxVariants;
 
@@ -952,34 +681,17 @@ export default function VariantEditor({
 
       {/* ── Toolbar ── */}
       <div className="ve-toolbar">
-        <button
-          type="button"
-          className="ve-toolbar-btn"
-          aria-label="Manual variant mode"
-        >
-          <IconEdit size={14} />
-          <span>Manual</span>
+        <button type="button" className="ve-toolbar-btn" aria-label="Manual variant mode">
+          <IconEdit size={14} /><span>Manual</span>
         </button>
 
-        <button
-          type="button"
-          className="ve-toolbar-btn ve-toolbar-btn--indigo"
-          onClick={() => setShowMatrix(true)}
-          aria-label="Open variant matrix generator"
-        >
-          <IconGrid size={14} />
-          <span>Matrix Generator</span>
+        <button type="button" className="ve-toolbar-btn ve-toolbar-btn--indigo" onClick={() => setShowMatrix(true)}>
+          <IconGrid size={14} /><span>Matrix Generator</span>
         </button>
 
         {variants.length > 1 && (
-          <button
-            type="button"
-            className="ve-toolbar-btn ve-toolbar-btn--amber"
-            onClick={handleBulkAutoSku}
-            aria-label="Regenerate all SKUs"
-          >
-            <IconRefresh size={13} />
-            <span>Regenerate SKUs</span>
+          <button type="button" className="ve-toolbar-btn ve-toolbar-btn--amber" onClick={handleBulkAutoSku}>
+            <IconRefresh size={13} /><span>Regenerate SKUs</span>
           </button>
         )}
       </div>
@@ -987,76 +699,27 @@ export default function VariantEditor({
       {/* ── Summary strip ── */}
       {variants.length > 1 && (
         <div className="ve-strip" aria-label="Variant summary">
-          <div className="ve-strip-card">
-            <IconPackage size={16} />
-            <span className="ve-strip-value">{variants.length}</span>
-            <span className="ve-strip-label">Variants</span>
-          </div>
-          <div className="ve-strip-card">
-            <IconWarehouse size={14} />
-            <span className="ve-strip-value">{totalStock.toLocaleString()}</span>
-            <span className="ve-strip-label">Total Stock</span>
-          </div>
-          <div className="ve-strip-card">
-            <IconCheck size={14} />
-            <span className="ve-strip-value">{completeCount}/{variants.length}</span>
-            <span className="ve-strip-label">Complete</span>
-          </div>
+          <div className="ve-strip-card"><IconPackage size={16} /><span className="ve-strip-value">{variants.length}</span><span className="ve-strip-label">Variants</span></div>
+          <div className="ve-strip-card"><IconWarehouse size={14} /><span className="ve-strip-value">{totalStock.toLocaleString()}</span><span className="ve-strip-label">Total Stock</span></div>
+          <div className="ve-strip-card"><IconCheck size={14} /><span className="ve-strip-value">{completeCount}/{variants.length}</span><span className="ve-strip-label">Complete</span></div>
         </div>
       )}
 
       {/* ── Alerts ── */}
-      {dupCount > 0 && (
-        <div className="ve-alert ve-alert--red" role="alert">
-          <IconAlertCircle size={14} />
-          <span>
-            {dupCount} duplicate SKU{dupCount > 1 ? "s" : ""} — each SKU must be unique.
-          </span>
-        </div>
-      )}
-      {criticalCount > 0 && (
-        <div className="ve-alert ve-alert--red" role="alert">
-          <IconAlertCircle size={14} />
-          <span>
-            {criticalCount} variant{criticalCount > 1 ? "s are" : " is"} critically
-            low (at or below {STOCK_CRITICAL} units).
-          </span>
-        </div>
-      )}
-      {lowStockCount > 0 && (
-        <div className="ve-alert ve-alert--amber" role="alert">
-          <IconAlertCircle size={14} />
-          <span>
-            {lowStockCount} variant{lowStockCount > 1 ? "s are" : " is"} running
-            low (below {STOCK_LOW} units).
-          </span>
-        </div>
-      )}
-      {outOfStock > 0 && (
-        <div className="ve-alert ve-alert--amber" role="alert">
-          <IconAlertCircle size={14} />
-          <span>
-            {outOfStock} variant{outOfStock > 1 ? "s are" : " is"} out of stock.
-          </span>
-        </div>
-      )}
+      {dupCount > 0 && <div className="ve-alert ve-alert--red" role="alert"><IconAlertCircle size={14} /><span>{dupCount} duplicate SKU{dupCount > 1 ? "s" : ""} — each SKU must be unique.</span></div>}
+      {criticalCount > 0 && <div className="ve-alert ve-alert--red" role="alert"><IconAlertCircle size={14} /><span>{criticalCount} variant{criticalCount > 1 ? "s are" : " is"} critically low (at or below {STOCK_CRITICAL} units).</span></div>}
+      {lowStockCount > 0 && <div className="ve-alert ve-alert--amber" role="alert"><IconAlertCircle size={14} /><span>{lowStockCount} variant{lowStockCount > 1 ? "s are" : " is"} running low (below {STOCK_LOW} units).</span></div>}
+      {outOfStock > 0 && <div className="ve-alert ve-alert--amber" role="alert"><IconAlertCircle size={14} /><span>{outOfStock} variant{outOfStock > 1 ? "s are" : " is"} out of stock.</span></div>}
 
       {/* ── Variant cards ── */}
       <div role="list" aria-label="Variant list">
         {variants.map((v, i) => (
           <div key={v.id} role="listitem">
             <VariantCard
-              v={v}
-              index={i}
-              total={variants.length}
-              isDuplicate={checkDuplicate(v)}
-              onUpdate={onUpdate}
-              onUpdateAttr={onUpdateAttr}
-              onRemove={onRemove}
-              onDuplicate={onDuplicate ?? (() => {})}
-              onAutoSku={handleAutoSku}
-              errors={getErrors(i)}
-              onBlur={onBlur}
+              v={v} index={i} total={variants.length} isDuplicate={checkDuplicate(v)}
+              onUpdate={onUpdate} onUpdateAttr={onUpdateAttr} onRemove={onRemove}
+              onDuplicate={onDuplicate ?? (() => {})} onRegenerateSku={onRegenerateSku}
+              errors={getErrors(i)} onBlur={onBlur}
             />
           </div>
         ))}
@@ -1064,37 +727,21 @@ export default function VariantEditor({
 
       {/* ── Add / max ── */}
       {atMax ? (
-        <div className="ve-max-note" role="status">
-          Maximum {maxVariants} variants reached.
-        </div>
+        <div className="ve-max-note" role="status">Maximum {maxVariants} variants reached.</div>
       ) : (
-        <button
-          type="button"
-          className="ve-add-btn"
-          onClick={onAdd}
-          aria-label="Add another variant"
-        >
-          <IconPlus size={16} />
-          <span>Add Variant</span>
-          <span className="ve-add-count">
-            {variants.length}/{maxVariants}
-          </span>
+        <button type="button" className="ve-add-btn" onClick={onAdd} aria-label="Add another variant">
+          <IconPlus size={16} /><span>Add Variant</span><span className="ve-add-count">{variants.length}/{maxVariants}</span>
         </button>
       )}
 
       {/* ── Matrix modal ── */}
       {showMatrix && (
         <MatrixModal
-          title={title}
-          categoryName={categoryName}
-          onGenerate={(newVariants) => {
-            onBulkReplace?.(newVariants);
-            setShowMatrix(false);
-          }}
+          title={title} categoryName={categoryName}
+          onGenerate={(newVariants) => { onBulkReplace?.(newVariants); setShowMatrix(false); }}
           onClose={() => setShowMatrix(false)}
         />
       )}
-
     </section>
   );
 }
