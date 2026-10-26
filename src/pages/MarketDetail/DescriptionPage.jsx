@@ -1,9 +1,11 @@
 /**
  * src/pages/MarketDetail/DescriptionPage.jsx
- * Fullscreen details: description (max ~1000 chars), features, specs
+ * Fullscreen details: description (~1000 chars), features, specs
+ * Phone Back closes this page and stays on MarketDetail
  */
 
 import { useEffect, useMemo, memo } from "react";
+import useModalBack from "../../hooks/useModalBack";
 import SpecsSection from "./SpecsSection";
 
 const MAX_DESC_CHARS = 1000;
@@ -61,7 +63,6 @@ function toPlainText(htmlOrText) {
 
 /**
  * Keep up to maxChars, break on sentence/word boundary when possible.
- * Short & easy to read (~1000 characters).
  */
 function clipReadable(text, maxChars = MAX_DESC_CHARS) {
   if (!text || text.length <= maxChars) {
@@ -70,7 +71,6 @@ function clipReadable(text, maxChars = MAX_DESC_CHARS) {
 
   let slice = text.slice(0, maxChars);
 
-  // Prefer end of sentence
   const sentenceEnd = Math.max(
     slice.lastIndexOf(". "),
     slice.lastIndexOf("! "),
@@ -78,10 +78,10 @@ function clipReadable(text, maxChars = MAX_DESC_CHARS) {
     slice.lastIndexOf(".\n"),
     slice.lastIndexOf("\n\n")
   );
+
   if (sentenceEnd > maxChars * 0.55) {
     slice = slice.slice(0, sentenceEnd + 1).trim();
   } else {
-    // Prefer word boundary
     const sp = slice.lastIndexOf(" ");
     if (sp > maxChars * 0.7) slice = slice.slice(0, sp).trim();
     else slice = slice.trim();
@@ -94,20 +94,26 @@ function DescriptionPage({
   isOpen,
   onClose,
   product,
-  descriptionText, // optional pre-clipped from parent
+  descriptionText,
   maxChars = MAX_DESC_CHARS,
 }) {
+  // Phone Back → close this page, stay on product
+  const requestClose = useModalBack(isOpen, onClose);
+
   useEffect(() => {
     if (!isOpen) return;
-    const onKey = (e) => e.key === "Escape" && onClose();
+
+    const onKey = (e) => e.key === "Escape" && requestClose();
     document.addEventListener("keydown", onKey);
+
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev || "";
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, requestClose]);
 
   const plainFull = useMemo(() => {
     if (descriptionText) return toPlainText(descriptionText);
@@ -142,6 +148,7 @@ function DescriptionPage({
       aria-modal="true"
       aria-label="Product details"
     >
+      {/* Header */}
       <header
         style={{
           height: 52,
@@ -157,7 +164,7 @@ function DescriptionPage({
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={requestClose}
           aria-label="Back to product"
           style={{
             width: 36,
@@ -191,6 +198,7 @@ function DescriptionPage({
         </h1>
       </header>
 
+      {/* Scrollable body */}
       <div
         style={{
           flex: 1,
@@ -236,7 +244,7 @@ function DescriptionPage({
           </h2>
         </div>
 
-        {/* Description — short & readable (~1000 chars) */}
+        {/* Description */}
         {descDisplay && (
           <section
             style={{
@@ -282,7 +290,7 @@ function DescriptionPage({
           </section>
         )}
 
-        {/* Key features */}
+        {/* Key Features */}
         {hasFeatures && (
           <section
             style={{
