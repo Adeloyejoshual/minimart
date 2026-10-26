@@ -1,4 +1,11 @@
-import React, { useState, memo, useEffect, useMemo, useCallback } from "react";
+/**
+ * ProductInfo.jsx
+ * Seller listing card: Description preview + fullscreen expand
+ * Phone Back closes the fullscreen view
+ */
+
+import React, { useState, memo, useMemo, useCallback } from "react";
+import useModalBack from "../hooks/useModalBack"; // adjust path if needed
 import "./styles/ProductInfo.css";
 
 const CONFIG = {
@@ -10,7 +17,13 @@ function safeString(input) {
   if (!input) return "";
   if (typeof input === "string") return input;
   if (typeof input === "object") {
-    return input.text || input.content || input.html || input.description || JSON.stringify(input);
+    return (
+      input.text ||
+      input.content ||
+      input.html ||
+      input.description ||
+      JSON.stringify(input)
+    );
   }
   return String(input);
 }
@@ -24,10 +37,14 @@ function getLineType(line) {
 
 function normalizeContent(line, type) {
   switch (type) {
-    case "heading": return line.replace(/^###\s*/, "").trim();
-    case "bullet": return line.replace(/^[-*]\s*/, "• ").trim();
-    case "divider": return "";
-    default: return line.trim();
+    case "heading":
+      return line.replace(/^###\s*/, "").trim();
+    case "bullet":
+      return line.replace(/^[-*]\s*/, "• ").trim();
+    case "divider":
+      return "";
+    default:
+      return line.trim();
   }
 }
 
@@ -58,7 +75,13 @@ function linkify(text) {
     if (URL_PATTERN.test(part)) {
       URL_PATTERN.lastIndex = 0;
       return (
-        <a key={`link-${i}`} href={part} target="_blank" rel="noopener noreferrer" className="pi-link">
+        <a
+          key={`link-${i}`}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="pi-link"
+        >
           {part}
         </a>
       );
@@ -72,76 +95,102 @@ function DescriptionLine({ type, content }) {
     case "heading":
       return <h4 className="pi-heading">{content}</h4>;
     case "bullet":
-      return <p className="pi-bullet" role="listitem">{linkify(content)}</p>;
+      return (
+        <p className="pi-bullet" role="listitem">
+          {linkify(content)}
+        </p>
+      );
     case "divider":
       return <hr className="pi-divider" aria-hidden="true" />;
     case "html":
-      return <div className="pi-html-body" dangerouslySetInnerHTML={{ __html: content }} />;
+      return (
+        <div
+          className="pi-html-body"
+          dangerouslySetInnerHTML={{ __html: content }}
+        />
+      );
     default:
       return <p className="pi-text">{linkify(content)}</p>;
   }
 }
 
-// SVG Icons
+/* ——— Icons ——— */
 const ListIcon = () => (
-  <svg className="pi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="8" y1="6" x2="21" y2="6"></line>
-    <line x1="8" y1="12" x2="21" y2="12"></line>
-    <line x1="8" y1="18" x2="21" y2="18"></line>
-    <line x1="3" y1="6" x2="3.01" y2="6"></line>
-    <line x1="3" y1="12" x2="3.01" y2="12"></line>
-    <line x1="3" y1="18" x2="3.01" y2="18"></line>
+  <svg
+    className="pi-icon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
   </svg>
 );
 
 const BackIcon = () => (
-  <svg className="pi-icon-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="19" y1="12" x2="5" y2="12"></line>
-    <polyline points="12 19 5 12 12 5"></polyline>
+  <svg
+    className="pi-icon-back"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
   </svg>
 );
 
 const EditIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
   </svg>
 );
 
+/* ——— Main Component ——— */
 const ProductInfo = memo(function ProductInfo({ description = "", onEdit }) {
   const [expanded, setExpanded] = useState(false);
+
   const rawStr = useMemo(() => safeString(description), [description]);
   const lines = useMemo(() => parseDescription(rawStr), [rawStr]);
 
   const isLong = useMemo(() => {
-    return rawStr.length > CONFIG.COLLAPSE_THRESHOLD || lines.length > CONFIG.LINE_LIMIT;
+    return (
+      rawStr.length > CONFIG.COLLAPSE_THRESHOLD ||
+      lines.length > CONFIG.LINE_LIMIT
+    );
   }, [rawStr, lines]);
 
-  // Handle Phone Hardware Back Button
-  useEffect(() => {
-    const handlePopState = (e) => {
-      if (expanded) setExpanded(false);
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [expanded]);
+  // Phone Back closes fullscreen description
+  const requestClose = useModalBack(expanded, () => setExpanded(false));
 
   const handleExpand = useCallback(() => {
-    window.history.pushState({ modal: "product-description" }, "");
     setExpanded(true);
   }, []);
-
-  const handleClose = useCallback(() => {
-    if (expanded) {
-      window.history.back(); // Triggers popstate to close the modal
-    }
-  }, [expanded]);
 
   if (lines.length === 0) return null;
 
   return (
     <>
-      {/* 1. Main Card View */}
+      {/* 1. Card preview */}
       <section className="pi-card" data-testid="product-info-card">
         <div className="pi-card-header">
           <div className="pi-card-title-group">
@@ -156,35 +205,58 @@ const ProductInfo = memo(function ProductInfo({ description = "", onEdit }) {
         </div>
 
         <div className={`pi-card-body ${isLong ? "pi-clamped" : ""}`}>
-          <div role={lines.some((l) => l.type === "bullet") ? "list" : undefined}>
+          <div
+            role={lines.some((l) => l.type === "bullet") ? "list" : undefined}
+          >
             {lines.map((line) => (
-              <DescriptionLine key={line.id} type={line.type} content={line.content} />
+              <DescriptionLine
+                key={line.id}
+                type={line.type}
+                content={line.content}
+              />
             ))}
           </div>
         </div>
 
         {isLong && (
-          <button type="button" className="pi-read-more-btn" onClick={handleExpand}>
+          <button
+            type="button"
+            className="pi-read-more-btn"
+            onClick={handleExpand}
+          >
             Read full description
           </button>
         )}
       </section>
 
-      {/* 2. Full Screen Modal (Opens on Read More, Closes on Phone Back) */}
+      {/* 2. Fullscreen modal */}
       {expanded && (
-        <div className="pi-fullpage-modal">
+        <div className="pi-fullpage-modal" role="dialog" aria-modal="true">
           <div className="pi-fullpage-header">
-            <button className="pi-back-btn" onClick={handleClose} type="button">
+            <button
+              className="pi-back-btn"
+              onClick={requestClose}
+              type="button"
+              aria-label="Back"
+            >
               <BackIcon />
             </button>
             <h3 className="pi-fullpage-title">Description</h3>
-            <div className="pi-spacer"></div>
+            <div className="pi-spacer" />
           </div>
-          
+
           <div className="pi-fullpage-content">
-            <div role={lines.some((l) => l.type === "bullet") ? "list" : undefined}>
+            <div
+              role={
+                lines.some((l) => l.type === "bullet") ? "list" : undefined
+              }
+            >
               {lines.map((line) => (
-                <DescriptionLine key={line.id} type={line.type} content={line.content} />
+                <DescriptionLine
+                  key={line.id}
+                  type={line.type}
+                  content={line.content}
+                />
               ))}
             </div>
           </div>
