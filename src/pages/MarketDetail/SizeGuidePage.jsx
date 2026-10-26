@@ -1,8 +1,6 @@
-/**
- * src/pages/MarketDetail/SizeGuidePage.jsx
- */
 import { useEffect, memo, useMemo, useState } from "react";
 import { shouldShowSizeGuide, isFootwear } from "../../config/marketplace";
+import useModalBack from "../../hooks/useModalBack"; // <-- IMPORT HOOK
 import "./styles/SizeGuidePage.css";
 
 const DEFAULT_CLOTHES_ROWS = [
@@ -53,13 +51,17 @@ const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, si
   const detectedShoe = useMemo(() => isFootwear(product), [product]);
   const [guideType, setGuideType] = useState(detectedShoe ? "shoes" : "clothes");
 
+  // --> INITIALIZE HARDWARE BACK HOOK
+  const requestClose = useModalBack(isOpen && allowed, onClose);
+
   useEffect(() => {
     setGuideType(detectedShoe ? "shoes" : "clothes");
   }, [detectedShoe]);
 
   useEffect(() => {
     if (!isOpen || !allowed) return;
-    const fn = (e) => e.key === "Escape" && onClose();
+    // Call requestClose instead of onClose to keep history clean
+    const fn = (e) => e.key === "Escape" && requestClose();
     window.addEventListener("keydown", fn);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -67,7 +69,7 @@ const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, si
       window.removeEventListener("keydown", fn);
       document.body.style.overflow = prev || "";
     };
-  }, [isOpen, allowed, onClose]);
+  }, [isOpen, allowed, requestClose]);
 
   const isShoe = guideType === "shoes";
   const guide = useMemo(() => normalizeGuide(sizeGuide, isShoe), [sizeGuide, isShoe]);
@@ -83,10 +85,10 @@ const SizeGuidePage = memo(function SizeGuidePage({ isOpen, onClose, product, si
   const keys = Object.keys(rows[0]).filter((k) => k !== "id");
 
   return (
-    <div className="mdp-subpage-overlay" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="mdp-subpage-overlay" onClick={requestClose} role="dialog" aria-modal="true">
       <div className="mdp-subpage" onClick={(e) => e.stopPropagation()}>
         <div className="mdp-subpage__header">
-          <button type="button" className="mdp-subpage__back" onClick={onClose} aria-label="Back">
+          <button type="button" className="mdp-subpage__back" onClick={requestClose} aria-label="Back">
             ←
           </button>
           <h2 className="mdp-subpage__title">{isShoe ? "Shoe Size Guide" : "Size Guide"}</h2>
