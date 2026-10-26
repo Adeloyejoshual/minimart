@@ -4,8 +4,9 @@
  * POST /api/products
  * Create a new seller listing.
  *
- * v4 — Enhanced for Hierarchical Categories (CockroachDB)
+ * v4.1 — Title limit raised to 255 chars (industry-standard VARCHAR(255))
  * ────────────────────────────────────────────────────────
+ * ✓ Title max length: 255 (was 200)
  * ✓ inFlight guard uses finally block (no stuck entries)
  * ✓ Resolves UUID category_id to link into the hierarchy tree
  * ✓ Safe fallback to plain text if categories table is missing
@@ -44,6 +45,26 @@ import {
 const router = express.Router();
 
 /* ══════════════════════════════════════════════════════════════
+   CONSTANTS
+══════════════════════════════════════════════════════════════ */
+const MAX_TITLE_LEN       = 255;
+const MAX_DESC_LEN        = 2500;
+const MAX_SHORT_DESC_LEN  = 300;
+const MAX_BRAND_LEN       = 100;
+const MAX_RETURN_LEN      = 1000;
+const MAX_WARRANTY_LEN    = 500;
+const MAX_CATEGORY_LEN    = 100;
+const MAX_SKU_LEN         = 100;
+
+const ALLOWED_CONDITIONS = new Set(["new", "used", "refurbished"]);
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const isValidUUID = (str) =>
+  typeof str === "string" && UUID_REGEX.test(str);
+
+/* ══════════════════════════════════════════════════════════════
    SLUG GENERATOR
    ─────────────────────────────────────────────────────────────
    Uniqueness is enforced by the DB unique constraint on slug.
@@ -61,17 +82,6 @@ function generateSlug(name, id) {
   const suffix = String(id).replace(/-/g, "").slice(0, 12);
   return `${base}-${suffix}`;
 }
-
-/* ══════════════════════════════════════════════════════════════
-   CONSTANTS
-══════════════════════════════════════════════════════════════ */
-const ALLOWED_CONDITIONS = new Set(["new", "used", "refurbished"]);
-
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const isValidUUID = (str) =>
-  typeof str === "string" && UUID_REGEX.test(str);
 
 /* ══════════════════════════════════════════════════════════════
    PRICE PARSER
@@ -172,7 +182,7 @@ async function resolveCategory(client, categoryInput, categoryIdInput) {
   }
 
   /* ── Step 3: Try text/slug match ── */
-  const textCategory = safeStr(categoryInput, 100);
+  const textCategory = safeStr(categoryInput, MAX_CATEGORY_LEN);
 
   if (!textCategory) {
     return { error: "Category is required" };
@@ -315,9 +325,12 @@ async function handleAddProduct(req, res, userId) {
     console.warn(`[addproduct] delivery_options submitted by user=${userId} — ignored; handled by agent`);
   }
 
-  /* ── Required: name ── */
-  const cleanName = safeStr(name, 200);
+  /* ── Required: name (max 255 chars) ── */
+  const cleanName = safeStr(name, MAX_TITLE_LEN);
   if (!cleanName) return fail(res, 422, "Product name is required");
+
+  if (cleanName.length < 3)
+    return fail(res, 422, "Product name must be at least 3 characters");
 
   /* ── Required: base price ── */
   const price = parsePrice(basePrice);
@@ -353,7 +366,7 @@ async function handleAddProduct(req, res, userId) {
   if (parsedVariants.length > 0) {
     const skuSet = new Set();
     for (const v of parsedVariants) {
-      const sku = safeStr(String(v?.sku ?? ""), 100)?.toUpperCase();
+      const sku = safeStr(String(v?.sku ?? ""), MAX_SKU_LEN)?.toUpperCase();
       if (!sku) continue;
       if (skuSet.has(sku)) {
         return fail(res, 422, `Duplicate variant SKU: "${sku}". Each variant must have a unique SKU.`);
@@ -403,18 +416,18 @@ async function handleAddProduct(req, res, userId) {
     const insertVals = [
       userId,
       cleanName,
-      safeStr(description,       2000),
-      safeStr(short_description,  300),
+      safeStr(description,       MAX_DESC_LEN),
+      safeStr(short_description, MAX_SHORT_DESC_LEN),
       finalCategoryName,
       cleanCondition,
       price,
       parsedOriginalPrice,
-      safeStr(brand, 100),
+      safeStr(brand, MAX_BRAND_LEN),
       parsedTags.length ? parsedTags : null,
       parsedWeight,
       parsedDims ? JSON.stringify(parsedDims) : null,
-      safeStr(return_policy, 1000),
-      safeStr(warranty,       500),
+      safeStr(return_policy, MAX_RETURN_LEN),
+      safeStr(warranty,      MAX_WARRANTY_LEN),
       "pending",
       false,
     ];
@@ -469,6 +482,7 @@ async function handleAddProduct(req, res, userId) {
 
     console.log(
       `[addproduct] ✅ created | id=${productId} | user=${userId} | ` +
+      `title_len=${cleanName.length} | ` +
       `category="${finalCategoryName}"` +
       (finalCategoryId ? ` (id=${finalCategoryId})` : " (text-only)")
     );
