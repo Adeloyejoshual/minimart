@@ -3,6 +3,7 @@
  */
 import { useEffect, useState, useCallback, memo } from "react";
 import axios from "axios";
+import useModalBack from "../../hooks/useModalBack"; // <-- IMPORT HOOK
 
 const RAW_BASE = import.meta.env.VITE_API_BASE_URL || "";
 const API_ROOT = RAW_BASE
@@ -35,17 +36,25 @@ const ReviewsPage = memo(function ReviewsPage({
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState("recent");
 
+  // --> INITIALIZE HARDWARE BACK HOOK
+  const requestClose = useModalBack(isOpen, onClose);
+
   useEffect(() => {
     if (!isOpen) return;
-    const fn = (e) => e.key === "Escape" && onClose();
+    
+    // Use requestClose for Escape key as well
+    const fn = (e) => e.key === "Escape" && requestClose();
     window.addEventListener("keydown", fn);
+    
+    // Lock body scroll
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    
     return () => {
       window.removeEventListener("keydown", fn);
       document.body.style.overflow = prev || "";
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, requestClose]);
 
   const load = useCallback(async () => {
     if (!productId || !isOpen) return;
@@ -72,10 +81,20 @@ const ReviewsPage = memo(function ReviewsPage({
   if (!isOpen) return null;
 
   return (
-    <div className="mdp-subpage-overlay" onClick={onClose} role="dialog" aria-modal="true">
+    <div 
+      className="mdp-subpage-overlay" 
+      onClick={requestClose} // OVERLAY CLICK -> requestClose
+      role="dialog" 
+      aria-modal="true"
+    >
       <div className="mdp-subpage" onClick={(e) => e.stopPropagation()}>
         <div className="mdp-subpage__header">
-          <button type="button" className="mdp-subpage__back" onClick={onClose} aria-label="Back">
+          <button 
+            type="button" 
+            className="mdp-subpage__back" 
+            onClick={requestClose} // BACK BUTTON -> requestClose
+            aria-label="Back"
+          >
             ←
           </button>
           <h2 className="mdp-subpage__title">Ratings & Reviews</h2>
