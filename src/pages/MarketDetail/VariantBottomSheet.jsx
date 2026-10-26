@@ -1,7 +1,3 @@
-/**
- * src/pages/MarketDetail/VariantBottomSheet.jsx
- */
-
 import React, {
   useEffect,
   useState,
@@ -10,6 +6,7 @@ import React, {
   useRef,
 } from "react";
 import { formatPrice, getProductImage } from "../../config/marketplace";
+import useModalBack from "../../hooks/useModalBack"; // <-- IMPORT HOOK
 import "./styles/VariantBottomSheet.css";
 
 const getSafeImageUrl = (img) => {
@@ -48,7 +45,8 @@ export default function VariantBottomSheet({
   const [closing, setClosing] = useState(false);
   const closingTimerRef = useRef(null);
 
-  const handleClose = useCallback(() => {
+  // This function runs the animation, then fires the actual onClose prop
+  const triggerAnimatedClose = useCallback(() => {
     if (closingTimerRef.current) clearTimeout(closingTimerRef.current);
     setClosing(true);
     unlockBodyScroll();
@@ -58,6 +56,10 @@ export default function VariantBottomSheet({
     }, 200);
   }, [onClose]);
 
+  // --> INITIALIZE HARDWARE BACK HOOK
+  // We pass triggerAnimatedClose so hardware back gets the slick animation too
+  const requestClose = useModalBack(isOpen, triggerAnimatedClose);
+
   useEffect(() => {
     if (!isOpen) {
       unlockBodyScroll();
@@ -65,15 +67,17 @@ export default function VariantBottomSheet({
     }
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
+    
+    // Call requestClose for Escape key
     const onKey = (e) => {
-      if (e.key === "Escape") handleClose();
+      if (e.key === "Escape") requestClose();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       unlockBodyScroll();
       window.removeEventListener("keydown", onKey);
     };
-  }, [isOpen, handleClose]);
+  }, [isOpen, requestClose]);
 
   useEffect(() => {
     return () => {
@@ -180,7 +184,7 @@ export default function VariantBottomSheet({
     if (isOutOfStock || isSubmitting) return;
     try {
       await onConfirm?.();
-      handleClose();
+      requestClose(); // Use requestClose after success to close sheet
     } catch (e) {
       console.error("Cart error:", e);
       unlockBodyScroll();
@@ -195,7 +199,7 @@ export default function VariantBottomSheet({
   return (
     <div
       className={`mdp-bs-overlay${closing ? " mdp-bs-overlay--closing" : ""}`}
-      onClick={handleClose}
+      onClick={requestClose} // OVERLAY CLICK -> requestClose
       role="presentation"
     >
       <div
@@ -234,7 +238,7 @@ export default function VariantBottomSheet({
           <button
             type="button"
             className="mdp-bs-close"
-            onClick={handleClose}
+            onClick={requestClose} // X BUTTON -> requestClose
             aria-label="Close"
           >
             ✕
@@ -292,7 +296,7 @@ export default function VariantBottomSheet({
             );
           })}
 
-          {/* Quantity — structured pill (not bare −1+) */}
+          {/* Quantity */}
           <div className="mdp-bs-group mdp-bs-qty-row">
             <p className="mdp-bs-label">Quantity</p>
 
