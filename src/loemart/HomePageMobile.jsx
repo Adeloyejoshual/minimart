@@ -20,7 +20,7 @@ import {
 } from '../loemart/mobile/mobileHelpers';
 import '../styles/Minimart.css';
 
-const BATCH_SIZE = 3; // 3 pages × 30 = 90 before "Load More"
+const BATCH_SIZE = 3;
 const PAGE_LIMIT = 30;
 
 export default function HomePageMobile() {
@@ -37,7 +37,6 @@ export default function HomePageMobile() {
     seconds: '00',
   });
 
-  // ── Batched Infinite Scroll State ──
   const [nextPage, setNextPage] = useState(1);
   const [pagesInBatch, setPagesInBatch] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -45,12 +44,11 @@ export default function HomePageMobile() {
   const sentinelRef = useRef(null);
   const loadingRef = useRef(false);
 
-  // Variant Bottom Sheet State
   const [selectedProductForVariant, setSelectedProductForVariant] =
     useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
-  // 1. Midnight WAT Countdown Timer
+  // 1. Countdown
   useEffect(() => {
     const updateTimer = () => setTimeLeft(getMidnightWATTimeLeft());
     updateTimer();
@@ -58,7 +56,7 @@ export default function HomePageMobile() {
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Initial Load — first 30 products + campaigns
+  // 2. Initial load
   useEffect(() => {
     let isMounted = true;
 
@@ -107,7 +105,7 @@ export default function HomePageMobile() {
     };
   }, []);
 
-  // 3. Auto-load next 30 (scroll trigger) — only within a batch
+  // 3. Auto-load next 30
   const autoLoadNext = useCallback(async () => {
     if (loadingRef.current || !hasMore || pagesInBatch >= BATCH_SIZE) return;
     loadingRef.current = true;
@@ -133,7 +131,7 @@ export default function HomePageMobile() {
     }
   }, [nextPage, hasMore, pagesInBatch]);
 
-  // 4. IntersectionObserver — watches sentinel div
+  // 4. IntersectionObserver
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !hasMore || loading || pagesInBatch >= BATCH_SIZE) return;
@@ -151,7 +149,26 @@ export default function HomePageMobile() {
     return () => observer.disconnect();
   }, [autoLoadNext, hasMore, loading, pagesInBatch]);
 
-  // 5. "Load More" button — resets to a fresh batch of 30
+  // 4b. Post-load scroll catch-up (THE FIX)
+  useEffect(() => {
+    if (loadingMore || loading || !canAutoLoad) return;
+
+    const checkAndLoad = () => {
+      const distanceFromBottom =
+        document.documentElement.scrollHeight -
+        window.scrollY -
+        window.innerHeight;
+
+      if (distanceFromBottom < 800) {
+        autoLoadNext();
+      }
+    };
+
+    const timer = setTimeout(checkAndLoad, 150);
+    return () => clearTimeout(timer);
+  }, [products.length, loadingMore, loading, canAutoLoad, autoLoadNext]);
+
+  // 5. Load More button — fresh batch
   const handleLoadMoreBatch = async () => {
     if (loadingRef.current || !hasMore) return;
     loadingRef.current = true;
@@ -163,13 +180,11 @@ export default function HomePageMobile() {
         ? mixProducts(result.products)
         : [];
 
-      // Replace everything — fresh start
       setProducts(freshItems);
       setNextPage(result.nextPage);
       setPagesInBatch(1);
       setHasMore(result.hasMore);
 
-      // Scroll to top of catalog smoothly
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       console.error('Failed to load next batch:', err);
@@ -210,7 +225,6 @@ export default function HomePageMobile() {
     }
   };
 
-  // ── Determine scroll / button state ──
   const canAutoLoad = hasMore && pagesInBatch < BATCH_SIZE && !loading;
   const showLoadMoreBtn = hasMore && pagesInBatch >= BATCH_SIZE && !loading;
   const reachedEnd = !hasMore && !loading && displayedCatalog.length > 0;
@@ -454,11 +468,7 @@ export default function HomePageMobile() {
             }}
           >
             <span
-              style={{
-                fontSize: '0.95rem',
-                fontWeight: 800,
-                color: '#111',
-              }}
+              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
             >
               ⭐ Sponsored Deals
             </span>
@@ -586,11 +596,7 @@ export default function HomePageMobile() {
             }}
           >
             <span
-              style={{
-                fontSize: '0.95rem',
-                fontWeight: 800,
-                color: '#111',
-              }}
+              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
             >
               🔥 Trending Now
             </span>
@@ -699,7 +705,7 @@ export default function HomePageMobile() {
       )}
 
       {/* ═══════════════════════════════════════════════════
-          Main Catalog — 30 → 60 → 90 → [Load More] → repeat
+          Main Catalog
       ═══════════════════════════════════════════════════ */}
       <div style={{ padding: '0 12px', marginTop: 16 }}>
         <h3
@@ -782,7 +788,7 @@ export default function HomePageMobile() {
               ))}
             </div>
 
-            {/* ── Auto-load spinner (30 → 60 → 90) ── */}
+            {/* Auto-load sentinel */}
             {canAutoLoad && (
               <div
                 ref={sentinelRef}
@@ -812,14 +818,9 @@ export default function HomePageMobile() {
               </div>
             )}
 
-            {/* ── "Load More" button (after 90) ── */}
+            {/* Load More button after 90 */}
             {showLoadMoreBtn && (
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: '28px 0 12px',
-                }}
-              >
+              <div style={{ textAlign: 'center', padding: '28px 0 12px' }}>
                 <button
                   type="button"
                   onClick={handleLoadMoreBatch}
@@ -843,7 +844,7 @@ export default function HomePageMobile() {
               </div>
             )}
 
-            {/* ── End of catalog ── */}
+            {/* End of catalog */}
             {reachedEnd && (
               <p
                 style={{
