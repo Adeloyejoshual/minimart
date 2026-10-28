@@ -10,7 +10,7 @@
    CONSTANTS & CONFIG
 ═══════════════════════════════════════════════════════════════ */
 export const API = `${import.meta.env.VITE_API_BASE_URL || ""}/api`;
-export const DEFAULT_LIMIT = 20;
+export const DEFAULT_LIMIT = 30;
 
 export const CART_KEY = "mm_cart";
 export const WISH_KEY = "loemart-wishlist";
@@ -565,6 +565,50 @@ export async function fetchProducts(query = "") {
   }
 
   return [];
+}
+
+/**
+ * Paginated product fetcher for infinite scroll batches.
+ * Returns { products: [...], hasMore: boolean, nextPage: number }
+ */
+export async function fetchProductsPage(page = 1, limit = 30) {
+  const q = `?page=${page}&limit=${limit}`;
+  const endpoints = [
+    `/products${q}`,
+    `/market/products${q}`,
+    `/marketplace/products${q}`,
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const data = await fetchJson(endpoint);
+      const items = extractProductsArray(data);
+
+      if (items && items.length > 0) {
+        const pag =
+          data?.data?.pagination ||
+          data?.pagination ||
+          data?.meta ||
+          null;
+
+        let hasMore = false;
+        if (pag) {
+          const totalPages =
+            pag.totalPages || pag.total_pages || pag.pages || 1;
+          const currentPage = pag.currentPage || pag.page || page;
+          hasMore = currentPage < totalPages;
+        } else {
+          hasMore = items.length >= limit;
+        }
+
+        return { products: items, hasMore, nextPage: page + 1 };
+      }
+    } catch {
+      // try next fallback
+    }
+  }
+
+  return { products: [], hasMore: false, nextPage: page + 1 };
 }
 
 /**
