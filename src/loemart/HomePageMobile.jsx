@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MobileTopBar from '../loemart/mobile/MobileTopBar';
 import MobileHeroBanner from '../loemart/mobile/MobileHeroBanner';
@@ -15,10 +15,13 @@ import {
   mixProducts,
   getMidnightWATTimeLeft,
   partitionAdminProductSections,
-  fetchProducts,
-  fetchCampaigns
+  fetchProductsPage,
+  fetchCampaigns,
 } from '../loemart/mobile/mobileHelpers';
 import '../styles/Minimart.css';
+
+const BATCH_SIZE = 3; // 3 pages × 30 = 90 before "Load More"
+const PAGE_LIMIT = 30;
 
 export default function HomePageMobile() {
   const navigate = useNavigate();
@@ -28,45 +31,64 @@ export default function HomePageMobile() {
   const [categories, setCategories] = useState([]);
   const [activeCategory, setActiveCategory] = useState('All');
   const [loading, setLoading] = useState(true);
-  const [timeLeft, setTimeLeft] = useState({ hours: '00', minutes: '00', seconds: '00' });
+  const [timeLeft, setTimeLeft] = useState({
+    hours: '00',
+    minutes: '00',
+    seconds: '00',
+  });
+
+  // ── Batched Infinite Scroll State ──
+  const [nextPage, setNextPage] = useState(1);
+  const [pagesInBatch, setPagesInBatch] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sentinelRef = useRef(null);
+  const loadingRef = useRef(false);
 
   // Variant Bottom Sheet State
-  const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
+  const [selectedProductForVariant, setSelectedProductForVariant] =
+    useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
   // 1. Midnight WAT Countdown Timer
   useEffect(() => {
-    const updateTimer = () => {
-      const remaining = getMidnightWATTimeLeft();
-      setTimeLeft(remaining);
-    };
+    const updateTimer = () => setTimeLeft(getMidnightWATTimeLeft());
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Fetch Live Products & Campaigns
+  // 2. Initial Load — first 30 products + campaigns
   useEffect(() => {
     let isMounted = true;
 
     async function loadData() {
       setLoading(true);
       try {
-        const [rawProducts, rawCampaigns] = await Promise.all([
-          fetchProducts().catch(() => []),
-          fetchCampaigns().catch(() => [])
+        const [productData, rawCampaigns] = await Promise.all([
+          fetchProductsPage(1, PAGE_LIMIT).catch(() => ({
+            products: [],
+            hasMore: false,
+            nextPage: 2,
+          })),
+          fetchCampaigns().catch(() => []),
         ]);
 
         if (!isMounted) return;
 
-        // Shuffle / mix so new additions do not stack strictly in linear order
-        const mixedProducts = mixProducts(Array.isArray(rawProducts) ? rawProducts : []);
-        setProducts(mixedProducts);
+        const mixed = mixProducts(
+          Array.isArray(productData.products) ? productData.products : []
+        );
+
+        setProducts(mixed);
+        setNextPage(productData.nextPage);
+        setPagesInBatch(1);
+        setHasMore(productData.hasMore);
         setCampaigns(Array.isArray(rawCampaigns) ? rawCampaigns : []);
 
         const uniqueCats = Array.from(
           new Set(
-            mixedProducts
+            mixed
               .map((p) => p.category || p.category_name)
               .filter(Boolean)
           )
@@ -85,6 +107,78 @@ export default function HomePageMobile() {
     };
   }, []);
 
+  // 3. Auto-load next 30 (scroll trigger) — only within a batch
+  const autoLoadNext = useCallback(async () => {
+    if (loadingRef.current || !hasMore || pagesInBatch >= BATCH_SIZE) return;
+    loadingRef.current = true;
+    setLoadingMore(true);
+
+    try {
+      const result = await fetchProductsPage(nextPage, PAGE_LIMIT);
+      const newItems = Array.isArray(result.products)
+        ? result.products
+        : [];
+
+      if (newItems.length > 0) {
+        setProducts((prev) => [...prev, ...newItems]);
+      }
+      setNextPage(result.nextPage);
+      setPagesInBatch((prev) => prev + 1);
+      setHasMore(result.hasMore);
+    } catch (err) {
+      console.error('Failed to auto-load more:', err);
+    } finally {
+      setLoadingMore(false);
+      loadingRef.current = false;
+    }
+  }, [nextPage, hasMore, pagesInBatch]);
+
+  // 4. IntersectionObserver — watches sentinel div
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !hasMore || loading || pagesInBatch >= BATCH_SIZE) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          autoLoadNext();
+        }
+      },
+      { rootMargin: '400px', threshold: 0 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [autoLoadNext, hasMore, loading, pagesInBatch]);
+
+  // 5. "Load More" button — resets to a fresh batch of 30
+  const handleLoadMoreBatch = async () => {
+    if (loadingRef.current || !hasMore) return;
+    loadingRef.current = true;
+    setLoadingMore(true);
+
+    try {
+      const result = await fetchProductsPage(nextPage, PAGE_LIMIT);
+      const freshItems = Array.isArray(result.products)
+        ? mixProducts(result.products)
+        : [];
+
+      // Replace everything — fresh start
+      setProducts(freshItems);
+      setNextPage(result.nextPage);
+      setPagesInBatch(1);
+      setHasMore(result.hasMore);
+
+      // Scroll to top of catalog smoothly
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      console.error('Failed to load next batch:', err);
+    } finally {
+      setLoadingMore(false);
+      loadingRef.current = false;
+    }
+  };
+
   const sections = partitionAdminProductSections(products);
 
   const displayedCatalog =
@@ -98,10 +192,6 @@ export default function HomePageMobile() {
     setActiveCategory(catName === 'All' ? 'All' : catName);
   };
 
-  /**
-   * Helper to handle product clicks on horizontal scrollers or cards
-   * Opens Variant Sheet if product has > 1 variants, else navigates to detail
-   */
   const handleProductClick = (item) => {
     let variants = item?.variants || [];
     if (typeof variants === 'string') {
@@ -120,26 +210,28 @@ export default function HomePageMobile() {
     }
   };
 
+  // ── Determine scroll / button state ──
+  const canAutoLoad = hasMore && pagesInBatch < BATCH_SIZE && !loading;
+  const showLoadMoreBtn = hasMore && pagesInBatch >= BATCH_SIZE && !loading;
+  const reachedEnd = !hasMore && !loading && displayedCatalog.length > 0;
+
   return (
     <div
       className="home-page-mobile-wrapper"
       style={{
         minHeight: '100vh',
         backgroundColor: '#f5f5f7',
-        paddingBottom: '80px'
+        paddingBottom: '80px',
       }}
     >
-      {/* Sticky Top Header */}
       <MobileTopBar
         categories={categories}
         activeCategory={activeCategory}
         onSelectCategory={handleCategorySelect}
       />
 
-      {/* Hero Touch Carousel Banner */}
       <MobileHeroBanner />
 
-      {/* Admin Campaign Spotlight */}
       {(campaigns.length > 0 || sections.campaign.length > 0) && (
         <MobileCampaignSpotlight
           campaign={campaigns[0] || null}
@@ -148,7 +240,7 @@ export default function HomePageMobile() {
         />
       )}
 
-      {/* Flash Sale Section */}
+      {/* Flash Sale */}
       {sections.flash.length > 0 && (
         <div
           className="mdp-psec"
@@ -157,7 +249,7 @@ export default function HomePageMobile() {
             padding: '14px',
             background: '#ffffff',
             borderRadius: '14px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
           }}
         >
           <div
@@ -165,16 +257,18 @@ export default function HomePageMobile() {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: '12px'
+              marginBottom: '12px',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
               <span
                 style={{
                   color: '#ff6000',
                   fontWeight: 900,
                   fontSize: '1.05rem',
-                  letterSpacing: '-0.3px'
+                  letterSpacing: '-0.3px',
                 }}
               >
                 ⚡ FLASH SALE
@@ -189,7 +283,7 @@ export default function HomePageMobile() {
                   borderRadius: '6px',
                   fontSize: '0.72rem',
                   fontWeight: 800,
-                  fontVariantNumeric: 'tabular-nums'
+                  fontVariantNumeric: 'tabular-nums',
                 }}
               >
                 <span>{timeLeft.hours}</span>:<span>{timeLeft.minutes}</span>:
@@ -205,13 +299,12 @@ export default function HomePageMobile() {
                 color: '#ff6000',
                 fontWeight: 800,
                 fontSize: '0.8rem',
-                cursor: 'pointer'
+                cursor: 'pointer',
               }}
             >
               See All &gt;
             </button>
           </div>
-
           <div
             style={{
               display: 'flex',
@@ -219,7 +312,7 @@ export default function HomePageMobile() {
               overflowX: 'auto',
               paddingBottom: '4px',
               scrollbarWidth: 'none',
-              WebkitOverflowScrolling: 'touch'
+              WebkitOverflowScrolling: 'touch',
             }}
           >
             {sections.flash.slice(0, 10).map((item) => {
@@ -228,9 +321,13 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
               const oldPrice =
-                item.oldPrice ?? item.old_price ?? item.original_price ?? item.regular_price;
+                item.oldPrice ??
+                item.old_price ??
+                item.original_price ??
+                item.regular_price;
               const discount = calcDiscountPct(price, oldPrice);
               const title = item.title || item.name || 'Flash Deal';
 
@@ -246,7 +343,7 @@ export default function HomePageMobile() {
                     borderRadius: 12,
                     border: '1px solid #eef0f4',
                     overflow: 'hidden',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
                   }}
                 >
                   <div
@@ -259,7 +356,7 @@ export default function HomePageMobile() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       padding: 6,
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
                     }}
                   >
                     <img
@@ -271,7 +368,7 @@ export default function HomePageMobile() {
                         maxHeight: '100%',
                         width: 'auto',
                         height: 'auto',
-                        objectFit: 'contain'
+                        objectFit: 'contain',
                       }}
                     />
                     {discount > 0 && (
@@ -285,7 +382,7 @@ export default function HomePageMobile() {
                           fontSize: '0.62rem',
                           fontWeight: 900,
                           padding: '2px 5px',
-                          borderRadius: 4
+                          borderRadius: 4,
                         }}
                       >
                         -{discount}%
@@ -301,7 +398,7 @@ export default function HomePageMobile() {
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        color: '#111111'
+                        color: '#111111',
                       }}
                     >
                       {title}
@@ -311,7 +408,7 @@ export default function HomePageMobile() {
                         fontSize: '0.85rem',
                         fontWeight: 900,
                         color: '#ff6000',
-                        margin: 0
+                        margin: 0,
                       }}
                     >
                       {formatPrice(price)}
@@ -322,7 +419,7 @@ export default function HomePageMobile() {
                           fontSize: '0.68rem',
                           color: '#999',
                           textDecoration: 'line-through',
-                          margin: '2px 0 0'
+                          margin: '2px 0 0',
                         }}
                       >
                         {formatPrice(oldPrice)}
@@ -336,7 +433,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* Sponsored Section */}
+      {/* Sponsored */}
       {sections.sponsored?.length > 0 && (
         <div
           className="mdp-psec"
@@ -345,7 +442,7 @@ export default function HomePageMobile() {
             padding: '14px',
             background: '#ffffff',
             borderRadius: '14px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
           }}
         >
           <div
@@ -353,10 +450,16 @@ export default function HomePageMobile() {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: 10
+              marginBottom: 10,
             }}
           >
-            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
+            <span
+              style={{
+                fontSize: '0.95rem',
+                fontWeight: 800,
+                color: '#111',
+              }}
+            >
               ⭐ Sponsored Deals
             </span>
             <button
@@ -368,7 +471,7 @@ export default function HomePageMobile() {
                 color: '#ff6000',
                 fontWeight: 800,
                 fontSize: '0.8rem',
-                cursor: 'pointer'
+                cursor: 'pointer',
               }}
             >
               View All
@@ -381,7 +484,7 @@ export default function HomePageMobile() {
               overflowX: 'auto',
               paddingBottom: 4,
               scrollbarWidth: 'none',
-              WebkitOverflowScrolling: 'touch'
+              WebkitOverflowScrolling: 'touch',
             }}
           >
             {sections.sponsored.map((item) => {
@@ -390,132 +493,8 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
-
-              return (
-                <div
-                  key={id}
-                  onClick={() => handleProductClick(item)}
-                  style={{
-                    flex: '0 0 148px',
-                    width: 148,
-                    background: '#fff',
-                    borderRadius: 12,
-                    border: '1px solid #eef0f4',
-                    overflow: 'hidden',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '100%',
-                      aspectRatio: '1 / 1',
-                      background: '#f8f9fc',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 6,
-                      boxSizing: 'border-box'
-                    }}
-                  >
-                    <img
-                      src={imgUrl}
-                      alt=""
-                      loading="lazy"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        objectFit: 'contain'
-                      }}
-                    />
-                  </div>
-                  <div style={{ padding: '8px 10px' }}>
-                    <p
-                      style={{
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        margin: '0 0 4px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        color: '#111'
-                      }}
-                    >
-                      {item.title || item.name}
-                    </p>
-                    <p
-                      style={{
-                        fontSize: '0.85rem',
-                        fontWeight: 900,
-                        color: '#ff6000',
-                        margin: 0
-                      }}
-                    >
-                      {formatPrice(price)}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Trending Section */}
-      {sections.trending.length > 0 && (
-        <div
-          className="mdp-psec"
-          style={{
-            margin: '12px',
-            padding: '14px',
-            background: '#ffffff',
-            borderRadius: '14px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 10
-            }}
-          >
-            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
-              🔥 Trending Now
-            </span>
-            <button
-              type="button"
-              onClick={() => navigate('/m/search?filter=trending')}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#ff6000',
-                fontWeight: 800,
-                fontSize: '0.8rem',
-                cursor: 'pointer'
-              }}
-            >
-              View All
-            </button>
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              gap: 10,
-              overflowX: 'auto',
-              paddingBottom: 4,
-              scrollbarWidth: 'none',
-              WebkitOverflowScrolling: 'touch'
-            }}
-          >
-            {sections.trending.map((item) => {
-              const id = item.id || item.product_id;
-              const imgUrl = primaryImg(
-                item.primaryImg || item.images || item.image_url,
-                item
-              );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -529,7 +508,6 @@ export default function HomePageMobile() {
                     border: '1px solid #eef0f4',
                     overflow: 'hidden',
                     cursor: 'pointer',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
                   }}
                 >
                   <div
@@ -541,7 +519,7 @@ export default function HomePageMobile() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       padding: 6,
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
                     }}
                   >
                     <img
@@ -551,7 +529,7 @@ export default function HomePageMobile() {
                       style={{
                         maxWidth: '100%',
                         maxHeight: '100%',
-                        objectFit: 'contain'
+                        objectFit: 'contain',
                       }}
                     />
                   </div>
@@ -564,7 +542,7 @@ export default function HomePageMobile() {
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
-                        color: '#111'
+                        color: '#111',
                       }}
                     >
                       {item.title || item.name}
@@ -574,7 +552,7 @@ export default function HomePageMobile() {
                         fontSize: '0.85rem',
                         fontWeight: 900,
                         color: '#ff6000',
-                        margin: 0
+                        margin: 0,
                       }}
                     >
                       {formatPrice(price)}
@@ -587,37 +565,160 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* Main Catalog Masonry Grid */}
-      <div style={{ padding: '0 12px', marginTop: 16 }}>
+      {/* Trending */}
+      {sections.trending.length > 0 && (
         <div
+          className="mdp-psec"
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 12
+            margin: '12px',
+            padding: '14px',
+            background: '#ffffff',
+            borderRadius: '14px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
           }}
         >
-          <h3
+          <div
             style={{
-              fontSize: '1rem',
-              fontWeight: 900,
-              margin: 0,
-              color: '#111'
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 10,
             }}
           >
-            {activeCategory === 'All' ? 'Explore Catalog' : activeCategory}
-          </h3>
-          <span style={{ fontSize: '0.75rem', color: '#888', fontWeight: 600 }}>
-            {displayedCatalog.length} items
-          </span>
+            <span
+              style={{
+                fontSize: '0.95rem',
+                fontWeight: 800,
+                color: '#111',
+              }}
+            >
+              🔥 Trending Now
+            </span>
+            <button
+              type="button"
+              onClick={() => navigate('/m/search?filter=trending')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#ff6000',
+                fontWeight: 800,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+            >
+              View All
+            </button>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              overflowX: 'auto',
+              paddingBottom: 4,
+              scrollbarWidth: 'none',
+              WebkitOverflowScrolling: 'touch',
+            }}
+          >
+            {sections.trending.map((item) => {
+              const id = item.id || item.product_id;
+              const imgUrl = primaryImg(
+                item.primaryImg || item.images || item.image_url,
+                item
+              );
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
+
+              return (
+                <div
+                  key={id}
+                  onClick={() => handleProductClick(item)}
+                  style={{
+                    flex: '0 0 148px',
+                    width: 148,
+                    background: '#fff',
+                    borderRadius: 12,
+                    border: '1px solid #eef0f4',
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '100%',
+                      aspectRatio: '1 / 1',
+                      background: '#f8f9fc',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 6,
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <img
+                      src={imgUrl}
+                      alt=""
+                      loading="lazy"
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain',
+                      }}
+                    />
+                  </div>
+                  <div style={{ padding: '8px 10px' }}>
+                    <p
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        margin: '0 0 4px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: '#111',
+                      }}
+                    >
+                      {item.title || item.name}
+                    </p>
+                    <p
+                      style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 900,
+                        color: '#ff6000',
+                        margin: 0,
+                      }}
+                    >
+                      {formatPrice(price)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════
+          Main Catalog — 30 → 60 → 90 → [Load More] → repeat
+      ═══════════════════════════════════════════════════ */}
+      <div style={{ padding: '0 12px', marginTop: 16 }}>
+        <h3
+          style={{
+            fontSize: '1rem',
+            fontWeight: 900,
+            margin: '0 0 12px 0',
+            color: '#111',
+          }}
+        >
+          {activeCategory === 'All' ? 'Explore Catalog' : activeCategory}
+        </h3>
 
         {loading ? (
           <div
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: 10
+              gap: 10,
             }}
           >
             {[1, 2, 3, 4].map((n) => (
@@ -626,7 +727,7 @@ export default function HomePageMobile() {
                 style={{
                   height: 220,
                   background: '#e8e8ec',
-                  borderRadius: 12
+                  borderRadius: 12,
                 }}
               />
             ))}
@@ -637,7 +738,7 @@ export default function HomePageMobile() {
               textAlign: 'center',
               padding: '40px 20px',
               background: '#fff',
-              borderRadius: 14
+              borderRadius: 14,
             }}
           >
             <p style={{ fontSize: '0.9rem', color: '#666', margin: 0 }}>
@@ -655,7 +756,7 @@ export default function HomePageMobile() {
                   borderRadius: 8,
                   padding: '8px 16px',
                   fontWeight: 800,
-                  cursor: 'pointer'
+                  cursor: 'pointer',
                 }}
               >
                 Show full catalog
@@ -663,37 +764,126 @@ export default function HomePageMobile() {
             )}
           </div>
         ) : (
-          <div
-            className="pr-masonry"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: 10
-            }}
-          >
-            {displayedCatalog.map((product) => (
-              <MasonryCard
-                key={product.id || product.product_id}
-                product={product}
-                onOpenVariantSheet={(p) => handleProductClick(p)}
-              />
-            ))}
-          </div>
+          <>
+            <div
+              className="pr-masonry"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: 10,
+              }}
+            >
+              {displayedCatalog.map((product) => (
+                <MasonryCard
+                  key={product.id || product.product_id}
+                  product={product}
+                  onOpenVariantSheet={(p) => handleProductClick(p)}
+                />
+              ))}
+            </div>
+
+            {/* ── Auto-load spinner (30 → 60 → 90) ── */}
+            {canAutoLoad && (
+              <div
+                ref={sentinelRef}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: '24px 0',
+                  minHeight: 60,
+                }}
+              >
+                {loadingMore && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      color: '#888',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <span className="lm-spinner" />
+                    Loading more...
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── "Load More" button (after 90) ── */}
+            {showLoadMoreBtn && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '28px 0 12px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleLoadMoreBatch}
+                  disabled={loadingMore}
+                  style={{
+                    background: loadingMore ? '#ccc' : '#ff6000',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 14,
+                    padding: '16px 48px',
+                    fontWeight: 900,
+                    fontSize: '0.95rem',
+                    cursor: loadingMore ? 'wait' : 'pointer',
+                    boxShadow: '0 4px 16px rgba(255,96,0,0.3)',
+                    letterSpacing: '0.2px',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  {loadingMore ? 'Loading...' : 'Load More Products'}
+                </button>
+              </div>
+            )}
+
+            {/* ── End of catalog ── */}
+            {reachedEnd && (
+              <p
+                style={{
+                  textAlign: 'center',
+                  color: '#bbb',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  padding: '24px 0 8px',
+                }}
+              >
+                ✓ You've seen everything
+              </p>
+            )}
+          </>
         )}
       </div>
 
-      {/* Footer */}
       <Footer />
-
-      {/* Fixed Bottom Navigation Bar */}
       <BottomNav />
 
-      {/* VARIANT BOTTOM SHEET */}
       <VariantBottomSheet
         isOpen={isVariantSheetOpen}
         onClose={() => setIsVariantSheetOpen(false)}
         product={selectedProductForVariant}
       />
+
+      <style>{`
+        .lm-spinner {
+          width: 20px;
+          height: 20px;
+          border: 3px solid #e0e0e0;
+          border-top-color: #ff6000;
+          border-radius: 50%;
+          animation: lm-spin 0.7s linear infinite;
+          display: inline-block;
+        }
+        @keyframes lm-spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
