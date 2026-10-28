@@ -26,6 +26,7 @@ const PAGE_LIMIT = 30;
 export default function HomePageMobile() {
   const navigate = useNavigate();
 
+  /* ── Core State ── */
   const [products, setProducts] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -37,6 +38,7 @@ export default function HomePageMobile() {
     seconds: '00',
   });
 
+  /* ── Pagination State ── */
   const [nextPage, setNextPage] = useState(1);
   const [pagesInBatch, setPagesInBatch] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -44,19 +46,28 @@ export default function HomePageMobile() {
   const sentinelRef = useRef(null);
   const loadingRef = useRef(false);
 
+  /* ── Variant Sheet State ── */
   const [selectedProductForVariant, setSelectedProductForVariant] =
     useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
-  // 1. Countdown
+  /* ── Derived State (MUST be above all useEffects) ── */
+  const canAutoLoad = hasMore && pagesInBatch < BATCH_SIZE && !loading;
+  const showLoadMoreBtn = hasMore && pagesInBatch >= BATCH_SIZE && !loading;
+
+  /* ══════════════════════════════════════════════════════════
+     EFFECTS
+  ══════════════════════════════════════════════════════════ */
+
+  // 1. Midnight WAT Countdown
   useEffect(() => {
-    const updateTimer = () => setTimeLeft(getMidnightWATTimeLeft());
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
+    const tick = () => setTimeLeft(getMidnightWATTimeLeft());
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, []);
 
-  // 2. Initial load
+  // 2. Initial Data Load
   useEffect(() => {
     let isMounted = true;
 
@@ -100,12 +111,10 @@ export default function HomePageMobile() {
     }
 
     loadData();
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, []);
 
-  // 3. Auto-load next 30
+  // 3. Auto-load next page (called by observer & catch-up)
   const autoLoadNext = useCallback(async () => {
     if (loadingRef.current || !hasMore || pagesInBatch >= BATCH_SIZE) return;
     loadingRef.current = true;
@@ -113,9 +122,7 @@ export default function HomePageMobile() {
 
     try {
       const result = await fetchProductsPage(nextPage, PAGE_LIMIT);
-      const newItems = Array.isArray(result.products)
-        ? result.products
-        : [];
+      const newItems = Array.isArray(result.products) ? result.products : [];
 
       if (newItems.length > 0) {
         setProducts((prev) => [...prev, ...newItems]);
@@ -131,44 +138,44 @@ export default function HomePageMobile() {
     }
   }, [nextPage, hasMore, pagesInBatch]);
 
-  // 4. IntersectionObserver
+  // 4. IntersectionObserver on sentinel
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel || !hasMore || loading || pagesInBatch >= BATCH_SIZE) return;
+    if (!sentinel || !canAutoLoad) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
-          autoLoadNext();
-        }
+        if (entries[0].isIntersecting) autoLoadNext();
       },
       { rootMargin: '400px', threshold: 0 }
     );
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [autoLoadNext, hasMore, loading, pagesInBatch]);
+  }, [autoLoadNext, canAutoLoad]);
 
-  // 4b. Post-load scroll catch-up (THE FIX)
+  // 5. Post-load catch-up (fixes fast-scroll-past-sentinel bug)
   useEffect(() => {
     if (loadingMore || loading || !canAutoLoad) return;
 
-    const checkAndLoad = () => {
-      const distanceFromBottom =
+    const timer = setTimeout(() => {
+      const distFromBottom =
         document.documentElement.scrollHeight -
         window.scrollY -
         window.innerHeight;
 
-      if (distanceFromBottom < 800) {
+      if (distFromBottom < 800) {
         autoLoadNext();
       }
-    };
+    }, 150);
 
-    const timer = setTimeout(checkAndLoad, 150);
     return () => clearTimeout(timer);
   }, [products.length, loadingMore, loading, canAutoLoad, autoLoadNext]);
 
-  // 5. Load More button — fresh batch
+  /* ══════════════════════════════════════════════════════════
+     HANDLERS
+  ══════════════════════════════════════════════════════════ */
+
   const handleLoadMoreBatch = async () => {
     if (loadingRef.current || !hasMore) return;
     loadingRef.current = true;
@@ -184,7 +191,6 @@ export default function HomePageMobile() {
       setNextPage(result.nextPage);
       setPagesInBatch(1);
       setHasMore(result.hasMore);
-
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       console.error('Failed to load next batch:', err);
@@ -194,15 +200,6 @@ export default function HomePageMobile() {
     }
   };
 
-  const sections = partitionAdminProductSections(products);
-
-  const displayedCatalog =
-    activeCategory === 'All'
-      ? sections.all
-      : sections.all.filter(
-          (p) => (p.category || p.category_name) === activeCategory
-        );
-
   const handleCategorySelect = (catName) => {
     setActiveCategory(catName === 'All' ? 'All' : catName);
   };
@@ -210,11 +207,7 @@ export default function HomePageMobile() {
   const handleProductClick = (item) => {
     let variants = item?.variants || [];
     if (typeof variants === 'string') {
-      try {
-        variants = JSON.parse(variants);
-      } catch {
-        variants = [];
-      }
+      try { variants = JSON.parse(variants); } catch { variants = []; }
     }
 
     if (Array.isArray(variants) && variants.length > 1) {
@@ -225,9 +218,24 @@ export default function HomePageMobile() {
     }
   };
 
-  const canAutoLoad = hasMore && pagesInBatch < BATCH_SIZE && !loading;
-  const showLoadMoreBtn = hasMore && pagesInBatch >= BATCH_SIZE && !loading;
+  /* ══════════════════════════════════════════════════════════
+     DERIVED DATA
+  ══════════════════════════════════════════════════════════ */
+
+  const sections = partitionAdminProductSections(products);
+
+  const displayedCatalog =
+    activeCategory === 'All'
+      ? sections.all
+      : sections.all.filter(
+          (p) => (p.category || p.category_name) === activeCategory
+        );
+
   const reachedEnd = !hasMore && !loading && displayedCatalog.length > 0;
+
+  /* ══════════════════════════════════════════════════════════
+     RENDER
+  ══════════════════════════════════════════════════════════ */
 
   return (
     <div
@@ -246,23 +254,24 @@ export default function HomePageMobile() {
 
       <MobileHeroBanner />
 
+      {/* ── Campaign Spotlight ── */}
       {(campaigns.length > 0 || sections.campaign.length > 0) && (
         <MobileCampaignSpotlight
           campaign={campaigns[0] || null}
           products={sections.campaign}
-          onOpenVariantSheet={(p) => handleProductClick(p)}
+          onOpenVariantSheet={handleProductClick}
         />
       )}
 
-      {/* Flash Sale */}
+      {/* ── Flash Sale ── */}
       {sections.flash.length > 0 && (
         <div
           className="mdp-psec"
           style={{
-            margin: '12px',
-            padding: '14px',
-            background: '#ffffff',
-            borderRadius: '14px',
+            margin: 12,
+            padding: 14,
+            background: '#fff',
+            borderRadius: 14,
             boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
           }}
         >
@@ -271,12 +280,10 @@ export default function HomePageMobile() {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: '12px',
+              marginBottom: 12,
             }}
           >
-            <div
-              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-            >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span
                 style={{
                   color: '#ff6000',
@@ -290,11 +297,11 @@ export default function HomePageMobile() {
               <div
                 style={{
                   display: 'flex',
-                  gap: '3px',
-                  background: '#111111',
-                  color: '#ffffff',
+                  gap: 3,
+                  background: '#111',
+                  color: '#fff',
                   padding: '3px 8px',
-                  borderRadius: '6px',
+                  borderRadius: 6,
                   fontSize: '0.72rem',
                   fontWeight: 800,
                   fontVariantNumeric: 'tabular-nums',
@@ -319,12 +326,13 @@ export default function HomePageMobile() {
               See All &gt;
             </button>
           </div>
+
           <div
             style={{
               display: 'flex',
-              gap: '10px',
+              gap: 10,
               overflowX: 'auto',
-              paddingBottom: '4px',
+              paddingBottom: 4,
               scrollbarWidth: 'none',
               WebkitOverflowScrolling: 'touch',
             }}
@@ -335,8 +343,7 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
               const oldPrice =
                 item.oldPrice ??
                 item.old_price ??
@@ -353,7 +360,7 @@ export default function HomePageMobile() {
                     flex: '0 0 148px',
                     width: 148,
                     cursor: 'pointer',
-                    background: '#ffffff',
+                    background: '#fff',
                     borderRadius: 12,
                     border: '1px solid #eef0f4',
                     overflow: 'hidden',
@@ -363,7 +370,7 @@ export default function HomePageMobile() {
                   <div
                     style={{
                       width: '100%',
-                      aspectRatio: '1 / 1',
+                      aspectRatio: '1/1',
                       background: '#f8f9fc',
                       position: 'relative',
                       display: 'flex',
@@ -392,7 +399,7 @@ export default function HomePageMobile() {
                           top: 6,
                           left: 6,
                           background: '#ff6000',
-                          color: '#ffffff',
+                          color: '#fff',
                           fontSize: '0.62rem',
                           fontWeight: 900,
                           padding: '2px 5px',
@@ -408,11 +415,11 @@ export default function HomePageMobile() {
                       style={{
                         fontSize: '0.75rem',
                         fontWeight: 600,
-                        margin: '0 0 4px 0',
+                        margin: '0 0 4px',
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        color: '#111111',
+                        color: '#111',
                       }}
                     >
                       {title}
@@ -447,15 +454,15 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* Sponsored */}
+      {/* ── Sponsored ── */}
       {sections.sponsored?.length > 0 && (
         <div
           className="mdp-psec"
           style={{
-            margin: '12px',
-            padding: '14px',
-            background: '#ffffff',
-            borderRadius: '14px',
+            margin: 12,
+            padding: 14,
+            background: '#fff',
+            borderRadius: 14,
             boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
           }}
         >
@@ -467,9 +474,7 @@ export default function HomePageMobile() {
               marginBottom: 10,
             }}
           >
-            <span
-              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
-            >
+            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
               ⭐ Sponsored Deals
             </span>
             <button
@@ -503,8 +508,7 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -523,7 +527,7 @@ export default function HomePageMobile() {
                   <div
                     style={{
                       width: '100%',
-                      aspectRatio: '1 / 1',
+                      aspectRatio: '1/1',
                       background: '#f8f9fc',
                       display: 'flex',
                       alignItems: 'center',
@@ -536,11 +540,7 @@ export default function HomePageMobile() {
                       src={imgUrl}
                       alt=""
                       loading="lazy"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        objectFit: 'contain',
-                      }}
+                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                     />
                   </div>
                   <div style={{ padding: '8px 10px' }}>
@@ -557,14 +557,7 @@ export default function HomePageMobile() {
                     >
                       {item.title || item.name}
                     </p>
-                    <p
-                      style={{
-                        fontSize: '0.85rem',
-                        fontWeight: 900,
-                        color: '#ff6000',
-                        margin: 0,
-                      }}
-                    >
+                    <p style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ff6000', margin: 0 }}>
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -575,15 +568,15 @@ export default function HomePageMobile() {
         </div>
       )}
 
-      {/* Trending */}
+      {/* ── Trending ── */}
       {sections.trending.length > 0 && (
         <div
           className="mdp-psec"
           style={{
-            margin: '12px',
-            padding: '14px',
-            background: '#ffffff',
-            borderRadius: '14px',
+            margin: 12,
+            padding: 14,
+            background: '#fff',
+            borderRadius: 14,
             boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
           }}
         >
@@ -595,9 +588,7 @@ export default function HomePageMobile() {
               marginBottom: 10,
             }}
           >
-            <span
-              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
-            >
+            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
               🔥 Trending Now
             </span>
             <button
@@ -631,8 +622,7 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -652,7 +642,7 @@ export default function HomePageMobile() {
                   <div
                     style={{
                       width: '100%',
-                      aspectRatio: '1 / 1',
+                      aspectRatio: '1/1',
                       background: '#f8f9fc',
                       display: 'flex',
                       alignItems: 'center',
@@ -665,11 +655,7 @@ export default function HomePageMobile() {
                       src={imgUrl}
                       alt=""
                       loading="lazy"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        objectFit: 'contain',
-                      }}
+                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                     />
                   </div>
                   <div style={{ padding: '8px 10px' }}>
@@ -686,14 +672,7 @@ export default function HomePageMobile() {
                     >
                       {item.title || item.name}
                     </p>
-                    <p
-                      style={{
-                        fontSize: '0.85rem',
-                        fontWeight: 900,
-                        color: '#ff6000',
-                        margin: 0,
-                      }}
-                    >
+                    <p style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ff6000', margin: 0 }}>
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -705,14 +684,14 @@ export default function HomePageMobile() {
       )}
 
       {/* ═══════════════════════════════════════════════════
-          Main Catalog
+          Main Catalog — 30 → 60 → 90 → [Load More] → repeat
       ═══════════════════════════════════════════════════ */}
       <div style={{ padding: '0 12px', marginTop: 16 }}>
         <h3
           style={{
             fontSize: '1rem',
             fontWeight: 900,
-            margin: '0 0 12px 0',
+            margin: '0 0 12px',
             color: '#111',
           }}
         >
@@ -730,11 +709,7 @@ export default function HomePageMobile() {
             {[1, 2, 3, 4].map((n) => (
               <div
                 key={n}
-                style={{
-                  height: 220,
-                  background: '#e8e8ec',
-                  borderRadius: 12,
-                }}
+                style={{ height: 220, background: '#e8e8ec', borderRadius: 12 }}
               />
             ))}
           </div>
@@ -783,12 +758,12 @@ export default function HomePageMobile() {
                 <MasonryCard
                   key={product.id || product.product_id}
                   product={product}
-                  onOpenVariantSheet={(p) => handleProductClick(p)}
+                  onOpenVariantSheet={handleProductClick}
                 />
               ))}
             </div>
 
-            {/* Auto-load sentinel */}
+            {/* Sentinel — triggers auto-load while scrolling */}
             {canAutoLoad && (
               <div
                 ref={sentinelRef}
@@ -818,7 +793,7 @@ export default function HomePageMobile() {
               </div>
             )}
 
-            {/* Load More button after 90 */}
+            {/* Load More button — after 90 products */}
             {showLoadMoreBtn && (
               <div style={{ textAlign: 'center', padding: '28px 0 12px' }}>
                 <button
@@ -827,7 +802,7 @@ export default function HomePageMobile() {
                   disabled={loadingMore}
                   style={{
                     background: loadingMore ? '#ccc' : '#ff6000',
-                    color: '#ffffff',
+                    color: '#fff',
                     border: 'none',
                     borderRadius: 14,
                     padding: '16px 48px',
