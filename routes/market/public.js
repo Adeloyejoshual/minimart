@@ -1,14 +1,15 @@
 /**
  * routes/market/getproducts.js
  *
- * GET /api/products         → Public product listing (with variant-aware stock & soft-delete filtering)
+ * GET /api/products          → Public product listing (paginated, filtered, sorted)
  * GET /api/products/:idOrSlug → Single product detail
  *
  * Business rules:
  *  - Excludes soft-deleted products (deleted_at IS NOT NULL or status = 'deleted')
- *  - Handles category filtering by name OR category_id (UUID)
+ *  - Category filtering by name OR category_id (UUID)
  *  - Variant-aware stock evaluation (base stock OR variant array stock)
- *  - sold_count is the urgency/social-proof signal
+ *  - sold_count is the urgency / social-proof signal
+ *  - Default page size: 30 (controlled by helpers.js → paginate)
  */
 
 import express from "express";
@@ -47,7 +48,7 @@ router.get("/", async (req, res) => {
       sort = "newest",
     } = req.query;
 
-    const { limit, offset } = paginate(req.query);
+    const { limit, offset, page } = paginate(req.query);
 
     /* ── Always exclude deleted items ── */
     const conditions = [
@@ -59,7 +60,7 @@ router.get("/", async (req, res) => {
     const params = [];
     let p = 1;
 
-    /* ── Search ── */
+    /* ── Full-text search ── */
     if (search) {
       const cleaned = search.trim();
       conditions.push(
@@ -71,7 +72,7 @@ router.get("/", async (req, res) => {
       p += 2;
     }
 
-    /* ── Category (supports both text name AND category_id UUID) ── */
+    /* ── Category (name OR UUID) ── */
     if (category) {
       conditions.push(
         `(p.category ILIKE $${p} OR p.category_id::text = $${p})`
@@ -86,7 +87,7 @@ router.get("/", async (req, res) => {
       params.push(`%${brand.trim()}%`);
     }
 
-    /* ── Tags ── */
+    /* ── Tags (Postgres array overlap) ── */
     if (tags) {
       conditions.push(`p.tags && $${p++}::text[]`);
       params.push(tags.split(","));
@@ -97,30 +98,33 @@ router.get("/", async (req, res) => {
       conditions.push(`p.price >= $${p++}`);
       params.push(parseInt(minPrice, 10));
     }
-
     if (maxPrice) {
       conditions.push(`p.price <= $${p++}`);
       params.push(parseInt(maxPrice, 10));
     }
 
-    /* ── Admin & Agent Flags ── */
-    if (featured    === "true") conditions.push("p.is_featured  = true");
-    if (trending    === "true") conditions.push("p.is_trending  = true");
-    if (sponsored   === "true") conditions.push("p.is_sponsored = true");
+    /* ── Boolean flags ── */
+    if (featured === "true")    conditions.push("p.is_featured  = true");
+    if (trending === "true")    conditions.push("p.is_trending  = true");
+    if (sponsored === "true")   conditions.push("p.is_sponsored = true");
     if (hasDelivery === "true") conditions.push("p.has_delivery = true");
 
-    /* ── Variant-Aware Stock filter ── */
+    /* ── Variant-aware stock filter ── */
     if (inStock === "true") {
       conditions.push(
         `(
-          COALESCE(p.stock, 0) > 0 
+          COALESCE(p.stock, 0) > 0
           OR (
-            p.variants IS NOT NULL 
-            AND jsonb_typeof(p.variants) = 'array' 
+            p.variants IS NOT NULL
+            AND jsonb_typeof(p.variants) = 'array'
             AND EXISTS (
-              SELECT 1 
-              FROM jsonb_array_elements(p.variants) AS v 
-              WHERE COALESCE((v->>'stock')::numeric, (v->>'quantity')::numeric, 0) > 0
+              SELECT 1
+              FROM jsonb_array_elements(p.variants) AS v
+              WHERE COALESCE(
+                (v->>'stock')::numeric,
+                (v->>'quantity')::numeric,
+                0
+              ) > 0
             )
           )
         )`
@@ -141,7 +145,7 @@ router.get("/", async (req, res) => {
       order = SORT_MAP[sort] || SORT_MAP.newest;
     }
 
-    /* ── Query ── */
+    /* ── Execute queries in parallel ── */
     const [{ rows }, countRes] = await Promise.all([
       pool.query(
         `${FULL_PRODUCT_SELECT}
@@ -179,7 +183,9 @@ router.get("/:idOrSlug", async (req, res) => {
     const { idOrSlug } = req.params;
 
     const isUUID =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrSlug
+      );
 
     const whereClause = isUUID ? "p.id = $1" : "p.slug = $1";
 
@@ -196,12 +202,12 @@ router.get("/:idOrSlug", async (req, res) => {
     const product = rows[0];
 
     const isAdmin = req.user?.role === "admin";
-    const isOwner = req.user?.id   === product.user_id;
-    const canSee  = isAdmin || isOwner || isPublicProduct(product);
+    const isOwner = req.user?.id === product.user_id;
+    const canSee = isAdmin || isOwner || isPublicProduct(product);
 
     if (!canSee) return fail(res, 404, "Product not found");
 
-    /* Track view for analytics */
+    /* Track view for analytics (fire-and-forget) */
     if (isPublicProduct(product)) {
       trackView(product.id, req).catch(() => {});
     }
@@ -214,7 +220,7 @@ router.get("/:idOrSlug", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   Track view (deduped by IP for 24h)
+   Track view (deduped by IP hash for 24 h)
 ══════════════════════════════════════════════════════════════ */
 async function trackView(productId, req) {
   const ipRaw =
