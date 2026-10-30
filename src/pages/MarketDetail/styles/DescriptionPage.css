@@ -4,12 +4,12 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background-color: #F8F9FA; /* Modern off-white background */
+  background-color: #F8F9FA;
   display: flex;
   flex-direction: column;
 }
 
-/* --- Clean Modern Header --- */
+/* --- Header --- */
 .desc-header {
   height: 56px;
   min-height: 56px;
@@ -24,12 +24,12 @@
 .desc-back-btn {
   width: 36px;
   height: 36px;
-  background: transparent; /* Removed gray circle */
+  background: transparent;
   border: none;
   color: #111827;
   display: flex;
   align-items: center;
-  justify-content: flex-start; /* Align left */
+  justify-content: flex-start;
   cursor: pointer;
   padding: 0;
   margin-right: 8px;
@@ -47,7 +47,7 @@
   white-space: nowrap;
 }
 
-/* --- Scrollable Content Area --- */
+/* --- Scrollable Content --- */
 .desc-content {
   flex: 1;
   overflow-y: auto;
@@ -58,15 +58,15 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 16px; /* Space between the rounded cards */
+  gap: 16px;
   -webkit-overflow-scrolling: touch;
 }
 
-/* --- Rounded Cards --- */
+/* --- Cards --- */
 .desc-card {
   background-color: #FFFFFF;
   border: 1px solid #E5E7EB;
-  border-radius: 16px; /* Modern rounded corners */
+  border-radius: 16px;
   padding: 20px;
 }
 
@@ -77,30 +77,49 @@
   margin: 0 0 16px 0;
 }
 
-/* --- Description Details --- */
+/* --- Description --- */
 .desc-product-name {
   font-size: 15px;
   font-weight: 600;
   color: #374151;
-  margin: 0 0 8px 0;
+  margin: 0 0 12px 0;
 }
 
 .desc-text {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #4B5563; /* Softer gray for readability */
-  white-space: pre-wrap;
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: #374151;
+  text-align: justify;           /* ← even left + right edges */
+  text-justify: inter-word;
+  hyphens: auto;
+  -webkit-hyphens: auto;
   word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-line;         /* keep paragraph breaks */
+  letter-spacing: 0.01em;
 }
 
-.desc-clipped-note {
-  margin: 12px 0 0;
-  font-size: 12px;
-  color: #9CA3AF;
+/* Paragraph spacing when split into blocks */
+.desc-paragraph {
+  margin: 0 0 14px 0;
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: #374151;
+  text-align: justify;
+  text-justify: inter-word;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  letter-spacing: 0.01em;
 }
 
-/* --- Features List (Minimal Bullets) --- */
+.desc-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Features --- */
 .desc-feature-list {
   list-style: none;
   padding: 0;
@@ -113,12 +132,12 @@
 .desc-feature-list li {
   font-size: 14px;
   color: #4B5563;
-  line-height: 1.4;
+  line-height: 1.5;
   position: relative;
   padding-left: 16px;
+  text-align: left;
 }
 
-/* Minimalist dot instead of stickers/checkmarks */
 .desc-feature-list li::before {
   content: "•";
   position: absolute;
@@ -127,10 +146,18 @@
   font-weight: bold;
 }
 
-/* --- Fallback Message --- */
+/* --- Empty --- */
 .desc-empty-msg {
   color: #6B7280;
   font-size: 14px;
   text-align: center;
   margin-top: 20px;
+}
+
+/* Last-line of justified text looks cleaner left-aligned on some browsers */
+.desc-text::after,
+.desc-paragraph::after {
+  content: "";
+  display: inline-block;
+  width: 100%;
 }
