@@ -5,12 +5,9 @@
 import { useEffect, useMemo, memo } from "react";
 import useModalBack from "../../hooks/useModalBack";
 import SpecsSection from "./SpecsSection";
-import "./styles/DescriptionPage.css"; // CSS import maintained
-
-const MAX_DESC_CHARS = 1000;
+import "./styles/DescriptionPage.css";
 
 const Icon = {
-  // Clean, minimal back arrow SVG
   back: (
     <svg
       viewBox="0 0 24 24"
@@ -27,7 +24,7 @@ const Icon = {
   ),
 };
 
-/** Strip HTML → plain text, collapse whitespace */
+/** Strip HTML → plain text, collapse whitespace while preserving line breaks */
 function toPlainText(htmlOrText) {
   if (!htmlOrText) return "";
   return String(htmlOrText)
@@ -46,38 +43,11 @@ function toPlainText(htmlOrText) {
     .trim();
 }
 
-/** Keep up to maxChars, break on sentence/word boundary when possible. */
-function clipReadable(text, maxChars = MAX_DESC_CHARS) {
-  if (!text || text.length <= maxChars) {
-    return { text: text || "", clipped: false };
-  }
-
-  let slice = text.slice(0, maxChars);
-  const sentenceEnd = Math.max(
-    slice.lastIndexOf(". "),
-    slice.lastIndexOf("! "),
-    slice.lastIndexOf("? "),
-    slice.lastIndexOf(".\n"),
-    slice.lastIndexOf("\n\n")
-  );
-
-  if (sentenceEnd > maxChars * 0.55) {
-    slice = slice.slice(0, sentenceEnd + 1).trim();
-  } else {
-    const sp = slice.lastIndexOf(" ");
-    if (sp > maxChars * 0.7) slice = slice.slice(0, sp).trim();
-    else slice = slice.trim();
-  }
-
-  return { text: slice + "…", clipped: true };
-}
-
 function DescriptionPage({
   isOpen,
   onClose,
   product,
   descriptionText,
-  maxChars = MAX_DESC_CHARS,
 }) {
   const requestClose = useModalBack(isOpen, onClose);
 
@@ -96,15 +66,11 @@ function DescriptionPage({
     };
   }, [isOpen, requestClose]);
 
+  /* Get full plain text without any character clipping */
   const plainFull = useMemo(() => {
     if (descriptionText) return toPlainText(descriptionText);
     return toPlainText(product?.description);
   }, [descriptionText, product?.description]);
-
-  const { text: descDisplay } = useMemo(
-    () => clipReadable(plainFull, maxChars),
-    [plainFull, maxChars]
-  );
 
   const hasFeatures = product?.key_features?.length > 0;
   const hasSpecs =
@@ -137,12 +103,14 @@ function DescriptionPage({
       {/* --- Scrollable body --- */}
       <div className="desc-content">
         
-        {/* Description Card */}
-        {descDisplay && (
+        {/* Full Description Card */}
+        {plainFull && (
           <section className="desc-card">
             <h2 className="desc-card-title">Description</h2>
             <h3 className="desc-product-name">{product.name}</h3>
-            <p className="desc-text">{descDisplay}</p>
+            <p className="desc-text" style={{ whiteSpace: "pre-line" }}>
+              {plainFull}
+            </p>
           </section>
         )}
 
@@ -173,7 +141,7 @@ function DescriptionPage({
         )}
 
         {/* Empty State */}
-        {!descDisplay && !hasFeatures && !hasSpecs && (
+        {!plainFull && !hasFeatures && !hasSpecs && (
           <p className="desc-empty-msg">
             No additional details for this product.
           </p>
