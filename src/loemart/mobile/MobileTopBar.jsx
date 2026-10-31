@@ -85,9 +85,9 @@ export default function MobileTopBar({
 
           {/* Cart Button with Live Badge */}
           <button
-            className="mtb-icon-btn"
+            className="mtb-icon-btn mtb-cart-btn"
             onClick={() => navigate('/cart')}
-            aria-label={cartCount > 0 ? `Cart with ${cartCount} items` : 'Cart'}
+            aria-label={`Cart, ${cartCount} items`}
           >
             <svg
               width="20"
@@ -103,7 +103,8 @@ export default function MobileTopBar({
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
             </svg>
 
-            {cartCount > 0 && (
+            {/* BADGE */}
+            {Number(cartCount) > 0 && (
               <span className="mtb-badge">
                 {cartCount > 99 ? '99+' : cartCount}
               </span>
