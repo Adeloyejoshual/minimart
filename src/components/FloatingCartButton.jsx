@@ -7,13 +7,12 @@
 import { useRef, useState, useEffect, memo } from "react";
 import { FiShoppingBag } from "react-icons/fi";
 
-// Import styles
 import "./styles/FloatingCartButton.css";
 
 const POS_KEY = "lm-cart-btn-pos";
 const SIZE = 56;
 const PAD = 12;
-const TOP_MIN = 70; // below header
+const TOP_MIN = 70;
 const DRAG_THRESHOLD = 8;
 
 const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
@@ -39,6 +38,7 @@ function savePos(p) {
 function bounds() {
   const w = window.innerWidth;
   const h = window.innerHeight;
+
   return {
     minX: PAD,
     maxX: Math.max(PAD, w - SIZE - PAD),
@@ -49,6 +49,7 @@ function bounds() {
 
 function defaultPos() {
   const b = bounds();
+
   return {
     x: b.maxX,
     y: Math.max(b.minY, window.innerHeight - SIZE - 110),
@@ -57,6 +58,7 @@ function defaultPos() {
 
 function clampPos(p) {
   const b = bounds();
+
   return {
     x: clamp(p.x, b.minX, b.maxX),
     y: clamp(p.y, b.minY, b.maxY),
@@ -66,9 +68,11 @@ function clampPos(p) {
 function FloatingCartButton({ count = 0, onClick, icon }) {
   const [pos, setPos] = useState(() => {
     if (typeof window === "undefined") return null;
+
     const loaded = loadPos();
     return loaded ? clampPos(loaded) : null;
   });
+
   const [dragging, setDragging] = useState(false);
 
   const drag = useRef({
@@ -80,7 +84,6 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
     oy: 0,
   });
 
-  // Keep on screen on rotate / resize
   useEffect(() => {
     const onResize = () => {
       setPos((p) => {
@@ -89,7 +92,9 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
         return next;
       });
     };
+
     window.addEventListener("resize", onResize);
+
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
@@ -97,6 +102,7 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
 
     const cur = pos || defaultPos();
+
     drag.current = {
       active: true,
       moved: false,
@@ -115,6 +121,7 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
 
   const onPointerMove = (e) => {
     const d = drag.current;
+
     if (!d.active) return;
 
     const dx = e.clientX - d.sx;
@@ -124,6 +131,7 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
       d.moved = true;
       setDragging(true);
     }
+
     if (!d.moved) return;
 
     setPos(
@@ -136,7 +144,9 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
 
   const endDrag = (e) => {
     const d = drag.current;
+
     if (!d.active) return;
+
     d.active = false;
     setDragging(false);
 
@@ -147,19 +157,24 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
     }
 
     if (d.moved) {
-      // Snap to left or right edge; keep Y where user dropped
       setPos((p) => {
         if (!p) return p;
+
         const mid = window.innerWidth / 2;
+
         const snapped = clampPos({
-          x: p.x + SIZE / 2 < mid ? PAD : window.innerWidth - SIZE - PAD,
+          x:
+            p.x + SIZE / 2 < mid
+              ? PAD
+              : window.innerWidth - SIZE - PAD,
           y: p.y,
         });
+
         savePos(snapped);
+
         return snapped;
       });
     } else {
-      // Pure tap → open cart
       onClick?.();
     }
   };
@@ -174,7 +189,6 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
         bottom: "auto",
       }
     : {
-        // First paint before measure: bottom-right default
         right: PAD,
         bottom: 110,
         left: "auto",
@@ -184,7 +198,9 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
   return (
     <button
       type="button"
-      className={`mdp-float-cart${dragging ? " mdp-float-cart--dragging" : ""}`}
+      className={`mdp-float-cart${
+        dragging ? " mdp-float-cart--dragging" : ""
+      }`}
       style={style}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -195,13 +211,9 @@ function FloatingCartButton({ count = 0, onClick, icon }) {
       <span className="mdp-float-cart__icon" aria-hidden="true">
         {icon || <FiShoppingBag size={22} />}
       </span>
+
       <span className="mdp-float-cart__badge">
         {count > 99 ? "99+" : count}
-      </span>
-      <span className="mdp-float-cart__grip" aria-hidden="true">
-        <i />
-        <i />
-        <i />
       </span>
     </button>
   );
