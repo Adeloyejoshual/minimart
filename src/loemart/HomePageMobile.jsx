@@ -24,64 +24,93 @@ const BATCH_SIZE = 3;
 const PAGE_LIMIT = 30;
 
 /* ══════════════════════════════════════════════════════════
+   TOKEN RESOLVER: Finds user JWT regardless of storage key
+══════════════════════════════════════════════════════════ */
+function getAuthToken() {
+  const keys = ['token', 'buyer_token', 'auth_token', 'access_token', 'lm_token', 'lm-token', 'jwt'];
+  for (const k of keys) {
+    const val = localStorage.getItem(k) || sessionStorage.getItem(k);
+    if (val) return val;
+  }
+  try {
+    const rawUser = localStorage.getItem('user') || localStorage.getItem('buyer');
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      if (parsed.token || parsed.accessToken) return parsed.token || parsed.accessToken;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/* ══════════════════════════════════════════════════════════
    HOOK: Live cart count from GET /api/cart
 ══════════════════════════════════════════════════════════ */
 function useCartCount() {
   const [count, setCount] = useState(0);
 
-  const fetchCount = useCallback(async () => {
+  const refreshCart = useCallback(async () => {
     try {
-      const token =
-        localStorage.getItem('token') ||
-        localStorage.getItem('lm-token') ||
-        localStorage.getItem('auth_token') ||
-        localStorage.getItem('buyer_token');
-
+      const token = getAuthToken();
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
       const res = await fetch('/api/cart', {
         headers,
-        credentials: 'include', // sends cookies if you use cookie-based auth
+        credentials: 'include',
       });
 
-      if (!res.ok) return;
+      if (res.ok) {
+        const json = await res.json();
+        // Server returns: { success: true, data: { total_qty, item_count, items } }
+        const payload = json?.data?.data || json?.data || {};
+        const total =
+          payload.total_qty ??
+          payload.item_count ??
+          (Array.isArray(payload.items) ? payload.items.length : 0);
 
-      const json = await res.json();
-      
-      // Matches your route: ok(res, { data: { total_qty, item_count, items } })
-      const payload = json.data?.data || json.data || {};
-      const total =
-        payload.total_qty ??
-        payload.item_count ??
-        (Array.isArray(payload.items) ? payload.items.length : 0);
+        setCount(Number(total) || 0);
+        return;
+      }
 
-      setCount(Number(total) || 0);
-    } catch (e) {
-      // Offline or unauthenticated
+      // Guest fallback (if unauthenticated / offline)
+      const guestCartRaw = localStorage.getItem('lm-cart') || localStorage.getItem('cart');
+      if (guestCartRaw) {
+        const guestParsed = JSON.parse(guestCartRaw);
+        if (Array.isArray(guestParsed)) {
+          setCount(guestParsed.length);
+          return;
+        }
+      }
+
+      setCount(0);
+    } catch {
       setCount(0);
     }
   }, []);
 
   useEffect(() => {
-    fetchCount();
+    refreshCart();
 
-    // Listen for custom event triggered when user adds/removes items
-    window.addEventListener('cart-updated', fetchCount);
-    window.addEventListener('focus', fetchCount);
+    // Listen for custom "cart-updated" event whenever items are added
+    window.addEventListener('cart-updated', refreshCart);
+    window.addEventListener('storage', refreshCart);
+    window.addEventListener('focus', refreshCart);
 
     return () => {
-      window.removeEventListener('cart-updated', fetchCount);
-      window.removeEventListener('focus', fetchCount);
+      window.removeEventListener('cart-updated', refreshCart);
+      window.removeEventListener('storage', refreshCart);
+      window.removeEventListener('focus', refreshCart);
     };
-  }, [fetchCount]);
+  }, [refreshCart]);
 
-  return count;
+  return { count, refreshCart };
 }
 
 export default function HomePageMobile() {
   const navigate = useNavigate();
-  const cartCount = useCartCount();
+  const { count: cartCount, refreshCart } = useCartCount();
 
   /* ── Core State ── */
   const [products, setProducts] = useState([]);
@@ -104,8 +133,7 @@ export default function HomePageMobile() {
   const loadingRef = useRef(false);
 
   /* ── Variant Sheet State ── */
-  const [selectedProductForVariant, setSelectedProductForVariant] =
-    useState(null);
+  const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
   /* ── Derived Flags ── */
@@ -197,7 +225,7 @@ export default function HomePageMobile() {
     }
   }, [nextPage, hasMore, pagesInBatch]);
 
-  // 4. IntersectionObserver on sentinel
+  // 4. Sentinel Intersection Observer
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !canAutoLoad) return;
@@ -307,9 +335,10 @@ export default function HomePageMobile() {
         minHeight: '100vh',
         backgroundColor: '#f5f5f7',
         paddingBottom: '80px',
+        overflowX: 'clip', // Prevents horizontal spill WITHOUT breaking position: sticky
       }}
     >
-      {/* Sticky Topbar with Live Cart Count */}
+      {/* Sticky Topbar with Live Cart Badge */}
       <MobileTopBar
         categories={categories}
         activeCategory={activeCategory}
@@ -605,11 +634,7 @@ export default function HomePageMobile() {
                       src={imgUrl}
                       alt=""
                       loading="lazy"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        objectFit: 'contain',
-                      }}
+                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                     />
                   </div>
                   <div style={{ padding: '8px 10px' }}>
@@ -626,14 +651,7 @@ export default function HomePageMobile() {
                     >
                       {item.title || item.name}
                     </p>
-                    <p
-                      style={{
-                        fontSize: '0.85rem',
-                        fontWeight: 900,
-                        color: '#ff6000',
-                        margin: 0,
-                      }}
-                    >
+                    <p style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ff6000', margin: 0 }}>
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -731,11 +749,7 @@ export default function HomePageMobile() {
                       src={imgUrl}
                       alt=""
                       loading="lazy"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        objectFit: 'contain',
-                      }}
+                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                     />
                   </div>
                   <div style={{ padding: '8px 10px' }}>
@@ -752,14 +766,7 @@ export default function HomePageMobile() {
                     >
                       {item.title || item.name}
                     </p>
-                    <p
-                      style={{
-                        fontSize: '0.85rem',
-                        fontWeight: 900,
-                        color: '#ff6000',
-                        margin: 0,
-                      }}
-                    >
+                    <p style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ff6000', margin: 0 }}>
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -931,9 +938,13 @@ export default function HomePageMobile() {
       <Footer />
       <BottomNav />
 
+      {/* Variant Bottom Sheet */}
       <VariantBottomSheet
         isOpen={isVariantSheetOpen}
-        onClose={() => setIsVariantSheetOpen(false)}
+        onClose={() => {
+          setIsVariantSheetOpen(false);
+          refreshCart(); // Automatically refresh count when closing bottom sheet
+        }}
         product={selectedProductForVariant}
       />
 
