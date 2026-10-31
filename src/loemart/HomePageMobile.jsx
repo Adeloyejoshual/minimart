@@ -22,45 +22,59 @@ import '../styles/Minimart.css';
 
 const BATCH_SIZE = 3;
 const PAGE_LIMIT = 30;
-const CART_STORAGE_KEY = 'lm-cart';
 
 /* ══════════════════════════════════════════════════════════
-   HOOK: live cart count from localStorage
-   • Updates on cross-tab `storage` events
-   • Updates on same-tab `cart-updated` custom events
-     (dispatch `new Event('cart-updated')` after mutating cart)
+   HOOK: Live cart count from GET /api/cart
 ══════════════════════════════════════════════════════════ */
-function useCartCount(storageKey = CART_STORAGE_KEY) {
+function useCartCount() {
   const [count, setCount] = useState(0);
 
+  const fetchCount = useCallback(async () => {
+    try {
+      const token =
+        localStorage.getItem('token') ||
+        localStorage.getItem('lm-token') ||
+        localStorage.getItem('auth_token') ||
+        localStorage.getItem('buyer_token');
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/cart', {
+        headers,
+        credentials: 'include', // sends cookies if you use cookie-based auth
+      });
+
+      if (!res.ok) return;
+
+      const json = await res.json();
+      
+      // Matches your route: ok(res, { data: { total_qty, item_count, items } })
+      const payload = json.data?.data || json.data || {};
+      const total =
+        payload.total_qty ??
+        payload.item_count ??
+        (Array.isArray(payload.items) ? payload.items.length : 0);
+
+      setCount(Number(total) || 0);
+    } catch (e) {
+      // Offline or unauthenticated
+      setCount(0);
+    }
+  }, []);
+
   useEffect(() => {
-    const read = () => {
-      try {
-        const raw = localStorage.getItem(storageKey);
-        if (!raw) return setCount(0);
+    fetchCount();
 
-        const parsed = JSON.parse(raw);
-
-        if (Array.isArray(parsed)) return setCount(parsed.length);
-        if (Array.isArray(parsed?.items)) return setCount(parsed.items.length);
-        if (typeof parsed?.count === 'number') return setCount(parsed.count);
-        if (typeof parsed === 'number') return setCount(parsed);
-
-        setCount(0);
-      } catch {
-        setCount(0);
-      }
-    };
-
-    read();
-    window.addEventListener('storage', read);
-    window.addEventListener('cart-updated', read);
+    // Listen for custom event triggered when user adds/removes items
+    window.addEventListener('cart-updated', fetchCount);
+    window.addEventListener('focus', fetchCount);
 
     return () => {
-      window.removeEventListener('storage', read);
-      window.removeEventListener('cart-updated', read);
+      window.removeEventListener('cart-updated', fetchCount);
+      window.removeEventListener('focus', fetchCount);
     };
-  }, [storageKey]);
+  }, [fetchCount]);
 
   return count;
 }
@@ -94,7 +108,7 @@ export default function HomePageMobile() {
     useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
-  /* ── Derived flags ── */
+  /* ── Derived Flags ── */
   const canAutoLoad = hasMore && pagesInBatch < BATCH_SIZE && !loading;
   const showLoadMoreBtn = hasMore && pagesInBatch >= BATCH_SIZE && !loading;
 
@@ -102,7 +116,7 @@ export default function HomePageMobile() {
      EFFECTS
   ══════════════════════════════════════════════════════════ */
 
-  // 1. Midnight WAT countdown
+  // 1. Midnight WAT Countdown
   useEffect(() => {
     const tick = () => setTimeLeft(getMidnightWATTimeLeft());
     tick();
@@ -110,7 +124,7 @@ export default function HomePageMobile() {
     return () => clearInterval(id);
   }, []);
 
-  // 2. Initial data load
+  // 2. Initial Data Load
   useEffect(() => {
     let isMounted = true;
 
@@ -199,7 +213,7 @@ export default function HomePageMobile() {
     return () => observer.disconnect();
   }, [autoLoadNext, canAutoLoad]);
 
-  // 5. Post-load catch-up (fast scroll past sentinel)
+  // 5. Post-load catch-up
   useEffect(() => {
     if (loadingMore || loading || !canAutoLoad) return;
 
@@ -295,6 +309,7 @@ export default function HomePageMobile() {
         paddingBottom: '80px',
       }}
     >
+      {/* Sticky Topbar with Live Cart Count */}
       <MobileTopBar
         categories={categories}
         activeCategory={activeCategory}
@@ -393,8 +408,7 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
               const oldPrice =
                 item.oldPrice ??
                 item.old_price ??
@@ -525,9 +539,7 @@ export default function HomePageMobile() {
               marginBottom: 10,
             }}
           >
-            <span
-              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
-            >
+            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
               ⭐ Sponsored Deals
             </span>
             <button
@@ -561,8 +573,7 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -653,9 +664,7 @@ export default function HomePageMobile() {
               marginBottom: 10,
             }}
           >
-            <span
-              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
-            >
+            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
               🔥 Trending Now
             </span>
             <button
@@ -689,8 +698,7 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price =
-                item.price ?? item.selling_price ?? item.sale_price;
+              const price = item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -763,7 +771,7 @@ export default function HomePageMobile() {
       )}
 
       {/* ═══════════════════════════════════════════════════
-          Main Catalog — 30 → 60 → 90 → [Load More] → repeat
+          Main Catalog
       ═══════════════════════════════════════════════════ */}
       <div style={{ padding: '0 12px', marginTop: 16 }}>
         <h3
@@ -846,7 +854,7 @@ export default function HomePageMobile() {
               ))}
             </div>
 
-            {/* Sentinel — triggers auto-load while scrolling */}
+            {/* Sentinel */}
             {canAutoLoad && (
               <div
                 ref={sentinelRef}
@@ -876,7 +884,7 @@ export default function HomePageMobile() {
               </div>
             )}
 
-            {/* Load More button — after 90 products */}
+            {/* Load More button */}
             {showLoadMoreBtn && (
               <div style={{ textAlign: 'center', padding: '28px 0 12px' }}>
                 <button
