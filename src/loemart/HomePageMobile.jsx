@@ -22,9 +22,52 @@ import '../styles/Minimart.css';
 
 const BATCH_SIZE = 3;
 const PAGE_LIMIT = 30;
+const CART_STORAGE_KEY = 'lm-cart';
+
+/* ══════════════════════════════════════════════════════════
+   HOOK: live cart count from localStorage
+   • Updates on cross-tab `storage` events
+   • Updates on same-tab `cart-updated` custom events
+     (dispatch `new Event('cart-updated')` after mutating cart)
+══════════════════════════════════════════════════════════ */
+function useCartCount(storageKey = CART_STORAGE_KEY) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    const read = () => {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return setCount(0);
+
+        const parsed = JSON.parse(raw);
+
+        if (Array.isArray(parsed)) return setCount(parsed.length);
+        if (Array.isArray(parsed?.items)) return setCount(parsed.items.length);
+        if (typeof parsed?.count === 'number') return setCount(parsed.count);
+        if (typeof parsed === 'number') return setCount(parsed);
+
+        setCount(0);
+      } catch {
+        setCount(0);
+      }
+    };
+
+    read();
+    window.addEventListener('storage', read);
+    window.addEventListener('cart-updated', read);
+
+    return () => {
+      window.removeEventListener('storage', read);
+      window.removeEventListener('cart-updated', read);
+    };
+  }, [storageKey]);
+
+  return count;
+}
 
 export default function HomePageMobile() {
   const navigate = useNavigate();
+  const cartCount = useCartCount();
 
   /* ── Core State ── */
   const [products, setProducts] = useState([]);
@@ -51,7 +94,7 @@ export default function HomePageMobile() {
     useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
-  /* ── Derived State (MUST be above all useEffects) ── */
+  /* ── Derived flags ── */
   const canAutoLoad = hasMore && pagesInBatch < BATCH_SIZE && !loading;
   const showLoadMoreBtn = hasMore && pagesInBatch >= BATCH_SIZE && !loading;
 
@@ -59,7 +102,7 @@ export default function HomePageMobile() {
      EFFECTS
   ══════════════════════════════════════════════════════════ */
 
-  // 1. Midnight WAT Countdown
+  // 1. Midnight WAT countdown
   useEffect(() => {
     const tick = () => setTimeLeft(getMidnightWATTimeLeft());
     tick();
@@ -67,7 +110,7 @@ export default function HomePageMobile() {
     return () => clearInterval(id);
   }, []);
 
-  // 2. Initial Data Load
+  // 2. Initial data load
   useEffect(() => {
     let isMounted = true;
 
@@ -111,10 +154,12 @@ export default function HomePageMobile() {
     }
 
     loadData();
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // 3. Auto-load next page (called by observer & catch-up)
+  // 3. Auto-load next page
   const autoLoadNext = useCallback(async () => {
     if (loadingRef.current || !hasMore || pagesInBatch >= BATCH_SIZE) return;
     loadingRef.current = true;
@@ -154,7 +199,7 @@ export default function HomePageMobile() {
     return () => observer.disconnect();
   }, [autoLoadNext, canAutoLoad]);
 
-  // 5. Post-load catch-up (fixes fast-scroll-past-sentinel bug)
+  // 5. Post-load catch-up (fast scroll past sentinel)
   useEffect(() => {
     if (loadingMore || loading || !canAutoLoad) return;
 
@@ -207,7 +252,11 @@ export default function HomePageMobile() {
   const handleProductClick = (item) => {
     let variants = item?.variants || [];
     if (typeof variants === 'string') {
-      try { variants = JSON.parse(variants); } catch { variants = []; }
+      try {
+        variants = JSON.parse(variants);
+      } catch {
+        variants = [];
+      }
     }
 
     if (Array.isArray(variants) && variants.length > 1) {
@@ -250,6 +299,7 @@ export default function HomePageMobile() {
         categories={categories}
         activeCategory={activeCategory}
         onSelectCategory={handleCategorySelect}
+        cartCount={cartCount}
       />
 
       <MobileHeroBanner />
@@ -343,7 +393,8 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
               const oldPrice =
                 item.oldPrice ??
                 item.old_price ??
@@ -474,7 +525,9 @@ export default function HomePageMobile() {
               marginBottom: 10,
             }}
           >
-            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
+            <span
+              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
+            >
               ⭐ Sponsored Deals
             </span>
             <button
@@ -508,7 +561,8 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -540,7 +594,11 @@ export default function HomePageMobile() {
                       src={imgUrl}
                       alt=""
                       loading="lazy"
-                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain',
+                      }}
                     />
                   </div>
                   <div style={{ padding: '8px 10px' }}>
@@ -557,7 +615,14 @@ export default function HomePageMobile() {
                     >
                       {item.title || item.name}
                     </p>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ff6000', margin: 0 }}>
+                    <p
+                      style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 900,
+                        color: '#ff6000',
+                        margin: 0,
+                      }}
+                    >
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -588,7 +653,9 @@ export default function HomePageMobile() {
               marginBottom: 10,
             }}
           >
-            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
+            <span
+              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
+            >
               🔥 Trending Now
             </span>
             <button
@@ -622,7 +689,8 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -655,7 +723,11 @@ export default function HomePageMobile() {
                       src={imgUrl}
                       alt=""
                       loading="lazy"
-                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain',
+                      }}
                     />
                   </div>
                   <div style={{ padding: '8px 10px' }}>
@@ -672,7 +744,14 @@ export default function HomePageMobile() {
                     >
                       {item.title || item.name}
                     </p>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ff6000', margin: 0 }}>
+                    <p
+                      style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 900,
+                        color: '#ff6000',
+                        margin: 0,
+                      }}
+                    >
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -709,7 +788,11 @@ export default function HomePageMobile() {
             {[1, 2, 3, 4].map((n) => (
               <div
                 key={n}
-                style={{ height: 220, background: '#e8e8ec', borderRadius: 12 }}
+                style={{
+                  height: 220,
+                  background: '#e8e8ec',
+                  borderRadius: 12,
+                }}
               />
             ))}
           </div>
