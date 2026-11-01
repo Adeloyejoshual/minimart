@@ -5,6 +5,7 @@ import MobileHeroBanner from '../loemart/mobile/MobileHeroBanner';
 import MobileCampaignSpotlight from '../loemart/mobile/MobileCampaignSpotlight';
 import MasonryCard from '../loemart/mobile/MasonryCard';
 import VariantBottomSheet from '../loemart/mobile/VariantBottomSheet';
+import FloatingCartButton from '../components/FloatingCartButton';
 import Footer from '../components/Footer';
 import BottomNav from '../components/BottomNav';
 import {
@@ -74,7 +75,6 @@ function useCartCount() {
 
       if (res.ok) {
         const json = await res.json();
-        // Server returns: { success: true, data: { total_qty, item_count, items } }
         const payload = json?.data?.data || json?.data || {};
         const total =
           payload.total_qty ??
@@ -85,7 +85,7 @@ function useCartCount() {
         return;
       }
 
-      // Guest fallback (if unauthenticated / offline)
+      // Guest fallback
       const guestCartRaw =
         localStorage.getItem('lm-cart') || localStorage.getItem('cart');
       if (guestCartRaw) {
@@ -148,7 +148,7 @@ export default function HomePageMobile() {
 
   /* ── Fixed Header Height (prevents hero overlap) ── */
   const headerRef = useRef(null);
-  const [headerHeight, setHeaderHeight] = useState(160); // safe fallback
+  const [headerHeight, setHeaderHeight] = useState(160);
 
   /* ── Variant Sheet State ── */
   const [selectedProductForVariant, setSelectedProductForVariant] =
@@ -352,6 +352,10 @@ export default function HomePageMobile() {
     }
   };
 
+  const handleFloatingCartClick = () => {
+    navigate('/cart');
+  };
+
   /* ══════════════════════════════════════════════════════════
      DERIVED DATA
   ══════════════════════════════════════════════════════════ */
@@ -377,12 +381,12 @@ export default function HomePageMobile() {
       style={{
         minHeight: '100vh',
         backgroundColor: '#f5f5f7',
-        paddingTop: headerHeight, // live-measured — hero never covered
+        paddingTop: headerHeight,
         paddingBottom: '80px',
         overflowX: 'clip',
       }}
     >
-      {/* ── Fixed Top Bar (pinned permanently) ── */}
+      {/* ── Fixed Top Bar ── */}
       <MobileTopBar
         ref={headerRef}
         categories={categories}
@@ -1012,12 +1016,18 @@ export default function HomePageMobile() {
       <Footer />
       <BottomNav />
 
+      {/* ── Draggable Floating Cart ── */}
+      <FloatingCartButton
+        count={cartCount}
+        onClick={handleFloatingCartClick}
+      />
+
       {/* Variant Bottom Sheet */}
       <VariantBottomSheet
         isOpen={isVariantSheetOpen}
         onClose={() => {
           setIsVariantSheetOpen(false);
-          refreshCart(); // refresh badge when sheet closes
+          refreshCart();
         }}
         product={selectedProductForVariant}
       />
