@@ -27,16 +27,27 @@ const PAGE_LIMIT = 30;
    TOKEN RESOLVER: Finds user JWT regardless of storage key
 ══════════════════════════════════════════════════════════ */
 function getAuthToken() {
-  const keys = ['token', 'buyer_token', 'auth_token', 'access_token', 'lm_token', 'lm-token', 'jwt'];
+  const keys = [
+    'token',
+    'buyer_token',
+    'auth_token',
+    'access_token',
+    'lm_token',
+    'lm-token',
+    'jwt',
+  ];
   for (const k of keys) {
     const val = localStorage.getItem(k) || sessionStorage.getItem(k);
     if (val) return val;
   }
   try {
-    const rawUser = localStorage.getItem('user') || localStorage.getItem('buyer');
+    const rawUser =
+      localStorage.getItem('user') || localStorage.getItem('buyer');
     if (rawUser) {
       const parsed = JSON.parse(rawUser);
-      if (parsed.token || parsed.accessToken) return parsed.token || parsed.accessToken;
+      if (parsed.token || parsed.accessToken) {
+        return parsed.token || parsed.accessToken;
+      }
     }
   } catch {
     /* ignore */
@@ -75,7 +86,8 @@ function useCartCount() {
       }
 
       // Guest fallback (if unauthenticated / offline)
-      const guestCartRaw = localStorage.getItem('lm-cart') || localStorage.getItem('cart');
+      const guestCartRaw =
+        localStorage.getItem('lm-cart') || localStorage.getItem('cart');
       if (guestCartRaw) {
         const guestParsed = JSON.parse(guestCartRaw);
         if (Array.isArray(guestParsed)) {
@@ -93,7 +105,6 @@ function useCartCount() {
   useEffect(() => {
     refreshCart();
 
-    // Listen for custom "cart-updated" event whenever items are added
     window.addEventListener('cart-updated', refreshCart);
     window.addEventListener('storage', refreshCart);
     window.addEventListener('focus', refreshCart);
@@ -108,6 +119,9 @@ function useCartCount() {
   return { count, refreshCart };
 }
 
+/* ══════════════════════════════════════════════════════════
+   PAGE COMPONENT
+══════════════════════════════════════════════════════════ */
 export default function HomePageMobile() {
   const navigate = useNavigate();
   const { count: cartCount, refreshCart } = useCartCount();
@@ -132,8 +146,13 @@ export default function HomePageMobile() {
   const sentinelRef = useRef(null);
   const loadingRef = useRef(false);
 
+  /* ── Fixed Header Height (prevents hero overlap) ── */
+  const headerRef = useRef(null);
+  const [headerHeight, setHeaderHeight] = useState(160); // safe fallback
+
   /* ── Variant Sheet State ── */
-  const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
+  const [selectedProductForVariant, setSelectedProductForVariant] =
+    useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
   /* ── Derived Flags ── */
@@ -143,6 +162,30 @@ export default function HomePageMobile() {
   /* ══════════════════════════════════════════════════════════
      EFFECTS
   ══════════════════════════════════════════════════════════ */
+
+  // 0. Measure fixed header height so content never sits underneath it
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const h = el.offsetHeight;
+      if (h > 0) setHeaderHeight(h);
+    };
+
+    measure();
+
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+    };
+  }, []);
 
   // 1. Midnight WAT Countdown
   useEffect(() => {
@@ -334,12 +377,14 @@ export default function HomePageMobile() {
       style={{
         minHeight: '100vh',
         backgroundColor: '#f5f5f7',
+        paddingTop: headerHeight, // live-measured — hero never covered
         paddingBottom: '80px',
-        overflowX: 'clip', // Prevents horizontal spill WITHOUT breaking position: sticky
+        overflowX: 'clip',
       }}
     >
-      {/* Sticky Topbar with Live Cart Badge */}
+      {/* ── Fixed Top Bar (pinned permanently) ── */}
       <MobileTopBar
+        ref={headerRef}
         categories={categories}
         activeCategory={activeCategory}
         onSelectCategory={handleCategorySelect}
@@ -437,7 +482,8 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
               const oldPrice =
                 item.oldPrice ??
                 item.old_price ??
@@ -568,7 +614,9 @@ export default function HomePageMobile() {
               marginBottom: 10,
             }}
           >
-            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
+            <span
+              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
+            >
               ⭐ Sponsored Deals
             </span>
             <button
@@ -602,7 +650,8 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -634,7 +683,11 @@ export default function HomePageMobile() {
                       src={imgUrl}
                       alt=""
                       loading="lazy"
-                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain',
+                      }}
                     />
                   </div>
                   <div style={{ padding: '8px 10px' }}>
@@ -651,7 +704,14 @@ export default function HomePageMobile() {
                     >
                       {item.title || item.name}
                     </p>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ff6000', margin: 0 }}>
+                    <p
+                      style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 900,
+                        color: '#ff6000',
+                        margin: 0,
+                      }}
+                    >
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -682,7 +742,9 @@ export default function HomePageMobile() {
               marginBottom: 10,
             }}
           >
-            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>
+            <span
+              style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}
+            >
               🔥 Trending Now
             </span>
             <button
@@ -716,7 +778,8 @@ export default function HomePageMobile() {
                 item.primaryImg || item.images || item.image_url,
                 item
               );
-              const price = item.price ?? item.selling_price ?? item.sale_price;
+              const price =
+                item.price ?? item.selling_price ?? item.sale_price;
 
               return (
                 <div
@@ -749,7 +812,11 @@ export default function HomePageMobile() {
                       src={imgUrl}
                       alt=""
                       loading="lazy"
-                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain',
+                      }}
                     />
                   </div>
                   <div style={{ padding: '8px 10px' }}>
@@ -766,7 +833,14 @@ export default function HomePageMobile() {
                     >
                       {item.title || item.name}
                     </p>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ff6000', margin: 0 }}>
+                    <p
+                      style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 900,
+                        color: '#ff6000',
+                        margin: 0,
+                      }}
+                    >
                       {formatPrice(price)}
                     </p>
                   </div>
@@ -943,7 +1017,7 @@ export default function HomePageMobile() {
         isOpen={isVariantSheetOpen}
         onClose={() => {
           setIsVariantSheetOpen(false);
-          refreshCart(); // Automatically refresh count when closing bottom sheet
+          refreshCart(); // refresh badge when sheet closes
         }}
         product={selectedProductForVariant}
       />
