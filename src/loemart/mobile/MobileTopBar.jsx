@@ -1,7 +1,71 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './styles/MobileTopBar.css';
 
+/* ══════════════════════════════════════════════════════════
+   Auth helpers (same key strategy as the rest of the app)
+══════════════════════════════════════════════════════════ */
+function getAuthToken() {
+  const keys = [
+    'token',
+    'buyer_token',
+    'auth_token',
+    'access_token',
+    'lm_token',
+    'lm-token',
+    'jwt',
+  ];
+  for (const k of keys) {
+    const val = localStorage.getItem(k) || sessionStorage.getItem(k);
+    if (val) return val;
+  }
+  try {
+    const rawUser =
+      localStorage.getItem('user') || localStorage.getItem('buyer');
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      if (parsed.token || parsed.accessToken) {
+        return parsed.token || parsed.accessToken;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function getStoredUser() {
+  try {
+    const raw =
+      localStorage.getItem('user') ||
+      localStorage.getItem('buyer') ||
+      localStorage.getItem('lm-user');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function getUserInitials(user) {
+  if (!user) return '';
+  const name =
+    user.name ||
+    user.full_name ||
+    user.fullName ||
+    user.username ||
+    user.email ||
+    '';
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/* ══════════════════════════════════════════════════════════
+   COMPONENT
+══════════════════════════════════════════════════════════ */
 const MobileTopBar = forwardRef(function MobileTopBar(
   {
     categories = [],
@@ -12,13 +76,38 @@ const MobileTopBar = forwardRef(function MobileTopBar(
   ref
 ) {
   const navigate = useNavigate();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [initials, setInitials] = useState('');
+
+  const refreshAuth = useCallback(() => {
+    const token = getAuthToken();
+    const user = getStoredUser();
+    const loggedIn = Boolean(token || user);
+    setIsLoggedIn(loggedIn);
+    setInitials(loggedIn ? getUserInitials(user) : '');
+  }, []);
+
+  useEffect(() => {
+    refreshAuth();
+
+    // Stay in sync across tabs / login-logout elsewhere
+    window.addEventListener('storage', refreshAuth);
+    window.addEventListener('focus', refreshAuth);
+    window.addEventListener('auth-changed', refreshAuth);
+
+    return () => {
+      window.removeEventListener('storage', refreshAuth);
+      window.removeEventListener('focus', refreshAuth);
+      window.removeEventListener('auth-changed', refreshAuth);
+    };
+  }, [refreshAuth]);
 
   const handleSearchClick = () => {
     navigate('/m/search');
   };
 
   const handleCategoryClick = (cat) => {
-    const catName = typeof cat === 'object' ? (cat.name || cat.title) : cat;
+    const catName = typeof cat === 'object' ? cat.name || cat.title : cat;
 
     if (onSelectCategory) {
       onSelectCategory(catName);
@@ -26,6 +115,15 @@ const MobileTopBar = forwardRef(function MobileTopBar(
       navigate('/m/search');
     } else {
       navigate(`/m/search?category=${encodeURIComponent(catName)}`);
+    }
+  };
+
+  const handleAccountClick = () => {
+    if (isLoggedIn) {
+      navigate('/profile');
+    } else {
+      // Professional guest flow
+      navigate('/login', { state: { from: window.location.pathname } });
     }
   };
 
@@ -40,7 +138,7 @@ const MobileTopBar = forwardRef(function MobileTopBar(
   ];
   const rawCats = categories.length > 0 ? categories : defaultCategories;
   const displayCats = rawCats.map((c) =>
-    typeof c === 'object' ? (c.name || c.title) : c
+    typeof c === 'object' ? c.name || c.title : c
   );
   const finalCats = displayCats.includes('All')
     ? displayCats
@@ -48,7 +146,7 @@ const MobileTopBar = forwardRef(function MobileTopBar(
 
   return (
     <header className="mtb-header-sticky" ref={ref}>
-      {/* ROW 1: Brand + Actions (no cart — floating button handles it) */}
+      {/* ── ROW 1: Brand + Actions ── */}
       <div className="mtb-row-top">
         <button
           className="mtb-menu-btn"
@@ -82,10 +180,13 @@ const MobileTopBar = forwardRef(function MobileTopBar(
         </div>
 
         <div className="mtb-actions-right">
-          {/* Wishlist */}
+          {/* Wishlist — only useful when logged in; still ok for guests (can prompt login later) */}
           <button
             className="mtb-icon-btn"
-            onClick={() => navigate('/saved')}
+            onClick={() => {
+              if (isLoggedIn) navigate('/saved');
+              else navigate('/login', { state: { from: '/saved' } });
+            }}
             aria-label="Saved Items"
           >
             <svg
@@ -107,35 +208,50 @@ const MobileTopBar = forwardRef(function MobileTopBar(
             </svg>
           </button>
 
-          {/* Profile */}
-          <button
-            className="mtb-icon-btn"
-            onClick={() => navigate('/profile')}
-            aria-label="Profile"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              style={{
-                width: 20,
-                height: 20,
-                minWidth: 20,
-                minHeight: 20,
-                flexShrink: 0,
-              }}
+          {/* ── Account: Login / Register (guest) OR Profile (logged in) ── */}
+          {isLoggedIn ? (
+            <button
+              className="mtb-icon-btn mtb-avatar-btn"
+              onClick={handleAccountClick}
+              aria-label="Profile"
+              title="My Profile"
             >
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          </button>
+              {initials ? (
+                <span className="mtb-avatar-initials">{initials}</span>
+              ) : (
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  style={{
+                    width: 20,
+                    height: 20,
+                    minWidth: 20,
+                    minHeight: 20,
+                    flexShrink: 0,
+                  }}
+                >
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              )}
+            </button>
+          ) : (
+            <button
+              className="mtb-auth-btn"
+              onClick={handleAccountClick}
+              aria-label="Login or Register"
+            >
+              Login
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ROW 2: Search */}
+      {/* ── ROW 2: Search ── */}
       <div className="mtb-row-search">
         <div className="mtb-search-box" onClick={handleSearchClick}>
           <svg
@@ -189,7 +305,7 @@ const MobileTopBar = forwardRef(function MobileTopBar(
         </div>
       </div>
 
-      {/* ROW 3: Categories */}
+      {/* ── ROW 3: Categories ── */}
       <div className="mtb-row-categories">
         <div className="mtb-cat-scroll">
           {finalCats.map((cat, idx) => {
