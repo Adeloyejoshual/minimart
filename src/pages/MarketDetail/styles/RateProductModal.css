@@ -1,0 +1,277 @@
+/* ════════════════════════════════════════════════════════════
+   RateProductModal.css
+   Path: src/pages/MarketDetail/styles/RateProductModal.css
+════════════════════════════════════════════════════════════ */
+
+/* Overlay - Fixes z-index & scroll bleed */
+.rpm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 999999 !important;
+  display: flex;
+  align-items: flex-end; /* Sheet style on mobile */
+  justify-content: center;
+  touch-action: none; /* Prevents touch scroll passing to body */
+  animation: rpmFadeIn 0.2s ease-out;
+}
+
+@media (min-width: 640px) {
+  .rpm-overlay {
+    align-items: center; /* Center modal on desktop */
+  }
+}
+
+/* Modal Box */
+.rpm-modal {
+  background: #ffffff;
+  width: 100%;
+  max-width: 480px;
+  border-radius: 20px 20px 0 0;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.25);
+  animation: rpmSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  touch-action: auto;
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .rpm-modal {
+    border-radius: 16px;
+    max-height: 85vh;
+  }
+}
+
+/* Header */
+.rpm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #f3f4f6;
+  background: #ffffff;
+}
+
+.rpm-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.rpm-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.rpm-close-btn {
+  background: #f3f4f6;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #4b5563;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.rpm-close-btn:active {
+  background: #e5e7eb;
+}
+
+/* Body (Scrollable container) */
+.rpm-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain; /* Keeps scroll inside modal */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Banner */
+.rpm-banner {
+  text-align: center;
+  padding: 12px 14px;
+  background: #fff8f5;
+  border: 1.5px dashed #ffd0c0;
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+
+.rpm-banner-title {
+  margin: 0 0 3px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.rpm-banner-sub {
+  margin: 0;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* Stars Rating */
+.rpm-stars-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 16px;
+}
+
+.rpm-stars-row {
+  display: flex;
+  gap: 10px;
+}
+
+.rpm-star-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rpm-star-btn:active {
+  transform: scale(1.2) !important;
+}
+
+.rpm-rating-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f59e0b;
+  min-height: 18px;
+}
+
+/* Textarea */
+.rpm-field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.rpm-textarea {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1.5px solid #e5e7eb;
+  font-size: 13px;
+  color: #111827;
+  outline: none;
+  resize: none;
+  box-sizing: border-box;
+  background: #f9fafb;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.rpm-textarea:focus {
+  border-color: #ff5600;
+  background: #ffffff;
+}
+
+.rpm-char-counter {
+  display: block;
+  text-align: right;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+
+/* Error message */
+.rpm-error-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Footer & Buttons (Redesigned) */
+.rpm-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid #f3f4f6;
+  background: #ffffff;
+}
+
+.rpm-btn-cancel {
+  flex: 1;
+  height: 46px;
+  border-radius: 23px;
+  border: 1.5px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rpm-btn-cancel:active {
+  background: #f3f4f6;
+}
+
+.rpm-btn-submit {
+  flex: 2;
+  height: 46px;
+  border-radius: 23px;
+  border: none;
+  background: #ff5600;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(255, 86, 0, 0.3);
+  transition: background 0.15s ease, transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rpm-btn-submit:active {
+  background: #e04b00;
+  transform: scale(0.98);
+}
+
+.rpm-btn-submit:disabled,
+.rpm-btn-cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Animations */
+@keyframes rpmFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rpmSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
