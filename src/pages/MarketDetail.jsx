@@ -393,6 +393,124 @@ const findServerCartLine = async (productId, variantId) => {
   }
 };
 
+/* ── Offline-first pending queue (logged-in users) ──────────────
+   Items are saved locally first, then synced to the server in the
+   background with retries, so slow/bad networks never block the UI. */
+const PENDING_KEY = "mm_cart_pending";
+
+const readPending = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(PENDING_KEY) || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+};
+
+const writePending = (list) => {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(list));
+  } catch {
+    /* ignore */
+  }
+};
+
+const pendingCount = () =>
+  readPending().reduce((sum, i) => sum + (Number(i.qty) || 0), 0);
+
+const pendingKey = (productId, variantId) =>
+  `${productId}__${variantId ?? "default"}`;
+
+const hasPendingLine = (productId, variantId) =>
+  readPending().some((p) => p.id === pendingKey(productId, variantId));
+
+const queuePending = (productId, variantId, qty) => {
+  const list = readPending();
+  const id = pendingKey(productId, variantId);
+  const idx = list.findIndex((p) => p.id === id);
+  if (idx >= 0) {
+    list[idx].qty = (Number(list[idx].qty) || 0) + qty;
+  } else {
+    list.push({
+      id,
+      product_id: productId,
+      variant_id: variantId ?? null,
+      qty,
+      addedAt: Date.now(),
+    });
+  }
+  writePending(list);
+};
+
+const setPendingQty = (productId, variantId, qty) => {
+  const list = readPending();
+  const id = pendingKey(productId, variantId);
+  const idx = list.findIndex((p) => p.id === id);
+  if (idx < 0) return;
+  if (qty <= 0) list.splice(idx, 1);
+  else list[idx].qty = qty;
+  writePending(list);
+};
+
+const removePending = (id, sentQty) => {
+  const list = readPending();
+  const idx = list.findIndex((p) => p.id === id);
+  if (idx < 0) return;
+  const remaining = (Number(list[idx].qty) || 0) - sentQty;
+  if (remaining > 0) list[idx].qty = remaining;
+  else list.splice(idx, 1);
+  writePending(list);
+};
+
+let pendingSyncRunning = false;
+
+const syncPendingCart = async () => {
+  if (pendingSyncRunning || !getAuthToken()) {
+    return { synced: 0, rejected: [], remaining: readPending().length };
+  }
+  pendingSyncRunning = true;
+  const rejected = [];
+  let synced = 0;
+  try {
+    for (const item of readPending()) {
+      const sentQty = Number(item.qty) || 1;
+      try {
+        await axios.post(
+          CART_ITEMS_URL,
+          {
+            product_id: item.product_id,
+            variant_id: item.variant_id ?? null,
+            qty: sentQty,
+          },
+          { headers: authHeaders(), timeout: 20000 }
+        );
+        removePending(item.id, sentQty);
+        synced++;
+      } catch (err) {
+        const status = err?.response?.status;
+        const isValidationError =
+          status >= 400 &&
+          status < 500 &&
+          ![401, 403, 408, 429].includes(status);
+        if (isValidationError) {
+          removePending(item.id, sentQty);
+          rejected.push({
+            item,
+            status,
+            message: err.response?.data?.message || "Failed to add item to cart",
+            fullResponse: err.response?.data,
+          });
+          continue;
+        }
+        break; // network / timeout / 5xx / auth: keep queued, retry later
+      }
+    }
+  } finally {
+    pendingSyncRunning = false;
+  }
+  return { synced, rejected, remaining: readPending().length };
+};
+
 const addToRecentlyViewed = (product) => {
   try {
     const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter(
@@ -1161,7 +1279,7 @@ export default function MarketDetail() {
     const sync = () => {
       if (isLoggedIn()) {
         fetchServerCartCount().then((c) => {
-          if (c !== null) setCartCount(c);
+          if (c !== null) setCartCount(c + pendingCount());
         });
       } else {
         setCartCount(guestCartCount());
@@ -1315,11 +1433,21 @@ export default function MarketDetail() {
           }
         }
         if (cancelled) return;
+        const pend = !line
+          ? readPending().find(
+              (x) => x.id === pendingKey(product.id, selectedVariant?.id ?? null)
+            )
+          : null;
         if (line) {
           setInCart(true);
           setCartLineQty(Number(line.qty) || 1);
           setCartItemId(line.id);
           setQty(Number(line.qty) || 1);
+        } else if (pend) {
+          setInCart(true);
+          setCartLineQty(Number(pend.qty) || 1);
+          setCartItemId(null);
+          setQty(Number(pend.qty) || 1);
         } else {
           setInCart(false);
           setCartLineQty(0);
@@ -1358,13 +1486,72 @@ export default function MarketDetail() {
     };
   }, [product?.id, selectedVariant?.id, product?.variants]);
 
+  const latestRef = useRef({});
+  latestRef.current = { product, selectedVariant };
+
+  const runSync = useCallback(async () => {
+    if (!isLoggedIn() || readPending().length === 0) return;
+    const res = await syncPendingCart();
+
+    if (res.rejected.length) {
+      const first = res.rejected[0];
+      setLastError({
+        status: first.status,
+        message: first.message,
+        url: CART_ITEMS_URL,
+        fullResponse: first.fullResponse,
+        time: nowTime(),
+      });
+      setCartError(first.message);
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+      errorTimeoutRef.current = setTimeout(() => setCartError(null), 5000);
+      setAddedToCart(false);
+    }
+
+    if (res.synced > 0 || res.rejected.length) {
+      const { product: prod, selectedVariant: variant } = latestRef.current;
+      const count = await fetchServerCartCount();
+      if (count !== null) setCartCount(count + pendingCount());
+      if (prod?.id) {
+        const line = await findServerCartLine(prod.id, variant?.id ?? null);
+        if (line) {
+          setInCart(true);
+          setCartItemId(line.id ?? null);
+          if (line.qty != null) setCartLineQty(Number(line.qty));
+        } else if (!hasPendingLine(prod.id, variant?.id ?? null)) {
+          setInCart(false);
+          setCartLineQty(0);
+          setCartItemId(null);
+        }
+      }
+      if (res.synced > 0) {
+        setLastResponse({
+          status: 200,
+          data: { message: "Pending cart items synced to server", synced: res.synced },
+          time: nowTime(),
+        });
+        window.dispatchEvent(new Event("cart-updated"));
+      }
+    }
+  }, []);
+
+  /* Retry pending cart sync: on load, when back online, and every 15s */
+  useEffect(() => {
+    runSync();
+    const onOnline = () => runSync();
+    window.addEventListener("online", onOnline);
+    const t = setInterval(() => {
+      if (readPending().length) runSync();
+    }, 15000);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      clearInterval(t);
+    };
+  }, [runSync]);
+
   const handleAddToCart = useCallback(async () => {
     if (!product || isOutOfStock) return false;
     const addQty = Math.max(1, parseInt(qty, 10) || 1);
-
-    const prevInCart = inCart;
-    const prevLineQty = cartLineQty;
-    const prevCartCount = cartCount;
 
     setAddedToCart(true);
     setInCart(true);
@@ -1383,71 +1570,24 @@ export default function MarketDetail() {
     };
 
     if (isLoggedIn()) {
+      // Save locally first (instant), then sync to the server in the background
+      queuePending(product.id, selectedVariant?.id ?? null, addQty);
       setLastRequest({
-        method: "POST",
+        method: "QUEUED → POST",
         url: CART_ITEMS_URL,
         payload,
         time: nowTime(),
       });
-      try {
-        const res = await axios.post(CART_ITEMS_URL, payload, {
-          headers: authHeaders(),
-          timeout: 15000,
-        });
-        setLastResponse({
-          status: res.status,
-          data: res.data,
-          time: nowTime(),
-        });
-        setLastError(null);
-
-        const count = await fetchServerCartCount();
-        if (count !== null) setCartCount(count);
-        const line = await findServerCartLine(
-          product.id,
-          selectedVariant?.id ?? null
-        );
-        if (line?.id) setCartItemId(line.id);
-        if (line?.qty != null) setCartLineQty(Number(line.qty));
-        window.dispatchEvent(new Event("cart-updated"));
-      } catch (apiErr) {
-        const status = apiErr?.response?.status;
-        setLastError({
-          status,
-          message: apiErr?.response?.data?.message || apiErr.message,
-          url: CART_ITEMS_URL,
-          fullResponse: apiErr?.response?.data,
-          time: nowTime(),
-        });
-
-        if (status === 401 || status === 403) {
-          TOKEN_KEYS.forEach((k) => localStorage.removeItem(k));
-          const guestCount = addToGuestCart(
-            product,
-            selectedVariant,
-            displayPrice,
-            originalPrice,
-            addQty
-          );
-          setCartCount(guestCount);
-        } else {
-          if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-          setAddedToCart(false);
-          setInCart(prevInCart);
-          setCartLineQty(prevLineQty);
-          setCartCount(prevCartCount);
-
-          setCartError(
-            apiErr?.response?.data?.message || "Failed to add item to cart"
-          );
-          if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-          errorTimeoutRef.current = setTimeout(
-            () => setCartError(null),
-            5000
-          );
-          return false;
-        }
-      }
+      setLastResponse({
+        status: 202,
+        data: {
+          message: "Saved locally, syncing to server in background",
+          pending: readPending(),
+        },
+        time: nowTime(),
+      });
+      setLastError(null);
+      runSync();
     } else {
       setLastRequest({
         method: "LOCALSTORAGE (GUEST)",
@@ -1478,8 +1618,8 @@ export default function MarketDetail() {
     qty,
     inCart,
     cartLineQty,
-    cartCount,
     isOutOfStock,
+    runSync,
   ]);
 
   const handleStickyQtyChange = useCallback(
@@ -1506,6 +1646,16 @@ export default function MarketDetail() {
         setCartLineQty(q);
         setQty(q);
         setCartCount((c) => Math.max(0, c + diff));
+      }
+
+      if (
+        isLoggedIn() &&
+        hasPendingLine(product.id, selectedVariant?.id ?? null)
+      ) {
+        setPendingQty(product.id, selectedVariant?.id ?? null, q);
+        setUpdatingQty(false);
+        runSync();
+        return;
       }
 
       try {
