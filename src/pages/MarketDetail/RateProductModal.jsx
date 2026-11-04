@@ -1,6 +1,7 @@
 /**
  * src/pages/MarketDetail/RateProductModal.jsx
  * Modal for rating a product (1–5 stars + optional comment).
+ * Displays announcement prompt inside the modal before rating.
  * Redirects unauthenticated users directly to https://www.loemart.com/auth
  */
 
@@ -107,7 +108,7 @@ export default function RateProductModal({
           {
             rating: Number(rating),
             comment: comment.trim(),
-            review: comment.trim(), // fallback field name
+            review: comment.trim(),
           },
           {
             headers: {
@@ -197,6 +198,33 @@ export default function RateProductModal({
         {/* Body */}
         <form onSubmit={handleSubmit}>
           <div className="mdp-modal-body" style={{ padding: "16px" }}>
+            
+            {/* Announcement Banner inside Modal */}
+            <div
+              style={{
+                textAlign: "center",
+                padding: "12px",
+                background: "#FFF8F5",
+                border: "1px dashed #FFD0C0",
+                borderRadius: "8px",
+                marginBottom: "12px",
+              }}
+            >
+              <h4
+                style={{
+                  margin: "0 0 4px",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  color: "#374151",
+                }}
+              >
+                Have you bought or used this product?
+              </h4>
+              <p style={{ margin: 0, fontSize: "11px", color: "#6B7280" }}>
+                Be the first to leave a rating and help other buyers!
+              </p>
+            </div>
+
             {/* Interactive Stars */}
             <div
               style={{
@@ -204,7 +232,7 @@ export default function RateProductModal({
                 flexDirection: "column",
                 alignItems: "center",
                 gap: 8,
-                padding: "12px 0 16px",
+                padding: "8px 0 16px",
               }}
             >
               <div
@@ -222,7 +250,8 @@ export default function RateProductModal({
                       border: "none",
                       padding: 0,
                       cursor: "pointer",
-                      transform: activeRating >= star ? "scale(1.1)" : "scale(1)",
+                      transform:
+                        activeRating >= star ? "scale(1.1)" : "scale(1)",
                     }}
                     aria-label={`Rate ${star} star${star > 1 ? "s" : ""}`}
                   >
@@ -244,7 +273,7 @@ export default function RateProductModal({
             </div>
 
             {/* Comment Textarea */}
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginTop: 4 }}>
               <label
                 htmlFor="rate-comment"
                 style={{
