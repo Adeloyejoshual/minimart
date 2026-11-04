@@ -34,6 +34,7 @@ import DeliveryCard from "./MarketDetail/DeliveryCard";
 import DescriptionPage from "./MarketDetail/DescriptionPage";
 import SizeGuidePage from "./MarketDetail/SizeGuidePage";
 import ReviewsPage from "./MarketDetail/ReviewsPage";
+import MarketDetailDebugPanel from "./MarketDetail/MarketDetailDebugPanel";
 import FloatingCartButton from "../components/FloatingCartButton";
 import Footer from "../components/Footer";
 
@@ -69,19 +70,21 @@ const pickPrice = (...vals) => {
   return 0;
 };
 
-const parseStockValue = (val) => {
+const parsePositiveStock = (val) => {
   if (val == null || val === "") return null;
   const n = Number(val);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) && n > 0 ? n : null;
 };
 
 const resolveStockCap = (selectedVariant, product, fallback = 99) => {
-  const vStock = parseStockValue(selectedVariant?.stock);
-  if (vStock !== null && vStock > 0) return vStock;
-  const pStock = parseStockValue(product?.stock);
-  if (pStock !== null && pStock > 0) return pStock;
-  return fallback;
+  return (
+    parsePositiveStock(selectedVariant?.stock) ??
+    parsePositiveStock(product?.stock) ??
+    fallback
+  );
 };
+
+const nowTime = () => new Date().toLocaleTimeString();
 
 /* ════════════════════════════════════════════════════════════
    ICONS
@@ -985,6 +988,11 @@ export default function MarketDetail() {
   const [cartItemId, setCartItemId] = useState(null);
   const [updatingQty, setUpdatingQty] = useState(false);
 
+  /* Debug states */
+  const [lastRequest, setLastRequest] = useState(null);
+  const [lastResponse, setLastResponse] = useState(null);
+  const [lastError, setLastError] = useState(null);
+
   const [showReport, setShowReport] = useState(false);
   const [showProtection, setShowProtection] = useState(false);
   const [showRateModal, setShowRateModal] = useState(false);
@@ -1072,21 +1080,25 @@ export default function MarketDetail() {
     [originalPrice, displayPrice]
   );
 
-  /* Safe stock resolution: null means stock tracking is not restricted */
   const stockLeft = useMemo(() => {
-    const vStock = parseStockValue(selectedVariant?.stock);
-    if (vStock !== null) return vStock;
-    const pStock = parseStockValue(product?.stock);
-    if (pStock !== null) return pStock;
-    return null;
+    return (
+      parsePositiveStock(selectedVariant?.stock) ??
+      parsePositiveStock(product?.stock) ??
+      null
+    );
   }, [selectedVariant, product]);
 
   const isOutOfStock = useMemo(() => {
-    if (stockLeft !== null) {
-      return stockLeft <= 0;
+    if (!product) return false;
+    if (product.is_active === false) return true;
+    if (
+      product.is_out_of_stock === true ||
+      product.stock_status === "out_of_stock"
+    ) {
+      return true;
     }
     return false;
-  }, [stockLeft]);
+  }, [product]);
 
   const descriptionPreview = useMemo(() => {
     if (!product?.description) return "";
@@ -1133,6 +1145,9 @@ export default function MarketDetail() {
     setSizeGuideOpen(false);
     setShowDescriptionPage(false);
     setShowAllReviews(false);
+    setLastRequest(null);
+    setLastResponse(null);
+    setLastError(null);
     return () => {
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
@@ -1161,25 +1176,31 @@ export default function MarketDetail() {
     };
   }, []);
 
-  /* Fetch product function (reusable for initial load & after rating) */
   const fetchProduct = useCallback(async () => {
     if (!slug) return;
+    const reqUrl = `${API_URL}/${slug}`;
+    setLastRequest({ method: "GET", url: reqUrl, payload: null, time: nowTime() });
     try {
-      const { data } = await axios.get(`${API_URL}/${slug}`, {
-        timeout: 12000,
-      });
-      const p = data?.data ?? data?.product ?? data;
+      const res = await axios.get(reqUrl, { timeout: 12000 });
+      setLastResponse({ status: res.status, data: res.data, time: nowTime() });
+      setLastError(null);
+      const p = res.data?.data ?? res.data?.product ?? res.data;
       setProduct(p);
       if (Array.isArray(p?.variants) && p.variants.length > 0) {
         const bestVariant =
-          p.variants.find((v) => {
-            const s = parseStockValue(v.stock);
-            return s === null || s > 0;
-          }) || p.variants[0];
+          p.variants.find((v) => parsePositiveStock(v.stock) !== null) ||
+          p.variants[0];
         setSelectedVariant((prev) => prev || bestVariant);
       }
       addToRecentlyViewed(p);
     } catch (err) {
+      setLastError({
+        status: err.response?.status,
+        message: err.response?.data?.message || err.message,
+        url: reqUrl,
+        fullResponse: err.response?.data,
+        time: nowTime(),
+      });
       setError(err.response?.status === 404 ? "404" : "error");
     }
   }, [slug]);
@@ -1192,25 +1213,35 @@ export default function MarketDetail() {
     setProduct(null);
     setSelectedVariant(null);
 
+    const reqUrl = `${API_URL}/${slug}`;
+    setLastRequest({ method: "GET", url: reqUrl, payload: null, time: nowTime() });
+
     axios
-      .get(`${API_URL}/${slug}`, { timeout: 12000 })
-      .then(({ data }) => {
+      .get(reqUrl, { timeout: 12000 })
+      .then((res) => {
         if (cancelled) return;
-        const p = data?.data ?? data?.product ?? data;
+        setLastResponse({ status: res.status, data: res.data, time: nowTime() });
+        setLastError(null);
+        const p = res.data?.data ?? res.data?.product ?? res.data;
         setProduct(p);
         if (Array.isArray(p?.variants) && p.variants.length > 0) {
           const bestVariant =
-            p.variants.find((v) => {
-              const s = parseStockValue(v.stock);
-              return s === null || s > 0;
-            }) || p.variants[0];
+            p.variants.find((v) => parsePositiveStock(v.stock) !== null) ||
+            p.variants[0];
           setSelectedVariant(bestVariant);
         }
         addToRecentlyViewed(p);
       })
       .catch((err) => {
-        if (!cancelled)
-          setError(err.response?.status === 404 ? "404" : "error");
+        if (cancelled) return;
+        setLastError({
+          status: err.response?.status,
+          message: err.response?.data?.message || err.message,
+          url: reqUrl,
+          fullResponse: err.response?.data,
+          time: nowTime(),
+        });
+        setError(err.response?.status === 404 ? "404" : "error");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -1331,7 +1362,6 @@ export default function MarketDetail() {
     if (!product || isOutOfStock) return false;
     const addQty = Math.max(1, parseInt(qty, 10) || 1);
 
-    // Save previous state in case server rejects the request
     const prevInCart = inCart;
     const prevLineQty = cartLineQty;
     const prevCartCount = cartCount;
@@ -1346,17 +1376,31 @@ export default function MarketDetail() {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
 
+    const payload = {
+      product_id: product.id,
+      variant_id: selectedVariant?.id ?? null,
+      qty: addQty,
+    };
+
     if (isLoggedIn()) {
+      setLastRequest({
+        method: "POST",
+        url: CART_ITEMS_URL,
+        payload,
+        time: nowTime(),
+      });
       try {
-        await axios.post(
-          CART_ITEMS_URL,
-          {
-            product_id: product.id,
-            variant_id: selectedVariant?.id ?? null,
-            qty: addQty,
-          },
-          { headers: authHeaders(), timeout: 15000 }
-        );
+        const res = await axios.post(CART_ITEMS_URL, payload, {
+          headers: authHeaders(),
+          timeout: 15000,
+        });
+        setLastResponse({
+          status: res.status,
+          data: res.data,
+          time: nowTime(),
+        });
+        setLastError(null);
+
         const count = await fetchServerCartCount();
         if (count !== null) setCartCount(count);
         const line = await findServerCartLine(
@@ -1368,6 +1412,14 @@ export default function MarketDetail() {
         window.dispatchEvent(new Event("cart-updated"));
       } catch (apiErr) {
         const status = apiErr?.response?.status;
+        setLastError({
+          status,
+          message: apiErr?.response?.data?.message || apiErr.message,
+          url: CART_ITEMS_URL,
+          fullResponse: apiErr?.response?.data,
+          time: nowTime(),
+        });
+
         if (status === 401 || status === 403) {
           TOKEN_KEYS.forEach((k) => localStorage.removeItem(k));
           const guestCount = addToGuestCart(
@@ -1379,7 +1431,6 @@ export default function MarketDetail() {
           );
           setCartCount(guestCount);
         } else {
-          // Roll back optimistic state on server validation error
           if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
           setAddedToCart(false);
           setInCart(prevInCart);
@@ -1398,6 +1449,12 @@ export default function MarketDetail() {
         }
       }
     } else {
+      setLastRequest({
+        method: "LOCALSTORAGE (GUEST)",
+        url: CART_KEY,
+        payload,
+        time: nowTime(),
+      });
       const guestCount = addToGuestCart(
         product,
         selectedVariant,
@@ -1406,6 +1463,11 @@ export default function MarketDetail() {
         addQty
       );
       setCartCount(guestCount);
+      setLastResponse({
+        status: 200,
+        data: { message: "Added to guest localStorage cart", total_qty: guestCount },
+        time: nowTime(),
+      });
     }
     return true;
   }, [
@@ -1450,10 +1512,13 @@ export default function MarketDetail() {
         if (isLoggedIn()) {
           if (q <= 0) {
             if (cartItemId) {
-              await axios.delete(`${CART_ITEMS_URL}/${cartItemId}`, {
+              const delUrl = `${CART_ITEMS_URL}/${cartItemId}`;
+              setLastRequest({ method: "DELETE", url: delUrl, payload: null, time: nowTime() });
+              const res = await axios.delete(delUrl, {
                 headers: authHeaders(),
                 timeout: 10000,
               });
+              setLastResponse({ status: res.status, data: res.data, time: nowTime() });
             }
           } else {
             let itemId = cartItemId;
@@ -1466,21 +1531,26 @@ export default function MarketDetail() {
               if (itemId) setCartItemId(itemId);
             }
             if (itemId) {
-              await axios.patch(
-                `${CART_ITEMS_URL}/${itemId}`,
+              const patchUrl = `${CART_ITEMS_URL}/${itemId}`;
+              setLastRequest({ method: "PATCH", url: patchUrl, payload: { qty: q }, time: nowTime() });
+              const res = await axios.patch(
+                patchUrl,
                 { qty: q },
                 { headers: authHeaders(), timeout: 10000 }
               );
+              setLastResponse({ status: res.status, data: res.data, time: nowTime() });
             } else {
-              await axios.post(
-                CART_ITEMS_URL,
-                {
-                  product_id: product.id,
-                  variant_id: selectedVariant?.id ?? null,
-                  qty: q,
-                },
-                { headers: authHeaders(), timeout: 10000 }
-              );
+              const payload = {
+                product_id: product.id,
+                variant_id: selectedVariant?.id ?? null,
+                qty: q,
+              };
+              setLastRequest({ method: "POST", url: CART_ITEMS_URL, payload, time: nowTime() });
+              const res = await axios.post(CART_ITEMS_URL, payload, {
+                headers: authHeaders(),
+                timeout: 10000,
+              });
+              setLastResponse({ status: res.status, data: res.data, time: nowTime() });
             }
           }
           const count = await fetchServerCartCount();
@@ -1495,7 +1565,14 @@ export default function MarketDetail() {
             q
           );
         }
-      } catch {
+      } catch (err) {
+        setLastError({
+          status: err.response?.status,
+          message: err.response?.data?.message || err.message,
+          url: CART_ITEMS_URL,
+          fullResponse: err.response?.data,
+          time: nowTime(),
+        });
         setCartError("Could not update quantity");
         if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
         errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
@@ -1553,6 +1630,33 @@ export default function MarketDetail() {
   if (!loading && error) {
     return (
       <div className="mdp-not-found">
+        <MarketDetailDebugPanel
+          slug={slug}
+          apiRoot={API_ROOT}
+          shopUrl={SHOP_URL}
+          cartUrl={CART_URL}
+          cartItemsUrl={CART_ITEMS_URL}
+          token={getAuthToken()}
+          product={product}
+          selectedVariant={selectedVariant}
+          hasVariants={hasVariants}
+          displayPrice={displayPrice}
+          originalPrice={originalPrice}
+          discount={discount}
+          stockLeft={stockLeft}
+          isOutOfStock={isOutOfStock}
+          qty={qty}
+          inCart={inCart}
+          cartLineQty={cartLineQty}
+          cartItemId={cartItemId}
+          cartCount={cartCount}
+          cartError={cartError}
+          guestCart={readGuestCart()}
+          lastRequest={lastRequest}
+          lastResponse={lastResponse}
+          lastError={lastError}
+          onReloadProduct={fetchProduct}
+        />
         <div className="mdp-nf-illustration" aria-hidden="true">
           {error === "404" ? Icon.search : Icon.alert}
         </div>
@@ -1612,6 +1716,36 @@ export default function MarketDetail() {
           isWishlisted={isWishlisted}
           onToggleWishlist={() => toggleWishlist(product?.id)}
           productLoaded={!!product}
+        />
+
+        {/* INLINE DEBUG PANEL */}
+        <MarketDetailDebugPanel
+          slug={slug}
+          apiRoot={API_ROOT}
+          shopUrl={SHOP_URL}
+          cartUrl={CART_URL}
+          cartItemsUrl={CART_ITEMS_URL}
+          token={getAuthToken()}
+          product={product}
+          selectedVariant={selectedVariant}
+          hasVariants={hasVariants}
+          displayPrice={displayPrice}
+          originalPrice={originalPrice}
+          discount={discount}
+          stockLeft={stockLeft}
+          isOutOfStock={isOutOfStock}
+          qty={qty}
+          inCart={inCart}
+          cartLineQty={cartLineQty}
+          cartItemId={cartItemId}
+          cartCount={cartCount}
+          cartError={cartError}
+          guestCart={readGuestCart()}
+          lastRequest={lastRequest}
+          lastResponse={lastResponse}
+          lastError={lastError}
+          onReloadProduct={fetchProduct}
+          onTestAddToCart={handleAddToCart}
         />
 
         <StickyMiniHeader
