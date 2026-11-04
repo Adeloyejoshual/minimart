@@ -15,7 +15,6 @@
  * ✓ Cross-device address fetch
  * ✓ Fresh cart on mount
  * ✓ Auto-scroll to top on step change
- * ✓ Debug panel intact
  * ✓ All errors mapped by err.source for smart routing
  */
 
@@ -30,7 +29,6 @@ import AddressStep         from "./Checkout/AddressStep";
 import ReviewStep          from "./Checkout/ReviewStep";
 import PaymentStep         from "./Checkout/PaymentStep";
 import CouponPicker        from "./Checkout/CouponPicker";
-import CheckoutDebugPanel  from "./Checkout/CheckoutDebugPanel";
 
 import "../styles/Checkout.css";
 
@@ -105,11 +103,6 @@ export default function CheckoutPage({ user }) {
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState(null);
   const [errorDebug,  setErrorDebug]  = useState(null);
-
-  /* ── Debug state ── */
-  const [lastRequest,  setLastRequest]  = useState(null);
-  const [lastResponse, setLastResponse] = useState(null);
-  const [lastError,    setLastError]    = useState(null);
 
   /*
    * ── Idempotency key ──
@@ -380,8 +373,6 @@ export default function CheckoutPage({ user }) {
 
     setError(null);
     setErrorDebug(null);
-    setLastError(null);
-    setLastResponse(null);
 
     if (!selectedAddress) {
       setError("Please select a delivery address.");
@@ -427,22 +418,14 @@ export default function CheckoutPage({ user }) {
       notes        : notes || undefined,
     };
 
-    const requestSnapshot = {
-      url            : `${API}/checkout`,
-      payload,
-      idempotencyKey : idempotencyKeyRef.current,
-      time           : new Date().toISOString(),
-    };
-    setLastRequest(requestSnapshot);
-
     console.group("🛒 [Checkout] Place Order");
-    console.log("URL:            ", requestSnapshot.url);
-    console.log("Idempotency-Key:", requestSnapshot.idempotencyKey);
+    console.log("URL:            ", `${API}/checkout`);
+    console.log("Idempotency-Key:", idempotencyKeyRef.current);
     console.log("Payload:        ", payload);
     console.groupEnd();
 
     try {
-      const { data, status } = await axios.post(
+      const { data } = await axios.post(
         `${API}/checkout`,
         payload,
         {
@@ -453,12 +436,6 @@ export default function CheckoutPage({ user }) {
           timeout: 30_000,
         }
       );
-
-      setLastResponse({
-        status,
-        data,
-        time: new Date().toISOString(),
-      });
 
       console.log("✅ [Checkout] Response:", data);
 
@@ -508,16 +485,13 @@ export default function CheckoutPage({ user }) {
         debug       : err.response?.data?.debug,
         source      : err.response?.data?.debug?.source,
         fullResponse: err.response?.data,
-        time        : new Date().toISOString(),
       };
-      setLastError(errorSnapshot);
 
       console.group("❌ [Checkout] Failed");
       console.log("Status:  ", errorSnapshot.status);
       console.log("Source:  ", errorSnapshot.source);
       console.log("Message: ", errorSnapshot.message);
       console.log("Debug:   ", errorSnapshot.debug);
-      console.log("Full:    ", errorSnapshot.fullResponse);
       console.groupEnd();
 
       /*
@@ -616,27 +590,6 @@ export default function CheckoutPage({ user }) {
       <CheckoutHeader
         title="Checkout"
         onBack={goBack}
-      />
-
-      {/* ══ DEBUG PANEL (dev-only visibility ideally controlled inside) ══ */}
-      <CheckoutDebugPanel
-        apiBase={`${API}/checkout`}
-        token={getToken()}
-        user={user}
-        addresses={addresses}
-        selectedAddress={selectedAddress}
-        cartItems={cartItems}
-        cartLoading={cartLoading}
-        calculation={calculation}
-        paymentMethod={paymentMethod}
-        couponCode={couponCode}
-        couponDiscount={couponDiscount}
-        freeShipping={freeShipping}
-        idempotencyKey={idempotencyKeyRef.current}
-        lastRequest={lastRequest}
-        lastResponse={lastResponse}
-        lastError={lastError}
-        onRetry={handlePlaceOrder}
       />
 
       {/* ══ GLOBAL ERROR BANNER ══ */}
