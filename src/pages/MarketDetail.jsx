@@ -746,23 +746,66 @@ const CartToast = memo(function CartToast({
   onClose,
 }) {
   if (!show) return null;
+  const line = { margin: 0, lineHeight: 1.3 };
   return (
-    <div role="status" aria-live="polite" className="mdp-toast">
-      <div className="mdp-toast__img-wrap">
+    <div
+      role="status"
+      aria-live="polite"
+      className="mdp-toast"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 10px",
+        maxWidth: "min(92vw, 320px)",
+        borderRadius: 12,
+        fontSize: 12,
+      }}
+    >
+      <div
+        className="mdp-toast__img-wrap"
+        style={{ width: 36, height: 36, flexShrink: 0 }}
+      >
         {image ? (
-          <img src={image} alt="" className="mdp-toast__img" />
+          <img
+            src={image}
+            alt=""
+            className="mdp-toast__img"
+            style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }}
+          />
         ) : (
           <div className="mdp-toast__img-ph">{Icon.box}</div>
         )}
       </div>
-      <div className="mdp-toast__body">
-        <p className="mdp-toast__label">
+      <div className="mdp-toast__body" style={{ flex: 1, minWidth: 0 }}>
+        <p
+          className="mdp-toast__label"
+          style={{ ...line, fontSize: 12, fontWeight: 700 }}
+        >
           <span aria-hidden="true">{Icon.check}</span> Added to cart
         </p>
-        <p className="mdp-toast__name">{productName}</p>
-        <p className="mdp-toast__qty">Qty: {qty}</p>
+        <p
+          className="mdp-toast__name"
+          style={{
+            ...line,
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {productName}
+        </p>
+        <p className="mdp-toast__qty" style={{ ...line, fontSize: 11 }}>
+          Qty: {qty}
+        </p>
       </div>
-      <button type="button" onClick={onView} className="mdp-toast__view">
+      <button
+        type="button"
+        onClick={onView}
+        className="mdp-toast__view"
+        style={{ fontSize: 12, padding: "4px 8px", whiteSpace: "nowrap" }}
+      >
         View Cart
       </button>
       <button
@@ -770,6 +813,7 @@ const CartToast = memo(function CartToast({
         onClick={onClose}
         className="mdp-toast__close"
         aria-label="Dismiss"
+        style={{ fontSize: 14, padding: 4 }}
       >
         ✕
       </button>
@@ -1941,7 +1985,7 @@ export default function MarketDetail() {
               <div className="mdp-brand-rating-row">
                 {product.brand && (
                   <p className="md-brand mdp-brand">
-                    by <strong>{product.brand}</strong>
+                    Brand: <strong>{product.brand}</strong>
                   </p>
                 )}
                 {rating > 0 && (
