@@ -1,3 +1,8 @@
+/**
+ * src/pages/MarketDetail/VariantBottomSheet.jsx
+ * Multi-attribute variant sheet supporting Color, Size, Storage, Material, Variant Name & SKU.
+ */
+
 import React, {
   useEffect,
   useState,
@@ -24,6 +29,20 @@ const unlockBodyScroll = () => {
   document.body.style.top = "";
   document.body.style.width = "";
   document.documentElement.style.overflow = "";
+};
+
+// Safely parse attributes whether it's an object or JSON string from PostgreSQL
+const parseAttributes = (attr) => {
+  if (!attr) return null;
+  if (typeof attr === "object") return attr;
+  if (typeof attr === "string") {
+    try {
+      return JSON.parse(attr);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 };
 
 export default function VariantBottomSheet({
@@ -69,6 +88,7 @@ export default function VariantBottomSheet({
       if (e.key === "Escape") requestClose();
     };
     window.addEventListener("keydown", onKey);
+
     return () => {
       unlockBodyScroll();
       window.removeEventListener("keydown", onKey);
@@ -86,48 +106,60 @@ export default function VariantBottomSheet({
     if (isOpen) setClosing(false);
   }, [isOpen]);
 
+  // Normalize variants so attributes is guaranteed to be an object
+  const normalizedVariants = useMemo(() => {
+    if (!Array.isArray(variants)) return [];
+    return variants.map((v) => ({
+      ...v,
+      parsedAttrs: parseAttributes(v.attributes),
+    }));
+  }, [variants]);
+
+  // Extract all unique attribute keys (e.g. Color, Size, Storage, Material)
   const attributeKeys = useMemo(() => {
     const keys = new Set();
-    if (Array.isArray(variants)) {
-      variants.forEach((v) => {
-        if (v?.attributes && typeof v.attributes === "object") {
-          Object.keys(v.attributes).forEach((k) => keys.add(k));
-        }
-      });
-    }
+    normalizedVariants.forEach((v) => {
+      if (v.parsedAttrs && typeof v.parsedAttrs === "object") {
+        Object.keys(v.parsedAttrs).forEach((k) => {
+          if (v.parsedAttrs[k] != null && v.parsedAttrs[k] !== "") {
+            keys.add(k);
+          }
+        });
+      }
+    });
     return [...keys];
-  }, [variants]);
+  }, [normalizedVariants]);
 
   const hasAttributes = attributeKeys.length > 0;
 
   const getUniqueAttrValues = useCallback(
     (key) => {
-      if (!Array.isArray(variants)) return [];
       return [
         ...new Set(
-          variants
-            .map((v) => v.attributes?.[key])
+          normalizedVariants
+            .map((v) => v.parsedAttrs?.[key])
             .filter((v) => v != null && v !== "")
         ),
       ];
     },
-    [variants]
+    [normalizedVariants]
   );
 
   const handleSelectOption = useCallback(
     (key, val) => {
-      const current = selectedVariant?.attributes || {};
+      const current = selectedVariant ? parseAttributes(selectedVariant.attributes) || {} : {};
       const match =
-        variants.find(
+        normalizedVariants.find(
           (v) =>
-            v.attributes?.[key] === val &&
+            v.parsedAttrs?.[key] === val &&
             Object.keys(current).every(
-              (k) => k === key || v.attributes?.[k] === current[k]
+              (k) => k === key || v.parsedAttrs?.[k] === current[k]
             )
-        ) || variants.find((v) => v.attributes?.[key] === val);
+        ) || normalizedVariants.find((v) => v.parsedAttrs?.[key] === val);
+
       if (match) onSelectVariant?.(match);
     },
-    [variants, selectedVariant, onSelectVariant]
+    [normalizedVariants, selectedVariant, onSelectVariant]
   );
 
   const displayPrice = useMemo(() => {
@@ -162,17 +194,19 @@ export default function VariantBottomSheet({
   const safeQty = Math.max(1, Number(qty) || 1);
 
   const selectedLabels = useMemo(() => {
-    if (selectedVariant?.attributes && Object.keys(selectedVariant.attributes).length > 0) {
-      return Object.values(selectedVariant.attributes)
+    if (!selectedVariant) return [];
+    const attrs = parseAttributes(selectedVariant.attributes);
+    if (attrs && Object.keys(attrs).length > 0) {
+      return Object.values(attrs)
         .map((v) =>
           typeof v === "object" ? v?.name || v?.title || String(v) : String(v)
         )
         .filter(Boolean);
     }
-    if (selectedVariant?.name || selectedVariant?.title) {
+    if (selectedVariant.name || selectedVariant.title) {
       return [selectedVariant.name || selectedVariant.title];
     }
-    if (selectedVariant?.sku) {
+    if (selectedVariant.sku) {
       return [selectedVariant.sku.replace(/[-_]/g, " ")];
     }
     return [];
@@ -263,7 +297,7 @@ export default function VariantBottomSheet({
             </button>
           )}
 
-          {/* RENDER STRUCTURED ATTRIBUTES (e.g., Color, Size) */}
+          {/* RENDER STRUCTURED ATTRIBUTES (e.g. Color, Size, Storage, Material) */}
           {hasAttributes && attributeKeys.map((key) => {
             const values = getUniqueAttrValues(key);
             if (!values.length) return null;
@@ -273,12 +307,13 @@ export default function VariantBottomSheet({
                 <p className="mdp-bs-label">{String(key)}</p>
                 <div className="mdp-bs-options">
                   {values.map((val) => {
-                    const matchedVar = variants.find(
-                      (v) => v.attributes?.[key] === val
+                    const matchedVar = normalizedVariants.find(
+                      (v) => v.parsedAttrs?.[key] === val
                     );
                     const oos = Number(matchedVar?.stock ?? 1) <= 0;
                     const active =
-                      selectedVariant?.attributes?.[key] === val;
+                      parseAttributes(selectedVariant?.attributes)?.[key] === val;
+
                     const valText =
                       typeof val === "object"
                         ? val?.name || val?.title || String(val)
@@ -303,16 +338,15 @@ export default function VariantBottomSheet({
             );
           })}
 
-          {/* RENDER FLAT VARIANTS (Falls back gracefully to SKU if name/attributes are null) */}
-          {!hasAttributes && variants.length > 1 && (
+          {/* RENDER FLAT VARIANTS (If no structured attributes exist) */}
+          {!hasAttributes && normalizedVariants.length > 1 && (
             <div className="mdp-bs-group">
               <p className="mdp-bs-label">Options</p>
               <div className="mdp-bs-options">
-                {variants.map((v) => {
+                {normalizedVariants.map((v) => {
                   const oos = Number(v.stock ?? 1) <= 0;
                   const active = selectedVariant?.id === v.id;
                   
-                  // Graceful label fallback chain
                   const valText =
                     v.name ||
                     v.title ||
