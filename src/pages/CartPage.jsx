@@ -158,6 +158,10 @@ function RecentlyViewed({ onProductClick }) {
   return (
     <section className="cp-recently-viewed" aria-label="Recently viewed products">
       <h3 className="cp-recently-viewed__title">Recently Viewed</h3>
+      {/* 
+        NOTE: The vertical scroll issue is fixed in the CSS 
+        via touch-action: pan-y and overscroll-behavior-x
+      */}
       <div className="cp-recently-viewed__scroll">
         {recent.map((item, idx) => {
           const id = item.id || item.productId || item._id;
@@ -240,8 +244,6 @@ function EmptyCart({ onShop, onProductClick }) {
           Start Shopping {Icon.arrow}
         </button>
       </div>
-
-      {/* Recently Viewed */}
       <RecentlyViewed onProductClick={onProductClick} />
     </div>
   );
@@ -815,9 +817,10 @@ export default function CartPage({ user }) {
             disabled={checking}
           >
             {checking ? (
-              <>
-                <span className="cp-spinner" /> Processing…
-              </>
+              <div className="cp-processing-state">
+                <span className="cp-modern-spinner" />
+                <span>Processing...</span>
+              </div>
             ) : (
               <>
                 Checkout ({itemCount}) {Icon.arrow}
