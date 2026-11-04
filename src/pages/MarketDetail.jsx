@@ -744,6 +744,7 @@ const CartToast = memo(function CartToast({
   image,
   onView,
   onClose,
+  pending = false,
 }) {
   if (!show) return null;
   const line = { margin: 0, lineHeight: 1.3 };
@@ -782,7 +783,13 @@ const CartToast = memo(function CartToast({
           className="mdp-toast__label"
           style={{ ...line, fontSize: 12, fontWeight: 700 }}
         >
-          <span aria-hidden="true">{Icon.check}</span> Added to cart
+          {pending ? (
+            "No network – will add when online"
+          ) : (
+            <>
+              <span aria-hidden="true">{Icon.check}</span> Added to cart
+            </>
+          )}
         </p>
         <p
           className="mdp-toast__name"
@@ -1154,6 +1161,10 @@ export default function MarketDetail() {
   const [lastRequest, setLastRequest] = useState(null);
   const [lastResponse, setLastResponse] = useState(null);
   const [lastError, setLastError] = useState(null);
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine
+  );
+  const [syncFailed, setSyncFailed] = useState(false);
 
   const [showReport, setShowReport] = useState(false);
   const [showProtection, setShowProtection] = useState(false);
@@ -1536,6 +1547,7 @@ export default function MarketDetail() {
   const runSync = useCallback(async () => {
     if (!isLoggedIn() || readPending().length === 0) return;
     const res = await syncPendingCart();
+    setSyncFailed(res.remaining > 0);
 
     if (res.rejected.length) {
       const first = res.rejected[0];
@@ -1582,13 +1594,19 @@ export default function MarketDetail() {
   /* Retry pending cart sync: on load, when back online, and every 15s */
   useEffect(() => {
     runSync();
-    const onOnline = () => runSync();
+    const onOnline = () => {
+      setIsOnline(true);
+      runSync();
+    };
+    const onOffline = () => setIsOnline(false);
     window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
     const t = setInterval(() => {
       if (readPending().length) runSync();
     }, 15000);
     return () => {
       window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
       clearInterval(t);
     };
   }, [runSync]);
@@ -1876,6 +1894,13 @@ export default function MarketDetail() {
       </div>
     );
   }
+
+  const unsynced =
+    inCart &&
+    !!product &&
+    isLoggedIn() &&
+    hasPendingLine(product.id, selectedVariant?.id ?? null);
+  const noNetwork = unsynced && (!isOnline || syncFailed);
 
   const stickyQty = inCart ? cartLineQty : qty;
   const stickyTotal = displayPrice * stickyQty;
@@ -2170,6 +2195,21 @@ export default function MarketDetail() {
             {cartError && (
               <span className="mdp-sticky-error">{cartError}</span>
             )}
+            {!cartError && unsynced && (
+              <span
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1.2,
+                  fontWeight: 600,
+                  color: noNetwork ? "#dc2626" : "#b45309",
+                  maxWidth: 140,
+                }}
+              >
+                {noNetwork
+                  ? "Not added yet – no network. Will retry automatically."
+                  : "Adding to cart…"}
+              </span>
+            )}
 
             {inCart ? (
               <>
@@ -2220,46 +2260,6 @@ export default function MarketDetail() {
               </>
             ) : (
               <>
-                {!hasVariants && (
-                  <div
-                    className="mdp-sticky-qty"
-                    role="group"
-                    aria-label="Quantity"
-                  >
-                    <button
-                      type="button"
-                      className="mdp-sticky-qty__btn"
-                      onClick={() => setQty((q) => Math.max(1, q - 1))}
-                      disabled={qty <= 1 || isOutOfStock}
-                      aria-label="Decrease quantity"
-                    >
-                      −
-                    </button>
-                    <span className="mdp-sticky-qty__val">{qty}</span>
-                    <button
-                      type="button"
-                      className="mdp-sticky-qty__btn"
-                      onClick={() =>
-                        setQty((q) =>
-                          Math.min(
-                            MAX_QTY,
-                            stockLeft != null && stockLeft > 0
-                              ? Math.min(stockLeft, q + 1)
-                              : q + 1
-                          )
-                        )
-                      }
-                      disabled={
-                        isOutOfStock ||
-                        qty >= MAX_QTY ||
-                        (stockLeft != null && stockLeft > 0 && qty >= stockLeft)
-                      }
-                      aria-label="Increase quantity"
-                    >
-                      +
-                    </button>
-                  </div>
-                )}
                 <button
                   type="button"
                   className={`mdp-btn-cart-primary${
@@ -2311,6 +2311,7 @@ export default function MarketDetail() {
         productName={product?.name ?? "Item"}
         qty={inCart ? cartLineQty : qty}
         image={product ? getProductImage(product) : null}
+        pending={noNetwork}
         onView={goToCart}
         onClose={() => setAddedToCart(false)}
       />
