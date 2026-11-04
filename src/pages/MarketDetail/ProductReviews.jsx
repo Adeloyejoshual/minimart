@@ -1,13 +1,16 @@
 /**
  * src/pages/MarketDetail/ProductReviews.jsx
  * Shows max 3 reviews on PDP; "See all" opens full Reviews page.
+ * Clear Rate CTA — outline pill when reviews exist, solid banner when empty.
  */
 
 import { useState, useEffect, memo } from "react";
 import axios from "axios";
+import "./styles/ProductReviews.css";
 
 const MAX_VISIBLE = 3;
 
+/* ── Icons ──────────────────────────────────────────────── */
 const StarIcon = ({ filled }) => (
   <svg
     viewBox="0 0 24 24"
@@ -16,18 +19,34 @@ const StarIcon = ({ filled }) => (
     strokeWidth={2}
     width={14}
     height={14}
+    aria-hidden="true"
   >
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
   </svg>
 );
 
+const EditIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    width={14}
+    height={14}
+    aria-hidden="true"
+  >
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+  </svg>
+);
+
+/* ── Sub-components ─────────────────────────────────────── */
 const StarRating = memo(function StarRating({ rating }) {
   const r = Math.round(Number(rating) || 0);
   return (
-    <div
-      style={{ display: "flex", gap: 2 }}
-      aria-label={`${rating} out of 5 stars`}
-    >
+    <div className="mdp-stars-row" aria-label={`${Number(rating) || 0} out of 5 stars`}>
       {[1, 2, 3, 4, 5].map((star) => (
         <StarIcon key={star} filled={star <= r} />
       ))}
@@ -64,6 +83,7 @@ function getApiBase() {
   return raw.endsWith("/api") ? raw : `${raw}/api`;
 }
 
+/* ── Main ───────────────────────────────────────────────── */
 export default function ProductReviews({
   productId,
   rating = 0,
@@ -109,165 +129,121 @@ export default function ProductReviews({
   const total = Number(reviewsCount) || reviews.length;
   const visible = reviews.slice(0, maxVisible);
   const showSeeAll = typeof onSeeAll === "function" && total > maxVisible;
+  const canOpenRate = typeof onOpenRateModal === "function";
 
   return (
     <div className="mdp-reviews-container">
-      <h3 className="mdp-section-title">
-        <span style={{ color: "#F59E0B" }}>★</span> Ratings & Reviews
-      </h3>
+      {/* Header — title + Rate pill when reviews already exist */}
+      <div className="mdp-reviews-header">
+        <h3 className="mdp-section-title">
+          <span className="mdp-section-title__star" aria-hidden="true">
+            ★
+          </span>{" "}
+          Ratings &amp; Reviews
+        </h3>
 
-      {/* Summary */}
-      <div className="mdp-rating-summary">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className="mdp-rating-summary__score">
-            {rating > 0 ? Number(rating).toFixed(1) : "—"}
-          </span>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <StarRating rating={rating} />
-            <span
-              style={{
-                fontSize: 10,
-                color: "var(--ink2, #6B7280)",
-                marginTop: 2,
-              }}
-            >
-              {total > 0
-                ? `Based on ${total} review${total === 1 ? "" : "s"}`
-                : "No reviews yet"}
-            </span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          className="mdp-rate-btn"
-          onClick={onOpenRateModal}
-        >
-          Rate Product
-        </button>
+        {total > 0 && canOpenRate && (
+          <button
+            type="button"
+            className="mdp-rate-cta-btn"
+            onClick={onOpenRateModal}
+          >
+            <EditIcon />
+            Rate Product
+          </button>
+        )}
       </div>
 
-      {/* List — max 3 */}
-      {loading && reviews.length === 0 ? (
-        <div
-          style={{
-            padding: "10px 0",
-            textAlign: "center",
-            color: "var(--ink2)",
-            fontSize: 12,
-          }}
-        >
-          Loading…
+      {/* Score summary */}
+      <div className="mdp-rating-summary">
+        <span className="mdp-rating-summary__score">
+          {rating > 0 ? Number(rating).toFixed(1) : "—"}
+        </span>
+        <div className="mdp-rating-summary__meta">
+          <StarRating rating={rating} />
+          <span className="mdp-rating-summary__count">
+            {total > 0
+              ? `Based on ${total} review${total === 1 ? "" : "s"}`
+              : "No reviews yet"}
+          </span>
         </div>
+      </div>
+
+      {/* Body */}
+      {loading && reviews.length === 0 ? (
+        <div className="mdp-reviews-loading">Loading reviews…</div>
       ) : visible.length > 0 ? (
         <div className="mdp-review-list">
-          {visible.map((rev) => (
-            <div key={rev.id || `${rev.user_name}-${rev.created_at}`} className="mdp-review-card">
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: 6,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {rev.user_avatar ? (
-                    <img
-                      src={rev.user_avatar}
-                      alt=""
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: "50%",
-                        objectFit: "cover",
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: "50%",
-                        background: "var(--bd, #E5E7EB)",
-                        color: "var(--ink, #374151)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontWeight: 700,
-                        fontSize: 10,
-                      }}
-                    >
-                      {getInitials(rev.user_name)}
+          {visible.map((rev) => {
+            const key = rev.id || `${rev.user_name}-${rev.created_at}`;
+            const text = rev.comment || rev.body || rev.review;
+            return (
+              <article key={key} className="mdp-review-card">
+                <div className="mdp-review-card__top">
+                  <div className="mdp-review-card__user">
+                    {rev.user_avatar ? (
+                      <img
+                        src={rev.user_avatar}
+                        alt=""
+                        className="mdp-review-card__avatar"
+                      />
+                    ) : (
+                      <div
+                        className="mdp-review-card__avatar-fallback"
+                        aria-hidden="true"
+                      >
+                        {getInitials(rev.user_name)}
+                      </div>
+                    )}
+                    <div className="mdp-review-card__name-col">
+                      <span className="mdp-review-card__name">
+                        {rev.user_name || "Buyer"}
+                      </span>
+                      <span className="mdp-review-card__verified">
+                        ✓ Verified
+                      </span>
                     </div>
-                  )}
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontWeight: 700,
-                        fontSize: 11,
-                        color: "var(--ink)",
-                      }}
-                    >
-                      {rev.user_name || "Buyer"}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 9,
-                        color: "#10B981",
-                        fontWeight: 600,
-                      }}
-                    >
-                      ✓ Verified
-                    </span>
                   </div>
+                  <time
+                    className="mdp-review-card__date"
+                    dateTime={rev.created_at || undefined}
+                  >
+                    {formatDate(rev.created_at)}
+                  </time>
                 </div>
-                <span style={{ fontSize: 10, color: "var(--ink3, #9CA3AF)" }}>
-                  {formatDate(rev.created_at)}
-                </span>
-              </div>
-              <StarRating rating={rev.rating} />
-              {(rev.comment || rev.body || rev.review) && (
-                <p
-                  style={{
-                    margin: "4px 0 0",
-                    fontSize: 11,
-                    color: "var(--ink2, #374151)",
-                    lineHeight: 1.4,
-                    display: "-webkit-box",
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                  }}
-                >
-                  {rev.comment || rev.body || rev.review}
-                </p>
-              )}
-            </div>
-          ))}
+
+                <div className="mdp-review-card__stars">
+                  <StarRating rating={rev.rating} />
+                </div>
+
+                {text ? <p className="mdp-review-card__body">{text}</p> : null}
+              </article>
+            );
+          })}
         </div>
       ) : (
-        <div
-          style={{
-            textAlign: "center",
-            padding: 12,
-            background: "var(--bg, #F9FAFB)",
-            borderRadius: 8,
-            color: "var(--ink2)",
-            fontSize: 11,
-          }}
-        >
-          No written feedback yet.
+        /* Empty — obvious place to rate */
+        <div className="mdp-reviews-empty">
+          <p className="mdp-reviews-empty__title">
+            Have you bought or used this product?
+          </p>
+          <p className="mdp-reviews-empty__sub">
+            Be the first to leave a rating and help other buyers!
+          </p>
+          {canOpenRate && (
+            <button
+              type="button"
+              className="mdp-rate-cta-btn-primary"
+              onClick={onOpenRateModal}
+            >
+              <EditIcon />
+              Rate This Product
+            </button>
+          )}
         </div>
       )}
 
-      {/* See all → full ratings page */}
+      {/* See all */}
       {showSeeAll && (
         <button
           type="button"
@@ -278,7 +254,6 @@ export default function ProductReviews({
         </button>
       )}
 
-      {/* If few reviews but page exists, still allow open */}
       {!showSeeAll && total > 0 && typeof onSeeAll === "function" && (
         <button
           type="button"
