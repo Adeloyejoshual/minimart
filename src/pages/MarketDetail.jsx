@@ -35,7 +35,7 @@ import DescriptionPage from "./MarketDetail/DescriptionPage";
 import SizeGuidePage from "./MarketDetail/SizeGuidePage";
 import ReviewsPage from "./MarketDetail/ReviewsPage";
 import FloatingCartButton from "../components/FloatingCartButton";
-import Footer from "../components/Footer"; // <--- ADDED FOOTER
+import Footer from "../components/Footer";
 
 import "../styles/MarketDetail.css";
 
@@ -67,6 +67,20 @@ const pickPrice = (...vals) => {
     if (Number.isFinite(n) && n > 0) return n;
   }
   return 0;
+};
+
+const parseStockValue = (val) => {
+  if (val == null || val === "") return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+};
+
+const resolveStockCap = (selectedVariant, product, fallback = 99) => {
+  const vStock = parseStockValue(selectedVariant?.stock);
+  if (vStock !== null && vStock > 0) return vStock;
+  const pStock = parseStockValue(product?.stock);
+  if (pStock !== null && pStock > 0) return pStock;
+  return fallback;
 };
 
 /* ════════════════════════════════════════════════════════════
@@ -256,7 +270,7 @@ const addToGuestCart = (
   const variantId = selectedVariant?.id ?? null;
   const itemKey = lineKey(product.id, variantId);
   const idx = cart.findIndex((c) => c.id === itemKey);
-  const stock = Number(selectedVariant?.stock ?? product?.stock ?? 99);
+  const stock = resolveStockCap(selectedVariant, product, 99);
   const addQty = Math.max(1, Number(qty) || 1);
 
   const item = {
@@ -302,7 +316,7 @@ const setGuestLineQty = (
   const variantId = selectedVariant?.id ?? null;
   const itemKey = lineKey(product.id, variantId);
   const idx = cart.findIndex((c) => c.id === itemKey);
-  const stock = Number(selectedVariant?.stock ?? product?.stock ?? 99);
+  const stock = resolveStockCap(selectedVariant, product, 99);
 
   if (newQty <= 0) {
     if (idx >= 0) cart.splice(idx, 1);
@@ -384,7 +398,7 @@ const addToRecentlyViewed = (product) => {
     list.unshift({
       id: product.id,
       name: product.name,
-      price: product.price,
+      price: pickPrice(product.price, product.sale_price, product.selling_price),
       image: getProductImage(product),
       slug: product.slug ?? product.id,
     });
@@ -912,7 +926,6 @@ const FAQAccordion = memo(function FAQAccordion() {
   );
 });
 
-/** Label top · value bottom · optional right slot · chevron */
 const SelectionTrigger = memo(function SelectionTrigger({
   label,
   value,
@@ -930,7 +943,11 @@ const SelectionTrigger = memo(function SelectionTrigger({
     >
       <div className="mdp-sel-text">
         <span className="mdp-sel-label">{label}</span>
-        <span className={`mdp-sel-value ${multiline ? "mdp-sel-value--multiline" : ""}`}>
+        <span
+          className={`mdp-sel-value ${
+            multiline ? "mdp-sel-value--multiline" : ""
+          }`}
+        >
           {value}
         </span>
       </div>
@@ -991,7 +1008,6 @@ export default function MarketDetail() {
     [product]
   );
 
-  /** Clothes / shoes only — never phones / electronics */
   const canShowSizeGuide = useMemo(
     () => shouldShowSizeGuide(product),
     [product]
@@ -1056,39 +1072,35 @@ export default function MarketDetail() {
     [originalPrice, displayPrice]
   );
 
-  const isOutOfStock = useMemo(() => {
-    if (selectedVariant && typeof selectedVariant.stock === "number") {
-      return selectedVariant.stock <= 0;
-    }
-    if (product && typeof product.stock === "number") {
-      return product.stock <= 0;
-    }
-    return false;
-  }, [selectedVariant, product]);
-
+  /* Safe stock resolution: null means stock tracking is not restricted */
   const stockLeft = useMemo(() => {
-    if (selectedVariant?.stock !== undefined)
-      return Number(selectedVariant.stock);
-    if (product?.stock !== undefined) return Number(product.stock);
+    const vStock = parseStockValue(selectedVariant?.stock);
+    if (vStock !== null) return vStock;
+    const pStock = parseStockValue(product?.stock);
+    if (pStock !== null) return pStock;
     return null;
   }, [selectedVariant, product]);
 
-  /* UPDATED: SMART TRUNCATION AT LAST WORD (400 chars) */
+  const isOutOfStock = useMemo(() => {
+    if (stockLeft !== null) {
+      return stockLeft <= 0;
+    }
+    return false;
+  }, [stockLeft]);
+
   const descriptionPreview = useMemo(() => {
     if (!product?.description) return "";
-    
+
     const stripped = String(product.description)
       .replace(/<[^>]*>/g, "")
       .replace(/\s+/g, " ")
       .trim();
 
     const MAX_CHARS = 400;
-    
+
     if (stripped.length <= MAX_CHARS) return stripped;
 
     let cutText = stripped.slice(0, MAX_CHARS);
-
-    // Find the last space to avoid cutting in the middle of a word
     const lastSpace = cutText.lastIndexOf(" ");
     if (lastSpace > 0) {
       cutText = cutText.slice(0, lastSpace);
@@ -1149,6 +1161,29 @@ export default function MarketDetail() {
     };
   }, []);
 
+  /* Fetch product function (reusable for initial load & after rating) */
+  const fetchProduct = useCallback(async () => {
+    if (!slug) return;
+    try {
+      const { data } = await axios.get(`${API_URL}/${slug}`, {
+        timeout: 12000,
+      });
+      const p = data?.data ?? data?.product ?? data;
+      setProduct(p);
+      if (Array.isArray(p?.variants) && p.variants.length > 0) {
+        const bestVariant =
+          p.variants.find((v) => {
+            const s = parseStockValue(v.stock);
+            return s === null || s > 0;
+          }) || p.variants[0];
+        setSelectedVariant((prev) => prev || bestVariant);
+      }
+      addToRecentlyViewed(p);
+    } catch (err) {
+      setError(err.response?.status === 404 ? "404" : "error");
+    }
+  }, [slug]);
+
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
@@ -1163,7 +1198,14 @@ export default function MarketDetail() {
         if (cancelled) return;
         const p = data?.data ?? data?.product ?? data;
         setProduct(p);
-        if (p?.variants?.length > 0) setSelectedVariant(p.variants[0]);
+        if (Array.isArray(p?.variants) && p.variants.length > 0) {
+          const bestVariant =
+            p.variants.find((v) => {
+              const s = parseStockValue(v.stock);
+              return s === null || s > 0;
+            }) || p.variants[0];
+          setSelectedVariant(bestVariant);
+        }
         addToRecentlyViewed(p);
       })
       .catch((err) => {
@@ -1289,6 +1331,11 @@ export default function MarketDetail() {
     if (!product || isOutOfStock) return false;
     const addQty = Math.max(1, parseInt(qty, 10) || 1);
 
+    // Save previous state in case server rejects the request
+    const prevInCart = inCart;
+    const prevLineQty = cartLineQty;
+    const prevCartCount = cartCount;
+
     setAddedToCart(true);
     setInCart(true);
     const newQty = inCart ? cartLineQty + addQty : addQty;
@@ -1300,8 +1347,8 @@ export default function MarketDetail() {
     toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
 
     if (isLoggedIn()) {
-      axios
-        .post(
+      try {
+        await axios.post(
           CART_ITEMS_URL,
           {
             product_id: product.id,
@@ -1309,47 +1356,56 @@ export default function MarketDetail() {
             qty: addQty,
           },
           { headers: authHeaders(), timeout: 15000 }
-        )
-        .then(() => fetchServerCartCount())
-        .then((count) => {
-          if (count !== null) setCartCount(count);
-          return findServerCartLine(product.id, selectedVariant?.id ?? null);
-        })
-        .then((line) => {
-          if (line?.id) setCartItemId(line.id);
-          if (line?.qty != null) setCartLineQty(Number(line.qty));
-          window.dispatchEvent(new Event("cart-updated"));
-        })
-        .catch((apiErr) => {
-          const status = apiErr?.response?.status;
-          if (status === 401 || status === 403) {
-            TOKEN_KEYS.forEach((k) => localStorage.removeItem(k));
-            addToGuestCart(
-              product,
-              selectedVariant,
-              displayPrice,
-              originalPrice,
-              addQty
-            );
-          } else {
-            setCartError(
-              apiErr?.response?.data?.message || "Failed to sync cart"
-            );
-            if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-            errorTimeoutRef.current = setTimeout(
-              () => setCartError(null),
-              5000
-            );
-          }
-        });
+        );
+        const count = await fetchServerCartCount();
+        if (count !== null) setCartCount(count);
+        const line = await findServerCartLine(
+          product.id,
+          selectedVariant?.id ?? null
+        );
+        if (line?.id) setCartItemId(line.id);
+        if (line?.qty != null) setCartLineQty(Number(line.qty));
+        window.dispatchEvent(new Event("cart-updated"));
+      } catch (apiErr) {
+        const status = apiErr?.response?.status;
+        if (status === 401 || status === 403) {
+          TOKEN_KEYS.forEach((k) => localStorage.removeItem(k));
+          const guestCount = addToGuestCart(
+            product,
+            selectedVariant,
+            displayPrice,
+            originalPrice,
+            addQty
+          );
+          setCartCount(guestCount);
+        } else {
+          // Roll back optimistic state on server validation error
+          if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+          setAddedToCart(false);
+          setInCart(prevInCart);
+          setCartLineQty(prevLineQty);
+          setCartCount(prevCartCount);
+
+          setCartError(
+            apiErr?.response?.data?.message || "Failed to add item to cart"
+          );
+          if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+          errorTimeoutRef.current = setTimeout(
+            () => setCartError(null),
+            5000
+          );
+          return false;
+        }
+      }
     } else {
-      addToGuestCart(
+      const guestCount = addToGuestCart(
         product,
         selectedVariant,
         displayPrice,
         originalPrice,
         addQty
       );
+      setCartCount(guestCount);
     }
     return true;
   }, [
@@ -1360,6 +1416,7 @@ export default function MarketDetail() {
     qty,
     inCart,
     cartLineQty,
+    cartCount,
     isOutOfStock,
   ]);
 
@@ -1536,7 +1593,6 @@ export default function MarketDetail() {
     ? `${variantLabel} · Qty: ${stickyQty}${inCart ? " · In cart" : ""}`
     : "Select options";
 
-  /** Inline Size guide — circled spot, clothes/shoes only */
   const sizeGuideSlot = canShowSizeGuide ? (
     <button
       type="button"
@@ -1681,7 +1737,7 @@ export default function MarketDetail() {
                   label="Product Details"
                   value={descriptionPreview || "Description, specs & features"}
                   onClick={() => setShowDescriptionPage(true)}
-                  multiline={true} 
+                  multiline={true}
                 />
               )}
 
@@ -1762,8 +1818,7 @@ export default function MarketDetail() {
             </div>
           </div>
         )}
-        
-        {/* ADDED FOOTER HERE */}
+
         {!loading && <Footer />}
       </div>
 
@@ -1825,7 +1880,9 @@ export default function MarketDetail() {
                       updatingQty ||
                       isOutOfStock ||
                       cartLineQty >= MAX_QTY ||
-                      (stockLeft != null && cartLineQty >= stockLeft)
+                      (stockLeft != null &&
+                        stockLeft > 0 &&
+                        cartLineQty >= stockLeft)
                     }
                     aria-label="Increase quantity"
                   >
@@ -1858,7 +1915,7 @@ export default function MarketDetail() {
                         setQty((q) =>
                           Math.min(
                             MAX_QTY,
-                            stockLeft > 0
+                            stockLeft != null && stockLeft > 0
                               ? Math.min(stockLeft, q + 1)
                               : q + 1
                           )
@@ -1867,7 +1924,7 @@ export default function MarketDetail() {
                       disabled={
                         isOutOfStock ||
                         qty >= MAX_QTY ||
-                        (stockLeft != null && qty >= stockLeft)
+                        (stockLeft != null && stockLeft > 0 && qty >= stockLeft)
                       }
                       aria-label="Increase quantity"
                     >
@@ -1893,7 +1950,11 @@ export default function MarketDetail() {
 
       {/* Draggable Floating Cart Button */}
       {cartCount > 0 && (
-        <FloatingCartButton count={cartCount} onClick={goToCart} icon={Icon.cart} />
+        <FloatingCartButton
+          count={cartCount}
+          onClick={goToCart}
+          icon={Icon.cart}
+        />
       )}
 
       <VariantBottomSheet
