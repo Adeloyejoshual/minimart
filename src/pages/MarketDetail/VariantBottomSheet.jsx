@@ -14,6 +14,9 @@ import { formatPrice, getProductImage } from "../../config/marketplace";
 import useModalBack from "../../hooks/useModalBack";
 import "./styles/VariantBottomSheet.css";
 
+/* ════════════════════════════════════════════════════════════
+   HELPERS
+════════════════════════════════════════════════════════════ */
 const getSafeImageUrl = (img) => {
   if (!img) return "";
   if (typeof img === "string") return img;
@@ -31,7 +34,7 @@ const unlockBodyScroll = () => {
   document.documentElement.style.overflow = "";
 };
 
-// Safely parse attributes whether it's an object or JSON string from PostgreSQL
+// Safely parse attributes whether it's an object or JSON string
 const parseAttributes = (attr) => {
   if (!attr) return null;
   if (typeof attr === "object") return attr;
@@ -45,6 +48,22 @@ const parseAttributes = (attr) => {
   return null;
 };
 
+// Robustly find a valid price, stripping any string commas
+const pickPrice = (...vals) => {
+  for (const v of vals) {
+    if (v == null || v === "") continue;
+    const n =
+      typeof v === "string"
+        ? Number(String(v).replace(/,/g, ""))
+        : Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+};
+
+/* ════════════════════════════════════════════════════════════
+   COMPONENT
+════════════════════════════════════════════════════════════ */
 export default function VariantBottomSheet({
   isOpen,
   onClose,
@@ -147,7 +166,9 @@ export default function VariantBottomSheet({
 
   const handleSelectOption = useCallback(
     (key, val) => {
-      const current = selectedVariant ? parseAttributes(selectedVariant.attributes) || {} : {};
+      const current = selectedVariant
+        ? parseAttributes(selectedVariant.attributes) || {}
+        : {};
       const match =
         normalizedVariants.find(
           (v) =>
@@ -162,15 +183,18 @@ export default function VariantBottomSheet({
     [normalizedVariants, selectedVariant, onSelectVariant]
   );
 
-  const displayPrice = useMemo(() => {
-    const raw =
-      selectedVariant?.price ??
-      selectedVariant?.sale_price ??
-      product?.price ??
-      product?.sale_price ??
-      0;
-    return Number(raw) || 0;
-  }, [selectedVariant, product]);
+  // FIX: Added robust price parsing and fallbacks for selling_price
+  const displayPrice = useMemo(
+    () =>
+      pickPrice(
+        selectedVariant?.price,
+        selectedVariant?.sale_price,
+        product?.price,
+        product?.sale_price,
+        product?.selling_price
+      ),
+    [selectedVariant, product]
+  );
 
   const displayImage = useMemo(() => {
     return (
@@ -192,6 +216,7 @@ export default function VariantBottomSheet({
   );
 
   const safeQty = Math.max(1, Number(qty) || 1);
+  const lineTotal = displayPrice * safeQty;
 
   const selectedLabels = useMemo(() => {
     if (!selectedVariant) return [];
@@ -234,8 +259,6 @@ export default function VariantBottomSheet({
   if (!isOpen && !closing) return null;
   if (!product) return null;
 
-  const lineTotal = displayPrice * safeQty;
-
   return (
     <div
       className={`mdp-bs-overlay${closing ? " mdp-bs-overlay--closing" : ""}`}
@@ -243,7 +266,9 @@ export default function VariantBottomSheet({
       role="presentation"
     >
       <div
-        className={`mdp-bs-container${closing ? " mdp-bs-container--closing" : ""}`}
+        className={`mdp-bs-container${
+          closing ? " mdp-bs-container--closing" : ""
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -298,45 +323,47 @@ export default function VariantBottomSheet({
           )}
 
           {/* RENDER STRUCTURED ATTRIBUTES (e.g. Color, Size, Storage, Material) */}
-          {hasAttributes && attributeKeys.map((key) => {
-            const values = getUniqueAttrValues(key);
-            if (!values.length) return null;
+          {hasAttributes &&
+            attributeKeys.map((key) => {
+              const values = getUniqueAttrValues(key);
+              if (!values.length) return null;
 
-            return (
-              <div key={String(key)} className="mdp-bs-group">
-                <p className="mdp-bs-label">{String(key)}</p>
-                <div className="mdp-bs-options">
-                  {values.map((val) => {
-                    const matchedVar = normalizedVariants.find(
-                      (v) => v.parsedAttrs?.[key] === val
-                    );
-                    const oos = Number(matchedVar?.stock ?? 1) <= 0;
-                    const active =
-                      parseAttributes(selectedVariant?.attributes)?.[key] === val;
+              return (
+                <div key={String(key)} className="mdp-bs-group">
+                  <p className="mdp-bs-label">{String(key)}</p>
+                  <div className="mdp-bs-options">
+                    {values.map((val) => {
+                      const matchedVar = normalizedVariants.find(
+                        (v) => v.parsedAttrs?.[key] === val
+                      );
+                      const oos = Number(matchedVar?.stock ?? 1) <= 0;
+                      const active =
+                        parseAttributes(selectedVariant?.attributes)?.[key] ===
+                        val;
 
-                    const valText =
-                      typeof val === "object"
-                        ? val?.name || val?.title || String(val)
-                        : String(val);
+                      const valText =
+                        typeof val === "object"
+                          ? val?.name || val?.title || String(val)
+                          : String(val);
 
-                    return (
-                      <button
-                        key={valText}
-                        type="button"
-                        className={`mdp-bs-btn${active ? " active" : ""}${
-                          oos ? " oos" : ""
-                        }`}
-                        onClick={() => handleSelectOption(key, val)}
-                        disabled={oos}
-                      >
-                        {valText}
-                      </button>
-                    );
-                  })}
+                      return (
+                        <button
+                          key={valText}
+                          type="button"
+                          className={`mdp-bs-btn${active ? " active" : ""}${
+                            oos ? " oos" : ""
+                          }`}
+                          onClick={() => handleSelectOption(key, val)}
+                          disabled={oos}
+                        >
+                          {valText}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
 
           {/* RENDER FLAT VARIANTS (If no structured attributes exist) */}
           {!hasAttributes && normalizedVariants.length > 1 && (
@@ -346,7 +373,7 @@ export default function VariantBottomSheet({
                 {normalizedVariants.map((v) => {
                   const oos = Number(v.stock ?? 1) <= 0;
                   const active = selectedVariant?.id === v.id;
-                  
+
                   const valText =
                     v.name ||
                     v.title ||
