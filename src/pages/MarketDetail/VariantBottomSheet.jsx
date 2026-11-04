@@ -6,7 +6,7 @@ import React, {
   useRef,
 } from "react";
 import { formatPrice, getProductImage } from "../../config/marketplace";
-import useModalBack from "../../hooks/useModalBack"; // <-- IMPORT HOOK
+import useModalBack from "../../hooks/useModalBack";
 import "./styles/VariantBottomSheet.css";
 
 const getSafeImageUrl = (img) => {
@@ -45,7 +45,6 @@ export default function VariantBottomSheet({
   const [closing, setClosing] = useState(false);
   const closingTimerRef = useRef(null);
 
-  // This function runs the animation, then fires the actual onClose prop
   const triggerAnimatedClose = useCallback(() => {
     if (closingTimerRef.current) clearTimeout(closingTimerRef.current);
     setClosing(true);
@@ -56,7 +55,6 @@ export default function VariantBottomSheet({
     }, 200);
   }, [onClose]);
 
-  // --> INITIALIZE HARDWARE BACK HOOK
   const requestClose = useModalBack(isOpen, triggerAnimatedClose);
 
   useEffect(() => {
@@ -66,8 +64,7 @@ export default function VariantBottomSheet({
     }
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
-    
-    // Call requestClose for Escape key
+
     const onKey = (e) => {
       if (e.key === "Escape") requestClose();
     };
@@ -89,7 +86,6 @@ export default function VariantBottomSheet({
     if (isOpen) setClosing(false);
   }, [isOpen]);
 
-  // Extract structured attribute keys (e.g., ["Color", "Size"])
   const attributeKeys = useMemo(() => {
     const keys = new Set();
     if (Array.isArray(variants)) {
@@ -166,7 +162,6 @@ export default function VariantBottomSheet({
   const safeQty = Math.max(1, Number(qty) || 1);
 
   const selectedLabels = useMemo(() => {
-    // If it has structured attributes
     if (selectedVariant?.attributes && Object.keys(selectedVariant.attributes).length > 0) {
       return Object.values(selectedVariant.attributes)
         .map((v) =>
@@ -174,9 +169,11 @@ export default function VariantBottomSheet({
         )
         .filter(Boolean);
     }
-    // Fallback to name or SKU for flat variants
-    if (selectedVariant?.name || selectedVariant?.sku) {
-      return [selectedVariant.name || selectedVariant.sku];
+    if (selectedVariant?.name || selectedVariant?.title) {
+      return [selectedVariant.name || selectedVariant.title];
+    }
+    if (selectedVariant?.sku) {
+      return [selectedVariant.sku.replace(/[-_]/g, " ")];
     }
     return [];
   }, [selectedVariant]);
@@ -193,7 +190,7 @@ export default function VariantBottomSheet({
     if (isOutOfStock || isSubmitting) return;
     try {
       await onConfirm?.();
-      requestClose(); 
+      requestClose();
     } catch (e) {
       console.error("Cart error:", e);
       unlockBodyScroll();
@@ -208,7 +205,7 @@ export default function VariantBottomSheet({
   return (
     <div
       className={`mdp-bs-overlay${closing ? " mdp-bs-overlay--closing" : ""}`}
-      onClick={requestClose} 
+      onClick={requestClose}
       role="presentation"
     >
       <div
@@ -306,7 +303,7 @@ export default function VariantBottomSheet({
             );
           })}
 
-          {/* RENDER FLAT VARIANTS (If backend sends variants without attributes) */}
+          {/* RENDER FLAT VARIANTS (Falls back gracefully to SKU if name/attributes are null) */}
           {!hasAttributes && variants.length > 1 && (
             <div className="mdp-bs-group">
               <p className="mdp-bs-label">Options</p>
@@ -314,7 +311,13 @@ export default function VariantBottomSheet({
                 {variants.map((v) => {
                   const oos = Number(v.stock ?? 1) <= 0;
                   const active = selectedVariant?.id === v.id;
-                  const valText = v.name || v.sku || `Option ${v.id}`;
+                  
+                  // Graceful label fallback chain
+                  const valText =
+                    v.name ||
+                    v.title ||
+                    (v.sku ? String(v.sku).replace(/[-_]/g, " ") : null) ||
+                    `Option ${v.id}`;
 
                   return (
                     <button
