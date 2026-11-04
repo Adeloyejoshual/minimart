@@ -1,7 +1,6 @@
 /**
  * src/pages/MarketDetail/ProductReviews.jsx
  * Shows max 3 reviews on PDP; "See all" opens full Reviews page.
- * Clear Rate CTA — outline pill when reviews exist, solid banner when empty.
  */
 
 import { useState, useEffect, memo } from "react";
@@ -133,7 +132,7 @@ export default function ProductReviews({
 
   return (
     <div className="mdp-reviews-container">
-      {/* Header — title + Rate pill when reviews already exist */}
+      {/* Header — Title + Rate Product button */}
       <div className="mdp-reviews-header">
         <h3 className="mdp-section-title">
           <span className="mdp-section-title__star" aria-hidden="true">
@@ -142,7 +141,7 @@ export default function ProductReviews({
           Ratings &amp; Reviews
         </h3>
 
-        {total > 0 && canOpenRate && (
+        {canOpenRate && (
           <button
             type="button"
             className="mdp-rate-cta-btn"
@@ -169,7 +168,7 @@ export default function ProductReviews({
         </div>
       </div>
 
-      {/* Body */}
+      {/* Reviews List or Clean Empty Box */}
       {loading && reviews.length === 0 ? (
         <div className="mdp-reviews-loading">Loading reviews…</div>
       ) : visible.length > 0 ? (
@@ -222,13 +221,10 @@ export default function ProductReviews({
           })}
         </div>
       ) : (
-        /* Empty — obvious place to rate */
-        <div className="mdp-reviews-empty">
-          <p className="mdp-reviews-empty__title">
-            Have you bought or used this product?
-          </p>
-          <p className="mdp-reviews-empty__sub">
-            Be the first to leave a rating and help other buyers!
+        /* Clean Empty State */
+        <div className="mdp-reviews-empty" style={{ padding: "16px 12px" }}>
+          <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ink2, #6B7280)" }}>
+            No reviews yet.
           </p>
           {canOpenRate && (
             <button
@@ -237,13 +233,13 @@ export default function ProductReviews({
               onClick={onOpenRateModal}
             >
               <EditIcon />
-              Rate This Product
+              Rate Product
             </button>
           )}
         </div>
       )}
 
-      {/* See all */}
+      {/* See all button */}
       {showSeeAll && (
         <button
           type="button"
