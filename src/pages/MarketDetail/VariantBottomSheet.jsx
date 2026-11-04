@@ -57,7 +57,6 @@ export default function VariantBottomSheet({
   }, [onClose]);
 
   // --> INITIALIZE HARDWARE BACK HOOK
-  // We pass triggerAnimatedClose so hardware back gets the slick animation too
   const requestClose = useModalBack(isOpen, triggerAnimatedClose);
 
   useEffect(() => {
@@ -90,6 +89,7 @@ export default function VariantBottomSheet({
     if (isOpen) setClosing(false);
   }, [isOpen]);
 
+  // Extract structured attribute keys (e.g., ["Color", "Size"])
   const attributeKeys = useMemo(() => {
     const keys = new Set();
     if (Array.isArray(variants)) {
@@ -101,6 +101,8 @@ export default function VariantBottomSheet({
     }
     return [...keys];
   }, [variants]);
+
+  const hasAttributes = attributeKeys.length > 0;
 
   const getUniqueAttrValues = useCallback(
     (key) => {
@@ -164,12 +166,19 @@ export default function VariantBottomSheet({
   const safeQty = Math.max(1, Number(qty) || 1);
 
   const selectedLabels = useMemo(() => {
-    if (!selectedVariant?.attributes) return [];
-    return Object.values(selectedVariant.attributes)
-      .map((v) =>
-        typeof v === "object" ? v?.name || v?.title || String(v) : String(v)
-      )
-      .filter(Boolean);
+    // If it has structured attributes
+    if (selectedVariant?.attributes && Object.keys(selectedVariant.attributes).length > 0) {
+      return Object.values(selectedVariant.attributes)
+        .map((v) =>
+          typeof v === "object" ? v?.name || v?.title || String(v) : String(v)
+        )
+        .filter(Boolean);
+    }
+    // Fallback to name or SKU for flat variants
+    if (selectedVariant?.name || selectedVariant?.sku) {
+      return [selectedVariant.name || selectedVariant.sku];
+    }
+    return [];
   }, [selectedVariant]);
 
   const decQty = useCallback(() => {
@@ -184,7 +193,7 @@ export default function VariantBottomSheet({
     if (isOutOfStock || isSubmitting) return;
     try {
       await onConfirm?.();
-      requestClose(); // Use requestClose after success to close sheet
+      requestClose(); 
     } catch (e) {
       console.error("Cart error:", e);
       unlockBodyScroll();
@@ -199,7 +208,7 @@ export default function VariantBottomSheet({
   return (
     <div
       className={`mdp-bs-overlay${closing ? " mdp-bs-overlay--closing" : ""}`}
-      onClick={requestClose} // OVERLAY CLICK -> requestClose
+      onClick={requestClose} 
       role="presentation"
     >
       <div
@@ -238,7 +247,7 @@ export default function VariantBottomSheet({
           <button
             type="button"
             className="mdp-bs-close"
-            onClick={requestClose} // X BUTTON -> requestClose
+            onClick={requestClose}
             aria-label="Close"
           >
             ✕
@@ -257,7 +266,8 @@ export default function VariantBottomSheet({
             </button>
           )}
 
-          {attributeKeys.map((key) => {
+          {/* RENDER STRUCTURED ATTRIBUTES (e.g., Color, Size) */}
+          {hasAttributes && attributeKeys.map((key) => {
             const values = getUniqueAttrValues(key);
             if (!values.length) return null;
 
@@ -295,6 +305,34 @@ export default function VariantBottomSheet({
               </div>
             );
           })}
+
+          {/* RENDER FLAT VARIANTS (If backend sends variants without attributes) */}
+          {!hasAttributes && variants.length > 1 && (
+            <div className="mdp-bs-group">
+              <p className="mdp-bs-label">Options</p>
+              <div className="mdp-bs-options">
+                {variants.map((v) => {
+                  const oos = Number(v.stock ?? 1) <= 0;
+                  const active = selectedVariant?.id === v.id;
+                  const valText = v.name || v.sku || `Option ${v.id}`;
+
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      className={`mdp-bs-btn${active ? " active" : ""}${
+                        oos ? " oos" : ""
+                      }`}
+                      onClick={() => onSelectVariant?.(v)}
+                      disabled={oos}
+                    >
+                      {valText}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Quantity */}
           <div className="mdp-bs-group mdp-bs-qty-row">
