@@ -37,25 +37,42 @@ const HeaderMenu = memo(function HeaderMenu({
     <>
       <div className="chat-menu-overlay" onClick={onClose}/>
       <div className="chat-menu" role="menu" aria-label="Chat options">
-        <button className="chat-menu-item chat-menu-danger" onClick={handleDelete} role="menuitem">
+
+        <button
+          className="chat-menu-item chat-menu-danger"
+          onClick={handleDelete}
+          role="menuitem"
+        >
           {Icon.trash}
           <span>Delete Chat</span>
         </button>
 
         {otherUser?.id && (
-          <button className="chat-menu-item" onClick={goProfile} role="menuitem">
+          <button
+            className="chat-menu-item"
+            onClick={goProfile}
+            role="menuitem"
+          >
             {Icon.user}
             <span>View Profile</span>
           </button>
         )}
 
-        <button className="chat-menu-item" onClick={handleMute} role="menuitem">
+        <button
+          className="chat-menu-item"
+          onClick={handleMute}
+          role="menuitem"
+        >
           {muted ? Icon.unmute : Icon.mute}
           <span>{muted ? "Unmute" : "Mute"} Notifications</span>
         </button>
 
         {isBuyer && (
-          <button className="chat-menu-item chat-menu-danger" onClick={handleReport} role="menuitem">
+          <button
+            className="chat-menu-item chat-menu-danger"
+            onClick={handleReport}
+            role="menuitem"
+          >
             {Icon.flag}
             <span>Report Seller</span>
           </button>
@@ -88,7 +105,9 @@ const Avatar = memo(function Avatar({ user: u }) {
 
   const src = !imgErr && u?.profile_image
     ? u.profile_image
-    : `https://ui-avatars.com/api/?name=${encodeURIComponent(u?.name || "U")}&background=FF5C00&color=fff&size=80`;
+    : `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        u?.name || "U"
+      )}&background=FF5C00&color=fff&size=80`;
 
   return (
     <div className="chat-avatar-wrap">
@@ -105,7 +124,7 @@ const Avatar = memo(function Avatar({ user: u }) {
 });
 
 /* ════════════════════════════════════
-   PRODUCT THUMB (Handles URL navigation)
+   PRODUCT THUMB (Handles correct Slug navigation)
 ════════════════════════════════════ */
 const ProductThumb = memo(function ProductThumb({ product, navigate }) {
   const [imgErr, setImgErr] = useState(false);
@@ -114,11 +133,9 @@ const ProductThumb = memo(function ProductThumb({ product, navigate }) {
   const handleClick = useCallback(() => {
     if (!product) return;
     
-    // STRICTLY PREFER SLUG. It will now be provided by the backend rewrite.
+    // ★ STRICTLY USE SLUG from the updated backend, with UUID as fallback
     const dest = product.slug || product.id;
-    if (dest) {
-      navigate(`/product/${dest}`);
-    }
+    if (dest) navigate(`/product/${dest}`);
   }, [product, navigate]);
 
   if (!product?.images?.[0] || imgErr) return null;
@@ -141,9 +158,19 @@ const ProductThumb = memo(function ProductThumb({ product, navigate }) {
    STATUS LINE
 ════════════════════════════════════ */
 const StatusLine = memo(function StatusLine({ otherUser, isTyping }) {
-  if (isTyping) return <div className="chat-header-status typing" aria-live="polite">typing…</div>;
-  if (otherUser?.is_online) return <div className="chat-header-status online">Online</div>;
-  return <div className="chat-header-status offline">{lastSeenText(otherUser?.last_login)}</div>;
+  if (isTyping)
+    return (
+      <div className="chat-header-status typing" aria-live="polite">
+        typing…
+      </div>
+    );
+  if (otherUser?.is_online)
+    return <div className="chat-header-status online">Online</div>;
+  return (
+    <div className="chat-header-status offline">
+      {lastSeenText(otherUser?.last_login)}
+    </div>
+  );
 });
 
 /* ════════════════════════════════════
@@ -151,7 +178,9 @@ const StatusLine = memo(function StatusLine({ otherUser, isTyping }) {
 ════════════════════════════════════ */
 function useIsDesktop() {
   const [desktop, setDesktop] = useState(
-    () => typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : false
+    () => typeof window !== "undefined"
+      ? window.matchMedia("(min-width: 1024px)").matches
+      : false
   );
 
   useEffect(() => {
@@ -187,8 +216,11 @@ function ChatHeader({
 
   const goBack = useCallback(() => {
     if (isDesktop) {
-      if (onDeselectThread) onDeselectThread();
-      else navigate("/messages", { replace: true });
+      if (onDeselectThread) {
+        onDeselectThread();
+      } else {
+        navigate("/messages", { replace: true });
+      }
     } else {
       navigate(-1);
     }
@@ -200,8 +232,10 @@ function ChatHeader({
 
   return (
     <>
-      <header className={`chat-header${isDesktop ? " chat-header--desktop" : ""}`} role="banner">
-        
+      <header
+        className={`chat-header${isDesktop ? " chat-header--desktop" : ""}`}
+        role="banner"
+      >
         {!isDesktop && (
           <button className="chat-icon-btn" onClick={goBack} aria-label="Back">
             {Icon.back}
@@ -224,13 +258,15 @@ function ChatHeader({
           <div className="chat-header-name">
             {otherUser?.name || "…"}
             {otherUser?.store_name && (
-              <span className="chat-header-store">{otherUser.store_name}</span>
+              <span className="chat-header-store">
+                {otherUser.store_name}
+              </span>
             )}
           </div>
           <StatusLine otherUser={otherUser} isTyping={isTyping}/>
         </div>
 
-        {/* Product thumb will trigger the navigation */}
+        {/* Product thumb */}
         <ProductThumb product={product} navigate={navigate}/>
 
         <ConnectionDot connected={sockReady}/>
