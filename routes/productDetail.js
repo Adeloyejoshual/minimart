@@ -1,11 +1,13 @@
 /**
- * routes/productDetail.js — v2
+ * routes/productDetail.js — v2.1
  *
  * Changes from previous version:
  *  - ACTIVE_STATUSES constant wired into ACTIVE_WHERE (was unused)
  *  - ACTIVE_WHERE now also guards: active_until IS NULL OR active_until > NOW()
  *    so expired trial listings are hidden automatically (mirrors homepage.js v4)
  *  - GET /slug/:slug — added active_until expiry guard
+ *  - GET /slug/:slug — UUID_RE fallback: if param looks like a UUID, look up
+ *    p.id::text instead of p.slug (legacy chat / shared links)
  *  - GET /id/:id    — added active_until expiry guard
  *  - POST /products/:id/view  — status guard added (active + active_limited)
  *  - POST /products/:id/click — status guard added
@@ -34,6 +36,13 @@ const router = express.Router();
  * Used in every WHERE clause that filters public-facing queries.
  */
 const ACTIVE_STATUSES = `('active', 'active_limited')`;
+
+/*
+ * UUID_RE — used by GET /slug/:slug so legacy chat links that still
+ * pass a product UUID (instead of a slug) resolve correctly.
+ */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -577,6 +586,8 @@ const ACTIVE_WHERE = `
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/product/slug/:slug
+   Accepts a real slug OR a legacy UUID (from old chat links).
+   UUID_RE picks the lookup column so both work on one route.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
@@ -584,6 +595,9 @@ router.get("/slug/:slug", async (req, res) => {
   if (!slug || slug === "undefined") {
     return res.status(400).json({ message: "Invalid slug" });
   }
+
+  const isUuid = UUID_RE.test(slug);
+  const whereCol = isUuid ? "p.id::text" : "p.slug";
 
   try {
     const { rows } = await pool.query(
@@ -595,7 +609,7 @@ router.get("/slug/:slug", async (req, res) => {
        LEFT   JOIN subscription_plans   sp
                ON  sp.slug      = u.subscription_plan
                AND sp.is_active = TRUE
-       WHERE  p.slug = $1
+       WHERE  ${whereCol} = $1
          AND  ${ACTIVE_WHERE}
        LIMIT  1`,
       [slug]
@@ -604,14 +618,15 @@ router.get("/slug/:slug", async (req, res) => {
     if (!rows.length) {
       /* Debug — show why it was filtered */
       try {
+        const debugCol = isUuid ? "id::text" : "slug";
         const { rows: debug } = await pool.query(
           `SELECT id, slug, status, is_active, is_deleted,
                   moderation_status, active_until
-           FROM   public.products WHERE slug = $1 LIMIT 1`,
+           FROM   public.products WHERE ${debugCol} = $1 LIMIT 1`,
           [slug]
         );
         if (!debug.length) {
-          console.warn(`[product/slug] slug not found in DB: "${slug}"`);
+          console.warn(`[product/slug] ${isUuid ? "id" : "slug"} not found in DB: "${slug}"`);
         } else {
           const d = debug[0];
           console.warn(
@@ -620,7 +635,7 @@ router.get("/slug/:slug", async (req, res) => {
             `is_active=${d.is_active}`,
             `is_deleted=${d.is_deleted}`,
             `moderation=${d.moderation_status}`,
-            `active_until=${d.active_until}`   // ← now shows expiry in debug
+            `active_until=${d.active_until}`
           );
         }
       } catch (_) {}
