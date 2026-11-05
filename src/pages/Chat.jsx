@@ -9,7 +9,7 @@
  * - Offers / Counter-offers
  * - Multi-image upload    (max 10 | 5 MB each)
  * - Location sharing
- * - Product sharing
+ * - Product sharing (with Slug navigation support)
  * - Context menu
  * - Typing indicators
  * - Full-screen media viewer (swipe / keyboard / zoom / download)
@@ -324,6 +324,7 @@ export default function Chat({ user }) {
           last_login   : data.last_login        || null,
         }));
 
+        // ★ Captures product_slug from conversations.js response
         if (data.product_title) {
           safe(() => setProduct({
             title : data.product_title,
@@ -856,7 +857,7 @@ export default function Chat({ user }) {
       {
         shared_product: {
           id   : product.id    || "",
-          slug : product.slug  || product.id || "",
+          slug : product.slug  || product.id || "", // ★ Attaches slug when sharing
           title: product.title,
           price: product.price,
           image: product.images?.[0] || "",
@@ -920,7 +921,6 @@ export default function Chat({ user }) {
   /* ── Keyboard (textarea) — Enter = newline, Send button = send ── */
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Escape") setReplyTo(null);
-    /* Enter always inserts newline naturally on mobile */
   }, []);
 
   /* ── Input change with auto-resize ── */
