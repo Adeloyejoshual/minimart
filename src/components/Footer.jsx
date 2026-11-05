@@ -168,40 +168,6 @@ const Footer = memo(function Footer({
 
       <div className="lm-footer-container">
 
-        {/* SELLER PROMOTION */}
-
-        <section className="lm-footer-seller-cta">
-
-          <div className="lm-footer-seller-content">
-
-            <span className="lm-footer-eyebrow">
-              GROW WITH LOEMART
-            </span>
-
-            <h2>
-              Have something to sell?
-              <br />
-              <span>Reach more customers.</span>
-            </h2>
-
-            <p>
-              Join Loemart and showcase your products
-              to customers across Nigeria.
-              Start listing your products today.
-            </p>
-
-          </div>
-
-          <Link
-            to="/become-seller"
-            className="lm-footer-seller-button"
-          >
-            Start Selling
-            <span aria-hidden="true">→</span>
-          </Link>
-
-        </section>
-
         {/* TRUST SECTION */}
 
         <section
