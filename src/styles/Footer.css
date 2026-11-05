@@ -28,79 +28,6 @@
   margin: 0 auto;
 }
 
-/* SELLER CTA */
-
-.lm-footer-seller-cta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 30px;
-  padding: 38px 42px;
-  margin-bottom: 32px;
-  background:
-    radial-gradient(
-      circle at 85% 20%,
-      rgba(255, 92, 0, 0.2),
-      transparent 35%
-    ),
-    linear-gradient(120deg, #211b17, #191613);
-  border: 1px solid rgba(255, 92, 0, 0.2);
-  border-radius: 18px;
-}
-
-.lm-footer-eyebrow {
-  display: inline-block;
-  color: var(--lm-orange-light);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 1.8px;
-  margin-bottom: 12px;
-}
-
-.lm-footer-seller-content h2 {
-  margin: 0 0 12px;
-  color: #ffffff;
-  font-size: clamp(23px, 3vw, 34px);
-  line-height: 1.2;
-  font-weight: 800;
-  letter-spacing: -0.8px;
-}
-
-.lm-footer-seller-content h2 span {
-  color: var(--lm-orange-light);
-}
-
-.lm-footer-seller-content p {
-  max-width: 490px;
-  margin: 0;
-  color: #a9a19a;
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.lm-footer-seller-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  min-height: 48px;
-  padding: 0 24px;
-  flex-shrink: 0;
-  background: var(--lm-orange);
-  color: #ffffff;
-  border-radius: 9px;
-  font-size: 14px;
-  font-weight: 800;
-  text-decoration: none;
-  transition: background 0.2s, transform 0.2s;
-}
-
-.lm-footer-seller-button:hover {
-  background: #e64f00;
-  transform: translateY(-2px);
-  color: #ffffff;
-}
-
 /* TRUST */
 
 .lm-footer-trust {
@@ -489,35 +416,14 @@
 
 @media (max-width: 600px) {
   .lm-footer {
-    padding: 0 15px 25px;
-    margin-top: 30px;
-  }
-
-  .lm-footer-seller-cta {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 22px;
-    padding: 26px 21px;
-    margin-bottom: 25px;
-    border-radius: 13px;
-  }
-
-  .lm-footer-seller-content h2 {
-    font-size: 25px;
-  }
-
-  .lm-footer-seller-content p {
-    font-size: 12px;
-  }
-
-  .lm-footer-seller-button {
-    width: 100%;
+    padding: 0 15px 18px;
+    margin-top: 12px;
   }
 
   .lm-footer-trust {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 20px 12px;
-    padding-bottom: 27px;
+    gap: 14px 10px;
+    padding: 8px 0 18px;
   }
 
   .lm-footer-trust-item {
@@ -541,8 +447,8 @@
   }
 
   .lm-footer-main {
-    padding: 30px 0;
-    gap: 32px;
+    padding: 20px 0;
+    gap: 22px;
   }
 
   .lm-footer-logo {
@@ -551,7 +457,7 @@
 
   .lm-footer-navigation {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 30px 18px;
+    gap: 22px 14px;
   }
 
   .lm-footer-column h3 {
@@ -560,7 +466,7 @@
   }
 
   .lm-footer-column ul {
-    gap: 12px;
+    gap: 9px;
   }
 
   .lm-footer-column a {
@@ -571,7 +477,7 @@
     display: grid;
     grid-template-columns: 42px 1fr;
     gap: 12px;
-    padding: 17px 14px;
+    padding: 13px 12px;
   }
 
   .lm-footer-feedback-icon {
