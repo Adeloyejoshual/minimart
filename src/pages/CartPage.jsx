@@ -10,10 +10,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 
-import {
-  formatPrice,
-  getProductImage,
-} from "../config/marketplace";
+import { formatPrice } from "../config/marketplace";
 import useWishlist from "../hooks/useWishlist";
 import { getRecentlyViewed } from "../loemart/mobile/mobileHelpers";
 
@@ -59,21 +56,18 @@ const writeGuestCart = (cart) => {
 ═══════════════════════════════════════════════════════════════ */
 const Icon = {
   minus: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
-      strokeLinecap="round" width={14} height={14}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" width={14} height={14}>
       <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   ),
   plus: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
-      strokeLinecap="round" width={14} height={14}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" width={14} height={14}>
       <line x1="12" y1="5" x2="12" y2="19" />
       <line x1="5"  y1="12" x2="19" y2="12" />
     </svg>
   ),
   trash: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
       <polyline points="3 6 5 6 21 6" />
       <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6M14 11v6" />
@@ -81,34 +75,29 @@ const Icon = {
     </svg>
   ),
   heart: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
     </svg>
   ),
   arrow: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
       <line x1="5" y1="12" x2="19" y2="12" />
       <polyline points="12 5 19 12 12 19" />
     </svg>
   ),
   back: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
       <line x1="19" y1="12" x2="5" y2="12" />
       <polyline points="12 19 5 12 12 5" />
     </svg>
   ),
   shield: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
     </svg>
   ),
   truck: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
       <rect x="1" y="3" width="15" height="13" />
       <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
       <circle cx="5.5" cy="18.5" r="2.5" />
@@ -116,15 +105,13 @@ const Icon = {
     </svg>
   ),
   tag: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
       <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
       <line x1="7" y1="7" x2="7.01" y2="7" />
     </svg>
   ),
   cart: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" width={48} height={48}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}>
       <circle cx="9"  cy="21" r="1" />
       <circle cx="20" cy="21" r="1" />
       <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
@@ -142,11 +129,7 @@ function RecentlyViewed({ onProductClick }) {
     try {
       const list = getRecentlyViewed?.() || [];
       if (Array.isArray(list)) {
-        setRecent(
-          list
-            .filter((item) => item && (item.id || item.productId || item._id))
-            .slice(0, 10)
-        );
+        setRecent(list.filter((item) => item && (item.id || item.productId || item._id)).slice(0, 10));
       }
     } catch {
       setRecent([]);
@@ -158,18 +141,11 @@ function RecentlyViewed({ onProductClick }) {
   return (
     <section className="cp-recently-viewed" aria-label="Recently viewed products">
       <h3 className="cp-recently-viewed__title">Recently Viewed</h3>
-      {/* 
-        NOTE: The vertical scroll issue is fixed in the CSS 
-        via touch-action: pan-y and overscroll-behavior-x
-      */}
       <div className="cp-recently-viewed__scroll">
         {recent.map((item, idx) => {
           const id = item.id || item.productId || item._id;
           const price = Number(item.price ?? item.selling_price ?? 0);
-          const img =
-            item.image ||
-            item.cover_image ||
-            (Array.isArray(item.images) ? item.images[0] : null);
+          const img = item.image || item.cover_image || (Array.isArray(item.images) ? item.images[0] : null);
           const slug = item.slug || id;
 
           return (
@@ -181,22 +157,13 @@ function RecentlyViewed({ onProductClick }) {
             >
               <div className="cp-recently-viewed__img-wrap">
                 {img ? (
-                  <img
-                    src={img}
-                    alt={item.name || item.title || "Product"}
-                    className="cp-recently-viewed__img"
-                    loading="lazy"
-                  />
+                  <img src={img} alt={item.name || item.title || "Product"} className="cp-recently-viewed__img" loading="lazy" />
                 ) : (
                   <span style={{ fontSize: 20 }}>📦</span>
                 )}
               </div>
-              <span className="cp-recently-viewed__name">
-                {item.name || item.title || "Product"}
-              </span>
-              <span className="cp-recently-viewed__price">
-                {formatPrice(price)}
-              </span>
+              <span className="cp-recently-viewed__name">{item.name || item.title || "Product"}</span>
+              <span className="cp-recently-viewed__price">{formatPrice(price)}</span>
             </button>
           );
         })}
@@ -206,7 +173,7 @@ function RecentlyViewed({ onProductClick }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SKELETON
+   SKELETON & ERROR STATES
 ═══════════════════════════════════════════════════════════════ */
 function CartSkeleton() {
   return (
@@ -225,9 +192,6 @@ function CartSkeleton() {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   EMPTY STATE
-═══════════════════════════════════════════════════════════════ */
 function EmptyCart({ onShop, onProductClick }) {
   return (
     <div className="cp-empty">
@@ -249,9 +213,6 @@ function EmptyCart({ onShop, onProductClick }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   ERROR STATE
-═══════════════════════════════════════════════════════════════ */
 function ErrorState({ message, onRetry }) {
   return (
     <div className="cp-empty">
@@ -272,9 +233,7 @@ function ErrorState({ message, onRetry }) {
 /* ═══════════════════════════════════════════════════════════════
    CART ITEM
 ═══════════════════════════════════════════════════════════════ */
-function CartItem({
-  item, onQtyChange, onRemove, onMoveToWishlist, onClick,
-}) {
+function CartItem({ item, onQtyChange, onRemove, onMoveToWishlist, onClick }) {
   const [localQty, setLocalQty] = useState(item.qty ?? 1);
   const debounceRef = useRef(null);
 
@@ -282,31 +241,48 @@ function CartItem({
     setLocalQty(item.qty ?? 1);
   }, [item.qty]);
 
-  const stock = item.stock ?? 99;
+  // Backend treats 0/null stock as 999. If it's missing entirely on guest carts, use 999.
+  const stock = item.stock && item.stock > 0 ? Number(item.stock) : 999;
   const price = Number(item.price ?? 0);
   const orig  = Number(item.originalPrice ?? item.original_price ?? 0);
   const hasDiscount = orig > price;
   const savings     = hasDiscount ? (orig - price) * localQty : 0;
   const subtotal    = price * localQty;
 
-  const handleDec = () => {
+  const handleDec = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (localQty <= 1) return;
+    
     const newQty = localQty - 1;
     setLocalQty(newQty);
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => onQtyChange(item.id, newQty), 300);
+    
+    debounceRef.current = setTimeout(() => {
+      Promise.resolve(onQtyChange(item.id, newQty)).catch(() => {
+        setLocalQty(item.qty ?? 1); // Revert on fail
+      });
+    }, 300);
     window.navigator?.vibrate?.(8);
   };
 
-  const handleInc = () => {
+  const handleInc = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (localQty >= stock) {
       toast.error(`Only ${stock} in stock`);
       return;
     }
+
     const newQty = localQty + 1;
     setLocalQty(newQty);
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => onQtyChange(item.id, newQty), 300);
+
+    debounceRef.current = setTimeout(() => {
+      Promise.resolve(onQtyChange(item.id, newQty)).catch(() => {
+        setLocalQty(item.qty ?? 1); // Revert on fail
+      });
+    }, 300);
     window.navigator?.vibrate?.(8);
   };
 
@@ -335,34 +311,25 @@ function CartItem({
       <div className="cp-item__body">
         <h3 className="cp-item__name" onClick={onClick}>{item.name}</h3>
 
-        {item.variant?.name && (
-          <p className="cp-item__variant">{item.variant.name}</p>
-        )}
-        {item.variant_name && !item.variant?.name && (
-          <p className="cp-item__variant">{item.variant_name}</p>
+        {(item.variant?.name || item.variant_name) && (
+          <p className="cp-item__variant">{item.variant?.name || item.variant_name}</p>
         )}
 
         {stock <= 5 && stock > 0 && (
-          <p className="cp-item__stock-alert">
-            ⚠️ Only {stock} left in stock
-          </p>
+          <p className="cp-item__stock-alert">⚠️ Only {stock} left in stock</p>
         )}
 
         <div className="cp-item__price-row">
           <span className="cp-item__price">{formatPrice(price)}</span>
-          {hasDiscount && (
-            <span className="cp-item__original">{formatPrice(orig)}</span>
-          )}
+          {hasDiscount && <span className="cp-item__original">{formatPrice(orig)}</span>}
         </div>
 
         {savings > 0 && (
-          <p className="cp-item__savings">
-            You save {formatPrice(savings)}
-          </p>
+          <p className="cp-item__savings">You save {formatPrice(savings)}</p>
         )}
 
         <div className="cp-item__actions">
-          <div className="cp-qty">
+          <div className="cp-qty" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               className="cp-qty__btn"
@@ -391,14 +358,22 @@ function CartItem({
           <button
             type="button"
             className="cp-item__icon-btn"
-            onClick={() => onMoveToWishlist(item)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onMoveToWishlist(item);
+            }}
           >
             {Icon.heart} <span>Save for later</span>
           </button>
           <button
             type="button"
             className="cp-item__icon-btn cp-item__icon-btn--danger"
-            onClick={() => onRemove(item)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onRemove(item);
+            }}
           >
             {Icon.trash} <span>Remove</span>
           </button>
@@ -413,7 +388,8 @@ function CartItem({
 ═══════════════════════════════════════════════════════════════ */
 export default function CartPage({ user }) {
   const navigate = useNavigate();
-  const { toggle: toggleWishlist } = useWishlist();
+  // Ensure the hook returns the function we need. If it exposes 'toggle' or 'add', we use that.
+  const { toggle: toggleWishlist, add: addToWishlist } = useWishlist(); 
 
   const [items,    setItems]    = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -431,13 +407,11 @@ export default function CartPage({ user }) {
 
     try {
       if (loggedIn) {
-        if (!BASE) {
-          throw new Error("VITE_API_BASE_URL is not set!");
-        }
+        if (!BASE) throw new Error("VITE_API_BASE_URL is not set!");
 
         const res = await axios.get(CART_URL, {
-          headers : authHeaders(),
-          timeout : 15_000,
+          headers: authHeaders(),
+          timeout: 15_000,
         });
 
         const serverItems = res.data?.data?.items ?? [];
@@ -450,7 +424,7 @@ export default function CartPage({ user }) {
           price         : Number(s.price),
           originalPrice : Number(s.original_price ?? 0),
           qty           : s.qty ?? 1,
-          stock         : s.stock ?? 99,
+          stock         : s.stock && s.stock > 0 ? Number(s.stock) : 999, // Backend rule
           variant       : s.variant_id ? {
             id  : s.variant_id,
             name: s.variant_name,
@@ -470,11 +444,9 @@ export default function CartPage({ user }) {
       const friendlyMsg =
         err.response?.data?.message ??
         err.response?.data?.error ??
-        (err.code === "ERR_NETWORK"
-          ? "Cannot reach server. Check your internet connection."
-          : err.code === "ECONNABORTED"
-          ? "Request timed out. Please try again."
-          : err.message);
+        (err.code === "ERR_NETWORK" ? "Cannot reach server. Check your internet connection."
+        : err.code === "ECONNABORTED" ? "Request timed out. Please try again."
+        : err.message);
 
       setErrorMsg(friendlyMsg);
 
@@ -503,12 +475,11 @@ export default function CartPage({ user }) {
           { qty: newQty },
           { headers: authHeaders() }
         );
-        setItems((prev) =>
-          prev.map((i) => i.id === itemId ? { ...i, qty: newQty } : i)
-        );
+        setItems((prev) => prev.map((i) => i.id === itemId ? { ...i, qty: newQty } : i));
         window.dispatchEvent(new Event("cart-updated"));
       } catch (err) {
         toast.error(err.response?.data?.message ?? "Failed to update quantity");
+        throw err; // Throws so CartItem can catch & revert localQty
       }
     } else {
       const cart = readGuestCart();
@@ -530,9 +501,7 @@ export default function CartPage({ user }) {
 
     if (loggedIn) {
       try {
-        await axios.delete(`${CART_ITEMS_URL}/${item.id}`, {
-          headers: authHeaders(),
-        });
+        await axios.delete(`${CART_ITEMS_URL}/${item.id}`, { headers: authHeaders() });
         window.dispatchEvent(new Event("cart-updated"));
       } catch (err) {
         setItems((prev) => [...prev, removed]);
@@ -590,21 +559,33 @@ export default function CartPage({ user }) {
      MOVE TO WISHLIST
   ════════════════════════════════════════════════════════ */
   const handleMoveToWishlist = useCallback(async (item) => {
-    toggleWishlist(item.productId);
-    await handleRemove(item);
-    toast.success("Moved to wishlist ❤️");
-  }, [toggleWishlist, handleRemove]);
+    if (!loggedIn) {
+      toast("Please sign in to save items", { icon: "🔒" });
+      navigate("/auth", { state: { from: "/shop/cart" } });
+      return;
+    }
+
+    try {
+      // Use addToWishlist if available, otherwise toggleWishlist
+      const wishlistFn = addToWishlist || toggleWishlist;
+      
+      if (wishlistFn) {
+        await wishlistFn(item.productId || item.id);
+      }
+      
+      // Remove from cart once safely added
+      await handleRemove(item);
+      toast.success("Saved for later ❤️");
+    } catch (err) {
+      toast.error("Could not save to wishlist");
+    }
+  }, [loggedIn, navigate, addToWishlist, toggleWishlist, handleRemove]);
 
   /* ════════════════════════════════════════════════════════
      CALCULATIONS
   ════════════════════════════════════════════════════════ */
   const {
-    subtotal,
-    totalSavings,
-    itemCount,
-    total,
-    deliveryFee,
-    hasFreeDelivery,
+    subtotal, totalSavings, itemCount, total, deliveryFee, hasFreeDelivery,
   } = useMemo(() => {
     const sub = items.reduce((s, i) => s + (Number(i.price) * i.qty), 0);
     const sav = items.reduce((s, i) => {
@@ -653,19 +634,11 @@ export default function CartPage({ user }) {
     <div className="cp-page">
       {/* Header */}
       <header className="cp-header">
-        <button
-          type="button"
-          className="cp-header__back"
-          onClick={() => navigate(-1)}
-          aria-label="Go back"
-        >
+        <button type="button" className="cp-header__back" onClick={() => navigate(-1)} aria-label="Go back">
           {Icon.back}
         </button>
         <h1 className="cp-header__title">
-          Your Cart
-          {items.length > 0 && (
-            <span className="cp-header__count">({itemCount})</span>
-          )}
+          Your Cart {items.length > 0 && <span className="cp-header__count">({itemCount})</span>}
         </h1>
       </header>
 
@@ -674,13 +647,10 @@ export default function CartPage({ user }) {
 
       {/* Error */}
       {!loading && errorMsg && items.length === 0 && (
-        <ErrorState
-          message={errorMsg}
-          onRetry={loadCart}
-        />
+        <ErrorState message={errorMsg} onRetry={loadCart} />
       )}
 
-      {/* Empty (no error) */}
+      {/* Empty */}
       {!loading && !errorMsg && items.length === 0 && (
         <EmptyCart
           onShop={() => navigate("/loemart")}
@@ -699,10 +669,7 @@ export default function CartPage({ user }) {
                   Add <strong>{formatPrice(50_000 - subtotal)}</strong> more for FREE delivery
                 </p>
                 <div className="cp-free-shipping-bar">
-                  <div
-                    className="cp-free-shipping-bar__fill"
-                    style={{ width: `${Math.min(100, (subtotal / 50_000) * 100)}%` }}
-                  />
+                  <div className="cp-free-shipping-bar__fill" style={{ width: `${Math.min(100, (subtotal / 50_000) * 100)}%` }} />
                 </div>
               </div>
             </div>
@@ -790,9 +757,7 @@ export default function CartPage({ user }) {
             </div>
           </div>
 
-          {/* Recently Viewed */}
           <RecentlyViewed onProductClick={(slug) => navigate(`/shop/${slug}`)} />
-
           <div style={{ height: 110 }} aria-hidden="true" />
         </>
       )}
