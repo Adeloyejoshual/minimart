@@ -34,10 +34,14 @@ function shapeConversation(row) {
     other_user_online: row.other_user_online || false,  // ← heartbeat-aware
     other_user_store:  row.other_user_store  || null,
     last_login:        row.last_login        || null,
+    
+    // ★ ADDED: product_slug mapped here
+    product_slug:      row.product_slug      || null,
     product_title:     row.product_title     || null,
     product_price:     row.product_price ? Number(row.product_price) : null,
     product_image:     row.product_image     || null,
     product_id_ref:    row.product_id        || null,
+    
     last_sender_id:    row.last_sender_id    || null,
     unread_count:      Number(row.unread_count || 0),
   };
@@ -88,6 +92,7 @@ router.get("/", softAuth, async (req, res) => {
          p.title      AS product_title,
          p.price      AS product_price,
          p.main_image AS product_image,
+         p.slug       AS product_slug,  -- ★ ADDED: Fetch slug from products table
 
          lm.sender_id AS last_sender_id,
 
@@ -134,7 +139,7 @@ router.get("/", softAuth, async (req, res) => {
          t.id, t.product_id, t.last_message, t.last_message_at,
          t.is_archived, t.is_blocked, t.buyer_id, t.seller_id, t.created_at,
          u.name, u.profile_image, u.is_online, u.store_name, u.last_login,
-         p.title, p.price, p.main_image,
+         p.title, p.price, p.main_image, p.slug,  -- ★ ADDED: Group by slug too
          rr.last_read_at, lm.sender_id
 
        ORDER BY t.last_message_at DESC NULLS LAST
@@ -232,6 +237,7 @@ router.get("/:threadId", softAuth, async (req, res) => {
          p.title      AS product_title,
          p.price      AS product_price,
          p.main_image AS product_image,
+         p.slug       AS product_slug,  -- ★ ADDED: Fetch slug from products table
          p.id         AS product_id_ref
 
        FROM  public.chat_threads t
