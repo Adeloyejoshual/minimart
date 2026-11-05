@@ -1,4 +1,5 @@
 import { useRef, useCallback, useState, memo } from "react";
+import { useNavigate } from "react-router-dom"; // ★ Added useNavigate for SPA routing
 import { MESSAGE_TYPES, CURRENCY, OFFER_STATUS } from "./constants";
 import { Icon } from "./icons";
 
@@ -334,6 +335,7 @@ function Bubble({
   replyToMsg,
 }) {
   const bubbleRef = useRef(null);
+  const navigate = useNavigate(); // ★ Added router navigate
 
   const handleContextMenu = useCallback((e) => {
     e.preventDefault();
@@ -502,11 +504,18 @@ function Bubble({
           </a>
         )}
 
-        {/* ── SHARED PRODUCT ── */}
+        {/* ── SHARED PRODUCT (★ React Router Implementation) ── */}
         {isProd && msg.shared_product && (
-          <a
+          <div
             className="chat-shared-product"
-            href={`/product/${msg.shared_product.slug || msg.shared_product.id}`}
+            style={{ cursor: "pointer" }}
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              // Prefer slug, fallback to ID.
+              const dest = msg.shared_product.slug || msg.shared_product.id;
+              if (dest) navigate(`/product/${dest}`);
+            }}
           >
             {msg.shared_product.image && (
               <img
@@ -526,7 +535,7 @@ function Bubble({
                 </div>
               )}
             </div>
-          </a>
+          </div>
         )}
 
         {/* ── TEXT ── */}
