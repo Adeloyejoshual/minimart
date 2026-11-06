@@ -1,6 +1,9 @@
 /**
  * src/pages/MarketDetail/VariantBottomSheet.jsx
  * Multi-attribute variant sheet supporting Color, Size, Storage, Material, Variant Name & SKU.
+ *
+ * Quantity is kept in LOCAL state for instant +/- response.
+ * Parent qty is only synced when user confirms "Add to Cart".
  */
 
 import React, {
@@ -125,7 +128,9 @@ export default function VariantBottomSheet({
     if (isOpen) setClosing(false);
   }, [isOpen]);
 
-  // Normalize variants so attributes is guaranteed to be an object
+  /* ──────────────────────────────────────────────
+     Normalize variants
+  ────────────────────────────────────────────── */
   const normalizedVariants = useMemo(() => {
     if (!Array.isArray(variants)) return [];
     return variants.map((v) => ({
@@ -134,7 +139,6 @@ export default function VariantBottomSheet({
     }));
   }, [variants]);
 
-  // Extract all unique attribute keys (e.g. Color, Size, Storage, Material)
   const attributeKeys = useMemo(() => {
     const keys = new Set();
     normalizedVariants.forEach((v) => {
@@ -183,7 +187,9 @@ export default function VariantBottomSheet({
     [normalizedVariants, selectedVariant, onSelectVariant]
   );
 
-  // FIX: Added robust price parsing and fallbacks for selling_price
+  /* ──────────────────────────────────────────────
+     Price / image / stock
+  ────────────────────────────────────────────── */
   const displayPrice = useMemo(
     () =>
       pickPrice(
@@ -210,14 +216,45 @@ export default function VariantBottomSheet({
     stockLeft !== undefined &&
     Number(stockLeft) <= 0;
 
-  const max = Math.min(
-    maxQty,
-    stockLeft > 0 ? Number(stockLeft) : maxQty
+  const max = Math.max(
+    1,
+    Math.min(maxQty, stockLeft > 0 ? Number(stockLeft) : maxQty)
   );
 
-  const safeQty = Math.max(1, Number(qty) || 1);
+  /* ──────────────────────────────────────────────
+     LOCAL QUANTITY — instant +/- (no parent re-render)
+  ────────────────────────────────────────────── */
+  const [localQty, setLocalQty] = useState(() =>
+    Math.max(1, Math.min(max, Number(qty) || 1))
+  );
+
+  // Reset local qty when sheet opens or variant changes
+  useEffect(() => {
+    if (isOpen) {
+      setLocalQty(Math.max(1, Math.min(max, Number(qty) || 1)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, selectedVariant?.id]);
+
+  // Clamp if max shrinks (e.g. stock changes)
+  useEffect(() => {
+    setLocalQty((q) => Math.max(1, Math.min(max, q)));
+  }, [max]);
+
+  const safeQty = localQty;
   const lineTotal = displayPrice * safeQty;
 
+  const decQty = useCallback(() => {
+    setLocalQty((q) => Math.max(1, q - 1));
+  }, []);
+
+  const incQty = useCallback(() => {
+    setLocalQty((q) => Math.min(max, q + 1));
+  }, [max]);
+
+  /* ──────────────────────────────────────────────
+     Selected labels
+  ────────────────────────────────────────────── */
   const selectedLabels = useMemo(() => {
     if (!selectedVariant) return [];
     const attrs = parseAttributes(selectedVariant.attributes);
@@ -237,18 +274,15 @@ export default function VariantBottomSheet({
     return [];
   }, [selectedVariant]);
 
-  const decQty = useCallback(() => {
-    setQty?.((q) => Math.max(1, (Number(q) || 1) - 1));
-  }, [setQty]);
-
-  const incQty = useCallback(() => {
-    setQty?.((q) => Math.min(max, (Number(q) || 1) + 1));
-  }, [setQty, max]);
-
+  /* ──────────────────────────────────────────────
+     Confirm
+  ────────────────────────────────────────────── */
   const handleConfirm = async () => {
     if (isOutOfStock || isSubmitting) return;
     try {
-      await onConfirm?.();
+      // Sync parent state at the end (not on every click)
+      setQty?.(safeQty);
+      await onConfirm?.(safeQty);
       requestClose();
     } catch (e) {
       console.error("Cart error:", e);
@@ -322,7 +356,7 @@ export default function VariantBottomSheet({
             </button>
           )}
 
-          {/* RENDER STRUCTURED ATTRIBUTES (e.g. Color, Size, Storage, Material) */}
+          {/* STRUCTURED ATTRIBUTES */}
           {hasAttributes &&
             attributeKeys.map((key) => {
               const values = getUniqueAttrValues(key);
@@ -365,7 +399,7 @@ export default function VariantBottomSheet({
               );
             })}
 
-          {/* RENDER FLAT VARIANTS (If no structured attributes exist) */}
+          {/* FLAT VARIANTS */}
           {!hasAttributes && normalizedVariants.length > 1 && (
             <div className="mdp-bs-group">
               <p className="mdp-bs-label">Options</p>
