@@ -34,6 +34,7 @@ import DeliveryCard from "./MarketDetail/DeliveryCard";
 import DescriptionPage from "./MarketDetail/DescriptionPage";
 import SizeGuidePage from "./MarketDetail/SizeGuidePage";
 import ReviewsPage from "./MarketDetail/ReviewsPage";
+import { Icon } from "./MarketDetail/icons";
 import FloatingCartButton from "../components/FloatingCartButton";
 import Footer from "../components/Footer";
 
@@ -81,126 +82,6 @@ const resolveStockCap = (selectedVariant, product, fallback = 99) => {
     parsePositiveStock(product?.stock) ??
     fallback
   );
-};
-
-/* ════════════════════════════════════════════════════════════
-   ICONS
-════════════════════════════════════════════════════════════ */
-const Icon = {
-  flag: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-      <line x1="4" y1="22" x2="4" y2="15" />
-    </svg>
-  ),
-  check: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}>
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  cart: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <circle cx="9" cy="21" r="1" />
-      <circle cx="20" cy="21" r="1" />
-      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-    </svg>
-  ),
-  star: (
-    <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}>
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  ),
-  starOutline: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}>
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  ),
-  truck: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <rect x="1" y="3" width="15" height="13" />
-      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
-      <circle cx="5.5" cy="18.5" r="2.5" />
-      <circle cx="18.5" cy="18.5" r="2.5" />
-    </svg>
-  ),
-  chevron: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  ),
-  box: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={16} height={16}>
-      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-      <line x1="12" y1="22.08" x2="12" y2="12" />
-    </svg>
-  ),
-  shield: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  ),
-  money: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
-      <line x1="12" y1="18" x2="12" y2="6" />
-    </svg>
-  ),
-  return: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <polyline points="9 14 4 9 9 4" />
-      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-    </svg>
-  ),
-  scale: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <path d="M12 3v18" />
-      <rect x="4" y="16" width="16" height="5" rx="2" />
-      <path d="M6 8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 8v8H6z" />
-    </svg>
-  ),
-  lock: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
-  ),
-  info: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  ),
-  search: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}>
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
-  alert: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={48} height={48}>
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  ),
-  tag: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
-      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-      <line x1="7" y1="7" x2="7.01" y2="7" />
-    </svg>
-  ),
-  share: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18}>
-      <circle cx="18" cy="5" r="3" />
-      <circle cx="6" cy="12" r="3" />
-      <circle cx="18" cy="19" r="3" />
-      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-    </svg>
-  ),
 };
 
 const TRUST_BADGES = [
@@ -1152,7 +1033,6 @@ export default function MarketDetail() {
   const [inCart, setInCart] = useState(false);
   const [cartLineQty, setCartLineQty] = useState(0);
   const [cartItemId, setCartItemId] = useState(null);
-  const [updatingQty, setUpdatingQty] = useState(false);
 
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine
@@ -1171,6 +1051,7 @@ export default function MarketDetail() {
   const titleRef = useRef(null);
   const toastTimeoutRef = useRef(null);
   const errorTimeoutRef = useRef(null);
+  const qtySyncTimerRef = useRef(null);
 
   const isWishlisted = product ? wishlist.has(product.id) : false;
   const rating = useMemo(
@@ -1316,6 +1197,7 @@ export default function MarketDetail() {
       document.documentElement.style.overflow = "";
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+      if (qtySyncTimerRef.current) clearTimeout(qtySyncTimerRef.current);
     };
   }, [slug]);
 
@@ -1512,7 +1394,7 @@ export default function MarketDetail() {
   }, [product?.id, selectedVariant?.id, product?.variants]);
 
   const latestRef = useRef({});
-  latestRef.current = { product, selectedVariant };
+  latestRef.current = { product, selectedVariant, cartItemId };
 
   const runSync = useCallback(async () => {
     if (!isLoggedIn() || readPending().length === 0) return;
@@ -1569,50 +1451,122 @@ export default function MarketDetail() {
     };
   }, [runSync]);
 
-  const handleAddToCart = useCallback(async () => {
-    if (!product || isOutOfStock) return false;
-    const addQty = Math.max(1, parseInt(qty, 10) || 1);
-
-    setAddedToCart(true);
-    setInCart(true);
-    const newQty = inCart ? cartLineQty + addQty : addQty;
-    setCartLineQty(newQty);
-    setCartCount((c) => c + addQty);
-    setCartError(null);
-
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
-
-    if (isLoggedIn()) {
-      // Save locally first (instant), then sync to the server in the background
-      queuePending(product.id, selectedVariant?.id ?? null, addQty);
-      runSync();
-    } else {
-      const guestCount = addToGuestCart(
-        product,
-        selectedVariant,
-        displayPrice,
-        originalPrice,
-        addQty
+  const handleAddToCart = useCallback(
+    async (confirmQty) => {
+      if (!product || isOutOfStock) return false;
+      // Use qty passed from the bottom sheet; fall back to page state
+      const addQty = Math.max(
+        1,
+        parseInt(typeof confirmQty === "number" ? confirmQty : qty, 10) || 1
       );
-      setCartCount(guestCount);
-    }
-    return true;
-  }, [
-    product,
-    selectedVariant,
-    displayPrice,
-    originalPrice,
-    qty,
-    inCart,
-    cartLineQty,
-    isOutOfStock,
-    runSync,
-  ]);
 
+      setAddedToCart(true);
+      setInCart(true);
+      const newQty = inCart ? cartLineQty + addQty : addQty;
+      setCartLineQty(newQty);
+      setQty(newQty);
+      setCartCount((c) => c + addQty);
+      setCartError(null);
+
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => setAddedToCart(false), 3500);
+
+      if (isLoggedIn()) {
+        // Save locally first (instant), then sync to the server in the background
+        queuePending(product.id, selectedVariant?.id ?? null, addQty);
+        runSync();
+      } else {
+        const guestCount = addToGuestCart(
+          product,
+          selectedVariant,
+          displayPrice,
+          originalPrice,
+          addQty
+        );
+        setCartCount(guestCount);
+      }
+      return true;
+    },
+    [
+      product,
+      selectedVariant,
+      displayPrice,
+      originalPrice,
+      qty,
+      inCart,
+      cartLineQty,
+      isOutOfStock,
+      runSync,
+    ]
+  );
+
+  /* Server sync (debounced) — never blocks the UI */
+  const syncQtyToServer = useCallback(
+    async (q) => {
+      const {
+        product: prod,
+        selectedVariant: variant,
+        cartItemId: knownItemId,
+      } = latestRef.current;
+      if (!prod || !isLoggedIn()) return;
+
+      // Line still in offline queue? Just update the queue.
+      if (hasPendingLine(prod.id, variant?.id ?? null)) {
+        setPendingQty(prod.id, variant?.id ?? null, q);
+        runSync();
+        return;
+      }
+
+      try {
+        if (q <= 0) {
+          if (knownItemId) {
+            await axios.delete(`${CART_ITEMS_URL}/${knownItemId}`, {
+              headers: authHeaders(),
+              timeout: 10000,
+            });
+          }
+          setCartItemId(null);
+        } else {
+          let itemId = knownItemId;
+          if (!itemId) {
+            const line = await findServerCartLine(prod.id, variant?.id ?? null);
+            itemId = line?.id ?? null;
+            if (itemId) setCartItemId(itemId);
+          }
+          if (itemId) {
+            await axios.patch(
+              `${CART_ITEMS_URL}/${itemId}`,
+              { qty: q },
+              { headers: authHeaders(), timeout: 10000 }
+            );
+          } else {
+            await axios.post(
+              CART_ITEMS_URL,
+              {
+                product_id: prod.id,
+                variant_id: variant?.id ?? null,
+                qty: q,
+              },
+              { headers: authHeaders(), timeout: 10000 }
+            );
+          }
+        }
+        const count = await fetchServerCartCount();
+        if (count !== null) setCartCount(count + pendingCount());
+        window.dispatchEvent(new Event("cart-updated"));
+      } catch {
+        setCartError("Could not update quantity");
+        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+        errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
+      }
+    },
+    [runSync]
+  );
+
+  /* Instant optimistic update — + and − respond immediately */
   const handleStickyQtyChange = useCallback(
-    async (nextQty) => {
-      if (!product || updatingQty) return;
+    (nextQty) => {
+      if (!product) return;
 
       const stockCap =
         stockLeft != null && stockLeft > 0
@@ -1622,88 +1576,29 @@ export default function MarketDetail() {
       const oldQty = cartLineQty;
       const diff = q - oldQty;
 
-      setUpdatingQty(true);
-
+      // 1. Instant UI update.
+      // cartItemId is kept until the server delete finishes (see syncQtyToServer).
       if (q <= 0) {
         setInCart(false);
         setCartLineQty(0);
-        setCartItemId(null);
         setAddedToCart(false);
         setCartCount((c) => Math.max(0, c - oldQty));
+        if (!isLoggedIn()) setCartItemId(null);
       } else {
         setCartLineQty(q);
         setQty(q);
         setCartCount((c) => Math.max(0, c + diff));
       }
 
-      if (
-        isLoggedIn() &&
-        hasPendingLine(product.id, selectedVariant?.id ?? null)
-      ) {
-        setPendingQty(product.id, selectedVariant?.id ?? null, q);
-        setUpdatingQty(false);
-        runSync();
+      // 2. Guest cart: localStorage is synchronous, do it now
+      if (!isLoggedIn()) {
+        setGuestLineQty(product, selectedVariant, displayPrice, originalPrice, q);
         return;
       }
 
-      try {
-        if (isLoggedIn()) {
-          if (q <= 0) {
-            if (cartItemId) {
-              const delUrl = `${CART_ITEMS_URL}/${cartItemId}`;
-              await axios.delete(delUrl, {
-                headers: authHeaders(),
-                timeout: 10000,
-              });
-            }
-          } else {
-            let itemId = cartItemId;
-            if (!itemId) {
-              const line = await findServerCartLine(
-                product.id,
-                selectedVariant?.id ?? null
-              );
-              itemId = line?.id ?? null;
-              if (itemId) setCartItemId(itemId);
-            }
-            if (itemId) {
-              const patchUrl = `${CART_ITEMS_URL}/${itemId}`;
-              await axios.patch(
-                patchUrl,
-                { qty: q },
-                { headers: authHeaders(), timeout: 10000 }
-              );
-            } else {
-              const payload = {
-                product_id: product.id,
-                variant_id: selectedVariant?.id ?? null,
-                qty: q,
-              };
-              await axios.post(CART_ITEMS_URL, payload, {
-                headers: authHeaders(),
-                timeout: 10000,
-              });
-            }
-          }
-          const count = await fetchServerCartCount();
-          if (count !== null) setCartCount(count);
-          window.dispatchEvent(new Event("cart-updated"));
-        } else {
-          setGuestLineQty(
-            product,
-            selectedVariant,
-            displayPrice,
-            originalPrice,
-            q
-          );
-        }
-      } catch {
-        setCartError("Could not update quantity");
-        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-        errorTimeoutRef.current = setTimeout(() => setCartError(null), 4000);
-      } finally {
-        setUpdatingQty(false);
-      }
+      // 3. Logged in: debounce server sync (fires once after rapid taps)
+      if (qtySyncTimerRef.current) clearTimeout(qtySyncTimerRef.current);
+      qtySyncTimerRef.current = setTimeout(() => syncQtyToServer(q), 450);
     },
     [
       product,
@@ -1711,9 +1606,8 @@ export default function MarketDetail() {
       displayPrice,
       originalPrice,
       stockLeft,
-      cartItemId,
       cartLineQty,
-      updatingQty,
+      syncQtyToServer,
     ]
   );
 
@@ -1822,7 +1716,6 @@ export default function MarketDetail() {
           onToggleWishlist={() => toggleWishlist(product?.id)}
           productLoaded={!!product}
         />
-
 
         <StickyMiniHeader
           visible={miniHeaderVisible}
@@ -2089,7 +1982,6 @@ export default function MarketDetail() {
                     type="button"
                     className="mdp-sticky-qty__btn"
                     onClick={() => handleStickyQtyChange(cartLineQty - 1)}
-                    disabled={updatingQty}
                     aria-label="Decrease quantity"
                   >
                     −
@@ -2102,7 +1994,6 @@ export default function MarketDetail() {
                     className="mdp-sticky-qty__btn"
                     onClick={() => handleStickyQtyChange(cartLineQty + 1)}
                     disabled={
-                      updatingQty ||
                       isOutOfStock ||
                       cartLineQty >= MAX_QTY ||
                       (stockLeft != null &&
@@ -2116,18 +2007,16 @@ export default function MarketDetail() {
                 </div>
               </>
             ) : (
-              <>
-                <button
-                  type="button"
-                  className={`mdp-btn-cart-primary${
-                    addedToCart ? " mdp-btn-cart-primary--done" : ""
-                  }`}
-                  onClick={handleCartClick}
-                  disabled={isOutOfStock}
-                >
-                  {isOutOfStock ? "OUT OF STOCK" : "ADD TO CART"}
-                </button>
-              </>
+              <button
+                type="button"
+                className={`mdp-btn-cart-primary${
+                  addedToCart ? " mdp-btn-cart-primary--done" : ""
+                }`}
+                onClick={handleCartClick}
+                disabled={isOutOfStock}
+              >
+                {isOutOfStock ? "OUT OF STOCK" : "ADD TO CART"}
+              </button>
             )}
           </div>
         </div>
