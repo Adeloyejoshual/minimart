@@ -11,7 +11,7 @@ import MobileTopBar from '../loemart/mobile/MobileTopBar';
 import MobileHeroBanner from '../loemart/mobile/MobileHeroBanner';
 import MobileCampaignSpotlight from '../loemart/mobile/MobileCampaignSpotlight';
 import MasonryCard from '../loemart/mobile/MasonryCard';
-import VariantBottomSheet from './MarketDetail/VariantBottomSheet';
+import VariantBottomSheet from '../pages/MarketDetail/VariantBottomSheet';
 import toast from 'react-hot-toast';
 import FloatingCartButton from '../components/FloatingCartButton';
 import Footer from '../components/Footer';
