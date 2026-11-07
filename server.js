@@ -1,11 +1,14 @@
 /**
- * server.js — v5.2
+ * server.js — v5.3
  * ─────────────────────────────────────────────────────────────
- * Fixed:
- * ✓ Removed duplicate imports for ssrRouter & sitemapRouter
+ * Added:
+ * ✓ Google Shopping XML Feed (/google-shopping-feed.xml)
+ * ✓ Dynamic Product Image Sitemap (/sitemap-products.xml) for Google Lens
+ *
+ * Preserved from v5.2:
  * ✓ Public Seller Storefront routes (/api/sellers, /api/stores)
- * ✓ All v4/v5 features, delivery, webhooks & crons preserved
- * ✓ Integrated 4-Day Deal Newsletter cron job (runs every 4 days at 09:00 UTC)
+ * ✓ All v4/v5 features, delivery, webhooks & crons
+ * ✓ Integrated 4-Day Deal Newsletter cron job
  */
 
 import express           from "express";
@@ -280,9 +283,11 @@ import airtimeCouponRoutes, { initSchema as initAirtimeSchema }
 import settingsRouter from "./routes/settings.js";
 import supportRouter  from "./routes/support.js";
 
-/* ── SSR + Sitemap ── */
-import ssrRouter     from "./routes/ssr.js";
-import sitemapRouter from "./routes/sitemap.js";
+/* ── SSR + Sitemap + Feeds ── */
+import ssrRouter             from "./routes/ssr.js";
+import sitemapRouter         from "./routes/sitemap.js";
+import googleShoppingRouter  from "./routes/googleShopping.routes.js";
+import productSitemapRouter  from "./routes/productSitemap.routes.js";
 
 /* ── Background jobs ── */
 import { startListingExpiryJob }    from "./jobs/listingExpiry.js";
@@ -513,10 +518,15 @@ app.get("/api/health", async (_req, res) => {
 });
 
 /* ════════════════════════════════════════════════════════════
-   STATIC — sitemap + robots
+   STATIC — feeds + sitemap + robots
 ════════════════════════════════════════════════════════════ */
 const PUBLIC_DIR = path.join(__dirname, "public");
 
+/* ── Dynamic Google-ranking feeds ── */
+app.use(googleShoppingRouter);  // Serves /google-shopping-feed.xml
+app.use(productSitemapRouter);  // Serves /sitemap-products.xml
+
+/* ── Static sitemap index + robots ── */
 app.get("/sitemap-index.xml", (_req, res) =>
   res.sendFile(path.join(PUBLIC_DIR, "sitemap-index.xml"))
 );
@@ -584,7 +594,6 @@ if (!IS_PROD) {
 /* ════════════════════════════════════════════════════════════
    GLOBAL ERROR HANDLER
 ════════════════════════════════════════════════════════════ */
-
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   const reqId = req.requestId ?? "unknown";
