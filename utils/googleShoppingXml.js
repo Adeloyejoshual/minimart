@@ -1,6 +1,6 @@
 // utils/googleShoppingXml.js
 
-const escapeXml = (value = "") => {
+export const escapeXml = (value = "") => {
   if (value === null || value === undefined) return "";
   return String(value)
     .replace(/&/g, "&amp;")
@@ -10,46 +10,34 @@ const escapeXml = (value = "") => {
     .replace(/'/g, "&apos;");
 };
 
-const cleanText = (value = "") => {
+export const cleanText = (value = "") => {
   return String(value)
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 };
 
-const formatPrice = (value) => {
+export const formatPrice = (value) => {
   const price = Number(value);
-
-  if (!Number.isFinite(price) || price <= 0) {
-    return null;
-  }
-
+  if (!Number.isFinite(price) || price <= 0) return null;
   return `${price.toFixed(2)} NGN`;
 };
 
-const generateGoogleShoppingXml = (products) => {
+export const generateGoogleShoppingXml = (products) => {
   const items = products
     .map((product) => {
       const price = formatPrice(product.price);
+      if (!price || !product.id || !product.title || !product.image) return "";
 
-      // Skip products with invalid prices or missing mandatory fields
-      if (!price || !product.id || !product.title || !product.image) {
-        return "";
-      }
-
-      // Handle additional images array if available
       const additionalImagesXml = Array.isArray(product.additionalImages)
         ? product.additionalImages
-            .slice(0, 10) // Google accepts up to 10 additional images
+            .slice(0, 10)
             .map(
               (imgUrl) =>
                 `<g:additional_image_link>${escapeXml(imgUrl)}</g:additional_image_link>`
             )
             .join("\n        ")
         : "";
-
-      // Determine identifier status (GTIN/MPN)
-      const hasIdentifier = Boolean(product.gtin || product.mpn);
 
       return `
       <item>
@@ -61,15 +49,9 @@ const generateGoogleShoppingXml = (products) => {
         ${additionalImagesXml}
         <g:availability>${escapeXml(product.availability || "in_stock")}</g:availability>
         <g:price>${escapeXml(price)}</g:price>
-        <g:condition>${escapeXml(product.condition || "new")}</g:condition>
+        <g:condition>new</g:condition>
         <g:brand>${escapeXml(product.brand || "Loemart")}</g:brand>
-        
-        ${
-          hasIdentifier
-            ? `${product.gtin ? `<g:gtin>${escapeXml(product.gtin)}</g:gtin>` : ""}
-               ${product.mpn ? `<g:mpn>${escapeXml(product.mpn)}</g:mpn>` : ""}`
-            : `<g:identifier_exists>false</g:identifier_exists>`
-        }
+        <g:identifier_exists>false</g:identifier_exists>
       </item>`;
     })
     .join("");
@@ -83,10 +65,4 @@ const generateGoogleShoppingXml = (products) => {
       ${items}
     </channel>
   </rss>`;
-};
-
-module.exports = {
-  generateGoogleShoppingXml,
-  formatPrice,
-  cleanText,
 };
