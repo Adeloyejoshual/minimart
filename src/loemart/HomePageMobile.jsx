@@ -11,7 +11,7 @@ import MobileTopBar from '../loemart/mobile/MobileTopBar';
 import MobileHeroBanner from '../loemart/mobile/MobileHeroBanner';
 import MobileCampaignSpotlight from '../loemart/mobile/MobileCampaignSpotlight';
 import MasonryCard from '../loemart/mobile/MasonryCard';
-import VariantBottomSheet from '../pages/MarketDetail/VariantBottomSheet';
+import VariantBottomSheet from './MarketDetail/VariantBottomSheet';
 import toast from 'react-hot-toast';
 import FloatingCartButton from '../components/FloatingCartButton';
 import Footer from '../components/Footer';
@@ -92,9 +92,94 @@ function extractCategories(list) {
   );
 }
 
+/* Appends items to a list, skipping products that are already in it */
+function mergeUnique(prev, items) {
+  const idOf = (p) => String(p.id || p.product_id);
+  const seen = new Set(prev.map(idOf));
+  const extra = items.filter((p) => !seen.has(idOf(p)));
+  return extra.length ? [...prev, ...extra] : prev;
+}
+
 function sumQty(items) {
   if (!Array.isArray(items)) return 0;
   return items.reduce((n, i) => n + (Number(i?.qty ?? i?.quantity) || 1), 0);
+}
+
+/* Variants may arrive as an array or as a JSON string */
+function parseVariants(raw) {
+  let v = raw;
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      v = [];
+    }
+  }
+  return Array.isArray(v) ? v : [];
+}
+
+const isInStock = (v) => v?.stock == null || Number(v.stock) > 0;
+
+/**
+ * Adds one product/variant to the cart.
+ * Logged in → POST /api/cart/items  (same payload App.jsx uses when syncing)
+ * Guest     → "mm_cart" in localStorage  ({ productId, variant, qty })
+ * Throws on failure so the sheet stays open and the user can retry.
+ */
+async function addItemToCart({ product, variant, qty }) {
+  const productId = product.id || product.product_id;
+  const variantId = variant?.id ?? null;
+  const token = getAuthToken();
+
+  if (token) {
+    const res = await fetch(`${CART_API}/items`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        product_id: productId,
+        variant_id: variantId,
+        qty,
+      }),
+    });
+
+    if (!res.ok) {
+      let message = 'Could not add to cart';
+      try {
+        const json = await res.json();
+        message = json?.message || json?.error || message;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(message);
+    }
+    return;
+  }
+
+  let cart = [];
+  try {
+    cart = JSON.parse(localStorage.getItem('mm_cart') || '[]');
+  } catch {
+    cart = [];
+  }
+  if (!Array.isArray(cart)) cart = [];
+
+  const idx = cart.findIndex(
+    (i) =>
+      String(i.productId) === String(productId) &&
+      (i.variant?.id ?? null) === variantId
+  );
+
+  if (idx >= 0) {
+    cart[idx] = { ...cart[idx], qty: (Number(cart[idx].qty) || 0) + qty };
+  } else {
+    cart.push({ productId, variant: variant || null, qty });
+  }
+
+  localStorage.setItem('mm_cart', JSON.stringify(cart));
 }
 
 /* Guest cart is stored by App.jsx under "mm_cart" */
@@ -350,7 +435,8 @@ export default function HomePageMobile() {
   const { count: cartCount, refreshCart } = useCartCount();
 
   /* ── Core State ── */
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState([]); // catalog (replaced by Load More)
+  const [railPool, setRailPool] = useState([]); // feeds Flash/Sponsored/Trending/Campaign (never shrinks)
   const [campaigns, setCampaigns] = useState([]);
   const [categories, setCategories] = useState([]);
   const [activeCategory, setActiveCategory] = useState('All');
@@ -381,6 +467,10 @@ export default function HomePageMobile() {
   const [selectedProductForVariant, setSelectedProductForVariant] =
     useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
+  const [sheetVariants, setSheetVariants] = useState([]);
+  const [selectedVariant, setSelectedVariant] = useState(null);
+  const [sheetQty, setSheetQty] = useState(1);
+  const [addingToCart, setAddingToCart] = useState(false);
 
   /* ── Derived Flags ── */
   const canAutoLoad =
@@ -459,6 +549,7 @@ export default function HomePageMobile() {
       );
 
       setProducts(mixed);
+      setRailPool(mixed);
       setNextPage(productData.nextPage);
       setPagesInBatch(1);
       setHasMore(Boolean(productData.hasMore));
@@ -489,7 +580,8 @@ export default function HomePageMobile() {
       const newItems = Array.isArray(result.products) ? result.products : [];
 
       if (newItems.length > 0) {
-        setProducts((prev) => [...prev, ...newItems]);
+        setProducts((prev) => mergeUnique(prev, newItems));
+        setRailPool((prev) => mergeUnique(prev, newItems));
       }
       setNextPage(result.nextPage);
       setPagesInBatch((prev) => prev + 1);
@@ -572,25 +664,46 @@ export default function HomePageMobile() {
     setBatchLoading(true);
 
     try {
+      const idOf = (p) => String(p.id || p.product_id);
+      const shownIds = new Set(products.map(idOf));
+
       const [result] = await Promise.all([
         fetchProductsPage(nextPage, PAGE_LIMIT),
         sleep(MIN_BATCH_SPINNER_MS), // keeps the spinner from flashing
       ]);
 
-      const rawItems = Array.isArray(result.products) ? result.products : [];
+      // Only products the user is NOT already looking at
+      let fresh = (Array.isArray(result.products) ? result.products : []).filter(
+        (p) => !shownIds.has(idOf(p))
+      );
+      let pageAfter = result.nextPage;
+      let more = Boolean(result.hasMore);
 
-      if (rawItems.length > 0) {
-        const freshItems = mixProducts(rawItems);
+      // No new products left (end of catalogue, or the page repeated):
+      // start over from page 1 and reshuffle so the screen still refreshes.
+      if (fresh.length === 0) {
+        const first = await fetchProductsPage(1, PAGE_LIMIT);
+        const firstItems = Array.isArray(first.products) ? first.products : [];
+        const different = firstItems.filter((p) => !shownIds.has(idOf(p)));
+
+        fresh = different.length >= 4 ? different : firstItems;
+        pageAfter = first.nextPage;
+        more = true; // always allow another refresh
+      }
+
+      if (fresh.length > 0) {
+        const freshItems = mixProducts(fresh);
 
         setProducts(freshItems);
+        setRailPool((prev) => mergeUnique(prev, freshItems));
         setCategories(extractCategories(freshItems));
         setActiveCategory('All');
-        setNextPage(result.nextPage);
+        setNextPage(pageAfter);
         setPagesInBatch(1);
-        setHasMore(Boolean(result.hasMore));
+        setHasMore(more);
         window.scrollTo({ top: 0, behavior: 'instant' });
       } else {
-        // Nothing new came back: keep what's on screen and stop paging
+        // The store genuinely has no products to show
         setHasMore(false);
       }
     } catch (err) {
@@ -609,16 +722,12 @@ export default function HomePageMobile() {
 
   const handleProductClick = useCallback(
     (item) => {
-      let variants = item?.variants || [];
-      if (typeof variants === 'string') {
-        try {
-          variants = JSON.parse(variants);
-        } catch {
-          variants = [];
-        }
-      }
+      const variants = parseVariants(item?.variants);
 
-      if (Array.isArray(variants) && variants.length > 1) {
+      if (variants.length > 1) {
+        setSheetVariants(variants);
+        setSelectedVariant(variants.find(isInStock) || variants[0]);
+        setSheetQty(1);
         setSelectedProductForVariant(item);
         setIsVariantSheetOpen(true);
       } else {
@@ -627,6 +736,28 @@ export default function HomePageMobile() {
     },
     [navigate]
   );
+
+  const handleVariantConfirm = async (confirmedQty) => {
+    if (!selectedProductForVariant || addingToCart) return;
+
+    const quantity = Math.max(1, Number(confirmedQty) || sheetQty || 1);
+    setAddingToCart(true);
+
+    try {
+      await addItemToCart({
+        product: selectedProductForVariant,
+        variant: selectedVariant,
+        qty: quantity,
+      });
+      window.dispatchEvent(new Event('cart-updated'));
+      toast.success('Added to cart');
+    } catch (err) {
+      toast.error(err?.message || 'Could not add to cart');
+      throw err; // keeps the sheet open so the user can retry
+    } finally {
+      setAddingToCart(false);
+    }
+  };
 
   const handleFloatingCartClick = () => {
     navigate(CART_ROUTE);
@@ -637,7 +768,15 @@ export default function HomePageMobile() {
      re-partition the whole catalogue every second)
   ══════════════════════════════════════════════════════════ */
 
+  // Top sections (Campaign / Flash / Sponsored / Trending): built from a pool
+  // that only grows, so Load More can't wipe them out.
   const sections = useMemo(
+    () => partitionAdminProductSections(railPool),
+    [railPool]
+  );
+
+  // Catalog: built from the current batch, which Load More replaces.
+  const catalogSections = useMemo(
     () => partitionAdminProductSections(products),
     [products]
   );
@@ -645,11 +784,11 @@ export default function HomePageMobile() {
   const displayedCatalog = useMemo(
     () =>
       activeCategory === 'All'
-        ? sections.all
-        : sections.all.filter(
+        ? catalogSections.all
+        : catalogSections.all.filter(
             (p) => (p.category || p.category_name) === activeCategory
           ),
-    [sections, activeCategory]
+    [catalogSections, activeCategory]
   );
 
   const reachedEnd = !hasMore && !loading && displayedCatalog.length > 0;
@@ -1071,6 +1210,21 @@ export default function HomePageMobile() {
           refreshCart();
         }}
         product={selectedProductForVariant}
+        variants={sheetVariants}
+        selectedVariant={selectedVariant}
+        onSelectVariant={setSelectedVariant}
+        qty={sheetQty}
+        setQty={setSheetQty}
+        stockLeft={
+          selectedVariant?.stock != null
+            ? Number(selectedVariant.stock)
+            : selectedProductForVariant?.stock != null
+            ? Number(selectedProductForVariant.stock)
+            : null
+        }
+        maxQty={10}
+        onConfirm={handleVariantConfirm}
+        isSubmitting={addingToCart}
       />
 
       {/* ── Full-screen spinner while the next set of products loads ── */}
