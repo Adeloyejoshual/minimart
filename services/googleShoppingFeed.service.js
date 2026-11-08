@@ -1,6 +1,6 @@
 // services/googleShoppingFeed.service.js
 
-import { pool } from "../server.js";
+import { pool } from "../config/db.js";
 
 const SITE_URL = process.env.SITE_URL || "https://www.loemart.com";
 const IMAGE_BASE_URL =
@@ -31,18 +31,17 @@ const getProductUrl = (product) => {
 
 export const getGoogleShoppingProducts = async () => {
   try {
+    // Uses ONLY verified columns from market.products, market.product_images, and market.users
     const query = `
       SELECT
         p.id,
-        COALESCE(p.name, p.title)              AS title,
+        p.name                                AS title,
         p.description,
         p.price::numeric                      AS price,
         p.slug,
-        p.stock_quantity,
-        p.image_url                           AS direct_image_url,
-        COALESCE(p.brand, u.name, 'Loemart')  AS brand,
+        u.name                                AS seller_name,
 
-        -- Fetch images from market.product_images table
+        -- Aggregated images from market.product_images
         COALESCE((
           SELECT json_agg(pi.image_url ORDER BY pi.is_primary DESC, pi.sort_order ASC, pi.id ASC)
           FROM market.product_images pi
@@ -66,10 +65,6 @@ export const getGoogleShoppingProducts = async () => {
     const products = rows
       .map((p) => {
         const imageList = [];
-
-        if (p.direct_image_url) {
-          imageList.push(p.direct_image_url);
-        }
 
         if (Array.isArray(p.db_images)) {
           p.db_images.forEach((url) => {
@@ -98,9 +93,6 @@ export const getGoogleShoppingProducts = async () => {
           return null;
         }
 
-        const stock = Number(p.stock_quantity ?? 1);
-        const availability = stock > 0 ? "in_stock" : "out_of_stock";
-
         return {
           id: String(p.id),
           title: p.title,
@@ -109,15 +101,15 @@ export const getGoogleShoppingProducts = async () => {
           image: mainImage,
           additionalImages,
           url: getProductUrl(p),
-          brand: p.brand || "Loemart",
-          availability,
+          brand: p.seller_name || "Loemart",
+          availability: "in_stock",
         };
       })
       .filter(Boolean);
 
     return products;
   } catch (error) {
-    console.error("🔥 [Google Feed DB Error]:", error.message);
+    console.error("🔥 [Google Feed DB Error]:", error);
     throw error;
   }
 };
