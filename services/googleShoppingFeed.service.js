@@ -22,38 +22,6 @@ const formatImageUrl = (rawPath) => {
   return `${IMAGE_BASE_URL}/${cleanPath.replace(/^\/+/, "")}`;
 };
 
-const getProductImages = (product) => {
-  const imagesList = [];
-  if (product.image_url) imagesList.push(product.image_url);
-
-  if (product.images) {
-    try {
-      const parsed =
-        typeof product.images === "string"
-          ? JSON.parse(product.images)
-          : product.images;
-
-      if (Array.isArray(parsed)) {
-        parsed.forEach((img) => {
-          const url = typeof img === "object" ? img?.url || img?.src : img;
-          if (url && typeof url === "string") imagesList.push(url);
-        });
-      }
-    } catch {
-      /* ignore json parse errors */
-    }
-  }
-
-  const uniqueUrls = [...new Set(imagesList)]
-    .map(formatImageUrl)
-    .filter(Boolean);
-
-  return {
-    mainImage: uniqueUrls[0] || null,
-    additionalImages: uniqueUrls.slice(1, 11),
-  };
-};
-
 const getProductUrl = (product) => {
   const path = product.slug
     ? `/market/product/${encodeURIComponent(product.slug)}`
@@ -62,57 +30,94 @@ const getProductUrl = (product) => {
 };
 
 export const getGoogleShoppingProducts = async () => {
-  const result = await pool.query(`
-    SELECT
-      id,
-      name,
-      description,
-      price,
-      image_url,
-      images,
-      slug,
-      brand,
-      status,
-      stock_quantity
-    FROM market.products
-    WHERE
-      status = 'active'
-      AND price > 0
-    ORDER BY created_at DESC
-    LIMIT 50000
-  `);
+  try {
+    const query = `
+      SELECT
+        p.id,
+        COALESCE(p.name, p.title)              AS title,
+        p.description,
+        p.price::numeric                      AS price,
+        p.slug,
+        p.stock_quantity,
+        p.image_url                           AS direct_image_url,
+        COALESCE(p.brand, u.name, 'Loemart')  AS brand,
 
-  return result.rows
-    .map((product) => {
-      const { mainImage, additionalImages } = getProductImages(product);
-      const price = Number(product.price);
+        -- Fetch images from market.product_images table
+        COALESCE((
+          SELECT json_agg(pi.image_url ORDER BY pi.is_primary DESC, pi.sort_order ASC, pi.id ASC)
+          FROM market.product_images pi
+          WHERE pi.product_id = p.id
+        ), '[]'::json) AS db_images
 
-      if (
-        !product.id ||
-        !product.name ||
-        !product.description ||
-        !mainImage ||
-        !Number.isFinite(price) ||
-        price <= 0
-      ) {
-        return null;
-      }
+      FROM market.products p
+      LEFT JOIN market.users u ON u.id = p.user_id
+      WHERE p.status IN ('approved', 'active')
+        AND p.is_active = true
+        AND p.is_hidden = false
+        AND p.is_paused = false
+        AND p.deleted_at IS NULL
+        AND p.price::numeric > 0
+      ORDER BY p.created_at DESC
+      LIMIT 50000;
+    `;
 
-      const stock = Number(product.stock_quantity);
-      const availability =
-        Number.isFinite(stock) && stock > 0 ? "in_stock" : "out_of_stock";
+    const { rows } = await pool.query(query);
 
-      return {
-        id: String(product.id),
-        title: product.name,
-        description: product.description,
-        price,
-        image: mainImage,
-        additionalImages,
-        url: getProductUrl(product),
-        brand: product.brand || "Loemart",
-        availability,
-      };
-    })
-    .filter(Boolean);
+    const products = rows
+      .map((p) => {
+        const imageList = [];
+
+        if (p.direct_image_url) {
+          imageList.push(p.direct_image_url);
+        }
+
+        if (Array.isArray(p.db_images)) {
+          p.db_images.forEach((url) => {
+            if (url && typeof url === "string") {
+              imageList.push(url);
+            }
+          });
+        }
+
+        const uniqueImages = [...new Set(imageList)]
+          .map(formatImageUrl)
+          .filter(Boolean);
+
+        const mainImage = uniqueImages[0] || null;
+        const additionalImages = uniqueImages.slice(1, 11);
+        const price = Number(p.price);
+
+        if (
+          !p.id ||
+          !p.title ||
+          !p.description ||
+          !mainImage ||
+          !Number.isFinite(price) ||
+          price <= 0
+        ) {
+          return null;
+        }
+
+        const stock = Number(p.stock_quantity ?? 1);
+        const availability = stock > 0 ? "in_stock" : "out_of_stock";
+
+        return {
+          id: String(p.id),
+          title: p.title,
+          description: p.description,
+          price,
+          image: mainImage,
+          additionalImages,
+          url: getProductUrl(p),
+          brand: p.brand || "Loemart",
+          availability,
+        };
+      })
+      .filter(Boolean);
+
+    return products;
+  } catch (error) {
+    console.error("🔥 [Google Feed DB Error]:", error.message);
+    throw error;
+  }
 };
