@@ -23,4 +23,5 @@ router.get("/google-shopping-feed.xml", async (req, res) => {
   }
 });
 
+// CRITICAL FIX: Default export required for server.js import
 export default router;
