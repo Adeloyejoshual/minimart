@@ -19,7 +19,7 @@ const SOCIALS = [
     url: import.meta.env.VITE_LOEMART_INSTAGRAM_URL,
     icon: (
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919C8.333.014 8.741 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
+        <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919C8.333.014 8.741 0 12 0zm0 3.5a8.5 8.5 0 100 17 8.5 8.5 0 000-17zm0 2.338a6.162 6.162 0 110 12.324 6.162 6.162 0 010-12.324zm6.406-1.683a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
       </svg>
     ),
   },
@@ -74,29 +74,6 @@ const FOOTER_COLUMNS = [
   },
 ];
 
-const TRUST_ITEMS = [
-  {
-    icon: "✓",
-    title: "Verified Sellers",
-    description: "Discover trusted sellers.",
-  },
-  {
-    icon: "🔒",
-    title: "Secure Checkout",
-    description: "Protected payment experience.",
-  },
-  {
-    icon: "🚚",
-    title: "Managed Delivery",
-    description: "Delivery support for Market orders.",
-  },
-  {
-    icon: "♡",
-    title: "Customer Support",
-    description: "We're here to help.",
-  },
-];
-
 const SocialLinks = memo(function SocialLinks() {
   const availableSocials = SOCIALS.filter((item) => item.url);
 
@@ -130,7 +107,10 @@ const Footer = memo(function Footer({ variant = "default" }) {
             <span>Loemart</span>
           </Link>
 
-          <nav className="lm-footer-checkout-links">
+          <nav
+            className="lm-footer-checkout-links"
+            aria-label="Checkout footer navigation"
+          >
             <Link to="/help">Help</Link>
             <Link to="/terms">Terms</Link>
             <Link to="/privacy">Privacy</Link>
@@ -148,29 +128,10 @@ const Footer = memo(function Footer({ variant = "default" }) {
     <footer className="lm-footer">
       <div className="lm-footer-container">
 
-        {/* Trust information */}
-        <section
-          className="lm-footer-trust"
-          aria-label="Loemart services"
-        >
-          {TRUST_ITEMS.map((item) => (
-            <div className="lm-footer-trust-item" key={item.title}>
-              <span className="lm-footer-trust-icon">
-                {item.icon}
-              </span>
+        {/* BRAND AND NAVIGATION */}
 
-              <div>
-                <h3>{item.title}</h3>
-                <p>{item.description}</p>
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <div className="lm-footer-divider" />
-
-        {/* Footer brand and navigation */}
         <div className="lm-footer-main">
+
           <div className="lm-footer-brand">
             <Link to="/loemart" className="lm-footer-logo">
               <span className="lm-footer-logo-mark">L</span>
@@ -184,7 +145,7 @@ const Footer = memo(function Footer({ variant = "default" }) {
             </p>
 
             <div className="lm-footer-location">
-              <span>🇳🇬</span>
+              <span aria-hidden="true">🇳🇬</span>
               <span>Made for Nigeria</span>
             </div>
 
@@ -213,8 +174,12 @@ const Footer = memo(function Footer({ variant = "default" }) {
           </nav>
         </div>
 
-        {/* Feedback */}
-        <section className="lm-footer-feedback">
+        {/* FEEDBACK */}
+
+        <section
+          className="lm-footer-feedback"
+          aria-label="Customer feedback"
+        >
           <div className="lm-footer-feedback-icon">
             ✦
           </div>
@@ -236,9 +201,12 @@ const Footer = memo(function Footer({ variant = "default" }) {
           </Link>
         </section>
 
+        {/* DIVIDER */}
+
         <div className="lm-footer-divider" />
 
-        {/* Copyright and legal links */}
+        {/* COPYRIGHT */}
+
         <div className="lm-footer-bottom">
           <p className="lm-footer-copyright">
             © {YEAR} Loemart Technologies Ltd. All rights reserved.
@@ -253,6 +221,7 @@ const Footer = memo(function Footer({ variant = "default" }) {
             🇳🇬 Nigeria
           </span>
         </div>
+
       </div>
     </footer>
   );
