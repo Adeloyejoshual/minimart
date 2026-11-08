@@ -23,6 +23,8 @@ import '../styles/Minimart.css';
 
 const BATCH_SIZE = 3;
 const PAGE_LIMIT = 30;
+const LOAD_MORE_SIZE = 20;
+const MAX_LOAD_MORE_CLICKS = 2;
 
 /* ══════════════════════════════════════════════════════════
    TOKEN RESOLVER: Finds user JWT regardless of storage key
@@ -146,6 +148,12 @@ export default function HomePageMobile() {
   const sentinelRef = useRef(null);
   const loadingRef = useRef(false);
 
+  /* ── Load-more click counter ── */
+  const [loadMoreClicks, setLoadMoreClicks] = useState(0);
+
+  /* ── Scroll-to-top arrow visibility ── */
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
   /* ── Fixed Header Height (prevents hero overlap) ── */
   const headerRef = useRef(null);
   const [headerHeight, setHeaderHeight] = useState(160);
@@ -157,7 +165,11 @@ export default function HomePageMobile() {
 
   /* ── Derived Flags ── */
   const canAutoLoad = hasMore && pagesInBatch < BATCH_SIZE && !loading;
-  const showLoadMoreBtn = hasMore && pagesInBatch >= BATCH_SIZE && !loading;
+  const showLoadMoreBtn =
+    hasMore &&
+    pagesInBatch >= BATCH_SIZE &&
+    !loading &&
+    loadMoreClicks < MAX_LOAD_MORE_CLICKS;
 
   /* ══════════════════════════════════════════════════════════
      EFFECTS
@@ -195,7 +207,16 @@ export default function HomePageMobile() {
     return () => clearInterval(id);
   }, []);
 
-  // 2. Initial Data Load
+  // 2. Scroll listener for scroll-to-top arrow
+  useEffect(() => {
+    const onScroll = () => {
+      setShowScrollTop(window.scrollY > 500);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // 3. Initial Data Load
   useEffect(() => {
     let isMounted = true;
 
@@ -244,7 +265,7 @@ export default function HomePageMobile() {
     };
   }, []);
 
-  // 3. Auto-load next page
+  // 4. Auto-load next page
   const autoLoadNext = useCallback(async () => {
     if (loadingRef.current || !hasMore || pagesInBatch >= BATCH_SIZE) return;
     loadingRef.current = true;
@@ -268,7 +289,7 @@ export default function HomePageMobile() {
     }
   }, [nextPage, hasMore, pagesInBatch]);
 
-  // 4. Sentinel Intersection Observer
+  // 5. Sentinel Intersection Observer
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !canAutoLoad) return;
@@ -284,7 +305,7 @@ export default function HomePageMobile() {
     return () => observer.disconnect();
   }, [autoLoadNext, canAutoLoad]);
 
-  // 5. Post-load catch-up
+  // 6. Post-load catch-up
   useEffect(() => {
     if (loadingMore || loading || !canAutoLoad) return;
 
@@ -307,27 +328,46 @@ export default function HomePageMobile() {
   ══════════════════════════════════════════════════════════ */
 
   const handleLoadMoreBatch = async () => {
-    if (loadingRef.current || !hasMore) return;
+    if (
+      loadingRef.current ||
+      !hasMore ||
+      loadMoreClicks >= MAX_LOAD_MORE_CLICKS
+    )
+      return;
+
     loadingRef.current = true;
     setLoadingMore(true);
 
     try {
-      const result = await fetchProductsPage(nextPage, PAGE_LIMIT);
+      const result = await fetchProductsPage(nextPage, LOAD_MORE_SIZE);
       const freshItems = Array.isArray(result.products)
         ? mixProducts(result.products)
         : [];
 
-      setProducts(freshItems);
+      // Append instead of replace — user stays in place
+      if (freshItems.length > 0) {
+        setProducts((prev) => [...prev, ...freshItems]);
+      }
+
       setNextPage(result.nextPage);
-      setPagesInBatch(1);
-      setHasMore(result.hasMore);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setLoadMoreClicks((prev) => prev + 1);
+
+      // Force end after final click
+      if (loadMoreClicks + 1 >= MAX_LOAD_MORE_CLICKS) {
+        setHasMore(false);
+      } else {
+        setHasMore(result.hasMore);
+      }
     } catch (err) {
       console.error('Failed to load next batch:', err);
     } finally {
       setLoadingMore(false);
       loadingRef.current = false;
     }
+  };
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleCategorySelect = (catName) => {
@@ -369,7 +409,10 @@ export default function HomePageMobile() {
           (p) => (p.category || p.category_name) === activeCategory
         );
 
-  const reachedEnd = !hasMore && !loading && displayedCatalog.length > 0;
+  const reachedEnd =
+    (!hasMore || loadMoreClicks >= MAX_LOAD_MORE_CLICKS) &&
+    !loading &&
+    displayedCatalog.length > 0;
 
   /* ══════════════════════════════════════════════════════════
      RENDER
@@ -1021,6 +1064,38 @@ export default function HomePageMobile() {
         count={cartCount}
         onClick={handleFloatingCartClick}
       />
+
+      {/* ── Scroll-to-Top Arrow ── */}
+      <button
+        type="button"
+        onClick={scrollToTop}
+        aria-label="Scroll to top"
+        style={{
+          position: 'fixed',
+          bottom: 150,
+          right: 18,
+          zIndex: 900,
+          width: 46,
+          height: 46,
+          borderRadius: '50%',
+          border: 'none',
+          background: '#fff',
+          color: '#ff6000',
+          boxShadow: '0 3px 12px rgba(0,0,0,0.15)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '1.3rem',
+          fontWeight: 900,
+          opacity: showScrollTop ? 1 : 0,
+          pointerEvents: showScrollTop ? 'auto' : 'none',
+          transform: showScrollTop ? 'translateY(0)' : 'translateY(16px)',
+          transition: 'opacity 0.3s ease, transform 0.3s ease',
+        }}
+      >
+        ↑
+      </button>
 
       {/* Variant Bottom Sheet */}
       <VariantBottomSheet
