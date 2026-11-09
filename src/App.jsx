@@ -150,6 +150,7 @@ import LoemartSearchPage from "./loemart/mobile/SearchPage";
 
 import CommunityGuidelines from "./pages/CommunityGuidelines/CommunityGuidelines";
 import PrivacyPolicy from "./pages/PrivacyPolicy/PrivacyPolicy";
+import ReturnPolicy from "./pages/ReturnPolicy/ReturnPolicy";
 import HallOfFame from "./pages/HallOfFame";
 
 /* ============================================================
@@ -1848,6 +1849,11 @@ function AppInner() {
         <Route
           path="/privacy"
           element={<PrivacyPolicy />}
+        />
+
+        <Route
+          path="/return-policy"
+          element={<ReturnPolicy />}
         />
 
         <Route
