@@ -61,6 +61,7 @@ const FOOTER_COLUMNS = [
       { label: "About Us", path: "/about" },
       { label: "Terms of Service", path: "/terms" },
       { label: "Privacy Policy", path: "/privacy" },
+      { label: "Returns & Refunds", path: "/return-policy" },
     ],
   },
   {
@@ -114,6 +115,7 @@ const Footer = memo(function Footer({ variant = "default" }) {
             <Link to="/help">Help</Link>
             <Link to="/terms">Terms</Link>
             <Link to="/privacy">Privacy</Link>
+            <Link to="/return-policy">Returns</Link>
           </nav>
 
           <p className="lm-footer-copyright">
@@ -215,6 +217,7 @@ const Footer = memo(function Footer({ variant = "default" }) {
           <div className="lm-footer-bottom-links">
             <Link to="/terms">Terms of Service</Link>
             <Link to="/privacy">Privacy Policy</Link>
+            <Link to="/return-policy">Returns &amp; Refunds</Link>
           </div>
 
           <span className="lm-footer-country">
