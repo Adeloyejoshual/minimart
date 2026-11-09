@@ -112,7 +112,8 @@ export default function GoogleCustomerReviews({ order, trackingId }) {
       };
       document.head.appendChild(script);
     } else {
-      existingScript.addEventListener("load", renderSurveyOptIn, { once: true });
+      // The script URL's onload=renderOptIn callback handles an in-flight load.
+      // Do not add a second load listener; that could render the survey twice.
     }
 
     return () => {
