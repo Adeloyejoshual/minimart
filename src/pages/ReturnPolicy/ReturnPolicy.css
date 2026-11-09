@@ -1,0 +1,191 @@
+.lm-return-page {
+  min-height: 100dvh;
+  background: var(--bg, #f7f4ef);
+  color: var(--ink, #141210);
+  font-family: var(--fb, Arial, sans-serif);
+}
+.lm-return-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px max(16px, calc((100% - 900px) / 2));
+  background: var(--wh, #fff);
+  border-bottom: 1px solid var(--bd, #e9e5df);
+}
+.lm-return-back {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #ff5c00;
+  font-size: 25px;
+  cursor: pointer;
+}
+.lm-return-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 17px;
+}
+.lm-return-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: #ff5c00;
+  color: #fff;
+}
+.lm-return-header-label {
+  color: var(--ink2, #777);
+  font-size: 12px;
+  font-weight: 600;
+}
+.lm-return-content {
+  width: min(100% - 32px, 780px);
+  margin: 0 auto;
+  padding: 24px 0 48px;
+}
+.lm-return-hero {
+  padding: 28px 22px 22px;
+  border-radius: 20px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 8px 30px rgba(20, 18, 16, .05);
+}
+.lm-return-eyebrow {
+  color: #ff5c00;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+.lm-return-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin: 14px auto;
+  border-radius: 17px;
+  background: #fff0e8;
+  color: #ff5c00;
+  font-size: 30px;
+}
+.lm-return-hero h1 {
+  margin: 0 0 9px;
+  font-size: clamp(24px, 5vw, 34px);
+  line-height: 1.2;
+  font-weight: 800;
+}
+.lm-return-hero > p {
+  max-width: 520px;
+  margin: 0 auto;
+  color: var(--ink2, #68645f);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.lm-return-highlights {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #eee9e3;
+}
+.lm-return-highlights div {
+  display: grid;
+  gap: 4px;
+}
+.lm-return-highlights strong {
+  color: #ff5c00;
+  font-size: 18px;
+}
+.lm-return-highlights span {
+  color: var(--ink2, #777);
+  font-size: 11px;
+}
+.lm-return-intro, .lm-return-section, .lm-return-contact {
+  margin-top: 14px;
+  padding: 20px;
+  border: 1px solid var(--bd, #e9e5df);
+  border-radius: 16px;
+  background: var(--wh, #fff);
+}
+.lm-return-intro p, .lm-return-section p, .lm-return-section li, .lm-return-contact p {
+  color: var(--ink2, #5f5b56);
+  font-size: 14px;
+  line-height: 1.8;
+}
+.lm-return-intro p { margin: 0 0 10px; }
+.lm-return-intro p:last-child { margin-bottom: 0; }
+.lm-return-section h2, .lm-return-contact h2 {
+  margin: 0 0 10px;
+  color: var(--ink, #141210);
+  font-size: 16px;
+  font-weight: 800;
+}
+.lm-return-section p { margin: 0 0 10px; }
+.lm-return-section ul {
+  margin: 8px 0 0;
+  padding-left: 21px;
+}
+.lm-return-section li { padding: 3px 0; }
+.lm-return-note {
+  margin-top: 12px !important;
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff6f0;
+}
+.lm-return-contact {
+  background: #1d1a17;
+  border-color: #1d1a17;
+}
+.lm-return-contact h2 { color: #fff; }
+.lm-return-contact p { color: rgba(255,255,255,.72); }
+.lm-return-contact a {
+  display: inline-flex;
+  margin-top: 5px;
+  color: #ff9a68;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.lm-return-updated {
+  margin: 16px 4px 0;
+  color: var(--ink2, #777);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.lm-return-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px 20px;
+  padding: 20px 16px 28px;
+  border-top: 1px solid var(--bd, #e9e5df);
+  color: var(--ink2, #777);
+  font-size: 12px;
+}
+.lm-return-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+.lm-return-footer a:hover { color: #ff5c00; }
+@media (max-width: 520px) {
+  .lm-return-header { padding: 9px 12px; }
+  .lm-return-header-label { font-size: 11px; }
+  .lm-return-content { width: min(100% - 24px, 780px); padding-top: 14px; }
+  .lm-return-hero { padding: 24px 14px 18px; border-radius: 16px; }
+  .lm-return-highlights { gap: 4px; }
+  .lm-return-highlights strong { font-size: 16px; }
+  .lm-return-highlights span { font-size: 10px; line-height: 1.4; }
+  .lm-return-intro, .lm-return-section, .lm-return-contact { padding: 17px 15px; }
+}
