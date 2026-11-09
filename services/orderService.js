@@ -709,9 +709,11 @@ export async function getOrderGroup(identifier, userId) {
        a.additional_directions,
        a.call_before_delivery,
        a.city,
-       a.state
+       a.state,
+       u.email AS customer_email
      FROM public.order_groups og
      LEFT JOIN public.user_addresses a ON a.id = og.address_id
+     LEFT JOIN market.users u ON u.id = og.user_id
      WHERE ${identifierClause(parsed, "og", 1)}
        AND og.user_id = $2
      LIMIT 1`,
