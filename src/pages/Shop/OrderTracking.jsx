@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import axios from "axios";
+import GoogleCustomerReviews from "../../components/google/GoogleCustomerReviews";
 import "./styles/OrderTracking.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -725,6 +726,9 @@ export default function OrderTracking() {
             </button>
           </div>
         )}
+
+        {/* ══ GOOGLE CUSTOMER REVIEWS ══ */}
+        <GoogleCustomerReviews order={order} trackingId={trackingId} />
 
         {/* ══ LIVE DELIVERY TRACKING ══ */}
         <DeliveryTrackingCard orders={order.orders ?? []} />
