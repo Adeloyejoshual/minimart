@@ -663,7 +663,7 @@ export default function Testpage() {
           </form>
 
           <div className="lm-header-actions">
-            <a href="/login">Account</a>
+            <a href="/auth">Account</a>
             <a href="/nearby">Explore</a>
             <a href="/trending">Shop</a>
           </div>
@@ -742,7 +742,7 @@ export default function Testpage() {
               </div>
 
               <div className="lm-card-bottom">
-                <a href="/trending" className="lm-card-btn">
+                <a href="/loemart" className="lm-card-btn">
                   Shop Marketplace →
                 </a>
 
@@ -806,7 +806,7 @@ export default function Testpage() {
               </p>
             </div>
 
-            <a href="/minimart/add" className="lm-banner-btn">
+            <a href="/minimart/post-ad" className="lm-banner-btn">
               Start Selling →
             </a>
           </div>
@@ -865,7 +865,7 @@ export default function Testpage() {
 
               <div className="lm-footer-links">
                 <a href="/nearby">Loemart Local</a>
-                <a href="/trending">Loemart Market</a>
+                <a href="/loemart">Loemart Market</a>
                 <a href="/deals">Deals</a>
                 <a href="/latest">Latest Listings</a>
               </div>
@@ -875,7 +875,7 @@ export default function Testpage() {
               <h4>Sellers</h4>
 
               <div className="lm-footer-links">
-                <a href="/minimart/add">Start Selling</a>
+                <a href="/minimart/post-ad">Start Selling</a>
                 <a href="/seller-guide">Seller Guide</a>
                 <a href="/pricing">Pricing</a>
                 <a href="/promoted">Promotions</a>
