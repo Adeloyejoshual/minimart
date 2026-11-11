@@ -142,6 +142,7 @@ import MenuPage from "./pages/MenuPage";
 ============================================================ */
 
 import HomePage from "./loemart/HomePage";
+import Testpage from "./loemart/Testpage";
 import LoemartSearchPage from "./loemart/mobile/SearchPage";
 
 /* ============================================================
@@ -1864,6 +1865,11 @@ function AppInner() {
         <Route
           path="/hall-of-fame"
           element={<HallOfFame />}
+        />
+
+        <Route
+          path="/loemart/testpage"
+          element={<Testpage />}
         />
 
         <Route
