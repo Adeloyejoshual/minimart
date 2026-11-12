@@ -1,8 +1,9 @@
 /**
  * routes/market/getproducts.js
  *
- * GET /api/products          → Public product listing (paginated, filtered, sorted)
- * GET /api/products/:idOrSlug → Single product detail
+ * GET /api/products             → Public product listing (paginated, filtered, sorted)
+ * GET /api/products/categories  → All distinct categories (lightweight, cached)
+ * GET /api/products/:idOrSlug   → Single product detail
  *
  * Business rules:
  *  - Excludes soft-deleted products (deleted_at IS NOT NULL or status = 'deleted')
@@ -26,6 +27,39 @@ import {
 } from "./helpers.js";
 
 const router = express.Router();
+
+/* ══════════════════════════════════════════════════════════════
+   GET /categories
+   Returns all distinct category names from visible products.
+
+   ⚠️  MUST be registered BEFORE /:idOrSlug to avoid the
+       catch-all swallowing "categories" as a slug.
+
+   Response: { data: ["Fashion", "Electronics", "Beauty", ...] }
+══════════════════════════════════════════════════════════════ */
+router.get("/categories", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT p.category
+       FROM market.products p
+       WHERE p.deleted_at IS NULL
+         AND p.status != 'deleted'
+         AND p.category IS NOT NULL
+         AND TRIM(p.category) != ''
+         ${PUBLIC_CONDITIONS.length ? `AND ${PUBLIC_CONDITIONS.join(" AND ")}` : ""}
+       ORDER BY p.category ASC`
+    );
+
+    const categories = rows
+      .map((r) => (r.category || "").trim())
+      .filter(Boolean);
+
+    ok(res, { data: categories });
+  } catch (err) {
+    console.error("GET /api/products/categories error:", err.message);
+    fail(res, 500, "Failed to fetch categories");
+  }
+});
 
 /* ══════════════════════════════════════════════════════════════
    GET /
