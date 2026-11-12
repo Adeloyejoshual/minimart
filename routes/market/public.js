@@ -2,7 +2,7 @@
  * routes/market/getproducts.js
  *
  * GET /api/products             → Public product listing (paginated, filtered, sorted)
- * GET /api/products/categories  → All distinct categories (lightweight)
+ * GET /api/products/categories  → Distinct categories from products table (fallback)
  * GET /api/products/:idOrSlug   → Single product detail
  *
  * Business rules:
@@ -11,7 +11,7 @@
  *  - Variant-aware stock evaluation (base stock OR variant array stock)
  *  - sold_count is the urgency / social-proof signal
  *  - Default page size: 30 (controlled by helpers.js → paginate)
- *  - sort=diverse interleaves categories so no single category dominates
+ *  - sort=diverse interleaves categories at the SQL level
  */
 
 import express from "express";
@@ -31,12 +31,11 @@ const router = express.Router();
 
 /* ══════════════════════════════════════════════════════════════
    GET /categories
-   Returns all distinct category names from visible products.
+   Fallback: distinct categories from the products table.
+   Your primary categories come from /api/categories (market.categories table).
+   This is a safety net in case the categories table is out of sync.
 
-   ⚠️  MUST be registered BEFORE /:idOrSlug to avoid the
-       catch-all swallowing "categories" as a slug.
-
-   Response: { data: ["Fashion", "Electronics", "Beauty", ...] }
+   ⚠️  MUST be before /:idOrSlug to avoid slug collision.
 ══════════════════════════════════════════════════════════════ */
 router.get("/categories", async (req, res) => {
   try {
@@ -85,7 +84,6 @@ router.get("/", async (req, res) => {
 
     const { limit, offset, page } = paginate(req.query);
 
-    /* ── Always exclude deleted items ── */
     const conditions = [
       "p.deleted_at IS NULL",
       "p.status != 'deleted'",
@@ -95,7 +93,6 @@ router.get("/", async (req, res) => {
     const params = [];
     let p = 1;
 
-    /* ── Full-text search ── */
     if (search) {
       const cleaned = search.trim();
       conditions.push(
@@ -107,7 +104,6 @@ router.get("/", async (req, res) => {
       p += 2;
     }
 
-    /* ── Category (name OR UUID) ── */
     if (category) {
       conditions.push(
         `(p.category ILIKE $${p} OR p.category_id::text = $${p})`
@@ -116,19 +112,16 @@ router.get("/", async (req, res) => {
       p++;
     }
 
-    /* ── Brand ── */
     if (brand) {
       conditions.push(`p.brand ILIKE $${p++}`);
       params.push(`%${brand.trim()}%`);
     }
 
-    /* ── Tags (Postgres array overlap) ── */
     if (tags) {
       conditions.push(`p.tags && $${p++}::text[]`);
       params.push(tags.split(","));
     }
 
-    /* ── Price range ── */
     if (minPrice) {
       conditions.push(`p.price >= $${p++}`);
       params.push(parseInt(minPrice, 10));
@@ -138,13 +131,11 @@ router.get("/", async (req, res) => {
       params.push(parseInt(maxPrice, 10));
     }
 
-    /* ── Boolean flags ── */
     if (featured === "true")    conditions.push("p.is_featured  = true");
     if (trending === "true")    conditions.push("p.is_trending  = true");
     if (sponsored === "true")   conditions.push("p.is_sponsored = true");
     if (hasDelivery === "true") conditions.push("p.has_delivery = true");
 
-    /* ── Variant-aware stock filter ── */
     if (inStock === "true") {
       conditions.push(
         `(
@@ -168,16 +159,13 @@ router.get("/", async (req, res) => {
 
     const where = `WHERE ${conditions.join(" AND ")}`;
 
-    /* ── Sort ── */
     let order;
     if (sort === "diverse") {
-      // ✅ NEW: Category-interleaved sort using window function.
-      // Assigns each product a rank within its category (newest = 1),
-      // then orders by that rank so the first page gets one product
-      // from every category before showing the second product from any.
-      //
-      // Result: Fashion#1, Electronics#1, Beauty#1, Phones#1,
-      //         Fashion#2, Electronics#2, Beauty#2, Phones#2, ...
+      // ✅ Category-interleaved sort.
+      // ROW_NUMBER() assigns rank 1,2,3... within each category.
+      // ORDER BY that rank means: all rank-1 products first (one per category),
+      // then all rank-2 products, etc.
+      // Result: Fashion#1, Electronics#1, Home#1, Beauty#1, Fashion#2, ...
       order = `ROW_NUMBER() OVER (PARTITION BY p.category ORDER BY p.created_at DESC), p.created_at DESC`;
     } else if (sort === "relevance" && search) {
       order = `ts_rank(p.search_vector, plainto_tsquery('english', $1)) DESC, p.created_at DESC`;
@@ -189,7 +177,6 @@ router.get("/", async (req, res) => {
       order = SORT_MAP[sort] || SORT_MAP.newest;
     }
 
-    /* ── Execute queries in parallel ── */
     const [{ rows }, countRes] = await Promise.all([
       pool.query(
         `${FULL_PRODUCT_SELECT}
@@ -251,7 +238,6 @@ router.get("/:idOrSlug", async (req, res) => {
 
     if (!canSee) return fail(res, 404, "Product not found");
 
-    /* Track view for analytics (fire-and-forget) */
     if (isPublicProduct(product)) {
       trackView(product.id, req).catch(() => {});
     }
