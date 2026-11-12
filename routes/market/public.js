@@ -2,7 +2,7 @@
  * routes/market/getproducts.js
  *
  * GET /api/products             → Public product listing (paginated, filtered, sorted)
- * GET /api/products/categories  → All distinct categories (lightweight, cached)
+ * GET /api/products/categories  → All distinct categories (lightweight)
  * GET /api/products/:idOrSlug   → Single product detail
  *
  * Business rules:
@@ -11,6 +11,7 @@
  *  - Variant-aware stock evaluation (base stock OR variant array stock)
  *  - sold_count is the urgency / social-proof signal
  *  - Default page size: 30 (controlled by helpers.js → paginate)
+ *  - sort=diverse interleaves categories so no single category dominates
  */
 
 import express from "express";
@@ -169,7 +170,16 @@ router.get("/", async (req, res) => {
 
     /* ── Sort ── */
     let order;
-    if (sort === "relevance" && search) {
+    if (sort === "diverse") {
+      // ✅ NEW: Category-interleaved sort using window function.
+      // Assigns each product a rank within its category (newest = 1),
+      // then orders by that rank so the first page gets one product
+      // from every category before showing the second product from any.
+      //
+      // Result: Fashion#1, Electronics#1, Beauty#1, Phones#1,
+      //         Fashion#2, Electronics#2, Beauty#2, Phones#2, ...
+      order = `ROW_NUMBER() OVER (PARTITION BY p.category ORDER BY p.created_at DESC), p.created_at DESC`;
+    } else if (sort === "relevance" && search) {
       order = `ts_rank(p.search_vector, plainto_tsquery('english', $1)) DESC, p.created_at DESC`;
     } else if (sort === "bestselling") {
       order = `p.sold_count DESC, p.created_at DESC`;
