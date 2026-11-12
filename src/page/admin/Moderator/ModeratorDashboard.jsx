@@ -1,6 +1,7 @@
 // src/page/admin/Moderator/ModeratorDashboard.jsx
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
 // ── Layout ────────────────────────────────────────────────────
@@ -221,7 +222,25 @@ function useActions(api, reload) {
    MODERATOR DASHBOARD
 ════════════════════════════════════════════════════════════ */
 export default function ModeratorDashboard() {
+  const navigate = useNavigate();
   const token = useMemo(() => localStorage.getItem("admin_token"), []);
+
+  const handleLogout = useCallback(() => {
+    if (!window.confirm("Sign out of the Loemart moderator panel?")) return;
+
+    const activeToken = localStorage.getItem("admin_token");
+    if (activeToken) {
+      fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${activeToken}` },
+        keepalive: true,
+      }).catch(() => {});
+    }
+
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("admin");
+    navigate("/admin/login", { replace: true });
+  }, [navigate]);
   const api   = useMemo(() => createApi(token), [token]);
 
   const currentUser = useMemo(() => {
@@ -370,6 +389,7 @@ export default function ModeratorDashboard() {
             adminName={adminName}
             notifCount={totalNotifCount}
             roleBadge="Moderator"
+            onLogout={handleLogout}
           />
           <div className="body">
             {pageMap[page] ?? (
