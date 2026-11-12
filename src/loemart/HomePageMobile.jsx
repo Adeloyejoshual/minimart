@@ -14,6 +14,8 @@ import {
   primaryImg,
   getProductPath,
   mixProducts,
+  mixProductsByCategory,
+  fetchCategories,
   getMidnightWATTimeLeft,
   partitionAdminProductSections,
   fetchProductsPage,
@@ -217,26 +219,31 @@ export default function HomePageMobile() {
   }, []);
 
   // 3. Initial Data Load
+  // ✅ REWRITTEN: Fetches categories from API, uses category-aware mixing
   useEffect(() => {
     let isMounted = true;
 
     async function loadData() {
       setLoading(true);
       try {
-        const [productData, rawCampaigns] = await Promise.all([
+        const [productData, rawCampaigns, apiCategories] = await Promise.all([
           fetchProductsPage(1, PAGE_LIMIT).catch(() => ({
             products: [],
             hasMore: false,
             nextPage: 2,
           })),
           fetchCampaigns().catch(() => []),
+          fetchCategories().catch(() => []),
         ]);
 
         if (!isMounted) return;
 
-        const mixed = mixProducts(
-          Array.isArray(productData.products) ? productData.products : []
-        );
+        const rawProducts = Array.isArray(productData.products)
+          ? productData.products
+          : [];
+
+        // ✅ Category-aware round-robin instead of blind shuffle
+        const mixed = mixProductsByCategory(rawProducts);
 
         setProducts(mixed);
         setNextPage(productData.nextPage);
@@ -244,14 +251,19 @@ export default function HomePageMobile() {
         setHasMore(productData.hasMore);
         setCampaigns(Array.isArray(rawCampaigns) ? rawCampaigns : []);
 
-        const uniqueCats = Array.from(
-          new Set(
-            mixed
-              .map((p) => p.category || p.category_name)
-              .filter(Boolean)
-          )
-        );
-        setCategories(uniqueCats);
+        // ✅ Use API categories if available, fallback to client discovery
+        if (apiCategories.length > 0) {
+          setCategories(apiCategories);
+        } else {
+          const uniqueCats = Array.from(
+            new Set(
+              mixed
+                .map((p) => p.category || p.category_name)
+                .filter(Boolean)
+            )
+          );
+          setCategories(uniqueCats);
+        }
       } catch (err) {
         console.error('Failed to load mobile homepage data:', err);
       } finally {
@@ -266,6 +278,7 @@ export default function HomePageMobile() {
   }, []);
 
   // 4. Auto-load next page
+  // ✅ REWRITTEN: Re-mixes entire array for category balance, accumulates categories
   const autoLoadNext = useCallback(async () => {
     if (loadingRef.current || !hasMore || pagesInBatch >= BATCH_SIZE) return;
     loadingRef.current = true;
@@ -276,8 +289,22 @@ export default function HomePageMobile() {
       const newItems = Array.isArray(result.products) ? result.products : [];
 
       if (newItems.length > 0) {
-        setProducts((prev) => [...prev, ...newItems]);
+        // ✅ Re-mix entire combined array so category balance is maintained globally
+        setProducts((prev) => {
+          const combined = [...prev, ...newItems];
+          return mixProductsByCategory(combined);
+        });
+
+        // ✅ Accumulate newly discovered categories
+        setCategories((prev) => {
+          const newCats = newItems
+            .map((p) => p.category || p.category_name)
+            .filter(Boolean);
+          const merged = new Set([...prev, ...newCats]);
+          return Array.from(merged);
+        });
       }
+
       setNextPage(result.nextPage);
       setPagesInBatch((prev) => prev + 1);
       setHasMore(result.hasMore);
@@ -327,6 +354,7 @@ export default function HomePageMobile() {
      HANDLERS
   ══════════════════════════════════════════════════════════ */
 
+  // ✅ REWRITTEN: Re-mixes entire array, accumulates categories
   const handleLoadMoreBatch = async () => {
     if (
       loadingRef.current ||
@@ -341,12 +369,24 @@ export default function HomePageMobile() {
     try {
       const result = await fetchProductsPage(nextPage, LOAD_MORE_SIZE);
       const freshItems = Array.isArray(result.products)
-        ? mixProducts(result.products)
+        ? result.products
         : [];
 
-      // Append instead of replace — user stays in place
       if (freshItems.length > 0) {
-        setProducts((prev) => [...prev, ...freshItems]);
+        // ✅ Re-mix entire combined array for global category balance
+        setProducts((prev) => {
+          const combined = [...prev, ...freshItems];
+          return mixProductsByCategory(combined);
+        });
+
+        // ✅ Accumulate newly discovered categories
+        setCategories((prev) => {
+          const newCats = freshItems
+            .map((p) => p.category || p.category_name)
+            .filter(Boolean);
+          const merged = new Set([...prev, ...newCats]);
+          return Array.from(merged);
+        });
       }
 
       setNextPage(result.nextPage);
