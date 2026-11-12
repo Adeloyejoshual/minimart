@@ -131,11 +131,12 @@ export function getProductPath(item) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   CATALOG MIXER & UTILITY HELPERS
+   CATALOG MIXERS & UTILITY HELPERS
 ═══════════════════════════════════════════════════════════════ */
 
 /**
- * Fisher-Yates array shuffle for a mixed product feed
+ * Fisher-Yates array shuffle for a mixed product feed.
+ * Used internally and as a fallback when only one category exists.
  */
 export function mixProducts(items) {
   if (!Array.isArray(items)) return [];
@@ -145,6 +146,72 @@ export function mixProducts(items) {
     [list[i], list[j]] = [list[j], list[i]];
   }
   return list;
+}
+
+/**
+ * ✅ Category-aware round-robin mixer.
+ *
+ * Guarantees diverse category representation at the top of every feed
+ * so a single dominant category (e.g. Fashion) cannot bury all others.
+ *
+ * Algorithm:
+ *   1. Group products by category
+ *   2. Shuffle within each group (preserves randomness)
+ *   3. Sort groups smallest-first so minority categories surface early
+ *   4. Round-robin pick: one product per category per cycle
+ *   5. Exhausted categories drop out; larger ones fill the tail
+ *
+ * Result: The first N items always show maximum category diversity.
+ * A store with 200 Fashion + 10 Electronics + 5 Beauty will show
+ * Beauty → Electronics → Fashion → Fashion → Fashion → …
+ * instead of 30 straight Fashion items.
+ */
+export function mixProductsByCategory(items) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  if (items.length <= 2) return mixProducts(items);
+
+  // 1. Group by category
+  const groups = {};
+  for (const item of items) {
+    const cat = normalize(item.category || item.category_name || "");
+    const key = cat || "__uncategorized__";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(item);
+  }
+
+  const catKeys = Object.keys(groups);
+
+  // If only one category, a plain shuffle is the best we can do
+  if (catKeys.length <= 1) return mixProducts(items);
+
+  // 2. Shuffle within each group so ordering inside a category is random
+  for (const key of catKeys) {
+    groups[key] = mixProducts(groups[key]);
+  }
+
+  // 3. Sort groups: smallest first so minority categories appear earliest
+  catKeys.sort((a, b) => groups[a].length - groups[b].length);
+
+  // 4. Round-robin pick across all category groups
+  const result = [];
+  const indices = {};
+  for (const key of catKeys) indices[key] = 0;
+
+  let remaining = items.length;
+  while (remaining > 0) {
+    let progressed = false;
+    for (const key of catKeys) {
+      if (indices[key] < groups[key].length) {
+        result.push(groups[key][indices[key]]);
+        indices[key]++;
+        remaining--;
+        progressed = true;
+      }
+    }
+    if (!progressed) break; // safety valve — should never trigger
+  }
+
+  return result;
 }
 
 export function normalize(str = "") {
@@ -436,6 +503,24 @@ export function filterProductsByCampaign(products, campaignQuery) {
   });
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PRODUCT SECTION PARTITIONER
+═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Splits a flat product array into named homepage sections.
+ *
+ * Returns:
+ *   all       – every visible (non-hidden) product
+ *   trending  – products flagged is_trending
+ *   featured  – products flagged is_featured
+ *   sponsored – products flagged is_sponsored
+ *   campaign  – products linked to any campaign
+ *   flash     – products with a measurable discount
+ *
+ * Note: Products can appear in multiple sections simultaneously.
+ *       `all` is the superset used by the "Explore Catalog" grid.
+ */
 export function partitionAdminProductSections(products = []) {
   const list = Array.isArray(products) ? products : [];
 
@@ -476,6 +561,10 @@ export function partitionAdminProductSections(products = []) {
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   COUNTDOWN TIMER
+═══════════════════════════════════════════════════════════════ */
+
 /**
  * Midnight (23:59:59) WAT countdown
  */
@@ -502,8 +591,12 @@ export function getMidnightWATTimeLeft(now = new Date()) {
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSE ENVELOPE EXTRACTION
+═══════════════════════════════════════════════════════════════ */
+
 /**
- * Extracts product arrays from any nested response envelope shape
+ * Extracts product arrays from any nested response envelope shape.
  * Matches Backend Response: ok(res, { data: { products: rows, pagination: ... } })
  */
 export function extractProductsArray(data) {
@@ -518,6 +611,10 @@ export function extractProductsArray(data) {
   if (Array.isArray(data.results)) return data.results;
   return [];
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   NETWORK HELPERS
+═══════════════════════════════════════════════════════════════ */
 
 /**
  * Fetch JSON helper
@@ -609,6 +706,65 @@ export async function fetchProductsPage(page = 1, limit = 30) {
   }
 
   return { products: [], hasMore: false, nextPage: page + 1 };
+}
+
+/**
+ * ✅ Fetch all available categories from the backend.
+ *
+ * Tries dedicated category endpoints in order of likelihood.
+ * Handles multiple response envelope shapes:
+ *   - Flat array of strings:  ["Fashion", "Electronics"]
+ *   - Array of objects:       [{ name: "Fashion" }, { name: "Electronics" }]
+ *   - Nested envelope:        { data: { categories: [...] } }
+ *
+ * Returns string[] of category names, or empty array if no endpoint responds.
+ * The caller should fall back to client-side discovery when this returns [].
+ */
+export async function fetchCategories() {
+  const endpoints = [
+    "/categories",
+    "/products/categories",
+    "/market/categories",
+    "/marketplace/categories",
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const data = await fetchJson(endpoint);
+
+      // Unwrap whatever envelope the backend uses
+      let cats = [];
+      if (Array.isArray(data)) {
+        cats = data;
+      } else if (data?.data && Array.isArray(data.data)) {
+        cats = data.data;
+      } else if (data?.data?.categories && Array.isArray(data.data.categories)) {
+        cats = data.data.categories;
+      } else if (data?.categories && Array.isArray(data.categories)) {
+        cats = data.categories;
+      }
+
+      if (cats.length > 0) {
+        return cats
+          .map((c) => {
+            if (typeof c === "string") return c.trim();
+            return (
+              c.name ||
+              c.category ||
+              c.title ||
+              c.label ||
+              c.category_name ||
+              ""
+            ).trim();
+          })
+          .filter(Boolean);
+      }
+    } catch {
+      // try next endpoint
+    }
+  }
+
+  return [];
 }
 
 /**
