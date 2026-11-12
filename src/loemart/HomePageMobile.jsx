@@ -219,7 +219,9 @@ export default function HomePageMobile() {
   }, []);
 
   // 3. Initial Data Load
-  // ✅ REWRITTEN: Fetches categories from API, uses category-aware mixing
+  // ✅ sort=diverse → server interleaves categories
+  // ✅ fetchCategories → gets ALL categories from DB, not just page 1
+  // ✅ mixProductsByCategory → client-side safety net for diversity
   useEffect(() => {
     let isMounted = true;
 
@@ -227,7 +229,7 @@ export default function HomePageMobile() {
       setLoading(true);
       try {
         const [productData, rawCampaigns, apiCategories] = await Promise.all([
-          fetchProductsPage(1, PAGE_LIMIT).catch(() => ({
+          fetchProductsPage(1, PAGE_LIMIT, "diverse").catch(() => ({
             products: [],
             hasMore: false,
             nextPage: 2,
@@ -242,7 +244,7 @@ export default function HomePageMobile() {
           ? productData.products
           : [];
 
-        // ✅ Category-aware round-robin instead of blind shuffle
+        // ✅ Category-aware round-robin as safety net
         const mixed = mixProductsByCategory(rawProducts);
 
         setProducts(mixed);
@@ -278,24 +280,24 @@ export default function HomePageMobile() {
   }, []);
 
   // 4. Auto-load next page
-  // ✅ REWRITTEN: Re-mixes entire array for category balance, accumulates categories
+  // ✅ sort=diverse → server keeps interleaving on every page
+  // ✅ Re-mixes combined array for client-side diversity
+  // ✅ Accumulates categories from new products
   const autoLoadNext = useCallback(async () => {
     if (loadingRef.current || !hasMore || pagesInBatch >= BATCH_SIZE) return;
     loadingRef.current = true;
     setLoadingMore(true);
 
     try {
-      const result = await fetchProductsPage(nextPage, PAGE_LIMIT);
+      const result = await fetchProductsPage(nextPage, PAGE_LIMIT, "diverse");
       const newItems = Array.isArray(result.products) ? result.products : [];
 
       if (newItems.length > 0) {
-        // ✅ Re-mix entire combined array so category balance is maintained globally
         setProducts((prev) => {
           const combined = [...prev, ...newItems];
           return mixProductsByCategory(combined);
         });
 
-        // ✅ Accumulate newly discovered categories
         setCategories((prev) => {
           const newCats = newItems
             .map((p) => p.category || p.category_name)
@@ -354,7 +356,7 @@ export default function HomePageMobile() {
      HANDLERS
   ══════════════════════════════════════════════════════════ */
 
-  // ✅ REWRITTEN: Re-mixes entire array, accumulates categories
+  // ✅ sort=diverse + re-mix + category accumulation
   const handleLoadMoreBatch = async () => {
     if (
       loadingRef.current ||
@@ -367,19 +369,17 @@ export default function HomePageMobile() {
     setLoadingMore(true);
 
     try {
-      const result = await fetchProductsPage(nextPage, LOAD_MORE_SIZE);
+      const result = await fetchProductsPage(nextPage, LOAD_MORE_SIZE, "diverse");
       const freshItems = Array.isArray(result.products)
         ? result.products
         : [];
 
       if (freshItems.length > 0) {
-        // ✅ Re-mix entire combined array for global category balance
         setProducts((prev) => {
           const combined = [...prev, ...freshItems];
           return mixProductsByCategory(combined);
         });
 
-        // ✅ Accumulate newly discovered categories
         setCategories((prev) => {
           const newCats = freshItems
             .map((p) => p.category || p.category_name)
