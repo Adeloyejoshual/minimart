@@ -120,10 +120,6 @@ export function allImages(imagesInput) {
    PRODUCT ROUTE RESOLVER
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Resolves the correct route for product detail pages.
- * Supports slug or UUID matching GET /api/products/:idOrSlug
- */
 export function getProductPath(item) {
   if (!item) return "/shop";
   const target = item.slug || item.id || item.product_id;
@@ -135,8 +131,8 @@ export function getProductPath(item) {
 ═══════════════════════════════════════════════════════════════ */
 
 /**
- * Fisher-Yates array shuffle for a mixed product feed.
- * Used internally and as a fallback when only one category exists.
+ * Fisher-Yates array shuffle.
+ * Used internally and as fallback when only one category exists.
  */
 export function mixProducts(items) {
   if (!Array.isArray(items)) return [];
@@ -149,28 +145,17 @@ export function mixProducts(items) {
 }
 
 /**
- * ✅ Category-aware round-robin mixer.
+ * Category-aware round-robin mixer.
  *
- * Guarantees diverse category representation at the top of every feed
- * so a single dominant category (e.g. Fashion) cannot bury all others.
- *
- * Algorithm:
- *   1. Group products by category
- *   2. Shuffle within each group (preserves randomness)
- *   3. Sort groups smallest-first so minority categories surface early
- *   4. Round-robin pick: one product per category per cycle
- *   5. Exhausted categories drop out; larger ones fill the tail
- *
- * Result: The first N items always show maximum category diversity.
- * A store with 200 Fashion + 10 Electronics + 5 Beauty will show
- * Beauty → Electronics → Fashion → Fashion → Fashion → …
- * instead of 30 straight Fashion items.
+ * Groups products by category, shuffles within each group,
+ * then round-robin picks one from each category per cycle.
+ * Smaller categories surface first so minority categories
+ * are never buried by a dominant one like Fashion.
  */
 export function mixProductsByCategory(items) {
   if (!Array.isArray(items) || items.length === 0) return [];
   if (items.length <= 2) return mixProducts(items);
 
-  // 1. Group by category
   const groups = {};
   for (const item of items) {
     const cat = normalize(item.category || item.category_name || "");
@@ -181,18 +166,14 @@ export function mixProductsByCategory(items) {
 
   const catKeys = Object.keys(groups);
 
-  // If only one category, a plain shuffle is the best we can do
   if (catKeys.length <= 1) return mixProducts(items);
 
-  // 2. Shuffle within each group so ordering inside a category is random
   for (const key of catKeys) {
     groups[key] = mixProducts(groups[key]);
   }
 
-  // 3. Sort groups: smallest first so minority categories appear earliest
   catKeys.sort((a, b) => groups[a].length - groups[b].length);
 
-  // 4. Round-robin pick across all category groups
   const result = [];
   const indices = {};
   for (const key of catKeys) indices[key] = 0;
@@ -208,7 +189,7 @@ export function mixProductsByCategory(items) {
         progressed = true;
       }
     }
-    if (!progressed) break; // safety valve — should never trigger
+    if (!progressed) break;
   }
 
   return result;
@@ -507,20 +488,6 @@ export function filterProductsByCampaign(products, campaignQuery) {
    PRODUCT SECTION PARTITIONER
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Splits a flat product array into named homepage sections.
- *
- * Returns:
- *   all       – every visible (non-hidden) product
- *   trending  – products flagged is_trending
- *   featured  – products flagged is_featured
- *   sponsored – products flagged is_sponsored
- *   campaign  – products linked to any campaign
- *   flash     – products with a measurable discount
- *
- * Note: Products can appear in multiple sections simultaneously.
- *       `all` is the superset used by the "Explore Catalog" grid.
- */
 export function partitionAdminProductSections(products = []) {
   const list = Array.isArray(products) ? products : [];
 
@@ -565,11 +532,8 @@ export function partitionAdminProductSections(products = []) {
    COUNTDOWN TIMER
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Midnight (23:59:59) WAT countdown
- */
 export function getMidnightWATTimeLeft(now = new Date()) {
-  const WAT_OFFSET_MS = 60 * 60 * 1000; // UTC+1
+  const WAT_OFFSET_MS = 60 * 60 * 1000;
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
   const watNow = new Date(utcMs + WAT_OFFSET_MS);
 
@@ -595,10 +559,6 @@ export function getMidnightWATTimeLeft(now = new Date()) {
    RESPONSE ENVELOPE EXTRACTION
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Extracts product arrays from any nested response envelope shape.
- * Matches Backend Response: ok(res, { data: { products: rows, pagination: ... } })
- */
 export function extractProductsArray(data) {
   if (!data) return [];
   if (Array.isArray(data)) return data;
@@ -616,9 +576,6 @@ export function extractProductsArray(data) {
    NETWORK HELPERS
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Fetch JSON helper
- */
 export async function fetchJson(path, options) {
   const url = path.startsWith("http")
     ? path
@@ -638,9 +595,6 @@ export async function fetchJson(path, options) {
   return res.json();
 }
 
-/**
- * Ultra-resilient loader that calls GET /api/products
- */
 export async function fetchProducts(query = "") {
   const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
   const endpoints = [
@@ -666,10 +620,12 @@ export async function fetchProducts(query = "") {
 
 /**
  * Paginated product fetcher for infinite scroll batches.
- * Returns { products: [...], hasMore: boolean, nextPage: number }
+ * @param {number} page  - Page number (1-based)
+ * @param {number} limit - Items per page
+ * @param {string} sort  - "newest" | "diverse" | "bestselling" | "trending"
  */
-export async function fetchProductsPage(page = 1, limit = 30) {
-  const q = `?page=${page}&limit=${limit}`;
+export async function fetchProductsPage(page = 1, limit = 30, sort = "newest") {
+  const q = `?page=${page}&limit=${limit}&sort=${encodeURIComponent(sort)}`;
   const endpoints = [
     `/products${q}`,
     `/market/products${q}`,
@@ -709,16 +665,16 @@ export async function fetchProductsPage(page = 1, limit = 30) {
 }
 
 /**
- * ✅ Fetch all available categories from the backend.
+ * Fetch all available categories from the backend.
  *
- * Tries dedicated category endpoints in order of likelihood.
- * Handles multiple response envelope shapes:
- *   - Flat array of strings:  ["Fashion", "Electronics"]
- *   - Array of objects:       [{ name: "Fashion" }, { name: "Electronics" }]
- *   - Nested envelope:        { data: { categories: [...] } }
+ * Tries your dedicated /api/categories endpoint first (the one that
+ * queries market.categories table), then falls back to product-derived
+ * category endpoints.
  *
- * Returns string[] of category names, or empty array if no endpoint responds.
- * The caller should fall back to client-side discovery when this returns [].
+ * Handles your exact response shape:
+ *   { success: true, data: [{ id, name, slug, parent_id, icon, level }] }
+ *
+ * Returns string[] of category names.
  */
 export async function fetchCategories() {
   const endpoints = [
@@ -732,16 +688,28 @@ export async function fetchCategories() {
     try {
       const data = await fetchJson(endpoint);
 
-      // Unwrap whatever envelope the backend uses
       let cats = [];
-      if (Array.isArray(data)) {
-        cats = data;
-      } else if (data?.data && Array.isArray(data.data)) {
+
+      // Shape 1: { success: true, data: [{ name: "Home", ... }, ...] }
+      //          ← YOUR backend's exact shape
+      if (data?.success && data?.data && Array.isArray(data.data)) {
         cats = data.data;
-      } else if (data?.data?.categories && Array.isArray(data.data.categories)) {
+      }
+      // Shape 2: { data: { categories: [...] } }
+      else if (data?.data?.categories && Array.isArray(data.data.categories)) {
         cats = data.data.categories;
-      } else if (data?.categories && Array.isArray(data.categories)) {
+      }
+      // Shape 3: { data: [...] }
+      else if (data?.data && Array.isArray(data.data)) {
+        cats = data.data;
+      }
+      // Shape 4: { categories: [...] }
+      else if (data?.categories && Array.isArray(data.categories)) {
         cats = data.categories;
+      }
+      // Shape 5: flat array [...]
+      else if (Array.isArray(data)) {
+        cats = data;
       }
 
       if (cats.length > 0) {
@@ -767,9 +735,6 @@ export async function fetchCategories() {
   return [];
 }
 
-/**
- * Load campaigns from live API
- */
 export async function fetchCampaigns(query = "") {
   const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
   const endpoints = [`/campaigns${q}`, `/admin/campaigns${q}`];
