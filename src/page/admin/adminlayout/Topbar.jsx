@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function Topbar({ page, adminName, notifCount = 0, onToggleSidebar }) {
+export default function Topbar({ page, adminName, notifCount = 0, onToggleSidebar, onLogout }) {
   const titles = {
     overview            : "Dashboard Overview",
     users               : "User Management",
@@ -50,6 +50,31 @@ export default function Topbar({ page, adminName, notifCount = 0, onToggleSideba
         <span className="tb-user">
           👤 {adminName}
         </span>
+        {onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            aria-label="Sign out of moderator account"
+            title="Sign out"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              minHeight: 34,
+              padding: "7px 11px",
+              border: "1px solid rgba(239,68,68,.35)",
+              borderRadius: 8,
+              background: "rgba(239,68,68,.12)",
+              color: "#fca5a5",
+              font: "600 12px inherit",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            🚪 <span>Log out</span>
+          </button>
+        )}
       </div>
     </header>
   );
