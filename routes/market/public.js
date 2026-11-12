@@ -12,6 +12,13 @@
  *  - sold_count is the urgency / social-proof signal
  *  - Default page size: 30 (controlled by helpers.js → paginate)
  *  - sort=diverse interleaves categories at the SQL level
+ *
+ * PAGINATION GUARANTEE:
+ *  Every ORDER BY ends with p.id, a unique tiebreaker. Without it, products
+ *  sharing the same created_at / sold_count can be ordered differently between
+ *  requests, which makes LIMIT/OFFSET pages overlap (the same product shows
+ *  up on page 1 and again on page 3). With p.id the order is fully
+ *  deterministic, so each product appears on exactly one page.
  */
 
 import express from "express";
@@ -82,7 +89,7 @@ router.get("/", async (req, res) => {
       sort = "newest",
     } = req.query;
 
-    const { limit, offset, page } = paginate(req.query);
+    const { limit, offset } = paginate(req.query);
 
     const conditions = [
       "p.deleted_at IS NULL",
@@ -159,30 +166,47 @@ router.get("/", async (req, res) => {
 
     const where = `WHERE ${conditions.join(" AND ")}`;
 
+    /* ── ORDER BY ──────────────────────────────────────────────
+       Every branch ends with p.id so the order is total and
+       stable across requests (no duplicates between pages).
+    ─────────────────────────────────────────────────────────── */
     let order;
     if (sort === "diverse") {
-      // ✅ Category-interleaved sort.
-      // ROW_NUMBER() assigns rank 1,2,3... within each category.
-      // ORDER BY that rank means: all rank-1 products first (one per category),
-      // then all rank-2 products, etc.
-      // Result: Fashion#1, Electronics#1, Home#1, Beauty#1, Fashion#2, ...
-      order = `ROW_NUMBER() OVER (PARTITION BY p.category ORDER BY p.created_at DESC), p.created_at DESC`;
+      // Category-interleaved sort.
+      // ROW_NUMBER() ranks products 1,2,3... inside each category (newest first).
+      // Ordering by that rank returns all rank-1 products first (one per
+      // category), then all rank-2 products, and so on.
+      // p.category and p.id break ties so the sequence never changes
+      // between page requests.
+      order = `ROW_NUMBER() OVER (
+                 PARTITION BY p.category
+                 ORDER BY p.created_at DESC, p.id
+               ),
+               p.category ASC,
+               p.id ASC`;
     } else if (sort === "relevance" && search) {
-      order = `ts_rank(p.search_vector, plainto_tsquery('english', $1)) DESC, p.created_at DESC`;
+      order = `ts_rank(p.search_vector, plainto_tsquery('english', $1)) DESC,
+               p.created_at DESC,
+               p.id ASC`;
     } else if (sort === "bestselling") {
-      order = `p.sold_count DESC, p.created_at DESC`;
+      order = `p.sold_count DESC, p.created_at DESC, p.id ASC`;
     } else if (sort === "trending") {
-      order = `(p.sold_count::float / GREATEST(EXTRACT(EPOCH FROM (now() - p.created_at)) / 86400, 1)) DESC, p.created_at DESC`;
+      order = `(p.sold_count::float / GREATEST(EXTRACT(EPOCH FROM (now() - p.created_at)) / 86400, 1)) DESC,
+               p.created_at DESC,
+               p.id ASC`;
     } else {
-      order = SORT_MAP[sort] || SORT_MAP.newest;
+      order = `${SORT_MAP[sort] || SORT_MAP.newest}, p.id ASC`;
     }
+
+    const limitIdx = p++;
+    const offsetIdx = p++;
 
     const [{ rows }, countRes] = await Promise.all([
       pool.query(
         `${FULL_PRODUCT_SELECT}
          ${where}
          ORDER BY ${order}
-         LIMIT $${p++} OFFSET $${p++}`,
+         LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
         [...params, limit, offset]
       ),
       pool.query(
