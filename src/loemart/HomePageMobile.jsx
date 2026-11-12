@@ -13,8 +13,6 @@ import {
   calcDiscountPct,
   primaryImg,
   getProductPath,
-  mixProducts,
-  mixProductsByCategory,
   fetchCategories,
   getMidnightWATTimeLeft,
   partitionAdminProductSections,
@@ -23,14 +21,35 @@ import {
 } from '../loemart/mobile/mobileHelpers';
 import '../styles/Minimart.css';
 
-const BATCH_SIZE = 3;
+/* ══════════════════════════════════════════════════════════
+   PAGINATION CONFIG
+   PAGE_LIMIT is used for EVERY request. Page N at a different
+   page size than page N-1 overlaps earlier results, which is
+   what caused the same product to appear 3-4 times.
+══════════════════════════════════════════════════════════ */
 const PAGE_LIMIT = 30;
-const LOAD_MORE_SIZE = 20;
-const MAX_LOAD_MORE_CLICKS = 2;
+const AUTO_PAGES = 3; // pages loaded automatically while scrolling
+const SORT_MODE = 'diverse'; // categories interleaved by the backend
 
 /* ══════════════════════════════════════════════════════════
-   TOKEN RESOLVER
+   HELPERS
 ══════════════════════════════════════════════════════════ */
+
+const productKey = (p) => String(p?.id ?? p?.product_id ?? '');
+
+/** Append incoming products, skipping any id already present. */
+function mergeUnique(prev, incoming) {
+  const seen = new Set(prev.map(productKey));
+  const out = [...prev];
+  for (const item of incoming) {
+    const k = productKey(item);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
+
 function getAuthToken() {
   const keys = [
     'token', 'buyer_token', 'auth_token', 'access_token',
@@ -127,14 +146,16 @@ export default function HomePageMobile() {
     hours: '00', minutes: '00', seconds: '00',
   });
 
-  const [nextPage, setNextPage] = useState(1);
-  const [pagesInBatch, setPagesInBatch] = useState(0);
+  const [pagesLoaded, setPagesLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const sentinelRef = useRef(null);
-  const loadingRef = useRef(false);
-  const [loadMoreClicks, setLoadMoreClicks] = useState(0);
   const [showScrollTop, setShowScrollTop] = useState(false);
+
+  // Refs hold the live pagination state so rapid scroll events can never
+  // request the same page twice or read a stale page number.
+  const nextPageRef = useRef(1);
+  const loadingRef = useRef(false);
+  const sentinelRef = useRef(null);
 
   const headerRef = useRef(null);
   const [headerHeight, setHeaderHeight] = useState(160);
@@ -143,12 +164,8 @@ export default function HomePageMobile() {
     useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
-  const canAutoLoad = hasMore && pagesInBatch < BATCH_SIZE && !loading;
-  const showLoadMoreBtn =
-    hasMore &&
-    pagesInBatch >= BATCH_SIZE &&
-    !loading &&
-    loadMoreClicks < MAX_LOAD_MORE_CLICKS;
+  const canAutoLoad = hasMore && pagesLoaded < AUTO_PAGES && !loading;
+  const showLoadMoreBtn = hasMore && pagesLoaded >= AUTO_PAGES && !loading;
 
   /* ══════════════════════════════════════════════════════════
      EFFECTS
@@ -189,15 +206,16 @@ export default function HomePageMobile() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // 3. Initial Data Load
+  // 3. Initial data load
   useEffect(() => {
     let isMounted = true;
 
     async function loadData() {
       setLoading(true);
+      loadingRef.current = true;
       try {
         const [productData, rawCampaigns, apiCategories] = await Promise.all([
-          fetchProductsPage(1, PAGE_LIMIT, "diverse").catch(() => ({
+          fetchProductsPage(1, PAGE_LIMIT, SORT_MODE).catch(() => ({
             products: [], hasMore: false, nextPage: 2,
           })),
           fetchCampaigns().catch(() => []),
@@ -209,28 +227,31 @@ export default function HomePageMobile() {
         const rawProducts = Array.isArray(productData.products)
           ? productData.products : [];
 
-        const mixed = mixProductsByCategory(rawProducts);
+        // Server order is already category-interleaved and stable.
+        // Only dedupe; never reshuffle.
+        const initial = mergeUnique([], rawProducts);
 
-        setProducts(mixed);
-        setNextPage(productData.nextPage);
-        setPagesInBatch(1);
+        setProducts(initial);
+        nextPageRef.current = productData.nextPage;
+        setPagesLoaded(1);
         setHasMore(productData.hasMore);
         setCampaigns(Array.isArray(rawCampaigns) ? rawCampaigns : []);
 
-        // ✅ Use your /api/categories endpoint (market.categories table)
         if (apiCategories.length > 0) {
           setCategories(apiCategories);
         } else {
-          const uniqueCats = Array.from(
-            new Set(
-              mixed.map((p) => p.category || p.category_name).filter(Boolean)
+          setCategories(
+            Array.from(
+              new Set(
+                initial.map((p) => p.category || p.category_name).filter(Boolean)
+              )
             )
           );
-          setCategories(uniqueCats);
         }
       } catch (err) {
         console.error('Failed to load mobile homepage data:', err);
       } finally {
+        loadingRef.current = false;
         if (isMounted) setLoading(false);
       }
     }
@@ -239,91 +260,70 @@ export default function HomePageMobile() {
     return () => { isMounted = false; };
   }, []);
 
-  // 4. Auto-load
-  const autoLoadNext = useCallback(async () => {
-    if (loadingRef.current || !hasMore || pagesInBatch >= BATCH_SIZE) return;
+  /**
+   * Fetch the next page and append it.
+   * Used by both the scroll observer and the "Load More" button.
+   */
+  const loadNextPage = useCallback(async () => {
+    if (loadingRef.current || !hasMore) return;
     loadingRef.current = true;
     setLoadingMore(true);
 
-    try {
-      const result = await fetchProductsPage(nextPage, PAGE_LIMIT, "diverse");
-      const newItems = Array.isArray(result.products) ? result.products : [];
+    const pageToFetch = nextPageRef.current;
 
-      if (newItems.length > 0) {
-        setProducts((prev) => mixProductsByCategory([...prev, ...newItems]));
+    try {
+      const result = await fetchProductsPage(pageToFetch, PAGE_LIMIT, SORT_MODE);
+      const incoming = Array.isArray(result.products) ? result.products : [];
+
+      if (incoming.length > 0) {
+        setProducts((prev) => mergeUnique(prev, incoming));
         setCategories((prev) => {
-          const newCats = newItems
-            .map((p) => p.category || p.category_name).filter(Boolean);
+          const newCats = incoming
+            .map((p) => p.category || p.category_name)
+            .filter(Boolean);
           return Array.from(new Set([...prev, ...newCats]));
         });
       }
 
-      setNextPage(result.nextPage);
-      setPagesInBatch((prev) => prev + 1);
-      setHasMore(result.hasMore);
+      nextPageRef.current = pageToFetch + 1;
+      setPagesLoaded((n) => n + 1);
+      setHasMore(incoming.length > 0 ? result.hasMore : false);
     } catch (err) {
-      console.error('Failed to auto-load more:', err);
+      console.error('Failed to load more products:', err);
     } finally {
       setLoadingMore(false);
       loadingRef.current = false;
     }
-  }, [nextPage, hasMore, pagesInBatch]);
+  }, [hasMore]);
 
-  // 5. Sentinel
+  // 4. Sentinel (infinite scroll for the first AUTO_PAGES pages)
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !canAutoLoad) return;
     const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) autoLoadNext(); },
+      (entries) => { if (entries[0].isIntersecting) loadNextPage(); },
       { rootMargin: '400px', threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [autoLoadNext, canAutoLoad]);
+  }, [loadNextPage, canAutoLoad]);
 
-  // 6. Catch-up
+  // 5. Catch-up: if the page is short, keep loading until it fills the screen
   useEffect(() => {
     if (loadingMore || loading || !canAutoLoad) return;
     const timer = setTimeout(() => {
-      const dist = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
-      if (dist < 800) autoLoadNext();
+      const dist =
+        document.documentElement.scrollHeight -
+        window.scrollY -
+        window.innerHeight;
+      if (dist < 800) loadNextPage();
     }, 150);
     return () => clearTimeout(timer);
-  }, [products.length, loadingMore, loading, canAutoLoad, autoLoadNext]);
+  }, [products.length, loadingMore, loading, canAutoLoad, loadNextPage]);
 
   /* ══════════════════════════════════════════════════════════
      HANDLERS
   ══════════════════════════════════════════════════════════ */
-
-  const handleLoadMoreBatch = async () => {
-    if (loadingRef.current || !hasMore || loadMoreClicks >= MAX_LOAD_MORE_CLICKS) return;
-    loadingRef.current = true;
-    setLoadingMore(true);
-
-    try {
-      const result = await fetchProductsPage(nextPage, LOAD_MORE_SIZE, "diverse");
-      const freshItems = Array.isArray(result.products) ? result.products : [];
-
-      if (freshItems.length > 0) {
-        setProducts((prev) => mixProductsByCategory([...prev, ...freshItems]));
-        setCategories((prev) => {
-          const newCats = freshItems
-            .map((p) => p.category || p.category_name).filter(Boolean);
-          return Array.from(new Set([...prev, ...newCats]));
-        });
-      }
-
-      setNextPage(result.nextPage);
-      setLoadMoreClicks((prev) => prev + 1);
-      if (loadMoreClicks + 1 >= MAX_LOAD_MORE_CLICKS) setHasMore(false);
-      else setHasMore(result.hasMore);
-    } catch (err) {
-      console.error('Failed to load next batch:', err);
-    } finally {
-      setLoadingMore(false);
-      loadingRef.current = false;
-    }
-  };
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -359,10 +359,7 @@ export default function HomePageMobile() {
           (p) => (p.category || p.category_name) === activeCategory
         );
 
-  const reachedEnd =
-    (!hasMore || loadMoreClicks >= MAX_LOAD_MORE_CLICKS) &&
-    !loading &&
-    displayedCatalog.length > 0;
+  const reachedEnd = !hasMore && !loading && displayedCatalog.length > 0;
 
   /* ══════════════════════════════════════════════════════════
      RENDER
@@ -510,7 +507,7 @@ export default function HomePageMobile() {
           <>
             <div className="pr-masonry" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
               {displayedCatalog.map((product) => (
-                <MasonryCard key={product.id || product.product_id} product={product} onOpenVariantSheet={handleProductClick} />
+                <MasonryCard key={productKey(product)} product={product} onOpenVariantSheet={handleProductClick} />
               ))}
             </div>
 
@@ -526,7 +523,7 @@ export default function HomePageMobile() {
 
             {showLoadMoreBtn && (
               <div style={{ textAlign: 'center', padding: '28px 0 12px' }}>
-                <button type="button" onClick={handleLoadMoreBatch} disabled={loadingMore} style={{ background: loadingMore ? '#ccc' : '#ff6000', color: '#fff', border: 'none', borderRadius: 14, padding: '16px 48px', fontWeight: 900, fontSize: '0.95rem', cursor: loadingMore ? 'wait' : 'pointer', boxShadow: '0 4px 16px rgba(255,96,0,0.3)', letterSpacing: '0.2px', transition: 'all 0.2s ease' }}>
+                <button type="button" onClick={loadNextPage} disabled={loadingMore} style={{ background: loadingMore ? '#ccc' : '#ff6000', color: '#fff', border: 'none', borderRadius: 14, padding: '16px 48px', fontWeight: 900, fontSize: '0.95rem', cursor: loadingMore ? 'wait' : 'pointer', boxShadow: '0 4px 16px rgba(255,96,0,0.3)', letterSpacing: '0.2px', transition: 'all 0.2s ease' }}>
                   {loadingMore ? 'Loading...' : 'Load More Products'}
                 </button>
               </div>
