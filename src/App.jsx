@@ -36,7 +36,6 @@ import {
   useEffect,
   useState,
   useCallback,
-  memo,
   useRef,
 } from "react";
 
@@ -63,6 +62,8 @@ import {
   OfflineBanner,
   useTabWakeListener,
 } from "./components/AppRecovery";
+
+import AuthLoader from "./components/AuthLoader";
 
 import "./index.css";
 
@@ -719,48 +720,6 @@ function useIsDesktop() {
 
   return isDesktop;
 }
-
-/* ============================================================
-   AUTH LOADER
-============================================================ */
-
-const AuthLoader = memo(function AuthLoader() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "100vh",
-        background: "var(--bg, #f8f9fa)",
-      }}
-      role="status"
-      aria-label="Restoring your session"
-      aria-busy="true"
-    >
-      <div
-        style={{
-          width: 36,
-          height: 36,
-          border: "3px solid var(--bd, #e9ecef)",
-          borderTop: "3px solid var(--o, #ff6000)",
-          borderRadius: "50%",
-          animation: "spin .7s linear infinite",
-        }}
-      />
-
-      <style>
-        {`
-          @keyframes spin {
-            to {
-              transform: rotate(360deg);
-            }
-          }
-        `}
-      </style>
-    </div>
-  );
-});
 
 /* ============================================================
    DESKTOP HEADER
