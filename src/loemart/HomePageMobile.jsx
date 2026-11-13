@@ -23,13 +23,22 @@ import '../styles/Minimart.css';
 
 /* ══════════════════════════════════════════════════════════
    PAGINATION CONFIG
-   PAGE_LIMIT is used for EVERY request. Page N at a different
-   page size than page N-1 overlaps earlier results, which is
-   what caused the same product to appear 3-4 times.
+
+   The catalog is split into numbered "Pages".
+   Each Page = PAGES_PER_BLOCK API requests, loaded automatically
+   as the user scrolls. At the bottom of a Page the user gets
+   Previous / Next buttons to move through the remaining products.
+
+   PAGE_LIMIT is the same for every request so API pages never overlap.
 ══════════════════════════════════════════════════════════ */
 const PAGE_LIMIT = 30;
-const AUTO_PAGES = 3; // pages loaded automatically while scrolling
-const SORT_MODE = 'diverse'; // categories interleaved by the backend
+const PAGES_PER_BLOCK = 3; // 3 x 30 = 90 products per Page
+const BLOCK_SIZE = PAGE_LIMIT * PAGES_PER_BLOCK;
+const SORT_MODE = 'random'; // random order, categories interleaved by the backend
+
+// One random seed per page load: refresh = new order, scrolling = stable order.
+const makeSeed = () =>
+  Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
 /* ══════════════════════════════════════════════════════════
    HELPERS
@@ -146,16 +155,21 @@ export default function HomePageMobile() {
     hours: '00', minutes: '00', seconds: '00',
   });
 
-  const [pagesLoaded, setPagesLoaded] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const [blockIndex, setBlockIndex] = useState(0); // 0 = Page 1
+  const [totalProducts, setTotalProducts] = useState(null);
+  const [pagesLoaded, setPagesLoaded] = useState(0); // API pages loaded in this Page
+  const [hasMore, setHasMore] = useState(true); // server still has more products
   const [loadingMore, setLoadingMore] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  // Refs hold the live pagination state so rapid scroll events can never
-  // request the same page twice or read a stale page number.
+  // Refs hold live pagination state so rapid scroll events can never
+  // request the same API page twice or read a stale page number.
   const nextPageRef = useRef(1);
+  const seedRef = useRef(makeSeed());
   const loadingRef = useRef(false);
   const sentinelRef = useRef(null);
+  const blocksCacheRef = useRef({}); // lets "Previous" restore a Page instantly
+  const apiCategoriesRef = useRef(false);
 
   const headerRef = useRef(null);
   const [headerHeight, setHeaderHeight] = useState(160);
@@ -164,8 +178,11 @@ export default function HomePageMobile() {
     useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
-  const canAutoLoad = hasMore && pagesLoaded < AUTO_PAGES && !loading;
-  const showLoadMoreBtn = hasMore && pagesLoaded >= AUTO_PAGES && !loading;
+  const canAutoLoad =
+    hasMore && pagesLoaded > 0 && pagesLoaded < PAGES_PER_BLOCK && !loading;
+  const blockEnded = pagesLoaded >= PAGES_PER_BLOCK || !hasMore;
+  const totalBlocks =
+    totalProducts != null ? Math.max(1, Math.ceil(totalProducts / BLOCK_SIZE)) : null;
 
   /* ══════════════════════════════════════════════════════════
      EFFECTS
@@ -206,65 +223,99 @@ export default function HomePageMobile() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // 3. Initial data load
+  // 3. Remember each Page once it is loaded so "Previous" is instant
   useEffect(() => {
-    let isMounted = true;
+    if (loading) return;
+    blocksCacheRef.current[blockIndex] = {
+      products,
+      pagesLoaded,
+      hasMore,
+      nextPage: nextPageRef.current,
+    };
+  }, [products, pagesLoaded, hasMore, loading, blockIndex]);
 
-    async function loadData() {
-      setLoading(true);
-      loadingRef.current = true;
-      try {
-        const [productData, rawCampaigns, apiCategories] = await Promise.all([
-          fetchProductsPage(1, PAGE_LIMIT, SORT_MODE).catch(() => ({
-            products: [], hasMore: false, nextPage: 2,
-          })),
-          fetchCampaigns().catch(() => []),
-          fetchCategories().catch(() => []),
-        ]);
-
-        if (!isMounted) return;
-
-        const rawProducts = Array.isArray(productData.products)
-          ? productData.products : [];
-
-        // Server order is already category-interleaved and stable.
-        // Only dedupe; never reshuffle.
-        const initial = mergeUnique([], rawProducts);
-
-        setProducts(initial);
-        nextPageRef.current = productData.nextPage;
-        setPagesLoaded(1);
-        setHasMore(productData.hasMore);
-        setCampaigns(Array.isArray(rawCampaigns) ? rawCampaigns : []);
-
-        if (apiCategories.length > 0) {
-          setCategories(apiCategories);
-        } else {
-          setCategories(
-            Array.from(
-              new Set(
-                initial.map((p) => p.category || p.category_name).filter(Boolean)
-              )
-            )
-          );
-        }
-      } catch (err) {
-        console.error('Failed to load mobile homepage data:', err);
-      } finally {
-        loadingRef.current = false;
-        if (isMounted) setLoading(false);
-      }
-    }
-
-    loadData();
-    return () => { isMounted = false; };
+  /** Merge category names found in products (only when the API gave none). */
+  const absorbCategories = useCallback((items) => {
+    if (apiCategoriesRef.current) return;
+    const found = items
+      .map((p) => p.category || p.category_name)
+      .filter(Boolean);
+    if (!found.length) return;
+    setCategories((prev) => Array.from(new Set([...prev, ...found])));
   }, []);
 
   /**
-   * Fetch the next page and append it.
-   * Used by both the scroll observer and the "Load More" button.
+   * Open a numbered Page (block). Page 1 = blockIndex 0.
+   * Uses the cache when the Page was already visited.
    */
-  const loadNextPage = useCallback(async () => {
+  const loadBlock = useCallback(async (b) => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    setBlockIndex(b);
+
+    const cached = blocksCacheRef.current[b];
+    if (cached) {
+      setProducts(cached.products);
+      setPagesLoaded(cached.pagesLoaded);
+      setHasMore(cached.hasMore);
+      nextPageRef.current = cached.nextPage;
+      setLoading(false);
+      return;
+    }
+
+    setProducts([]);
+    setPagesLoaded(0);
+    setHasMore(true);
+    setLoading(true);
+    loadingRef.current = true;
+
+    const firstApiPage = b * PAGES_PER_BLOCK + 1;
+    nextPageRef.current = firstApiPage;
+
+    try {
+      const result = await fetchProductsPage(
+        firstApiPage, PAGE_LIMIT, SORT_MODE, seedRef.current
+      );
+      const incoming = Array.isArray(result.products) ? result.products : [];
+
+      setProducts(mergeUnique([], incoming));
+      nextPageRef.current = firstApiPage + 1;
+      setPagesLoaded(1);
+      setHasMore(incoming.length > 0 ? result.hasMore : false);
+      if (result.total != null) setTotalProducts(result.total);
+      absorbCategories(incoming);
+    } catch (err) {
+      console.error('Failed to load products page:', err);
+      setHasMore(false);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, [absorbCategories]);
+
+  // 4. Initial load: campaigns + categories + Page 1
+  useEffect(() => {
+    let isMounted = true;
+
+    (async () => {
+      const [rawCampaigns, apiCategories] = await Promise.all([
+        fetchCampaigns().catch(() => []),
+        fetchCategories().catch(() => []),
+      ]);
+      if (!isMounted) return;
+      setCampaigns(Array.isArray(rawCampaigns) ? rawCampaigns : []);
+      if (apiCategories.length > 0) {
+        apiCategoriesRef.current = true;
+        setCategories(apiCategories);
+      }
+    })();
+
+    loadBlock(0);
+
+    return () => { isMounted = false; };
+  }, [loadBlock]);
+
+  /** Fetch the next API page inside the current Page and append it. */
+  const loadNextApiPage = useCallback(async () => {
     if (loadingRef.current || !hasMore) return;
     loadingRef.current = true;
     setLoadingMore(true);
@@ -272,17 +323,14 @@ export default function HomePageMobile() {
     const pageToFetch = nextPageRef.current;
 
     try {
-      const result = await fetchProductsPage(pageToFetch, PAGE_LIMIT, SORT_MODE);
+      const result = await fetchProductsPage(
+        pageToFetch, PAGE_LIMIT, SORT_MODE, seedRef.current
+      );
       const incoming = Array.isArray(result.products) ? result.products : [];
 
       if (incoming.length > 0) {
         setProducts((prev) => mergeUnique(prev, incoming));
-        setCategories((prev) => {
-          const newCats = incoming
-            .map((p) => p.category || p.category_name)
-            .filter(Boolean);
-          return Array.from(new Set([...prev, ...newCats]));
-        });
+        absorbCategories(incoming);
       }
 
       nextPageRef.current = pageToFetch + 1;
@@ -294,21 +342,21 @@ export default function HomePageMobile() {
       setLoadingMore(false);
       loadingRef.current = false;
     }
-  }, [hasMore]);
+  }, [hasMore, absorbCategories]);
 
-  // 4. Sentinel (infinite scroll for the first AUTO_PAGES pages)
+  // 5. Sentinel (auto-load while scrolling inside a Page)
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !canAutoLoad) return;
     const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadNextPage(); },
+      (entries) => { if (entries[0].isIntersecting) loadNextApiPage(); },
       { rootMargin: '400px', threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadNextPage, canAutoLoad]);
+  }, [loadNextApiPage, canAutoLoad]);
 
-  // 5. Catch-up: if the page is short, keep loading until it fills the screen
+  // 6. Catch-up: if the content is short, keep loading until it fills the screen
   useEffect(() => {
     if (loadingMore || loading || !canAutoLoad) return;
     const timer = setTimeout(() => {
@@ -316,16 +364,26 @@ export default function HomePageMobile() {
         document.documentElement.scrollHeight -
         window.scrollY -
         window.innerHeight;
-      if (dist < 800) loadNextPage();
+      if (dist < 800) loadNextApiPage();
     }, 150);
     return () => clearTimeout(timer);
-  }, [products.length, loadingMore, loading, canAutoLoad, loadNextPage]);
+  }, [products.length, loadingMore, loading, canAutoLoad, loadNextApiPage]);
 
   /* ══════════════════════════════════════════════════════════
      HANDLERS
   ══════════════════════════════════════════════════════════ */
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  const goNextPage = () => {
+    if (loadingRef.current || loadingMore || !hasMore) return;
+    loadBlock(blockIndex + 1);
+  };
+
+  const goPrevPage = () => {
+    if (loadingRef.current || loadingMore || blockIndex === 0) return;
+    loadBlock(blockIndex - 1);
+  };
 
   const handleCategorySelect = (catName) => {
     setActiveCategory(catName === 'All' ? 'All' : catName);
@@ -359,7 +417,18 @@ export default function HomePageMobile() {
           (p) => (p.category || p.category_name) === activeCategory
         );
 
-  const reachedEnd = !hasMore && !loading && displayedCatalog.length > 0;
+  const showPager =
+    !loading && !loadingMore && products.length > 0 && blockEnded &&
+    (blockIndex > 0 || hasMore);
+
+  const pagerBtnBase = {
+    borderRadius: 12,
+    padding: '13px 20px',
+    fontWeight: 900,
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  };
 
   /* ══════════════════════════════════════════════════════════
      RENDER
@@ -504,35 +573,64 @@ export default function HomePageMobile() {
             )}
           </div>
         ) : (
-          <>
-            <div className="pr-masonry" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-              {displayedCatalog.map((product) => (
-                <MasonryCard key={productKey(product)} product={product} onOpenVariantSheet={handleProductClick} />
-              ))}
-            </div>
+          <div className="pr-masonry" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+            {displayedCatalog.map((product) => (
+              <MasonryCard key={productKey(product)} product={product} onOpenVariantSheet={handleProductClick} />
+            ))}
+          </div>
+        )}
 
-            {canAutoLoad && (
-              <div ref={sentinelRef} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px 0', minHeight: 60 }}>
-                {loadingMore && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#888', fontSize: '0.85rem', fontWeight: 600 }}>
-                    <span className="lm-spinner" />Loading more...
-                  </div>
-                )}
+        {/* Auto-load sentinel (only while this Page is still filling up) */}
+        {!loading && canAutoLoad && (
+          <div ref={sentinelRef} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px 0', minHeight: 60 }}>
+            {loadingMore && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#888', fontSize: '0.85rem', fontWeight: 600 }}>
+                <span className="lm-spinner" />Loading more...
               </div>
             )}
+          </div>
+        )}
 
-            {showLoadMoreBtn && (
-              <div style={{ textAlign: 'center', padding: '28px 0 12px' }}>
-                <button type="button" onClick={loadNextPage} disabled={loadingMore} style={{ background: loadingMore ? '#ccc' : '#ff6000', color: '#fff', border: 'none', borderRadius: 14, padding: '16px 48px', fontWeight: 900, fontSize: '0.95rem', cursor: loadingMore ? 'wait' : 'pointer', boxShadow: '0 4px 16px rgba(255,96,0,0.3)', letterSpacing: '0.2px', transition: 'all 0.2s ease' }}>
-                  {loadingMore ? 'Loading...' : 'Load More Products'}
-                </button>
-              </div>
-            )}
+        {/* Previous / Next page */}
+        {showPager && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '28px 0 12px' }}>
+            <button
+              type="button"
+              onClick={goPrevPage}
+              disabled={blockIndex === 0}
+              style={{
+                ...pagerBtnBase,
+                flex: 1,
+                background: '#fff',
+                color: blockIndex === 0 ? '#bbb' : '#ff6000',
+                border: `2px solid ${blockIndex === 0 ? '#e5e5e5' : '#ff6000'}`,
+                cursor: blockIndex === 0 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              ← Previous
+            </button>
 
-            {reachedEnd && (
-              <p style={{ textAlign: 'center', color: '#bbb', fontSize: '0.8rem', fontWeight: 600, padding: '24px 0 8px' }}>✓ You've seen everything</p>
-            )}
-          </>
+            <span style={{ flex: '0 0 auto', fontSize: '0.8rem', fontWeight: 800, color: '#555', textAlign: 'center', minWidth: 70 }}>
+              Page {blockIndex + 1}{totalBlocks ? ` of ${totalBlocks}` : ''}
+            </span>
+
+            <button
+              type="button"
+              onClick={goNextPage}
+              disabled={!hasMore}
+              style={{
+                ...pagerBtnBase,
+                flex: 1,
+                background: hasMore ? '#ff6000' : '#ddd',
+                color: '#fff',
+                border: 'none',
+                boxShadow: hasMore ? '0 4px 16px rgba(255,96,0,0.3)' : 'none',
+                cursor: hasMore ? 'pointer' : 'not-allowed',
+              }}
+            >
+              Next Page →
+            </button>
+          </div>
         )}
       </div>
 
