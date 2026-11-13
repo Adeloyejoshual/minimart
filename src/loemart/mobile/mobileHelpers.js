@@ -582,6 +582,7 @@ export async function fetchJson(path, options) {
     : `${API}${path.startsWith("/") ? path : `/${path}`}`;
 
   const res = await fetch(url, {
+    cache: "no-store",
     headers: { Accept: "application/json", ...(options?.headers || {}) },
     ...options,
   });
@@ -622,10 +623,19 @@ export async function fetchProducts(query = "") {
  * Paginated product fetcher for infinite scroll batches.
  * @param {number} page  - Page number (1-based)
  * @param {number} limit - Items per page
- * @param {string} sort  - "newest" | "diverse" | "bestselling" | "trending"
+ * @param {string} sort  - "random" | "diverse" | "newest" | "bestselling" | "trending"
+ * @param {string} seed  - Used with sort="random". Same seed = same order
+ *                         across pages; new seed = new random order.
  */
-export async function fetchProductsPage(page = 1, limit = 30, sort = "newest") {
-  const q = `?page=${page}&limit=${limit}&sort=${encodeURIComponent(sort)}`;
+export async function fetchProductsPage(
+  page = 1,
+  limit = 30,
+  sort = "newest",
+  seed = ""
+) {
+  let q = `?page=${page}&limit=${limit}&sort=${encodeURIComponent(sort)}`;
+  if (seed) q += `&seed=${encodeURIComponent(seed)}`;
+
   const endpoints = [
     `/products${q}`,
     `/market/products${q}`,
@@ -644,17 +654,27 @@ export async function fetchProductsPage(page = 1, limit = 30, sort = "newest") {
           data?.meta ||
           null;
 
-        let hasMore = false;
-        if (pag) {
-          const totalPages =
-            pag.totalPages || pag.total_pages || pag.pages || 1;
-          const currentPage = pag.currentPage || pag.page || page;
-          hasMore = currentPage < totalPages;
+        let hasMore;
+        if (pag && typeof pag.hasMore === "boolean") {
+          hasMore = pag.hasMore;
+        } else if (pag && typeof pag.has_more === "boolean") {
+          hasMore = pag.has_more;
+        } else if (pag && Number.isFinite(Number(pag.total))) {
+          hasMore = page * limit < Number(pag.total);
+        } else if (
+          pag &&
+          Number.isFinite(Number(pag.totalPages ?? pag.total_pages ?? pag.pages))
+        ) {
+          hasMore = page < Number(pag.totalPages ?? pag.total_pages ?? pag.pages);
         } else {
+          // No usable pagination info: a full page means there may be more.
           hasMore = items.length >= limit;
         }
 
-        return { products: items, hasMore, nextPage: page + 1 };
+        const total =
+          pag && Number.isFinite(Number(pag.total)) ? Number(pag.total) : null;
+
+        return { products: items, hasMore, nextPage: page + 1, total };
       }
     } catch {
       // try next fallback
