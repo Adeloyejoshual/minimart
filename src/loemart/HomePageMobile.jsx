@@ -19,6 +19,7 @@ import {
   fetchProductsPage,
   fetchCampaigns,
 } from '../loemart/mobile/mobileHelpers';
+import AuthLoader from '../components/AuthLoader';
 import '../styles/Minimart.css';
 
 /* ══════════════════════════════════════════════════════════
@@ -151,6 +152,7 @@ export default function HomePageMobile() {
   const [categories, setCategories] = useState([]);
   const [activeCategory, setActiveCategory] = useState('All');
   const [loading, setLoading] = useState(true);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [timeLeft, setTimeLeft] = useState({
     hours: '00', minutes: '00', seconds: '00',
   });
@@ -206,7 +208,7 @@ export default function HomePageMobile() {
       window.removeEventListener('resize', measure);
       window.removeEventListener('orientationchange', measure);
     };
-  }, []);
+  }, [initialLoaded]);
 
   // 1. Countdown
   useEffect(() => {
@@ -289,6 +291,7 @@ export default function HomePageMobile() {
     } finally {
       loadingRef.current = false;
       setLoading(false);
+      setInitialLoaded(true);
     }
   }, [absorbCategories]);
 
@@ -433,6 +436,9 @@ export default function HomePageMobile() {
   /* ══════════════════════════════════════════════════════════
      RENDER
   ══════════════════════════════════════════════════════════ */
+
+  // First visit: full-screen spinner until Page 1 has loaded.
+  if (!initialLoaded) return <AuthLoader />;
 
   return (
     <div
