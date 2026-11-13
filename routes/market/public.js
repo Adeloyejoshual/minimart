@@ -74,6 +74,8 @@ router.get("/categories", async (req, res) => {
 ══════════════════════════════════════════════════════════════ */
 router.get("/", async (req, res) => {
   try {
+    // Never let a browser/CDN/proxy reuse an old shuffled page.
+    res.set("Cache-Control", "no-store");
     const {
       category,
       search,
@@ -90,6 +92,12 @@ router.get("/", async (req, res) => {
     } = req.query;
 
     const { limit, offset } = paginate(req.query);
+
+    // Random-order seed: same seed = same order (stable pagination),
+    // new seed = new random order (every page refresh).
+    const rawSeed = String(req.query.seed || "")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .slice(0, 32);
 
     const conditions = [
       "p.deleted_at IS NULL",
@@ -171,7 +179,21 @@ router.get("/", async (req, res) => {
        stable across requests (no duplicates between pages).
     ─────────────────────────────────────────────────────────── */
     let order;
-    if (sort === "diverse") {
+    let seedIdx = null;
+    if (sort === "random" && rawSeed) {
+      // Seeded random + category-interleaved.
+      // md5(id || seed) gives each product a fixed pseudo-random rank for
+      // this seed, so every page request sees the SAME shuffled order
+      // (no duplicates) but a different seed gives a completely new order.
+      // ROW_NUMBER per category keeps Fashion from dominating the feed.
+      seedIdx = p++;
+      order = `ROW_NUMBER() OVER (
+                 PARTITION BY p.category
+                 ORDER BY md5(p.id::text || $${seedIdx}::text), p.id
+               ),
+               md5(p.id::text || $${seedIdx}::text) ASC,
+               p.id ASC`;
+    } else if (sort === "diverse" || sort === "random") {
       // Category-interleaved sort.
       // ROW_NUMBER() ranks products 1,2,3... inside each category (newest first).
       // Ordering by that rank returns all rank-1 products first (one per
@@ -207,7 +229,7 @@ router.get("/", async (req, res) => {
          ${where}
          ORDER BY ${order}
          LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-        [...params, limit, offset]
+        [...params, ...(seedIdx ? [rawSeed] : []), limit, offset]
       ),
       pool.query(
         `SELECT COUNT(*) FROM market.products p ${where}`,
@@ -220,7 +242,17 @@ router.get("/", async (req, res) => {
     ok(res, {
       data: {
         products: rows,
-        pagination: paginationMeta(total, limit, offset),
+        // Diagnostics: if "sort" is missing from the JSON, the old backend is still running.
+        sort: seedIdx ? "random" : sort,
+        seed: seedIdx ? rawSeed : null,
+        pagination: {
+          ...paginationMeta(total, limit, offset),
+          total,
+          page: Math.floor(offset / limit) + 1,
+          limit,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+          hasMore: offset + rows.length < total,
+        },
       },
     });
   } catch (err) {
