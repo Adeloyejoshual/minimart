@@ -72,6 +72,8 @@ const MobileTopBar = forwardRef(function MobileTopBar(
     activeCategory = 'All',
     onSelectCategory,
     onOpenDrawer,
+    onSearchClick,   // ← NEW: parent (HomePageMobile) provides this
+    cartCount = 0,   // ← NEW: live cart badge count
   },
   ref
 ) {
@@ -90,7 +92,6 @@ const MobileTopBar = forwardRef(function MobileTopBar(
   useEffect(() => {
     refreshAuth();
 
-    // Stay in sync across tabs / login-logout elsewhere
     window.addEventListener('storage', refreshAuth);
     window.addEventListener('focus', refreshAuth);
     window.addEventListener('auth-changed', refreshAuth);
@@ -102,8 +103,13 @@ const MobileTopBar = forwardRef(function MobileTopBar(
     };
   }, [refreshAuth]);
 
+  /* ── Search: use parent callback if provided, else navigate directly ── */
   const handleSearchClick = () => {
-    navigate('/m/search');
+    if (typeof onSearchClick === 'function') {
+      onSearchClick();
+    } else {
+      navigate('/m/search');
+    }
   };
 
   const handleCategoryClick = (cat) => {
@@ -122,7 +128,6 @@ const MobileTopBar = forwardRef(function MobileTopBar(
     if (isLoggedIn) {
       navigate('/profile');
     } else {
-      // Professional guest flow
       navigate('/login', { state: { from: window.location.pathname } });
     }
   };
@@ -180,7 +185,7 @@ const MobileTopBar = forwardRef(function MobileTopBar(
         </div>
 
         <div className="mtb-actions-right">
-          {/* Wishlist — only useful when logged in; still ok for guests (can prompt login later) */}
+          {/* Wishlist */}
           <button
             className="mtb-icon-btn"
             onClick={() => {
@@ -208,7 +213,40 @@ const MobileTopBar = forwardRef(function MobileTopBar(
             </svg>
           </button>
 
-          {/* ── Account: Login / Register (guest) OR Profile (logged in) ── */}
+          {/* Cart — with live badge */}
+          <button
+            className="mtb-icon-btn mtb-cart-btn"
+            onClick={() => navigate('/cart')}
+            aria-label="Cart"
+            style={{ position: 'relative' }}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              style={{
+                width: 20,
+                height: 20,
+                minWidth: 20,
+                minHeight: 20,
+                flexShrink: 0,
+              }}
+            >
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+            </svg>
+            {cartCount > 0 && (
+              <span className="mtb-cart-badge">
+                {cartCount > 99 ? '99+' : cartCount}
+              </span>
+            )}
+          </button>
+
+          {/* Account */}
           {isLoggedIn ? (
             <button
               className="mtb-icon-btn mtb-avatar-btn"
@@ -251,9 +289,17 @@ const MobileTopBar = forwardRef(function MobileTopBar(
         </div>
       </div>
 
-      {/* ── ROW 2: Search ── */}
+      {/* ── ROW 2: Search (tap → SearchPage) ── */}
       <div className="mtb-row-search">
-        <div className="mtb-search-box" onClick={handleSearchClick}>
+        <div
+          className="mtb-search-box"
+          onClick={handleSearchClick}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') handleSearchClick();
+          }}
+        >
           <svg
             width="18"
             height="18"
@@ -275,7 +321,14 @@ const MobileTopBar = forwardRef(function MobileTopBar(
           <span className="mtb-search-placeholder">
             Search products, brands, campaigns...
           </span>
-          <button className="mtb-filter-trigger" aria-label="Filters">
+          <button
+            className="mtb-filter-trigger"
+            aria-label="Filters"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSearchClick();
+            }}
+          >
             <svg
               width="18"
               height="18"
