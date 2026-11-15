@@ -1,264 +1,553 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import MasonryCard from './MasonryCard';
-import BottomNav from '../../components/BottomNav';
-import {
-  getSearchHistory,
-  addToSearchHistory,
-  clearSearchHistory,
-  TRENDING_SEARCHES,
-  haptic,
-  normalize,
-  fetchProducts,
-  filterProductsByCampaign
-} from './mobileHelpers';
-import './styles/SearchPage.css';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import "./SearchPage.css";
+
+/* ═══════════════════════════════════════════════════════════════
+   INLINE CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const API_BASE = `${import.meta.env.VITE_API_BASE_URL || ""}/api`;
+
+const STORAGE_KEYS = {
+  searchHistory: "lm-search-history",
+  wishlist: "loemart-wishlist",
+};
+
+const TRENDING_SEARCHES = [
+  "iPhone 15 Pro",
+  "Samsung Galaxy S24",
+  "HP Laptop",
+  "Nike Sneakers",
+  "PlayStation 5",
+  "MacBook Air M2",
+  "Smart TV 55 inch",
+  "Power Bank 20000mAh",
+  "Wireless Earbuds",
+  "Generator",
+];
+
+/* ═══════════════════════════════════════════════════════════════
+   INLINE UTILITIES
+═══════════════════════════════════════════════════════════════ */
+
+/** Safe number parser — handles strings, commas, nulls */
+function parseNum(val) {
+  if (val === null || val === undefined || val === "") return 0;
+  if (typeof val === "number") return Number.isFinite(val) ? val : 0;
+  const parsed = parseFloat(String(val).replace(/,/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** Format as Nigerian Naira: ₦1,250,000 */
+function formatPrice(amount, decimals = false) {
+  const num = parseNum(amount);
+  return `₦${num.toLocaleString("en-NG", {
+    minimumFractionDigits: decimals ? 2 : 0,
+    maximumFractionDigits: decimals ? 2 : 0,
+  })}`;
+}
+
+/** Percentage discount between current and old price */
+function calcDiscountPct(price, oldPrice) {
+  const p = parseNum(price);
+  const op = parseNum(oldPrice);
+  if (!op || op <= p) return 0;
+  return Math.round(((op - p) / op) * 100);
+}
+
+/** Trim & collapse whitespace */
+function normalize(str = "") {
+  return String(str || "").replace(/\s+/g, " ").trim();
+}
+
+/** Tiny haptic buzz (mobile browsers) */
+function haptic(ms = 10) {
+  try {
+    if (typeof window !== "undefined" && window.navigator?.vibrate) {
+      window.navigator.vibrate(ms);
+    }
+  } catch {
+    /* silent */
+  }
+}
+
+/* ── Image Resolver ──
+   Handles: JSON strings, arrays of strings, arrays of objects,
+   CockroachDB JSONB variants, and nested fallback fields.        */
+function primaryImg(imagesInput, productFallback = null) {
+  let images = imagesInput;
+
+  if (typeof images === "string") {
+    try {
+      images = JSON.parse(images);
+    } catch {
+      if (images.startsWith("http") || images.startsWith("/")) return images;
+      images = [];
+    }
+  }
+
+  if (!Array.isArray(images) || images.length === 0) {
+    if (productFallback) {
+      const fb =
+        productFallback.image_url ||
+        productFallback.image ||
+        productFallback.primary_image;
+      if (fb) return fb;
+    }
+    return "/placeholder.png";
+  }
+
+  const primary = images.find((img) => img?.is_primary === true) || images[0];
+  if (!primary) return "/placeholder.png";
+  if (typeof primary === "string") return primary;
+
+  return (
+    primary.url ||
+    primary.image_url ||
+    primary.src ||
+    primary.path ||
+    "/placeholder.png"
+  );
+}
+
+/** Build /shop/:slugOrId path */
+function getProductPath(item) {
+  if (!item) return "/shop";
+  const target = item.slug || item.id || item.product_id;
+  return target ? `/shop/${target}` : "/shop";
+}
+
+/* ── Response Envelope Extractor ──
+   Handles: { data: { products: [] } }, { products: [] },
+   { data: [] }, { items: [] }, { rows: [] }, flat arrays, etc.  */
+function extractProductsArray(data) {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (data.data?.products && Array.isArray(data.data.products)) return data.data.products;
+  if (Array.isArray(data.products)) return data.products;
+  if (data.data?.items && Array.isArray(data.data.items)) return data.data.items;
+  if (data.data && Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.items)) return data.items;
+  if (Array.isArray(data.rows)) return data.rows;
+  if (Array.isArray(data.results)) return data.results;
+  return [];
+}
+
+/* ── Network: fetch JSON ── */
+async function fetchJson(path) {
+  const url = path.startsWith("http")
+    ? path
+    : `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+
+  const res = await fetch(url, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
+/* ── Network: search products with endpoint fallbacks ── */
+async function searchProducts(term) {
+  const q = `?search=${encodeURIComponent(term)}`;
+  const endpoints = [
+    `/products${q}`,
+    `/market/products${q}`,
+    `/marketplace/products${q}`,
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const data = await fetchJson(ep);
+      const items = extractProductsArray(data);
+      if (items.length > 0) return items;
+    } catch {
+      /* try next */
+    }
+  }
+  return [];
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INLINE LOCAL-STORAGE: SEARCH HISTORY
+═══════════════════════════════════════════════════════════════ */
+
+function getSearchHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.searchHistory);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addToSearchHistory(term) {
+  const clean = normalize(term);
+  if (!clean) return;
+  try {
+    const current = getSearchHistory().filter(
+      (s) => s.toLowerCase() !== clean.toLowerCase()
+    );
+    current.unshift(clean);
+    localStorage.setItem(
+      STORAGE_KEYS.searchHistory,
+      JSON.stringify(current.slice(0, 10))
+    );
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function clearSearchHistory() {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.searchHistory);
+  } catch {
+    /* silent */
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INLINE LOCAL-STORAGE: WISHLIST
+═══════════════════════════════════════════════════════════════ */
+
+function getWishlist() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.wishlist);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function toggleWishlist(productId) {
+  const id = String(productId);
+  if (!id) return false;
+  try {
+    const list = getWishlist();
+    const idx = list.indexOf(id);
+    const next = idx >= 0 ? list.filter((x) => x !== id) : [...list, id];
+    localStorage.setItem(STORAGE_KEYS.wishlist, JSON.stringify(next));
+    window.dispatchEvent(new Event("wishlist-updated"));
+    return idx < 0; // true = added
+  } catch {
+    return false;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEBOUNCE HOOK
+═══════════════════════════════════════════════════════════════ */
+
+function useDebounce(value, delay = 400) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SEARCH PAGE COMPONENT
+═══════════════════════════════════════════════════════════════ */
 
 export default function SearchPage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const inputRef = useRef(null);
 
-  const queryFromUrl = searchParams.get('q') || '';
-  const categoryFromUrl = searchParams.get('category') || '';
-  const campaignFromUrl = searchParams.get('campaign') || '';
-  const filterFromUrl = searchParams.get('filter') || '';
+  /* ── state ── */
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [history, setHistory] = useState(getSearchHistory);
+  const [wishlist, setWishlist] = useState(() => new Set(getWishlist()));
 
-  const [searchTerm, setSearchTerm] = useState(queryFromUrl);
-  const [activeCategory, setActiveCategory] = useState(categoryFromUrl);
-  const [activeCampaign, setActiveCampaign] = useState(campaignFromUrl);
-  const [sortBy, setSortBy] = useState('relevance');
+  const debouncedQuery = useDebounce(query, 450);
 
-  const [history, setHistory] = useState(getSearchHistory());
-  const [allProducts, setAllProducts] = useState([]);
-  const [filteredProducts, setFilteredProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  // Sync state with URL params
+  /* ── auto-focus on mount ── */
   useEffect(() => {
-    setSearchTerm(queryFromUrl);
-    setActiveCategory(categoryFromUrl);
-    setActiveCampaign(campaignFromUrl);
-  }, [queryFromUrl, categoryFromUrl, campaignFromUrl]);
-
-  // Load catalog on mount
-  useEffect(() => {
-    let isMounted = true;
-    async function loadCatalog() {
-      setLoading(true);
-      try {
-        const items = await fetchProducts();
-        if (isMounted) setAllProducts(items);
-      } catch (err) {
-        console.error('Failed to load search catalog:', err);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    }
-    loadCatalog();
-    return () => { isMounted = false; };
+    inputRef.current?.focus();
   }, []);
 
-  // Filter & Sort Logic
+  /* ── sync wishlist from other tabs / components ── */
   useEffect(() => {
-    let result = [...allProducts];
+    const sync = () => setWishlist(new Set(getWishlist()));
+    window.addEventListener("wishlist-updated", sync);
+    return () => window.removeEventListener("wishlist-updated", sync);
+  }, []);
 
-    // 1. Search term filter
-    if (searchTerm.trim()) {
-      const term = normalize(searchTerm).toLowerCase();
-      result = result.filter(item => {
-        const title = normalize(item.title || item.name).toLowerCase();
-        const desc = normalize(item.description).toLowerCase();
-        const cat = normalize(item.category || item.category_name).toLowerCase();
-        return title.includes(term) || desc.includes(term) || cat.includes(term);
-      });
+  /* ── core search ── */
+  const runSearch = useCallback(async (term) => {
+    const clean = normalize(term);
+    if (!clean) return;
+
+    setLoading(true);
+    setHasSearched(true);
+    haptic(8);
+
+    try {
+      const items = await searchProducts(clean);
+      setResults(items);
+      addToSearchHistory(clean);
+      setHistory(getSearchHistory());
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    // 2. Category filter
-    if (activeCategory && activeCategory !== 'All') {
-      const cat = normalize(activeCategory).toLowerCase();
-      result = result.filter(item => normalize(item.category || item.category_name).toLowerCase() === cat);
+  /* ── live debounced search (≥ 2 chars) ── */
+  useEffect(() => {
+    const trimmed = debouncedQuery.trim();
+    if (trimmed.length >= 2) {
+      runSearch(trimmed);
+    } else if (trimmed.length === 0 && hasSearched) {
+      setResults([]);
+      setHasSearched(false);
     }
+  }, [debouncedQuery, runSearch, hasSearched]);
 
-    // 3. Campaign filter
-    if (activeCampaign) {
-      result = filterProductsByCampaign(result, activeCampaign);
-    }
-
-    // 4. Flash sale filter tag
-    if (filterFromUrl === 'flash') {
-      result = result.filter(item => {
-        const p = Number(item.price || item.selling_price || item.sale_price || 0);
-        const op = Number(item.old_price || item.original_price || item.regular_price || 0);
-        return op > p && p > 0;
-      });
-    }
-
-    // 5. Sorting
-    if (sortBy === 'price_asc') {
-      result.sort((a, b) => Number(a.price || a.selling_price || 0) - Number(b.price || b.selling_price || 0));
-    } else if (sortBy === 'price_desc') {
-      result.sort((a, b) => Number(b.price || b.selling_price || 0) - Number(a.price || a.selling_price || 0));
-    } else if (sortBy === 'trending') {
-      result = result.filter(i => i.is_trending || i.trending);
-    }
-
-    setFilteredProducts(result);
-  }, [allProducts, searchTerm, activeCategory, activeCampaign, filterFromUrl, sortBy]);
-
-  const handleSearchSubmit = (e) => {
-    if (e) e.preventDefault();
-    if (!searchTerm.trim()) return;
-    haptic(15);
-    addToSearchHistory(searchTerm.trim());
-    setHistory(getSearchHistory());
-    setSearchParams({ q: searchTerm.trim() });
+  /* ── handlers ── */
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (query.trim()) runSearch(query);
   };
 
-  const handleClearAllFilters = () => {
+  const handleQuickSearch = (term) => {
     haptic(10);
-    setSearchTerm('');
-    setActiveCategory('');
-    setActiveCampaign('');
-    setSearchParams({});
+    setQuery(term);
+    runSearch(term);
   };
 
+  const handleClearHistory = () => {
+    haptic(12);
+    clearSearchHistory();
+    setHistory([]);
+  };
+
+  const handleClearInput = () => {
+    setQuery("");
+    setResults([]);
+    setHasSearched(false);
+    inputRef.current?.focus();
+  };
+
+  const handleWishlistToggle = (e, productId) => {
+    e.stopPropagation();
+    e.preventDefault();
+    haptic(15);
+    const added = toggleWishlist(productId);
+    setWishlist((prev) => {
+      const next = new Set(prev);
+      added ? next.add(String(productId)) : next.delete(String(productId));
+      return next;
+    });
+  };
+
+  const handleProductTap = (item) => {
+    haptic(8);
+    navigate(getProductPath(item));
+  };
+
+  /* ── derived flags ── */
+  const showLanding = !hasSearched && !loading;
+  const showResults = hasSearched && !loading;
+  const noResults = showResults && results.length === 0;
+
+  /* ═══════════════════════════════════════════════════════════
+     RENDER
+  ═══════════════════════════════════════════════════════════ */
   return (
-    <div className="sp-page-container">
-      {/* Search Bar Header */}
-      <div className="sp-header">
-        <button className="sp-back-btn" onClick={() => navigate(-1)} aria-label="Go back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
+    <div className="lm-search-page">
+      {/* ────── HEADER ────── */}
+      <header className="lm-search-header">
+        <button
+          className="lm-search-back"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+        >
+          ←
         </button>
 
-        <form className="sp-search-form" onSubmit={handleSearchSubmit}>
-          <svg className="sp-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+        <form className="lm-search-form" onSubmit={handleSubmit}>
+          <span className="lm-search-icon">🔍</span>
           <input
-            type="text"
-            className="sp-search-input"
-            placeholder="Search products, campaigns..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            autoFocus
+            ref={inputRef}
+            type="search"
+            className="lm-search-input"
+            placeholder="Search products, brands..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoComplete="off"
           />
-          {searchTerm && (
-            <button type="button" className="sp-clear-input" onClick={() => setSearchTerm('')}>
-              &times;
+          {query && (
+            <button
+              type="button"
+              className="lm-search-clear"
+              onClick={handleClearInput}
+              aria-label="Clear search"
+            >
+              ✕
             </button>
           )}
         </form>
-      </div>
+      </header>
 
-      {/* Active Filter Chips */}
-      {(searchTerm || activeCategory || activeCampaign || filterFromUrl) && (
-        <div className="sp-active-filters-bar">
-          <span className="sp-filter-label">Active:</span>
-          {searchTerm && (
-            <span className="sp-filter-chip">
-              "{searchTerm}"
-              <button onClick={() => { setSearchTerm(''); setSearchParams({}); }}>&times;</button>
-            </span>
-          )}
-          {activeCategory && (
-            <span className="sp-filter-chip">
-              Cat: {activeCategory}
-              <button onClick={() => { setActiveCategory(''); setSearchParams({}); }}>&times;</button>
-            </span>
-          )}
-          {activeCampaign && (
-            <span className="sp-filter-chip mc-campaign-chip">
-              🎯 Campaign: {activeCampaign}
-              <button onClick={() => { setActiveCampaign(''); setSearchParams({}); }}>&times;</button>
-            </span>
-          )}
-          {filterFromUrl === 'flash' && (
-            <span className="sp-filter-chip">
-              ⚡ Flash Sale
-              <button onClick={() => setSearchParams({})}>&times;</button>
-            </span>
-          )}
-          <button className="sp-reset-all" onClick={handleClearAllFilters}>
-            Clear All
-          </button>
-        </div>
-      )}
-
-      {/* Search History & Trending Chips when empty */}
-      {!searchTerm && !activeCategory && !activeCampaign && !filterFromUrl && (
-        <div className="sp-suggestions-body">
+      {/* ────── LANDING: History + Trending ────── */}
+      {showLanding && (
+        <div className="lm-search-landing">
           {history.length > 0 && (
-            <div className="sp-section">
-              <div className="sp-section-title">
-                <span>Recent Searches</span>
-                <button className="sp-clear-btn" onClick={() => { clearSearchHistory(); setHistory([]); }}>Clear</button>
+            <section className="lm-search-section">
+              <div className="lm-section-head">
+                <h3>Recent Searches</h3>
+                <button className="lm-link-btn" onClick={handleClearHistory}>
+                  Clear
+                </button>
               </div>
-              <div className="sp-chips-grid">
-                {history.map((term, idx) => (
-                  <button key={idx} className="sp-chip" onClick={() => { setSearchTerm(term); setSearchParams({ q: term }); }}>
-                    🕒 {term}
+              <div className="lm-chip-row">
+                {history.map((term, i) => (
+                  <button
+                    key={`${term}-${i}`}
+                    className="lm-chip lm-chip--history"
+                    onClick={() => handleQuickSearch(term)}
+                  >
+                    <span className="lm-chip-clock">🕐</span>
+                    {term}
                   </button>
                 ))}
               </div>
-            </div>
+            </section>
           )}
 
-          <div className="sp-section">
-            <div className="sp-section-title">
-              <span>🔥 Trending Searches</span>
+          <section className="lm-search-section">
+            <div className="lm-section-head">
+              <h3>🔥 Trending</h3>
             </div>
-            <div className="sp-chips-grid">
-              {TRENDING_SEARCHES.map((term, idx) => (
-                <button key={idx} className="sp-chip sp-chip-trending" onClick={() => { setSearchTerm(term); setSearchParams({ q: term }); }}>
+            <div className="lm-chip-row">
+              {TRENDING_SEARCHES.map((term) => (
+                <button
+                  key={term}
+                  className="lm-chip lm-chip--trending"
+                  onClick={() => handleQuickSearch(term)}
+                >
                   {term}
                 </button>
               ))}
             </div>
+          </section>
+        </div>
+      )}
+
+      {/* ────── SKELETON LOADING ────── */}
+      {loading && (
+        <div className="lm-search-grid">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="lm-skeleton-card">
+              <div className="lm-skeleton-img" />
+              <div className="lm-skeleton-line w80" />
+              <div className="lm-skeleton-line w50" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ────── NO RESULTS ────── */}
+      {noResults && (
+        <div className="lm-search-empty">
+          <span className="lm-empty-icon">🔎</span>
+          <h3>No results for "{normalize(query)}"</h3>
+          <p>Try a different keyword or browse trending.</p>
+          <div className="lm-chip-row" style={{ justifyContent: "center" }}>
+            {TRENDING_SEARCHES.slice(0, 4).map((term) => (
+              <button
+                key={term}
+                className="lm-chip lm-chip--trending"
+                onClick={() => handleQuickSearch(term)}
+              >
+                {term}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Search Results */}
-      <div className="sp-results-area">
-        <div className="sp-results-header">
-          <span className="sp-count">{filteredProducts.length} Products</span>
-          <select
-            className="sp-sort-select"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="relevance">Sort: Relevant</option>
-            <option value="price_asc">Price: Low to High</option>
-            <option value="price_desc">Price: High to Low</option>
-            <option value="trending">Trending First</option>
-          </select>
+      {/* ────── RESULTS GRID ────── */}
+      {showResults && results.length > 0 && (
+        <div className="lm-search-results">
+          <p className="lm-results-count">
+            {results.length} result{results.length !== 1 ? "s" : ""} for "
+            {normalize(query)}"
+          </p>
+
+          <div className="lm-search-grid">
+            {results.map((item) => {
+              const id = String(item.id || item.product_id);
+              const price = parseNum(item.price ?? item.selling_price);
+              const oldPrice = parseNum(
+                item.old_price ??
+                  item.original_price ??
+                  item.compare_at_price
+              );
+              const discount = calcDiscountPct(price, oldPrice);
+              const isWished = wishlist.has(id);
+
+              return (
+                <div
+                  key={id}
+                  className="lm-product-card"
+                  onClick={() => handleProductTap(item)}
+                >
+                  <div className="lm-card-img-wrap">
+                    <img
+                      src={primaryImg(item.images || item.image_url, item)}
+                      alt={item.name || item.title || "Product"}
+                      loading="lazy"
+                    />
+                    {discount > 0 && (
+                      <span className="lm-badge-discount">
+                        -{discount}%
+                      </span>
+                    )}
+                    <button
+                      className={`lm-wish-btn ${isWished ? "active" : ""}`}
+                      onClick={(e) => handleWishlistToggle(e, id)}
+                      aria-label={
+                        isWished
+                          ? "Remove from wishlist"
+                          : "Add to wishlist"
+                      }
+                    >
+                      {isWished ? "♥" : "♡"}
+                    </button>
+                  </div>
+
+                  <div className="lm-card-body">
+                    <h4 className="lm-card-title">
+                      {item.name || item.title || "Product"}
+                    </h4>
+                    <div className="lm-card-price-row">
+                      <span className="lm-price">
+                        {formatPrice(price)}
+                      </span>
+                      {oldPrice > price && (
+                        <span className="lm-old-price">
+                          {formatPrice(oldPrice)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-
-        {loading ? (
-          <div className="sp-masonry-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-            {[1, 2, 3, 4].map((n) => (
-              <div key={n} style={{ height: '220px', background: '#e0e0e0', borderRadius: '12px', animation: 'pulse 1.5s infinite' }} />
-            ))}
-          </div>
-        ) : filteredProducts.length === 0 ? (
-          <div className="sp-empty-state">
-            <h3>No matching products</h3>
-            <p>Try searching with different keywords or clear your active campaign filters.</p>
-            <button className="sp-reset-btn" onClick={handleClearAllFilters}>Reset Filters</button>
-          </div>
-        ) : (
-          <div className="pr-masonry" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-            {filteredProducts.map((product) => (
-              <MasonryCard key={product.id || product.product_id} product={product} />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <BottomNav />
+      )}
     </div>
   );
 }
