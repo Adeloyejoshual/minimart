@@ -24,20 +24,14 @@ import '../styles/Minimart.css';
 
 /* ══════════════════════════════════════════════════════════
    PAGINATION CONFIG
-
-   The catalog is split into numbered "Pages".
-   Each Page = PAGES_PER_BLOCK API requests, loaded automatically
-   as the user scrolls. At the bottom of a Page the user gets
-   Previous / Next buttons to move through the remaining products.
-
-   PAGE_LIMIT is the same for every request so API pages never overlap.
 ══════════════════════════════════════════════════════════ */
 const PAGE_LIMIT = 30;
 const PAGES_PER_BLOCK = 3; // 3 x 30 = 90 products per Page
 const BLOCK_SIZE = PAGE_LIMIT * PAGES_PER_BLOCK;
-const SORT_MODE = 'random'; // random order, categories interleaved by the backend
+const SORT_MODE = 'random';
 
-// One random seed per page load: refresh = new order, scrolling = stable order.
+const SEARCH_ROUTE = '/m/search'; // ← Single source of truth for SearchPage
+
 const makeSeed = () =>
   Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
@@ -47,7 +41,6 @@ const makeSeed = () =>
 
 const productKey = (p) => String(p?.id ?? p?.product_id ?? '');
 
-/** Append incoming products, skipping any id already present. */
 function mergeUnique(prev, incoming) {
   const seen = new Set(prev.map(productKey));
   const out = [...prev];
@@ -157,20 +150,18 @@ export default function HomePageMobile() {
     hours: '00', minutes: '00', seconds: '00',
   });
 
-  const [blockIndex, setBlockIndex] = useState(0); // 0 = Page 1
+  const [blockIndex, setBlockIndex] = useState(0);
   const [totalProducts, setTotalProducts] = useState(null);
-  const [pagesLoaded, setPagesLoaded] = useState(0); // API pages loaded in this Page
-  const [hasMore, setHasMore] = useState(true); // server still has more products
+  const [pagesLoaded, setPagesLoaded] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  // Refs hold live pagination state so rapid scroll events can never
-  // request the same API page twice or read a stale page number.
   const nextPageRef = useRef(1);
   const seedRef = useRef(makeSeed());
   const loadingRef = useRef(false);
   const sentinelRef = useRef(null);
-  const blocksCacheRef = useRef({}); // lets "Previous" restore a Page instantly
+  const blocksCacheRef = useRef({});
   const apiCategoriesRef = useRef(false);
 
   const headerRef = useRef(null);
@@ -190,7 +181,6 @@ export default function HomePageMobile() {
      EFFECTS
   ══════════════════════════════════════════════════════════ */
 
-  // 0. Header height
   useEffect(() => {
     const el = headerRef.current;
     if (!el) return;
@@ -210,7 +200,6 @@ export default function HomePageMobile() {
     };
   }, [initialLoaded]);
 
-  // 1. Countdown
   useEffect(() => {
     const tick = () => setTimeLeft(getMidnightWATTimeLeft());
     tick();
@@ -218,14 +207,12 @@ export default function HomePageMobile() {
     return () => clearInterval(id);
   }, []);
 
-  // 2. Scroll-to-top
   useEffect(() => {
     const onScroll = () => setShowScrollTop(window.scrollY > 500);
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // 3. Remember each Page once it is loaded so "Previous" is instant
   useEffect(() => {
     if (loading) return;
     blocksCacheRef.current[blockIndex] = {
@@ -236,7 +223,6 @@ export default function HomePageMobile() {
     };
   }, [products, pagesLoaded, hasMore, loading, blockIndex]);
 
-  /** Merge category names found in products (only when the API gave none). */
   const absorbCategories = useCallback((items) => {
     if (apiCategoriesRef.current) return;
     const found = items
@@ -246,10 +232,6 @@ export default function HomePageMobile() {
     setCategories((prev) => Array.from(new Set([...prev, ...found])));
   }, []);
 
-  /**
-   * Open a numbered Page (block). Page 1 = blockIndex 0.
-   * Uses the cache when the Page was already visited.
-   */
   const loadBlock = useCallback(async (b) => {
     window.scrollTo({ top: 0, behavior: 'auto' });
     setBlockIndex(b);
@@ -295,7 +277,6 @@ export default function HomePageMobile() {
     }
   }, [absorbCategories]);
 
-  // 4. Initial load: campaigns + categories + Page 1
   useEffect(() => {
     let isMounted = true;
 
@@ -317,7 +298,6 @@ export default function HomePageMobile() {
     return () => { isMounted = false; };
   }, [loadBlock]);
 
-  /** Fetch the next API page inside the current Page and append it. */
   const loadNextApiPage = useCallback(async () => {
     if (loadingRef.current || !hasMore) return;
     loadingRef.current = true;
@@ -347,7 +327,6 @@ export default function HomePageMobile() {
     }
   }, [hasMore, absorbCategories]);
 
-  // 5. Sentinel (auto-load while scrolling inside a Page)
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !canAutoLoad) return;
@@ -359,7 +338,6 @@ export default function HomePageMobile() {
     return () => observer.disconnect();
   }, [loadNextApiPage, canAutoLoad]);
 
-  // 6. Catch-up: if the content is short, keep loading until it fills the screen
   useEffect(() => {
     if (loadingMore || loading || !canAutoLoad) return;
     const timer = setTimeout(() => {
@@ -407,6 +385,16 @@ export default function HomePageMobile() {
 
   const handleFloatingCartClick = () => navigate('/cart');
 
+  /* ── SEARCH NAVIGATION ──
+     Central handler — MobileTopBar can call this via prop.
+     Any tap on a search entry point routes to SearchPage. */
+  const handleSearchNavigate = (initialQuery = '') => {
+    const target = initialQuery
+      ? `${SEARCH_ROUTE}?q=${encodeURIComponent(initialQuery)}`
+      : SEARCH_ROUTE;
+    navigate(target);
+  };
+
   /* ══════════════════════════════════════════════════════════
      DERIVED DATA
   ══════════════════════════════════════════════════════════ */
@@ -437,7 +425,6 @@ export default function HomePageMobile() {
      RENDER
   ══════════════════════════════════════════════════════════ */
 
-  // First visit: full-screen spinner until Page 1 has loaded.
   if (!initialLoaded) return <AuthLoader />;
 
   return (
@@ -451,12 +438,14 @@ export default function HomePageMobile() {
         overflowX: 'clip',
       }}
     >
+      {/* TopBar — pass onSearchClick so its search field becomes a link */}
       <MobileTopBar
         ref={headerRef}
         categories={categories}
         activeCategory={activeCategory}
         onSelectCategory={handleCategorySelect}
         cartCount={cartCount}
+        onSearchClick={() => handleSearchNavigate()}
       />
 
       <MobileHeroBanner />
@@ -469,6 +458,7 @@ export default function HomePageMobile() {
         />
       )}
 
+      {/* ─── FLASH SALE ─── */}
       {sections.flash.length > 0 && (
         <div className="mdp-psec" style={{ margin: 12, padding: 14, background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -478,7 +468,13 @@ export default function HomePageMobile() {
                 <span>{timeLeft.hours}</span>:<span>{timeLeft.minutes}</span>:<span>{timeLeft.seconds}</span>
               </div>
             </div>
-            <button type="button" onClick={() => navigate('/m/search?filter=flash')} style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}>See All &gt;</button>
+            <button
+              type="button"
+              onClick={() => navigate(`${SEARCH_ROUTE}?filter=flash`)}
+              style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
+            >
+              See All &gt;
+            </button>
           </div>
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
             {sections.flash.slice(0, 10).map((item) => {
@@ -506,11 +502,18 @@ export default function HomePageMobile() {
         </div>
       )}
 
+      {/* ─── SPONSORED ─── */}
       {sections.sponsored?.length > 0 && (
         <div className="mdp-psec" style={{ margin: 12, padding: 14, background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>⭐ Sponsored Deals</span>
-            <button type="button" onClick={() => navigate('/m/search?filter=sponsored')} style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}>View All</button>
+            <button
+              type="button"
+              onClick={() => navigate(`${SEARCH_ROUTE}?filter=sponsored`)}
+              style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
+            >
+              View All
+            </button>
           </div>
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
             {sections.sponsored.map((item) => {
@@ -533,11 +536,18 @@ export default function HomePageMobile() {
         </div>
       )}
 
+      {/* ─── TRENDING ─── */}
       {sections.trending.length > 0 && (
         <div className="mdp-psec" style={{ margin: 12, padding: 14, background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>🔥 Trending Now</span>
-            <button type="button" onClick={() => navigate('/m/search?filter=trending')} style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}>View All</button>
+            <button
+              type="button"
+              onClick={() => navigate(`${SEARCH_ROUTE}?filter=trending`)}
+              style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
+            >
+              View All
+            </button>
           </div>
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
             {sections.trending.map((item) => {
@@ -560,6 +570,7 @@ export default function HomePageMobile() {
         </div>
       )}
 
+      {/* ─── CATALOG ─── */}
       <div style={{ padding: '0 12px', marginTop: 16 }}>
         <h3 style={{ fontSize: '1rem', fontWeight: 900, margin: '0 0 12px', color: '#111' }}>
           {activeCategory === 'All' ? 'Explore Catalog' : activeCategory}
@@ -586,7 +597,6 @@ export default function HomePageMobile() {
           </div>
         )}
 
-        {/* Auto-load sentinel (only while this Page is still filling up) */}
         {!loading && canAutoLoad && (
           <div ref={sentinelRef} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px 0', minHeight: 60 }}>
             {loadingMore && (
@@ -597,7 +607,6 @@ export default function HomePageMobile() {
           </div>
         )}
 
-        {/* Previous / Next page */}
         {showPager && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '28px 0 12px' }}>
             <button
