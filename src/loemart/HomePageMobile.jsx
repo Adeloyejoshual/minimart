@@ -8,6 +8,7 @@ import VariantBottomSheet from '../pages/MarketDetail/VariantBottomSheet';
 import FloatingCartButton from '../components/FloatingCartButton';
 import Footer from '../components/Footer';
 import BottomNav from '../components/BottomNav';
+import AuthLoader from '../components/AuthLoader';
 import {
   formatPrice,
   calcDiscountPct,
@@ -19,7 +20,6 @@ import {
   fetchProductsPage,
   fetchCampaigns,
 } from '../loemart/mobile/mobileHelpers';
-import AuthLoader from '../components/AuthLoader';
 import '../styles/Minimart.css';
 
 /* ══════════════════════════════════════════════════════════
@@ -131,6 +131,41 @@ function useCartCount() {
   }, [refreshCart]);
 
   return { count, refreshCart };
+}
+
+/* ══════════════════════════════════════════════════════════
+   INLINE ROLLING SPINNER (reuses AuthLoader's keyframe)
+══════════════════════════════════════════════════════════ */
+function InlineSpinner({ label = 'Loading more products…' }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: '32px 0',
+        minHeight: 80,
+        gap: 12,
+      }}
+      role="status"
+      aria-live="polite"
+    >
+      <div
+        style={{
+          width: 32,
+          height: 32,
+          border: '3px solid #e9ecef',
+          borderTop: '3px solid #ff6000',
+          borderRadius: '50%',
+          animation: 'lm-auth-spin .7s linear infinite',
+        }}
+      />
+      <span style={{ color: '#888', fontSize: '0.82rem', fontWeight: 600 }}>
+        {label}
+      </span>
+    </div>
+  );
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -385,9 +420,7 @@ export default function HomePageMobile() {
 
   const handleFloatingCartClick = () => navigate('/cart');
 
-  /* ── SEARCH NAVIGATION ──
-     Central handler — MobileTopBar can call this via prop.
-     Any tap on a search entry point routes to SearchPage. */
+  /* ── SEARCH NAVIGATION ── */
   const handleSearchNavigate = (initialQuery = '') => {
     const target = initialQuery
       ? `${SEARCH_ROUTE}?q=${encodeURIComponent(initialQuery)}`
@@ -438,7 +471,6 @@ export default function HomePageMobile() {
         overflowX: 'clip',
       }}
     >
-      {/* TopBar — pass onSearchClick so its search field becomes a link */}
       <MobileTopBar
         ref={headerRef}
         categories={categories}
@@ -577,11 +609,7 @@ export default function HomePageMobile() {
         </h3>
 
         {loading ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-            {[1, 2, 3, 4].map((n) => (
-              <div key={n} style={{ height: 220, background: '#e8e8ec', borderRadius: 12 }} />
-            ))}
-          </div>
+          <AuthLoader />
         ) : displayedCatalog.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', background: '#fff', borderRadius: 14 }}>
             <p style={{ fontSize: '0.9rem', color: '#666', margin: 0 }}>No items found in this section.</p>
@@ -597,15 +625,23 @@ export default function HomePageMobile() {
           </div>
         )}
 
+        {/* Sentinel for infinite scroll — rolling spinner appears while fetching */}
         {!loading && canAutoLoad && (
-          <div ref={sentinelRef} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px 0', minHeight: 60 }}>
-            {loadingMore && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#888', fontSize: '0.85rem', fontWeight: 600 }}>
-                <span className="lm-spinner" />Loading more...
-              </div>
-            )}
+          <div
+            ref={sentinelRef}
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              minHeight: 80,
+            }}
+          >
+            {loadingMore && <InlineSpinner />}
           </div>
         )}
+
+        {/* Spinner when a fetch is in flight but sentinel isn't rendered */}
+        {loadingMore && !canAutoLoad && <InlineSpinner />}
 
         {showPager && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '28px 0 12px' }}>
@@ -654,7 +690,25 @@ export default function HomePageMobile() {
 
       <FloatingCartButton count={cartCount} onClick={handleFloatingCartClick} />
 
-      <button type="button" onClick={scrollToTop} aria-label="Scroll to top" style={{ position: 'fixed', bottom: 150, right: 18, zIndex: 900, width: 46, height: 46, borderRadius: '50%', border: 'none', background: '#fff', color: '#ff6000', boxShadow: '0 3px 12px rgba(0,0,0,0.15)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem', fontWeight: 900, opacity: showScrollTop ? 1 : 0, pointerEvents: showScrollTop ? 'auto' : 'none', transform: showScrollTop ? 'translateY(0)' : 'translateY(16px)', transition: 'opacity 0.3s ease, transform 0.3s ease' }}>↑</button>
+      <button
+        type="button"
+        onClick={scrollToTop}
+        aria-label="Scroll to top"
+        style={{
+          position: 'fixed', bottom: 150, right: 18, zIndex: 900,
+          width: 46, height: 46, borderRadius: '50%', border: 'none',
+          background: '#fff', color: '#ff6000',
+          boxShadow: '0 3px 12px rgba(0,0,0,0.15)',
+          cursor: 'pointer', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', fontSize: '1.3rem', fontWeight: 900,
+          opacity: showScrollTop ? 1 : 0,
+          pointerEvents: showScrollTop ? 'auto' : 'none',
+          transform: showScrollTop ? 'translateY(0)' : 'translateY(16px)',
+          transition: 'opacity 0.3s ease, transform 0.3s ease',
+        }}
+      >
+        ↑
+      </button>
 
       <VariantBottomSheet
         isOpen={isVariantSheetOpen}
@@ -663,13 +717,9 @@ export default function HomePageMobile() {
       />
 
       <style>{`
-        .lm-spinner {
-          width: 20px; height: 20px;
-          border: 3px solid #e0e0e0; border-top-color: #ff6000;
-          border-radius: 50%; animation: lm-spin 0.7s linear infinite;
-          display: inline-block;
+        @keyframes lm-auth-spin {
+          to { transform: rotate(360deg); }
         }
-        @keyframes lm-spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
