@@ -23,20 +23,16 @@ import {
 import '../styles/Minimart.css';
 
 /* ══════════════════════════════════════════════════════════
-   PAGINATION CONFIG
+   PAGINATION CONFIG: 30 + 30 + 30 = 90 per page block
 ══════════════════════════════════════════════════════════ */
 const PAGE_LIMIT = 30;
-const PAGES_PER_BLOCK = 3; // 3 x 30 = 90 products per visible Page
+const PAGES_PER_BLOCK = 3;
 const BLOCK_SIZE = PAGE_LIMIT * PAGES_PER_BLOCK;
 const SORT_MODE = 'random';
 const SEARCH_ROUTE = '/m/search';
 
 const makeSeed = () =>
   Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-
-/* ══════════════════════════════════════════════════════════
-   HELPERS
-══════════════════════════════════════════════════════════ */
 
 const productKey = (p) => String(p?.id ?? p?.product_id ?? '');
 
@@ -74,9 +70,6 @@ function getAuthToken() {
   return null;
 }
 
-/* ══════════════════════════════════════════════════════════
-   HOOK: Live cart count
-══════════════════════════════════════════════════════════ */
 function useCartCount() {
   const [count, setCount] = useState(0);
 
@@ -86,10 +79,7 @@ function useCartCount() {
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/cart', {
-        headers,
-        credentials: 'include',
-      });
+      const res = await fetch('/api/cart', { headers, credentials: 'include' });
 
       if (res.ok) {
         const json = await res.json();
@@ -132,9 +122,6 @@ function useCartCount() {
   return { count, refreshCart };
 }
 
-/* ══════════════════════════════════════════════════════════
-   INLINE ROLLING SPINNER
-══════════════════════════════════════════════════════════ */
 function InlineSpinner({ label = 'Loading more products…' }) {
   return (
     <div
@@ -148,7 +135,6 @@ function InlineSpinner({ label = 'Loading more products…' }) {
         gap: 12,
       }}
       role="status"
-      aria-live="polite"
     >
       <div
         style={{
@@ -167,9 +153,32 @@ function InlineSpinner({ label = 'Loading more products…' }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   PAGE COMPONENT
-══════════════════════════════════════════════════════════ */
+const sectionCardStyle = {
+  margin: 12,
+  padding: 14,
+  background: '#fff',
+  borderRadius: 14,
+  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+};
+
+const hScrollStyle = {
+  display: 'flex',
+  gap: 10,
+  overflowX: 'auto',
+  paddingBottom: 4,
+  scrollbarWidth: 'none',
+  WebkitOverflowScrolling: 'touch',
+};
+
+const seeAllBtnStyle = {
+  background: 'none',
+  border: 'none',
+  color: '#ff6000',
+  fontWeight: 800,
+  fontSize: '0.8rem',
+  cursor: 'pointer',
+};
+
 export default function HomePageMobile() {
   const navigate = useNavigate();
   const { count: cartCount, refreshCart } = useCartCount();
@@ -197,6 +206,7 @@ export default function HomePageMobile() {
   const sentinelRef = useRef(null);
   const blocksCacheRef = useRef({});
   const apiCategoriesRef = useRef(false);
+  const productsRef = useRef([]); // always-current copy for duplicate detection
 
   const headerRef = useRef(null);
   const [headerHeight, setHeaderHeight] = useState(160);
@@ -204,16 +214,20 @@ export default function HomePageMobile() {
   const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
-  // Derived flags
+  // Auto-load runs ONLY after batch 1 and 2 (stops after the 3rd batch of 30)
   const canAutoLoad =
     hasMore && pagesLoaded > 0 && pagesLoaded < PAGES_PER_BLOCK && !loading;
+
   const blockEnded = pagesLoaded >= PAGES_PER_BLOCK || !hasMore;
   const totalBlocks =
-    totalProducts != null ? Math.max(1, Math.ceil(totalProducts / BLOCK_SIZE)) : null;
+    totalProducts != null
+      ? Math.max(1, Math.ceil(totalProducts / BLOCK_SIZE))
+      : null;
 
-  /* ══════════════════════════════════════════════════════════
-     EFFECTS — Layout & misc.
-  ══════════════════════════════════════════════════════════ */
+  // Keep productsRef in sync
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
 
   useEffect(() => {
     const el = headerRef.current;
@@ -247,7 +261,7 @@ export default function HomePageMobile() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Cache the current block's state whenever it settles
+  // Cache each block so "Previous" is instant
   useEffect(() => {
     if (loading) return;
     blocksCacheRef.current[blockIndex] = {
@@ -267,17 +281,13 @@ export default function HomePageMobile() {
     setCategories((prev) => Array.from(new Set([...prev, ...found])));
   }, []);
 
-  /* ══════════════════════════════════════════════════════════
-     BLOCK LOADER — handles Next / Prev page clicks
-  ══════════════════════════════════════════════════════════ */
-
+  /* ── Load a full block (first 30 of a 90-item page) ── */
   const loadBlock = useCallback(async (b) => {
     window.scrollTo({ top: 0, behavior: 'auto' });
     setBlockIndex(b);
 
     const cached = blocksCacheRef.current[b];
     if (cached && cached.products.length > 0) {
-      // Restore instantly from cache
       setProducts(cached.products);
       setPagesLoaded(cached.pagesLoaded);
       setHasMore(cached.hasMore);
@@ -286,7 +296,6 @@ export default function HomePageMobile() {
       return;
     }
 
-    // Fresh fetch
     setProducts([]);
     setPagesLoaded(0);
     setHasMore(true);
@@ -303,16 +312,14 @@ export default function HomePageMobile() {
       const incoming = Array.isArray(result.products) ? result.products : [];
 
       if (incoming.length === 0) {
-        // This block has no products → we've run past the end
         setProducts([]);
         setPagesLoaded(0);
         setHasMore(false);
-        if (result.total != null) setTotalProducts(result.total);
       } else {
         setProducts(mergeUnique([], incoming));
         nextPageRef.current = firstApiPage + 1;
         setPagesLoaded(1);
-        setHasMore(result.hasMore);
+        setHasMore(incoming.length >= PAGE_LIMIT && Boolean(result.hasMore));
         if (result.total != null) setTotalProducts(result.total);
         absorbCategories(incoming);
       }
@@ -326,10 +333,7 @@ export default function HomePageMobile() {
     }
   }, [absorbCategories]);
 
-  /* ══════════════════════════════════════════════════════════
-     INITIAL LOAD — campaigns, categories, first block
-  ══════════════════════════════════════════════════════════ */
-
+  /* ── Initial mount ── */
   useEffect(() => {
     let isMounted = true;
 
@@ -351,10 +355,7 @@ export default function HomePageMobile() {
     return () => { isMounted = false; };
   }, [loadBlock]);
 
-  /* ══════════════════════════════════════════════════════════
-     LOAD MORE within a block (infinite scroll)
-  ══════════════════════════════════════════════════════════ */
-
+  /* ── Load the next +30 inline (infinite scroll batch) ── */
   const loadNextApiPage = useCallback(async () => {
     if (loadingRef.current || !hasMore) return;
     loadingRef.current = true;
@@ -368,15 +369,23 @@ export default function HomePageMobile() {
       );
       const incoming = Array.isArray(result.products) ? result.products : [];
 
-      if (incoming.length > 0) {
-        setProducts((prev) => mergeUnique(prev, incoming));
-        absorbCategories(incoming);
-        nextPageRef.current = pageToFetch + 1;
-        setPagesLoaded((n) => n + 1);
-        setHasMore(result.hasMore);
-      } else {
-        // No more items from the backend
+      if (incoming.length === 0) {
         setHasMore(false);
+      } else {
+        const merged = mergeUnique(productsRef.current, incoming);
+        const addedNew = merged.length > productsRef.current.length;
+
+        if (!addedNew) {
+          // Backend returned only duplicates: stop spinning, reveal Next Page
+          setHasMore(false);
+        } else {
+          productsRef.current = merged;
+          setProducts(merged);
+          absorbCategories(incoming);
+          nextPageRef.current = pageToFetch + 1;
+          setPagesLoaded((n) => n + 1);
+          setHasMore(incoming.length >= PAGE_LIMIT && Boolean(result.hasMore));
+        }
       }
 
       if (result.total != null) setTotalProducts(result.total);
@@ -389,10 +398,7 @@ export default function HomePageMobile() {
     }
   }, [hasMore, absorbCategories]);
 
-  /* ══════════════════════════════════════════════════════════
-     INTERSECTION OBSERVER — auto-load when sentinel visible
-  ══════════════════════════════════════════════════════════ */
-
+  /* ── Infinite-scroll sentinel ── */
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !canAutoLoad || loadingMore) return;
@@ -401,28 +407,11 @@ export default function HomePageMobile() {
       (entries) => {
         if (entries[0].isIntersecting) loadNextApiPage();
       },
-      { rootMargin: '400px', threshold: 0 }
+      { rootMargin: '300px', threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [loadNextApiPage, canAutoLoad, loadingMore]);
-
-  // Safety net — if sentinel is already in view when products update, kick again
-  useEffect(() => {
-    if (loadingMore || loading || !canAutoLoad) return;
-    const timer = setTimeout(() => {
-      const dist =
-        document.documentElement.scrollHeight -
-        window.scrollY -
-        window.innerHeight;
-      if (dist < 800) loadNextApiPage();
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [products.length, loadingMore, loading, canAutoLoad, loadNextApiPage]);
-
-  /* ══════════════════════════════════════════════════════════
-     HANDLERS
-  ══════════════════════════════════════════════════════════ */
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -462,10 +451,6 @@ export default function HomePageMobile() {
     navigate(target);
   };
 
-  /* ══════════════════════════════════════════════════════════
-     DERIVED DATA
-  ══════════════════════════════════════════════════════════ */
-
   const sections = partitionAdminProductSections(products);
 
   const displayedCatalog =
@@ -476,10 +461,8 @@ export default function HomePageMobile() {
         );
 
   const showPager =
-    !loading && !loadingMore && products.length > 0 && blockEnded &&
-    (blockIndex > 0 || hasMore);
+    !loading && !loadingMore && products.length > 0 && blockEnded;
 
-  // Show "Next Page" even when current block is empty, as long as we can go back
   const showEmptyPager =
     !loading && !loadingMore && products.length === 0 && blockIndex > 0;
 
@@ -491,10 +474,6 @@ export default function HomePageMobile() {
     cursor: 'pointer',
     transition: 'all 0.2s ease',
   };
-
-  /* ══════════════════════════════════════════════════════════
-     RENDER
-  ══════════════════════════════════════════════════════════ */
 
   if (!initialLoaded) return <AuthLoader />;
 
@@ -530,7 +509,7 @@ export default function HomePageMobile() {
 
       {/* ─── FLASH SALE ─── */}
       {sections.flash.length > 0 && (
-        <div className="mdp-psec" style={{ margin: 12, padding: 14, background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div className="mdp-psec" style={sectionCardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ color: '#ff6000', fontWeight: 900, fontSize: '1.05rem', letterSpacing: '-0.3px' }}>⚡ FLASH SALE</span>
@@ -541,12 +520,12 @@ export default function HomePageMobile() {
             <button
               type="button"
               onClick={() => navigate(`${SEARCH_ROUTE}?filter=flash`)}
-              style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
+              style={seeAllBtnStyle}
             >
               See All &gt;
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+          <div style={hScrollStyle}>
             {sections.flash.slice(0, 10).map((item) => {
               const id = item.id || item.product_id;
               const imgUrl = primaryImg(item.primaryImg || item.images || item.image_url, item);
@@ -574,18 +553,18 @@ export default function HomePageMobile() {
 
       {/* ─── SPONSORED ─── */}
       {sections.sponsored?.length > 0 && (
-        <div className="mdp-psec" style={{ margin: 12, padding: 14, background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div className="mdp-psec" style={sectionCardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>⭐ Sponsored Deals</span>
             <button
               type="button"
               onClick={() => navigate(`${SEARCH_ROUTE}?filter=sponsored`)}
-              style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
+              style={seeAllBtnStyle}
             >
               View All
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+          <div style={hScrollStyle}>
             {sections.sponsored.map((item) => {
               const id = item.id || item.product_id;
               const imgUrl = primaryImg(item.primaryImg || item.images || item.image_url, item);
@@ -608,18 +587,18 @@ export default function HomePageMobile() {
 
       {/* ─── TRENDING ─── */}
       {sections.trending.length > 0 && (
-        <div className="mdp-psec" style={{ margin: 12, padding: 14, background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div className="mdp-psec" style={sectionCardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#111' }}>🔥 Trending Now</span>
             <button
               type="button"
               onClick={() => navigate(`${SEARCH_ROUTE}?filter=trending`)}
-              style={{ background: 'none', border: 'none', color: '#ff6000', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
+              style={seeAllBtnStyle}
             >
               View All
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+          <div style={hScrollStyle}>
             {sections.trending.map((item) => {
               const id = item.id || item.product_id;
               const imgUrl = primaryImg(item.primaryImg || item.images || item.image_url, item);
@@ -677,15 +656,19 @@ export default function HomePageMobile() {
         ) : (
           <div className="pr-masonry" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
             {displayedCatalog.map((product) => (
-              <MasonryCard key={productKey(product)} product={product} onOpenVariantSheet={handleProductClick} />
+              <MasonryCard
+                key={productKey(product)}
+                product={product}
+                onOpenVariantSheet={handleProductClick}
+              />
             ))}
           </div>
         )}
 
-        {/* Rolling spinner when loading more within the current block */}
+        {/* Spinner during infinite scroll */}
         {loadingMore && <InlineSpinner />}
 
-        {/* Invisible sentinel — triggers auto-load when scrolled into view */}
+        {/* Intersection sentinel */}
         {!loading && canAutoLoad && !loadingMore && (
           <div
             ref={sentinelRef}
@@ -694,7 +677,7 @@ export default function HomePageMobile() {
           />
         )}
 
-        {/* Pager — shown when block is fully loaded */}
+        {/* Block navigation: appears after 90 items (3 x 30) or end of items */}
         {(showPager || showEmptyPager) && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '28px 0 12px' }}>
             <button
