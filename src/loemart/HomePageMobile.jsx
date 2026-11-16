@@ -26,11 +26,10 @@ import '../styles/Minimart.css';
    PAGINATION CONFIG
 ══════════════════════════════════════════════════════════ */
 const PAGE_LIMIT = 30;
-const PAGES_PER_BLOCK = 3; // 3 x 30 = 90 products per Page
+const PAGES_PER_BLOCK = 3; // 3 x 30 = 90 products per visible Page
 const BLOCK_SIZE = PAGE_LIMIT * PAGES_PER_BLOCK;
 const SORT_MODE = 'random';
-
-const SEARCH_ROUTE = '/m/search'; // ← Single source of truth for SearchPage
+const SEARCH_ROUTE = '/m/search';
 
 const makeSeed = () =>
   Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -134,7 +133,7 @@ function useCartCount() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   INLINE ROLLING SPINNER (reuses AuthLoader's keyframe)
+   INLINE ROLLING SPINNER
 ══════════════════════════════════════════════════════════ */
 function InlineSpinner({ label = 'Loading more products…' }) {
   return (
@@ -202,10 +201,10 @@ export default function HomePageMobile() {
   const headerRef = useRef(null);
   const [headerHeight, setHeaderHeight] = useState(160);
 
-  const [selectedProductForVariant, setSelectedProductForVariant] =
-    useState(null);
+  const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
   const [isVariantSheetOpen, setIsVariantSheetOpen] = useState(false);
 
+  // Derived flags
   const canAutoLoad =
     hasMore && pagesLoaded > 0 && pagesLoaded < PAGES_PER_BLOCK && !loading;
   const blockEnded = pagesLoaded >= PAGES_PER_BLOCK || !hasMore;
@@ -213,7 +212,7 @@ export default function HomePageMobile() {
     totalProducts != null ? Math.max(1, Math.ceil(totalProducts / BLOCK_SIZE)) : null;
 
   /* ══════════════════════════════════════════════════════════
-     EFFECTS
+     EFFECTS — Layout & misc.
   ══════════════════════════════════════════════════════════ */
 
   useEffect(() => {
@@ -248,6 +247,7 @@ export default function HomePageMobile() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  // Cache the current block's state whenever it settles
   useEffect(() => {
     if (loading) return;
     blocksCacheRef.current[blockIndex] = {
@@ -267,12 +267,17 @@ export default function HomePageMobile() {
     setCategories((prev) => Array.from(new Set([...prev, ...found])));
   }, []);
 
+  /* ══════════════════════════════════════════════════════════
+     BLOCK LOADER — handles Next / Prev page clicks
+  ══════════════════════════════════════════════════════════ */
+
   const loadBlock = useCallback(async (b) => {
     window.scrollTo({ top: 0, behavior: 'auto' });
     setBlockIndex(b);
 
     const cached = blocksCacheRef.current[b];
-    if (cached) {
+    if (cached && cached.products.length > 0) {
+      // Restore instantly from cache
       setProducts(cached.products);
       setPagesLoaded(cached.pagesLoaded);
       setHasMore(cached.hasMore);
@@ -281,6 +286,7 @@ export default function HomePageMobile() {
       return;
     }
 
+    // Fresh fetch
     setProducts([]);
     setPagesLoaded(0);
     setHasMore(true);
@@ -296,14 +302,22 @@ export default function HomePageMobile() {
       );
       const incoming = Array.isArray(result.products) ? result.products : [];
 
-      setProducts(mergeUnique([], incoming));
-      nextPageRef.current = firstApiPage + 1;
-      setPagesLoaded(1);
-      setHasMore(incoming.length > 0 ? result.hasMore : false);
-      if (result.total != null) setTotalProducts(result.total);
-      absorbCategories(incoming);
+      if (incoming.length === 0) {
+        // This block has no products → we've run past the end
+        setProducts([]);
+        setPagesLoaded(0);
+        setHasMore(false);
+        if (result.total != null) setTotalProducts(result.total);
+      } else {
+        setProducts(mergeUnique([], incoming));
+        nextPageRef.current = firstApiPage + 1;
+        setPagesLoaded(1);
+        setHasMore(result.hasMore);
+        if (result.total != null) setTotalProducts(result.total);
+        absorbCategories(incoming);
+      }
     } catch (err) {
-      console.error('Failed to load products page:', err);
+      console.error('Failed to load products block:', err);
       setHasMore(false);
     } finally {
       loadingRef.current = false;
@@ -311,6 +325,10 @@ export default function HomePageMobile() {
       setInitialLoaded(true);
     }
   }, [absorbCategories]);
+
+  /* ══════════════════════════════════════════════════════════
+     INITIAL LOAD — campaigns, categories, first block
+  ══════════════════════════════════════════════════════════ */
 
   useEffect(() => {
     let isMounted = true;
@@ -333,6 +351,10 @@ export default function HomePageMobile() {
     return () => { isMounted = false; };
   }, [loadBlock]);
 
+  /* ══════════════════════════════════════════════════════════
+     LOAD MORE within a block (infinite scroll)
+  ══════════════════════════════════════════════════════════ */
+
   const loadNextApiPage = useCallback(async () => {
     if (loadingRef.current || !hasMore) return;
     loadingRef.current = true;
@@ -349,30 +371,43 @@ export default function HomePageMobile() {
       if (incoming.length > 0) {
         setProducts((prev) => mergeUnique(prev, incoming));
         absorbCategories(incoming);
+        nextPageRef.current = pageToFetch + 1;
+        setPagesLoaded((n) => n + 1);
+        setHasMore(result.hasMore);
+      } else {
+        // No more items from the backend
+        setHasMore(false);
       }
 
-      nextPageRef.current = pageToFetch + 1;
-      setPagesLoaded((n) => n + 1);
-      setHasMore(incoming.length > 0 ? result.hasMore : false);
+      if (result.total != null) setTotalProducts(result.total);
     } catch (err) {
       console.error('Failed to load more products:', err);
+      setHasMore(false);
     } finally {
       setLoadingMore(false);
       loadingRef.current = false;
     }
   }, [hasMore, absorbCategories]);
 
+  /* ══════════════════════════════════════════════════════════
+     INTERSECTION OBSERVER — auto-load when sentinel visible
+  ══════════════════════════════════════════════════════════ */
+
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel || !canAutoLoad) return;
+    if (!sentinel || !canAutoLoad || loadingMore) return;
+
     const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadNextApiPage(); },
+      (entries) => {
+        if (entries[0].isIntersecting) loadNextApiPage();
+      },
       { rootMargin: '400px', threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadNextApiPage, canAutoLoad]);
+  }, [loadNextApiPage, canAutoLoad, loadingMore]);
 
+  // Safety net — if sentinel is already in view when products update, kick again
   useEffect(() => {
     if (loadingMore || loading || !canAutoLoad) return;
     const timer = setTimeout(() => {
@@ -420,7 +455,6 @@ export default function HomePageMobile() {
 
   const handleFloatingCartClick = () => navigate('/cart');
 
-  /* ── SEARCH NAVIGATION ── */
   const handleSearchNavigate = (initialQuery = '') => {
     const target = initialQuery
       ? `${SEARCH_ROUTE}?q=${encodeURIComponent(initialQuery)}`
@@ -444,6 +478,10 @@ export default function HomePageMobile() {
   const showPager =
     !loading && !loadingMore && products.length > 0 && blockEnded &&
     (blockIndex > 0 || hasMore);
+
+  // Show "Next Page" even when current block is empty, as long as we can go back
+  const showEmptyPager =
+    !loading && !loadingMore && products.length === 0 && blockIndex > 0;
 
   const pagerBtnBase = {
     borderRadius: 12,
@@ -612,9 +650,28 @@ export default function HomePageMobile() {
           <AuthLoader />
         ) : displayedCatalog.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', background: '#fff', borderRadius: 14 }}>
-            <p style={{ fontSize: '0.9rem', color: '#666', margin: 0 }}>No items found in this section.</p>
+            <p style={{ fontSize: '0.9rem', color: '#666', margin: 0 }}>
+              {blockIndex > 0
+                ? "You've reached the end of our catalog 🎉"
+                : 'No items found in this section.'}
+            </p>
             {activeCategory !== 'All' && (
-              <button type="button" onClick={() => setActiveCategory('All')} style={{ marginTop: 12, background: '#ff6000', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 800, cursor: 'pointer' }}>Show full catalog</button>
+              <button
+                type="button"
+                onClick={() => setActiveCategory('All')}
+                style={{ marginTop: 12, background: '#ff6000', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 800, cursor: 'pointer' }}
+              >
+                Show full catalog
+              </button>
+            )}
+            {blockIndex > 0 && (
+              <button
+                type="button"
+                onClick={goPrevPage}
+                style={{ marginTop: 12, marginLeft: 8, background: '#fff', color: '#ff6000', border: '2px solid #ff6000', borderRadius: 8, padding: '8px 16px', fontWeight: 800, cursor: 'pointer' }}
+              >
+                ← Previous Page
+              </button>
             )}
           </div>
         ) : (
@@ -625,25 +682,20 @@ export default function HomePageMobile() {
           </div>
         )}
 
-        {/* Sentinel for infinite scroll — rolling spinner appears while fetching */}
-        {!loading && canAutoLoad && (
+        {/* Rolling spinner when loading more within the current block */}
+        {loadingMore && <InlineSpinner />}
+
+        {/* Invisible sentinel — triggers auto-load when scrolled into view */}
+        {!loading && canAutoLoad && !loadingMore && (
           <div
             ref={sentinelRef}
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              minHeight: 80,
-            }}
-          >
-            {loadingMore && <InlineSpinner />}
-          </div>
+            style={{ height: 1, width: '100%' }}
+            aria-hidden="true"
+          />
         )}
 
-        {/* Spinner when a fetch is in flight but sentinel isn't rendered */}
-        {loadingMore && !canAutoLoad && <InlineSpinner />}
-
-        {showPager && (
+        {/* Pager — shown when block is fully loaded */}
+        {(showPager || showEmptyPager) && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '28px 0 12px' }}>
             <button
               type="button"
