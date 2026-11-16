@@ -17,6 +17,13 @@ export const WISH_KEY = "loemart-wishlist";
 export const RECENT_KEY = "lm-recently-viewed";
 export const SEARCH_HISTORY_KEY = "lm-search-history";
 
+// Flip to true in dev to see detailed logs
+const DEBUG = false;
+
+const log = (...args) => {
+  if (DEBUG) console.log("[mobileHelpers]", ...args);
+};
+
 export const TRENDING_SEARCHES = [
   "iPhone 15 Pro",
   "Samsung Galaxy S24",
@@ -130,10 +137,6 @@ export function getProductPath(item) {
    CATALOG MIXERS & UTILITY HELPERS
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Fisher-Yates array shuffle.
- * Used internally and as fallback when only one category exists.
- */
 export function mixProducts(items) {
   if (!Array.isArray(items)) return [];
   const list = [...items];
@@ -144,14 +147,6 @@ export function mixProducts(items) {
   return list;
 }
 
-/**
- * Category-aware round-robin mixer.
- *
- * Groups products by category, shuffles within each group,
- * then round-robin picks one from each category per cycle.
- * Smaller categories surface first so minority categories
- * are never buried by a dominant one like Fashion.
- */
 export function mixProductsByCategory(items) {
   if (!Array.isArray(items) || items.length === 0) return [];
   if (items.length <= 2) return mixProducts(items);
@@ -165,7 +160,6 @@ export function mixProductsByCategory(items) {
   }
 
   const catKeys = Object.keys(groups);
-
   if (catKeys.length <= 1) return mixProducts(items);
 
   for (const key of catKeys) {
@@ -228,7 +222,10 @@ export function addToSearchHistory(term) {
       (s) => s.toLowerCase() !== clean.toLowerCase()
     );
     current.unshift(clean);
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(current.slice(0, 10)));
+    localStorage.setItem(
+      SEARCH_HISTORY_KEY,
+      JSON.stringify(current.slice(0, 10))
+    );
   } catch {}
 }
 
@@ -319,7 +316,8 @@ export function isCampaignProduct(product) {
   if (product.campaign_tag || product.campaignTag) return true;
   if (product.campaign_name || product.campaignName) return true;
   if (product.campaign_title || product.campaignTitle) return true;
-  if (typeof product.campaign === "string" && product.campaign.trim()) return true;
+  if (typeof product.campaign === "string" && product.campaign.trim())
+    return true;
   if (product.campaign && typeof product.campaign === "object") return true;
   return false;
 }
@@ -347,7 +345,10 @@ export function getCampaignTag(productOrCampaign) {
     return normalize(productOrCampaign.campaign);
   }
 
-  if (productOrCampaign.campaign && typeof productOrCampaign.campaign === "object") {
+  if (
+    productOrCampaign.campaign &&
+    typeof productOrCampaign.campaign === "object"
+  ) {
     const nested =
       productOrCampaign.campaign.name ||
       productOrCampaign.campaign.title ||
@@ -417,7 +418,9 @@ export function normalizeCampaign(raw) {
     key: String(key),
     title: normalize(String(title)),
     subtitle: normalize(
-      String(raw.subtitle || raw.description || raw.tagline || raw.summary || "")
+      String(
+        raw.subtitle || raw.description || raw.tagline || raw.summary || ""
+      )
     ),
     slug: raw.slug || raw.campaign_slug || key,
     banner: getCampaignBanner(raw),
@@ -506,7 +509,8 @@ export function partitionAdminProductSections(products = []) {
     (p) => p.is_featured === true || p.is_featured === 1 || p.featured === true
   );
   const sponsored = visible.filter(
-    (p) => p.is_sponsored === true || p.is_sponsored === 1 || p.sponsored === true
+    (p) =>
+      p.is_sponsored === true || p.is_sponsored === 1 || p.sponsored === true
   );
   const campaign = visible.filter(isCampaignProduct);
 
@@ -572,6 +576,20 @@ export function extractProductsArray(data) {
   return [];
 }
 
+/**
+ * Pull the pagination block out of any common envelope shape.
+ */
+export function extractPagination(data) {
+  if (!data || typeof data !== "object") return null;
+  return (
+    data?.data?.pagination ||
+    data?.pagination ||
+    data?.data?.meta ||
+    data?.meta ||
+    null
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════
    NETWORK HELPERS
 ═══════════════════════════════════════════════════════════════ */
@@ -601,7 +619,7 @@ export async function fetchProducts(query = "") {
   const endpoints = [
     `/products${q}`,
     `/market/products${q}`,
-    `/marketplace/products${q}`
+    `/marketplace/products${q}`,
   ];
 
   for (const endpoint of endpoints) {
@@ -611,8 +629,8 @@ export async function fetchProducts(query = "") {
       if (items && items.length > 0) {
         return items;
       }
-    } catch {
-      // try next fallback endpoint
+    } catch (err) {
+      log("fetchProducts failed for", endpoint, err?.message);
     }
   }
 
@@ -620,20 +638,41 @@ export async function fetchProducts(query = "") {
 }
 
 /**
- * Paginated product fetcher for infinite scroll batches.
- * @param {number} page  - Page number (1-based)
- * @param {number} limit - Items per page
- * @param {string} sort  - "random" | "diverse" | "newest" | "bestselling" | "trending"
- * @param {string} seed  - Used with sort="random". Same seed = same order
- *                         across pages; new seed = new random order.
+ * Paginated product fetcher for infinite scroll / page-by-page loading.
+ *
+ * @param {number} page   - 1-based page number
+ * @param {number} limit  - Items per page
+ * @param {string} sort   - "random" | "diverse" | "newest" | "bestselling" | "trending"
+ * @param {string} seed   - Random-order seed (stable across pages for continuity)
+ *
+ * @returns {Promise<{
+ *   products: any[],
+ *   hasMore: boolean,
+ *   nextPage: number,
+ *   total: number | null,
+ *   page: number,
+ *   limit: number,
+ *   endpointUsed: string | null
+ * }>}
+ *
+ * Guarantees:
+ *   - Always returns a usable object (never throws out)
+ *   - `hasMore` is strictly `false` if the backend returned 0 items
+ *   - `hasMore` is strictly `false` if page*limit >= total
+ *   - Falls back to length-based heuristic only when no pagination info exists
  */
 export async function fetchProductsPage(
   page = 1,
-  limit = 30,
+  limit = DEFAULT_LIMIT,
   sort = "newest",
   seed = ""
 ) {
-  let q = `?page=${page}&limit=${limit}&sort=${encodeURIComponent(sort)}`;
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeLimit = Math.max(1, parseInt(limit, 10) || DEFAULT_LIMIT);
+
+  let q = `?page=${safePage}&limit=${safeLimit}&sort=${encodeURIComponent(
+    sort
+  )}`;
   if (seed) q += `&seed=${encodeURIComponent(seed)}`;
 
   const endpoints = [
@@ -642,59 +681,108 @@ export async function fetchProductsPage(
     `/marketplace/products${q}`,
   ];
 
+  let lastError = null;
+
   for (const endpoint of endpoints) {
     try {
+      log("fetchProductsPage →", endpoint);
       const data = await fetchJson(endpoint);
       const items = extractProductsArray(data);
+      const pag = extractPagination(data);
 
-      if (items && items.length > 0) {
-        const pag =
-          data?.data?.pagination ||
-          data?.pagination ||
-          data?.meta ||
-          null;
+      log("fetchProductsPage response:", {
+        endpoint,
+        page: safePage,
+        itemsReceived: items.length,
+        pagination: pag,
+      });
 
-        let hasMore;
-        if (pag && typeof pag.hasMore === "boolean") {
+      // ── If this endpoint returned no items, decide whether to try the next ──
+      // If pagination info exists, trust it: 0 items + valid pagination
+      //   = legitimate "end of list" for this endpoint (don't try fallbacks).
+      // If no pagination info exists, assume endpoint failed silently → try next.
+      if (!items.length) {
+        if (pag) {
+          return {
+            products: [],
+            hasMore: false,
+            nextPage: safePage + 1,
+            total: Number.isFinite(Number(pag.total)) ? Number(pag.total) : 0,
+            page: safePage,
+            limit: safeLimit,
+            endpointUsed: endpoint,
+          };
+        }
+        // No items AND no pagination hint → maybe this endpoint doesn't exist
+        continue;
+      }
+
+      // ── Determine hasMore ──
+      let hasMore;
+      let total = null;
+
+      if (pag) {
+        if (typeof pag.hasMore === "boolean") {
           hasMore = pag.hasMore;
-        } else if (pag && typeof pag.has_more === "boolean") {
+        } else if (typeof pag.has_more === "boolean") {
           hasMore = pag.has_more;
-        } else if (pag && Number.isFinite(Number(pag.total))) {
-          hasMore = page * limit < Number(pag.total);
+        } else if (Number.isFinite(Number(pag.total))) {
+          total = Number(pag.total);
+          hasMore = safePage * safeLimit < total;
         } else if (
-          pag &&
-          Number.isFinite(Number(pag.totalPages ?? pag.total_pages ?? pag.pages))
+          Number.isFinite(
+            Number(pag.totalPages ?? pag.total_pages ?? pag.pages)
+          )
         ) {
-          hasMore = page < Number(pag.totalPages ?? pag.total_pages ?? pag.pages);
+          const totalPages = Number(
+            pag.totalPages ?? pag.total_pages ?? pag.pages
+          );
+          hasMore = safePage < totalPages;
         } else {
-          // No usable pagination info: a full page means there may be more.
-          hasMore = items.length >= limit;
+          hasMore = items.length >= safeLimit;
         }
 
-        const total =
-          pag && Number.isFinite(Number(pag.total)) ? Number(pag.total) : null;
-
-        return { products: items, hasMore, nextPage: page + 1, total };
+        if (total == null && Number.isFinite(Number(pag.total))) {
+          total = Number(pag.total);
+        }
+      } else {
+        // No pagination block at all — use length heuristic
+        hasMore = items.length >= safeLimit;
       }
-    } catch {
-      // try next fallback
+
+      return {
+        products: items,
+        hasMore: Boolean(hasMore),
+        nextPage: safePage + 1,
+        total,
+        page: safePage,
+        limit: safeLimit,
+        endpointUsed: endpoint,
+      };
+    } catch (err) {
+      lastError = err;
+      log("fetchProductsPage error on", endpoint, err?.message);
     }
   }
 
-  return { products: [], hasMore: false, nextPage: page + 1 };
+  if (lastError) {
+    log("fetchProductsPage: all endpoints failed, last error:", lastError.message);
+  }
+
+  return {
+    products: [],
+    hasMore: false,
+    nextPage: safePage + 1,
+    total: null,
+    page: safePage,
+    limit: safeLimit,
+    endpointUsed: null,
+  };
 }
 
 /**
  * Fetch all available categories from the backend.
- *
- * Tries your dedicated /api/categories endpoint first (the one that
- * queries market.categories table), then falls back to product-derived
- * category endpoints.
- *
- * Handles your exact response shape:
- *   { success: true, data: [{ id, name, slug, parent_id, icon, level }] }
- *
- * Returns string[] of category names.
+ * Handles multiple response shapes, returns string[].
  */
 export async function fetchCategories() {
   const endpoints = [
@@ -710,25 +798,18 @@ export async function fetchCategories() {
 
       let cats = [];
 
-      // Shape 1: { success: true, data: [{ name: "Home", ... }, ...] }
-      //          ← YOUR backend's exact shape
       if (data?.success && data?.data && Array.isArray(data.data)) {
         cats = data.data;
-      }
-      // Shape 2: { data: { categories: [...] } }
-      else if (data?.data?.categories && Array.isArray(data.data.categories)) {
+      } else if (
+        data?.data?.categories &&
+        Array.isArray(data.data.categories)
+      ) {
         cats = data.data.categories;
-      }
-      // Shape 3: { data: [...] }
-      else if (data?.data && Array.isArray(data.data)) {
+      } else if (data?.data && Array.isArray(data.data)) {
         cats = data.data;
-      }
-      // Shape 4: { categories: [...] }
-      else if (data?.categories && Array.isArray(data.categories)) {
+      } else if (data?.categories && Array.isArray(data.categories)) {
         cats = data.categories;
-      }
-      // Shape 5: flat array [...]
-      else if (Array.isArray(data)) {
+      } else if (Array.isArray(data)) {
         cats = data;
       }
 
@@ -747,8 +828,8 @@ export async function fetchCategories() {
           })
           .filter(Boolean);
       }
-    } catch {
-      // try next endpoint
+    } catch (err) {
+      log("fetchCategories failed on", endpoint, err?.message);
     }
   }
 
@@ -764,8 +845,8 @@ export async function fetchCampaigns(query = "") {
       const data = await fetchJson(endpoint);
       const list = filterActiveCampaigns(data);
       if (list && list.length > 0) return list;
-    } catch {
-      // try next
+    } catch (err) {
+      log("fetchCampaigns failed on", endpoint, err?.message);
     }
   }
 
